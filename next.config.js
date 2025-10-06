@@ -18,8 +18,8 @@ const nextConfig = {
   // Ensure proper static file handling
   experimental: {
     optimizeCss: false,
-    // ✅ Disable Fast Refresh to prevent constant re-mounting
-    fastRefresh: false,
+    // ✅ Fast Refresh is enabled by default in Next.js 14+ and cannot be disabled
+    // fastRefresh: false, // ❌ Removed - not supported in Next.js 14+
   },
   // Webpack configuration for better static file handling
   webpack: (config, { dev, isServer }) => {
