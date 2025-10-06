@@ -7,10 +7,10 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Alert } from '@/components/ui/Alert'
 import { TABLES } from '@/lib/supabase'
 import { mapProjectFromDB, mapBOQFromDB, mapKPIFromDB } from '@/lib/dataMappers'
-// import { SmartDashboardStats } from './SmartDashboardStats' // ✅ Removed - file deleted
-// import { SmartAlerts } from './SmartAlerts' // ✅ Removed - file deleted
-// import { TopPerformers } from './TopPerformers' // ✅ Removed - file deleted
-// import { RecentActivityFeed } from './RecentActivityFeed' // ✅ Removed - file deleted
+import { SmartDashboardStats } from './SmartDashboardStats'
+import { SmartAlerts } from './SmartAlerts'
+import { TopPerformers } from './TopPerformers'
+import { RecentActivityFeed } from './RecentActivityFeed'
 import { 
   FolderOpen, 
   ClipboardList, 
@@ -366,59 +366,24 @@ export function EnhancedDashboardOverview({
 
   return (
     <div className="space-y-6">
-      {/* Dashboard Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Projects</CardTitle>
-            <FolderOpen className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.totalProjects}</div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Activities</CardTitle>
-            <ClipboardList className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.totalActivities}</div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Average Progress</CardTitle>
-            <BarChart3 className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.averageProgress.toFixed(1)}%</div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total KPIs</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.totalKPIs}</div>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Smart Dashboard Stats */}
+      <SmartDashboardStats stats={{
+        ...stats,
+        totalUsers: 0, // Default value
+        totalContractValue: 0, // Default value
+        completedActivities: 0 // Default value
+      }} />
       
-      {/* Alerts */}
-      {stats.delayedActivities > 0 && (
-        <Alert className="border-orange-200 bg-orange-50">
-          <AlertTriangle className="h-4 w-4" />
-          <div>
-            <h4 className="font-semibold">Delayed Activities</h4>
-            <p className="text-sm">{stats.delayedActivities} activities are behind schedule</p>
-          </div>
-        </Alert>
-      )}
+      {/* Smart Alerts */}
+      <SmartAlerts 
+        stats={{
+          delayedActivities: stats.delayedActivities,
+          totalActivities: stats.totalActivities,
+          averageProgress: stats.averageProgress,
+          onHoldProjects: stats.onHoldProjects
+        }}
+        recentActivities={stats.recentActivities}
+      />
 
       {/* Progress Overview */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -539,60 +504,8 @@ export function EnhancedDashboardOverview({
 
       {/* Top Performers and Recent Activities */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="h-5 w-5" />
-              Top Performing Projects
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {stats.topPerformingProjects?.slice(0, 5).map((project, index) => (
-                <div key={project.project_code} className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center text-sm font-semibold text-blue-600 dark:text-blue-300">
-                      {index + 1}
-                    </div>
-                    <div>
-                      <p className="font-medium text-sm">{project.project_name}</p>
-                      <p className="text-xs text-gray-500">{project.project_code}</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-semibold">{project.progress?.toFixed(1) || 0}%</p>
-                  </div>
-                </div>
-              )) || (
-                <p className="text-sm text-gray-500">No projects data available</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Clock className="h-5 w-5" />
-              Recent Activities
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {stats.recentActivities?.slice(0, 5).map((activity, index) => (
-                <div key={activity.id || index} className="flex items-center gap-3">
-                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">{activity.activity_name || 'Activity update'}</p>
-                    <p className="text-xs text-gray-500">{activity.updated_at || 'Recently'}</p>
-                  </div>
-                </div>
-              )) || (
-                <p className="text-sm text-gray-500">No recent activities</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+        <TopPerformers projects={stats.topPerformingProjects} />
+        <RecentActivityFeed activities={stats.recentActivities} />
       </div>
       
       {/* Legacy Top Performing Projects - Hidden */}

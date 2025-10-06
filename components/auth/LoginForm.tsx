@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card } from '@/components/ui/Card'
 import { Alert } from '@/components/ui/Alert'
-// import { ThemeToggle } from '@/components/ui/ThemeToggle' // ✅ Removed - file deleted
+import { ThemeToggle } from '@/components/ui/ThemeToggle'
 
 export function LoginForm() {
   const [email, setEmail] = useState('')
@@ -57,7 +57,7 @@ export function LoginForm() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
         <div className="flex justify-end">
-          {/* ThemeToggle removed - use browser/system theme */}
+          <ThemeToggle />
         </div>
         
         <div className="text-center">
