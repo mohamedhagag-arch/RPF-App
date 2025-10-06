@@ -11,7 +11,6 @@ const nextConfig = {
   generateEtags: false,
   httpAgentOptions: {
     keepAlive: true,
-    timeout: 30000,
   },
   // Fix for static files issues
   trailingSlash: false,

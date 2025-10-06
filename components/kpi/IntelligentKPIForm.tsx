@@ -68,8 +68,7 @@ export function IntelligentKPIForm({
   useEffect(() => {
     if (projectCode && projects.length > 0) {
       const selectedProject = projects.find(
-        p => p.project_code === projectCode || 
-             p.project_full_code === projectCode
+        p => p.project_code === projectCode
       )
       
       if (selectedProject) {

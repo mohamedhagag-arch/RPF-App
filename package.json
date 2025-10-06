@@ -14,7 +14,7 @@
     "check-db": "node scripts/check-database-structure.js",
     "verify-data": "node scripts/final-verification.js",
     "vercel-build": "next build",
-    "postbuild": "next-sitemap"
+    "postbuild": "echo 'Build completed successfully'"
   },
   "dependencies": {
     "@supabase/auth-helpers-nextjs": "^0.8.7",

@@ -192,14 +192,13 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
       
       const projectData: Partial<Project> = {
         project_code: projectCode.trim().toUpperCase(),
-        project_sub_code: projectSubCode.trim() || null,
-        project_full_code: projectCode.trim().toUpperCase(),
+        project_sub_code: projectSubCode.trim() || undefined,
         project_name: projectName.trim(),
-        project_type: projectType.trim() || null,
-        responsible_division: responsibleDivision.trim() || null,
-        plot_number: plotNumber.trim() || null,
+        project_type: projectType.trim() || undefined,
+        responsible_division: responsibleDivision.trim() || undefined,
+        plot_number: plotNumber.trim() || undefined,
         contract_amount: parseFloat(contractAmount) || 0,
-        project_status: projectStatus,
+        project_status: projectStatus as 'active' | 'completed' | 'on_hold' | 'cancelled',
         kpi_completed: kpiCompleted
       }
       

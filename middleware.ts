@@ -6,17 +6,10 @@ export async function middleware(req: NextRequest) {
   const res = NextResponse.next()
   
   try {
-    // Create Supabase client with better connection settings
+    // Create Supabase client
     const supabase = createMiddlewareClient({ 
       req, 
-      res,
-      options: {
-        auth: {
-          persistSession: true,
-          autoRefreshToken: true,
-          detectSessionInUrl: true
-        }
-      }
+      res
     })
     
     // Refresh session if expired - this is critical for maintaining session

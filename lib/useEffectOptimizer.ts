@@ -7,7 +7,7 @@
 
 import { useEffect, useRef, useCallback } from 'react'
 import { useSupabaseClient } from './useSupabaseClient'
-import { useLoadingStateManager } from './loadingStateManager'
+import { loadingStateManager } from './loadingStateManager'
 
 /**
  * Optimized useEffect for data fetching that prevents infinite loops
@@ -25,7 +25,7 @@ export function useOptimizedDataFetch<T>(
 ) {
   const { enabled = true, onSuccess, onError, timeout = 30000 } = options
   const supabase = useSupabaseClient()
-  const loadingManager = useLoadingStateManager({ timeout })
+  const loadingManager = loadingStateManager
   const isMountedRef = useRef(true)
 
   useEffect(() => {
@@ -35,7 +35,7 @@ export function useOptimizedDataFetch<T>(
 
     const fetchData = async () => {
       try {
-        loadingManager.startLoading()
+        loadingManager.startLoading('optimized-fetch', timeout)
         console.log('🔄 Starting optimized data fetch...')
         
         const data = await fetchFunction(supabase)
@@ -53,7 +53,7 @@ export function useOptimizedDataFetch<T>(
         }
       } finally {
         if (isMountedRef.current) {
-          loadingManager.stopLoading()
+          loadingManager.stopLoading('optimized-fetch')
         }
       }
     }
@@ -62,7 +62,7 @@ export function useOptimizedDataFetch<T>(
 
     return () => {
       isMountedRef.current = false
-      loadingManager.cleanup()
+      loadingManager.stopAllLoaders()
     }
     // ✅ SAFE DEPENDENCIES: Only include actual dependencies, not supabase
     // eslint-disable-next-line react-hooks/exhaustive-deps

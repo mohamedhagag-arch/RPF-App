@@ -125,8 +125,8 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
         actualKPIs: projectAnalytics.actualKPIs,
         overallProgress: projectAnalytics.overallProgress.toFixed(1) + '%',
         financialProgress: projectAnalytics.financialProgress.toFixed(1) + '%',
-        plannedValue: projectAnalytics.plannedValue,
-        earnedValue: projectAnalytics.earnedValue
+        plannedValue: projectAnalytics.totalPlannedValue,
+        earnedValue: projectAnalytics.totalEarnedValue
       })
       
       setAnalytics(projectAnalytics)

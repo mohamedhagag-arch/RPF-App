@@ -15,16 +15,6 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
-// Add connection headers to prevent disconnection
-export const headers = async () => {
-  return {
-    'Connection': 'keep-alive',
-    'Keep-Alive': 'timeout=30, max=1000',
-    'Cache-Control': 'no-cache, no-store, must-revalidate',
-    'Pragma': 'no-cache',
-    'Expires': '0'
-  }
-}
 
 export default function RootLayout({
   children,

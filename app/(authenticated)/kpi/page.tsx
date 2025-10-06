@@ -5,7 +5,7 @@ import { KPITracking } from '@/components/kpi/KPITracking'
 export default function KPIPage() {
   return (
     <div className="p-6">
-      <KPITracking globalSearchTerm="" globalFilters={{}} />
+      <KPITracking globalSearchTerm="" globalFilters={{ project: '', status: '', division: '', dateRange: '' }} />
     </div>
   )
 }

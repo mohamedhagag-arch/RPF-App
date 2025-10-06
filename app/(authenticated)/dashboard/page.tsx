@@ -25,7 +25,7 @@ export default function DashboardPage() {
       </div>
 
       <ProjectProgressDashboard />
-      <EnhancedDashboardOverview globalSearchTerm="" globalFilters={{}} />
+      <EnhancedDashboardOverview globalSearchTerm="" globalFilters={{ project: '', status: '', division: '', dateRange: '' }} />
       
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <QuickActions 
