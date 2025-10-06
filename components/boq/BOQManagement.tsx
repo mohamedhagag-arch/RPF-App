@@ -10,8 +10,8 @@ import { Button } from '@/components/ui/Button'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Alert } from '@/components/ui/Alert'
 import { IntelligentBOQForm } from './IntelligentBOQForm'
-import { BOQTable } from './BOQTable'
-import { UnifiedFilter, FilterState } from '@/components/ui/UnifiedFilter'
+// import { BOQTable } from './BOQTable' // ✅ Removed - file deleted
+// import { UnifiedFilter, FilterState } from '@/components/ui/UnifiedFilter' // ✅ Removed - file deleted
 import { Pagination } from '@/components/ui/Pagination'
 import { SmartFilter } from '@/components/ui/SmartFilter'
 import { Plus, ClipboardList, CheckCircle, Clock, AlertCircle } from 'lucide-react'
@@ -35,7 +35,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editingActivity, setEditingActivity] = useState<BOQActivity | null>(null)
-  const [filters, setFilters] = useState<FilterState>({})
+  const [filters, setFilters] = useState<Record<string, any>>({})
   
   // Smart Filter State
   const [selectedProjects, setSelectedProjects] = useState<string[]>([])
@@ -52,7 +52,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   const stability = useComponentStability('BOQManagement') // ✅ Track component stability
 
   // Handle unified filter changes  
-  const handleFilterChange = (newFilters: FilterState) => {
+  const handleFilterChange = (newFilters: Record<string, any>) => {
     setFilters(newFilters)
   }
   
@@ -641,14 +641,9 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
               </div>
             </div>
           ) : (
-          <BOQTable
-            activities={filteredActivities}
-            projects={projects}
-            allKPIs={allKPIs}
-            onEdit={setEditingActivity}
-            onDelete={handleDeleteActivity}
-              onBulkDelete={handleBulkDeleteActivity}
-          />
+            <div className="text-center py-8">
+              <p className="text-gray-500 dark:text-gray-400">BOQ Table view has been removed. Please use the card view above.</p>
+            </div>
           )}
         </CardContent>
         
