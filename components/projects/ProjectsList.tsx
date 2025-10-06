@@ -14,10 +14,10 @@ import { IntelligentProjectForm } from './IntelligentProjectForm'
 import { ProjectCard } from './ProjectCard'
 import { ProjectCardWithAnalytics } from './ProjectCardWithAnalytics'
 import { ProjectDetailsPanel } from './ProjectDetailsPanel'
-import { ProjectsTable } from './ProjectsTable'
+// import { ProjectsTable } from './ProjectsTable' // ✅ Removed - Table view deleted
 import { AdvancedSorting, SortOption, FilterOption } from '@/components/ui/AdvancedSorting'
 import { Pagination } from '@/components/ui/Pagination'
-import { Plus, Search, Building, Calendar, DollarSign, Percent, Hash, CheckCircle, Clock, AlertCircle, Folder, BarChart3, Table, Grid } from 'lucide-react'
+import { Plus, Search, Building, Calendar, DollarSign, Percent, Hash, CheckCircle, Clock, AlertCircle, Folder, BarChart3, Grid } from 'lucide-react'
 import { Input } from '@/components/ui/Input'
 import { SmartFilter } from '@/components/ui/SmartFilter'
 
@@ -42,8 +42,8 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [viewingProject, setViewingProject] = useState<Project | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
-  const [useEnhancedCards, setUseEnhancedCards] = useState(false) // Disabled by default for performance
-  const [viewMode, setViewMode] = useState<'table' | 'cards'>('table') // Default to table view
+  const [useEnhancedCards, setUseEnhancedCards] = useState(true) // Enabled by default for better UX
+  const [viewMode, setViewMode] = useState<'cards' | 'enhanced'>('cards') // Default to cards view
   
   // Smart Filter State
   const [selectedProjectCodes, setSelectedProjectCodes] = useState<string[]>([])
@@ -246,13 +246,13 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
           const projectCodes = mappedProjects.map(p => p.project_code)
           
           const [activitiesResult, kpisResult] = await Promise.all([
-            supabase
-              .from(TABLES.BOQ_ACTIVITIES)
+          supabase
+            .from(TABLES.BOQ_ACTIVITIES)
               .select('*')
               .in('Project Code', projectCodes),
-            supabase
+          supabase
               .from(TABLES.KPI)
-              .select('*')
+            .select('*')
               .in('Project Code', projectCodes)
           ])
           
@@ -459,51 +459,29 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
           <p className="text-gray-600 dark:text-gray-400 mt-2">Manage and track all projects with smart analytics</p>
         </div>
         <div className="flex gap-2">
-          {/* View Mode Toggle */}
-          <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
-            <Button
-              variant={viewMode === 'table' ? 'primary' : 'ghost'}
-              size="sm"
-              onClick={() => setViewMode('table')}
-              className="flex items-center space-x-1"
-              title="Table View"
-            >
-              <Table className="h-4 w-4" />
-              <span className="hidden sm:inline">Table</span>
-            </Button>
+          {/* Enhanced View Mode Toggle */}
+          <div className="flex gap-1 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-gray-800 dark:to-gray-700 rounded-lg p-1 shadow-sm">
             <Button
               variant={viewMode === 'cards' ? 'primary' : 'ghost'}
               size="sm"
               onClick={() => setViewMode('cards')}
-              className="flex items-center space-x-1"
-              title="Cards View"
+              className="flex items-center space-x-2 px-3 py-2 rounded-md transition-all duration-200 hover:scale-105"
+              title="Standard Cards View"
             >
               <Grid className="h-4 w-4" />
-              <span className="hidden sm:inline">Cards</span>
+              <span className="hidden sm:inline font-medium">Standard</span>
             </Button>
-          </div>
-          
-          {/* Enhanced Cards Toggle (only visible in cards view) */}
-          {viewMode === 'cards' && (
-            <Button 
-              onClick={() => setUseEnhancedCards(!useEnhancedCards)} 
-              variant="outline"
+          <Button 
+              variant={viewMode === 'enhanced' ? 'primary' : 'ghost'}
               size="sm"
-              className="flex items-center space-x-2"
+              onClick={() => setViewMode('enhanced')}
+              className="flex items-center space-x-2 px-3 py-2 rounded-md transition-all duration-200 hover:scale-105"
+              title="Enhanced Analytics View"
             >
-              {useEnhancedCards ? (
-                <>
-                  <BarChart3 className="h-4 w-4" />
-                  <span className="hidden md:inline">Enhanced</span>
-                </>
-              ) : (
-                <>
-                  <Folder className="h-4 w-4" />
-                  <span className="hidden md:inline">Simple</span>
-                </>
-              )}
-            </Button>
-          )}
+                <BarChart3 className="h-4 w-4" />
+              <span className="hidden sm:inline font-medium">Analytics</span>
+          </Button>
+          </div>
           
           <Button onClick={() => setShowForm(true)} className="flex items-center space-x-2">
             <Plus className="h-4 w-4" />
@@ -595,31 +573,25 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
           {/* Show "no results" message only if filters are applied but no matches */}
           {filteredProjects.length === 0 ? (
             <div className="text-center py-12">
-              <div>
+                <div>
                 <p className="text-gray-500 dark:text-gray-400">No projects match your filters</p>
                 <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Try adjusting your filters or search terms</p>
-              </div>
+                </div>
             </div>
-          ) : viewMode === 'table' ? (
-            // ✨ Table View - Shows all real data from Supabase
-            <ProjectsTable
-              projects={filteredProjects}
-              onEdit={setEditingProject}
-              onDelete={handleDeleteProject}
-              onViewDetails={setViewingProject}
-              getStatusColor={getStatusColor}
-              getStatusText={getStatusText}
-            />
           ) : (
-            // Card View
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            // ✨ Enhanced Card Views - No more table view!
+            <div className={`grid gap-6 ${
+              viewMode === 'enhanced' 
+                ? 'grid-cols-1 lg:grid-cols-2 xl:grid-cols-3' 
+                : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'
+            }`}>
               {filteredProjects.map((project) => {
                 // Calculate analytics for this project (using pre-loaded data)
-                const analytics = useEnhancedCards 
+                const analytics = viewMode === 'enhanced' 
                   ? calculateProjectAnalytics(project, allActivities, allKPIs)
                   : null
                 
-                return useEnhancedCards ? (
+                return viewMode === 'enhanced' ? (
                   <ProjectCardWithAnalytics
                     key={project.id}
                     project={project}

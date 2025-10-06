@@ -118,21 +118,21 @@ rabat-mvp/
 ### **Installation**
 
 1. **Clone the repository**
-   ```bash
+```bash
    git clone https://github.com/your-username/rabat-mvp.git
-   cd rabat-mvp
-   ```
+cd rabat-mvp
+```
 
 2. **Install dependencies**
-   ```bash
-   npm install
+```bash
+npm install
    ```
 
 3. **Environment Setup**
    Create a `.env.local` file in the root directory:
-   ```env
+```env
    NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
    ```
 
 4. **Database Setup**
@@ -141,8 +141,8 @@ rabat-mvp/
    - Set up Row Level Security (RLS) policies
 
 5. **Run the development server**
-   ```bash
-   npm run dev
+```bash
+npm run dev
    ```
 
 6. **Open your browser**

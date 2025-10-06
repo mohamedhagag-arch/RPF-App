@@ -5,7 +5,7 @@ import { ProjectAnalytics } from '@/lib/projectAnalytics'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
-import { Edit, Trash2, Eye, Activity, Target, DollarSign } from 'lucide-react'
+import { Edit, Trash2, Eye, Activity, Target, DollarSign, Building, Hash, Calendar, TrendingUp, BarChart3 } from 'lucide-react'
 
 interface ProjectCardWithAnalyticsProps {
   project: Project
@@ -60,56 +60,69 @@ export function ProjectCardWithAnalytics({
   const progress = analytics?.overallProgress || 0
 
   return (
-    <Card className="hover:shadow-lg transition-all duration-200 border-l-4" style={{
+    <Card className="hover:shadow-xl transition-all duration-300 hover:scale-105 border-0 bg-gradient-to-br from-white via-blue-50/30 to-indigo-50/30 dark:from-gray-800 dark:via-blue-900/20 dark:to-indigo-900/20 shadow-lg border-l-4" style={{
       borderLeftColor: getBorderColor(progress)
     }}>
-      <CardHeader className="pb-3">
+      <CardHeader className="pb-4 bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 dark:from-gray-700 dark:via-blue-800/30 dark:to-purple-800/30 rounded-t-lg">
         <div className="flex justify-between items-start">
           <div className="flex-1">
-            <CardTitle className="text-lg mb-1">{project.project_name}</CardTitle>
-            <div className="flex gap-2 flex-wrap">
-              <Badge variant="outline" className="text-xs">
+            <CardTitle className="text-xl font-bold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
+              <Building className="h-5 w-5 text-blue-600" />
+              {project.project_name}
+            </CardTitle>
+            <div className="flex gap-2 flex-wrap items-center">
+              <Badge variant="outline" className="text-xs font-semibold px-2 py-1 bg-white/80 dark:bg-gray-800/80">
+                <Hash className="h-3 w-3 mr-1" />
                 {project.project_code}
               </Badge>
-              <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(project.project_status)}`}>
+              <span className={`px-3 py-1 rounded-full text-xs font-semibold shadow-sm ${getStatusColor(project.project_status)}`}>
                 {getStatusText(project.project_status)}
               </span>
             </div>
           </div>
+          <div className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5 text-blue-600" />
+            <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">Analytics</span>
+          </div>
         </div>
       </CardHeader>
       
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 p-6">
         {/* Progress and Stats (only if analytics available) */}
         {analytics ? (
-          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 space-y-3">
-            {/* Progress Bar */}
-            <div>
-              <div className="flex justify-between text-xs mb-1">
-                <span className="text-gray-600 dark:text-gray-400">Progress</span>
-                <span className="font-bold">{formatPercent(progress)}</span>
+          <div className="space-y-4">
+            {/* Enhanced Progress Bar */}
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl p-4 border border-blue-200 dark:border-blue-800">
+              <div className="flex justify-between items-center mb-3">
+                <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4 text-blue-600" />
+                  Overall Progress
+                </span>
+                <span className="text-lg font-bold text-blue-700 dark:text-blue-400">{formatPercent(progress)}</span>
               </div>
-              <div className="bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+              <div className="bg-gray-200 dark:bg-gray-700 rounded-full h-3 shadow-inner">
                 <div 
-                  className={`${getProgressColor(progress)} h-2 rounded-full transition-all duration-500`}
+                  className={`${getProgressColor(progress)} h-3 rounded-full transition-all duration-700 shadow-sm`}
                   style={{ width: `${Math.min(progress, 100)}%` }}
                 />
               </div>
             </div>
             
-            {/* Counts */}
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div className="flex items-center gap-2">
-                <Activity className="h-4 w-4 text-blue-600" />
-                <span className="text-gray-600 dark:text-gray-400">
-                  <span className="font-bold text-gray-900 dark:text-white">{analytics.totalActivities}</span> Activities
-                </span>
+            {/* Enhanced Counts */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                <Activity className="h-5 w-5 text-green-600" />
+                <div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Activities</p>
+                  <p className="text-lg font-bold text-green-700 dark:text-green-400">{analytics.totalActivities}</p>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Target className="h-4 w-4 text-purple-600" />
-                <span className="text-gray-600 dark:text-gray-400">
-                  <span className="font-bold text-gray-900 dark:text-white">{analytics.totalKPIs}</span> KPIs
-                </span>
+              <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                <Target className="h-5 w-5 text-purple-600" />
+                <div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">KPIs</p>
+                  <p className="text-lg font-bold text-purple-700 dark:text-purple-400">{analytics.totalKPIs}</p>
+                </div>
               </div>
             </div>
             

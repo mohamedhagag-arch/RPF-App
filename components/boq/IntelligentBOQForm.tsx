@@ -208,13 +208,13 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         project_full_name: project?.project_name || ''
       }
       
-      const kpis = await generateKPIsFromBOQ(tempActivity, workdaysConfig)
+      const kpis = await generateKPIsFromBOQ(tempActivity as any, workdaysConfig)
       const summary = calculateKPISummary(kpis)
       
       setKpiPreview({ kpis, summary })
       setKpiGenerationStatus('ready')
       
-      console.log(`✅ Generated ${summary.numberOfDays} KPI records (Total: ${summary.totalQuantity} ${unit})`)
+      console.log(`✅ Generated ${summary.totalKPIs} KPI records (Total: ${summary.totalQuantity} ${unit})`)
     } catch (err) {
       console.error('❌ Error generating KPI preview:', err)
       setKpiGenerationStatus('error')
@@ -307,7 +307,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
             planned_units: activityData.planned_units
           })
           
-          const updateResult = await updateKPIsFromBOQ(activityData, workdaysConfig)
+          const updateResult = await updateKPIsFromBOQ(activityData, workdaysConfig, activity.activity_name)
           
           if (updateResult.success) {
             const parts = []
