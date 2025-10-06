@@ -1,0 +1,17 @@
+{
+  "name": "rabat-mvp-data-import",
+  "version": "1.0.0",
+  "description": "Data import script for Rabat MVP project",
+  "main": "import-data.js",
+  "scripts": {
+    "import": "node import-data.js",
+    "import:projects": "node -e \"require('./import-data.js').importProjects()\"",
+    "import:boq": "node -e \"require('./import-data.js').importBOQActivities()\"",
+    "import:kpi": "node -e \"require('./import-data.js').importKPIRecords()\""
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.38.4",
+    "csv-parse": "^6.1.0",
+    "dotenv": "^16.3.1"
+  }
+}

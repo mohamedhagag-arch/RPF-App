@@ -1,0 +1,53 @@
+{
+  "name": "rabat-mvp",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf .next node_modules/.cache",
+    "import-data": "node scripts/quick-import.js",
+    "setup-db": "npm run import-data",
+    "check-db": "node scripts/check-database-structure.js",
+    "verify-data": "node scripts/final-verification.js",
+    "vercel-build": "next build",
+    "postbuild": "next-sitemap"
+  },
+  "dependencies": {
+    "@supabase/auth-helpers-nextjs": "^0.8.7",
+    "@supabase/auth-helpers-react": "^0.4.2",
+    "@supabase/auth-ui-react": "^0.4.6",
+    "@supabase/auth-ui-shared": "^0.1.8",
+    "@supabase/supabase-js": "^2.38.4",
+    "autoprefixer": "^10.4.16",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.1",
+    "date-fns": "^2.30.0",
+    "dotenv": "^17.2.2",
+    "lucide-react": "^0.294.0",
+    "next": "14.2.33",
+    "postcss": "^8.4.32",
+    "react": "^18",
+    "react-dom": "^18",
+    "react-hook-form": "^7.48.2",
+    "react-query": "^3.39.3",
+    "recharts": "^2.8.0",
+    "tailwindcss": "^3.3.6",
+    "next-sitemap": "^4.2.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.33",
+    "typescript": "^5"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  }
+}
