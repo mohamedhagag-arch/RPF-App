@@ -50,25 +50,32 @@ export async function generateKPIsFromBOQ(
       return []
     }
     
-    // Calculate quantity per day
+    // Calculate quantity per day (rounded to nearest integer)
     const totalQuantity = activity.planned_units || 0
-    const quantityPerDay = totalQuantity / workdays.length
+    const baseQuantityPerDay = Math.round(totalQuantity / workdays.length)
+    const remainder = totalQuantity - (baseQuantityPerDay * workdays.length)
     
-    console.log(`📊 Quantity distribution: ${totalQuantity} total → ${quantityPerDay.toFixed(2)} per day`)
+    console.log(`📊 Quantity distribution: ${totalQuantity} total → ${baseQuantityPerDay} per day (base) + ${remainder} remainder`)
     
-    // Generate KPIs
-    const kpis: GeneratedKPI[] = workdays.map((date, index) => ({
-      activity_name: activity.activity_name || activity.activity || '',
-      quantity: quantityPerDay,
-      unit: activity.unit || '',
-      target_date: date.toISOString().split('T')[0],
-      activity_date: date.toISOString().split('T')[0],
-      project_code: activity.project_code || '',
-      project_sub_code: activity.project_sub_code || '',
-      project_full_code: activity.project_full_code || activity.project_code || '',
-      section: activity.zone_ref || '',
-      day: `Day ${index + 1} - ${date.toLocaleDateString('en-US', { weekday: 'long' })}`
-    }))
+    // Generate KPIs with proper distribution
+    const kpis: GeneratedKPI[] = workdays.map((date, index) => {
+      // Add remainder to first few days to ensure total matches
+      const extraQuantity = index < remainder ? 1 : 0
+      const finalQuantity = baseQuantityPerDay + extraQuantity
+      
+      return {
+        activity_name: activity.activity_name || activity.activity || '',
+        quantity: finalQuantity,
+        unit: activity.unit || '',
+        target_date: date.toISOString().split('T')[0],
+        activity_date: date.toISOString().split('T')[0],
+        project_code: activity.project_code || '',
+        project_sub_code: activity.project_sub_code || '',
+        project_full_code: activity.project_full_code || activity.project_code || '',
+        section: activity.zone_ref || '',
+        day: `Day ${index + 1} - ${date.toLocaleDateString('en-US', { weekday: 'long' })}`
+      }
+    })
     
     console.log(`✅ Generated ${kpis.length} KPIs for ${activity.activity_name}`)
     return kpis
@@ -198,20 +205,27 @@ export function previewKPIs(activity: BOQActivity, config?: WorkdaysConfig): Gen
     
     const workdays = getWorkingDays(startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0], config)
     const totalQuantity = activity.planned_units || 0
-    const quantityPerDay = totalQuantity / workdays.length
+    const baseQuantityPerDay = Math.round(totalQuantity / workdays.length)
+    const remainder = totalQuantity - (baseQuantityPerDay * workdays.length)
     
-    return workdays.map((date, index) => ({
-      activity_name: activity.activity_name || activity.activity || '',
-      quantity: quantityPerDay,
-      unit: activity.unit || '',
-      target_date: date.toISOString().split('T')[0],
-      activity_date: date.toISOString().split('T')[0],
-      project_code: activity.project_code || '',
-      project_sub_code: activity.project_sub_code || '',
-      project_full_code: activity.project_full_code || activity.project_code || '',
-      section: activity.zone_ref || '',
-      day: `Day ${index + 1} - ${date.toLocaleDateString('en-US', { weekday: 'long' })}`
-    }))
+    return workdays.map((date, index) => {
+      // Add remainder to first few days to ensure total matches
+      const extraQuantity = index < remainder ? 1 : 0
+      const finalQuantity = baseQuantityPerDay + extraQuantity
+      
+      return {
+        activity_name: activity.activity_name || activity.activity || '',
+        quantity: finalQuantity,
+        unit: activity.unit || '',
+        target_date: date.toISOString().split('T')[0],
+        activity_date: date.toISOString().split('T')[0],
+        project_code: activity.project_code || '',
+        project_sub_code: activity.project_sub_code || '',
+        project_full_code: activity.project_full_code || activity.project_code || '',
+        section: activity.zone_ref || '',
+        day: `Day ${index + 1} - ${date.toLocaleDateString('en-US', { weekday: 'long' })}`
+      }
+    })
     
   } catch (error) {
     console.error('❌ Error previewing KPIs:', error)
