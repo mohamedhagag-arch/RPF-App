@@ -55,7 +55,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
-  const [itemsPerPage] = useState(10) // 10 items per page
+  const [itemsPerPage] = useState(24) // 24 items per page (2 rows of 12 cards)
   
   // Advanced sorting and filtering states
   const [currentSort, setCurrentSort] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null)
