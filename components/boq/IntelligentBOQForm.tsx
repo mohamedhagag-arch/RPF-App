@@ -298,16 +298,22 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       // Handle KPIs based on mode (Create vs Update)
       if (autoGenerateKPIs && kpiPreview?.kpis && kpiPreview.kpis.length > 0) {
         if (activity) {
-          // ✅ EDIT MODE: Delete old KPIs and create new ones
+          // ✅ EDIT MODE: Update existing KPIs (not delete and recreate!)
           console.log('🔄 UPDATING KPIs for existing activity...')
           console.log('📦 Activity to update:', {
             id: activity.id,
+            old_activity_name: activity.activity_name, // ✅ OLD name
+            new_activity_name: activityData.activity_name, // ✅ NEW name
             project_full_code: activityData.project_full_code,
-            activity_name: activityData.activity_name,
             planned_units: activityData.planned_units
           })
           
-          const updateResult = await updateKPIsFromBOQ(activityData, workdaysConfig)
+          // ✅ Pass old activity name to find existing KPIs
+          const updateResult = await updateKPIsFromBOQ(
+            activityData, 
+            workdaysConfig, 
+            activity.activity_name // ✅ OLD activity name
+          )
           
           if (updateResult.success) {
             const parts = []

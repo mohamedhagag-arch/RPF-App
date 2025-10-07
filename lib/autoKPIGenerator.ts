@@ -184,7 +184,8 @@ export async function saveGeneratedKPIs(
  */
 export async function updateKPIsFromBOQ(
   activity: BOQActivity,
-  config?: WorkdaysConfig
+  config?: WorkdaysConfig,
+  oldActivityName?: string // ✅ NEW: Pass old activity name to find existing KPIs
 ): Promise<{ success: boolean; added: number; deleted: number; updated: number; error?: string }> {
   try {
     const supabase = createClientComponentClient()
@@ -192,16 +193,20 @@ export async function updateKPIsFromBOQ(
     console.log('========================================')
     console.log('🧠 SMART KPI UPDATE for activity')
     console.log('  - Project Full Code:', activity.project_full_code || activity.project_code)
-    console.log('  - Activity Name:', activity.activity_name)
+    console.log('  - Old Activity Name:', oldActivityName || 'same as new')
+    console.log('  - New Activity Name:', activity.activity_name)
     console.log('  - Planned Units:', activity.planned_units)
     console.log('========================================')
     
     // Step 1: Fetch existing KPIs (with full data, not just count)
+    // ✅ Use old activity name if provided, otherwise use current name
+    const searchActivityName = oldActivityName || activity.activity_name
+    
     const { data: existingKPIs, error: fetchError } = await supabase
       .from(TABLES.KPI)
       .select('*')
       .eq('Project Full Code', activity.project_full_code || activity.project_code)
-      .eq('Activity Name', activity.activity_name)
+      .eq('Activity Name', searchActivityName) // ✅ Search by old name
       .eq('Input Type', 'Planned')
       .order('Target Date', { ascending: true }) // Sort by date
     
