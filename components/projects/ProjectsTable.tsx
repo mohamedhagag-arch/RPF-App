@@ -78,8 +78,8 @@ export function ProjectsTable({
       const byCodeCount = kpisData2?.length || 0
       
       const allKPIsData = [...(kpisData || []), ...(kpisData2 || [])]
-      const uniqueKPIs = Array.from(new Map(allKPIsData.map(k => [k.id, k])).values())
-      kpisData = uniqueKPIs
+      const uniqueKPIs = Array.from(new Map(allKPIsData.map((k: any) => [k.id, k])).values())
+      kpisData = uniqueKPIs as any
       
       if (kpisError) {
         console.error('❌ Error fetching KPIs:', kpisError)
@@ -88,7 +88,7 @@ export function ProjectsTable({
       console.log('🔍 KPI Query Results:', {
         byFullCode: byFullCodeCount,
         byCode: byCodeCount,
-        merged: kpisData.length,
+        merged: (kpisData || []).length,
         projects: projectCodes
       })
       

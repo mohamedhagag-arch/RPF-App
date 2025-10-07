@@ -76,7 +76,7 @@ export function BOQWithKPIStatus({ activity, allKPIs }: BOQWithKPIStatusProps) {
           if (allProjectKPIs && allProjectKPIs.length > 0) {
             const activityNameLower = (activity.activity_name || '').toLowerCase().trim()
             kpiRecords = allProjectKPIs.filter(kpi => {
-              const kpiActivityName = (kpi['Activity Name'] || '').toLowerCase().trim()
+              const kpiActivityName = (kpi['Activity Name'] as string || '').toLowerCase().trim()
               return kpiActivityName.includes(activityNameLower) || 
                      activityNameLower.includes(kpiActivityName)
             })

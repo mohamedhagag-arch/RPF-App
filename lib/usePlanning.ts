@@ -163,6 +163,7 @@ export const PlanningAPI = {
       const dbData = mapProjectToDB(project)
       const { data, error } = await supabase
         .from(PLANNING_TABLES.PROJECTS)
+        // @ts-ignore
         .update(dbData)
         .eq('id', id)
         .select()
@@ -212,6 +213,7 @@ export const PlanningAPI = {
       const dbData = mapBOQActivityToDB(activity)
       const { data, error } = await supabase
         .from(PLANNING_TABLES.BOQ_ACTIVITIES)
+        // @ts-ignore
         .update(dbData)
         .eq('id', id)
         .select()

@@ -152,7 +152,7 @@ export function RelationshipViewer({
     const { data: projectData, error: projectError } = await supabase
       .from('projects')
       .select('*')
-      .eq('id', activityData.project_id)
+      .eq('id', (activityData as any).project_id)
       .single()
 
     if (projectError) throw projectError
@@ -186,18 +186,18 @@ export function RelationshipViewer({
     const { data: projectData, error: projectError } = await supabase
       .from('projects')
       .select('*')
-      .eq('id', kpiData.project_id)
+      .eq('id', (kpiData as any).project_id)
       .single()
 
     if (projectError) throw projectError
     setProject(projectData)
 
     // Fetch related activity
-    if (kpiData.activity_id) {
+    if ((kpiData as any).activity_id) {
       const { data: activityData, error: activityError } = await supabase
         .from('boq_activities')
         .select('*')
-        .eq('id', kpiData.activity_id)
+        .eq('id', (kpiData as any).activity_id)
         .single()
 
       if (activityError) throw activityError

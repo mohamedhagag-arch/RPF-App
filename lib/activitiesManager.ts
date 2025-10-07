@@ -126,12 +126,14 @@ export async function addActivity(activity: Omit<Activity, 'id' | 'created_at' |
 export async function updateActivity(id: string, updates: Partial<Activity>): Promise<{ success: boolean; error?: string }> {
   try {
     const supabase = getSupabaseClient()
-    const { error } = await executeQuery(async () =>
-      supabase
+    const { error } = await executeQuery(async () => {
+      const result = await supabase
         .from('activities')
-        .update({ ...updates, updated_at: new Date().toISOString() } as any)
+        // @ts-ignore
+        .update({ ...updates, updated_at: new Date().toISOString() })
         .eq('id', id)
-    )
+      return result
+    })
 
     if (error) throw error
     return { success: true }
@@ -145,12 +147,14 @@ export async function updateActivity(id: string, updates: Partial<Activity>): Pr
 export async function deleteActivity(id: string): Promise<{ success: boolean; error?: string }> {
   try {
     const supabase = getSupabaseClient()
-    const { error } = await executeQuery(async () =>
-      supabase
+    const { error } = await executeQuery(async () => {
+      const result = await supabase
         .from('activities')
-        .update({ is_active: false, updated_at: new Date().toISOString() } as any)
+        // @ts-ignore
+        .update({ is_active: false, updated_at: new Date().toISOString() })
         .eq('id', id)
-    )
+      return result
+    })
 
     if (error) throw error
     return { success: true }
@@ -165,7 +169,7 @@ export async function incrementActivityUsage(activityName: string): Promise<{ su
   try {
     const supabase = getSupabaseClient()
     const { error } = await executeQuery(async () =>
-      supabase.rpc('increment_activity_usage', { activity_name: activityName })
+      supabase.rpc('increment_activity_usage', { activity_name: activityName } as any)
     )
 
     if (error) throw error
@@ -185,7 +189,7 @@ export async function getActivityStats(): Promise<ActivityStats[]> {
     )
 
     if (error) throw error
-    return data as ActivityStats[]
+    return (data || []) as ActivityStats[]
   } catch (error) {
     console.error('Error fetching activity stats:', error)
     return []

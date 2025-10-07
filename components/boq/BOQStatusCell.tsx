@@ -62,7 +62,7 @@ export function BOQStatusCell({ activity }: BOQStatusCellProps) {
           if (allKPIs && allKPIs.length > 0) {
             const activityNameLower = (activity.activity_name || '').toLowerCase().trim()
             kpiRecords = allKPIs.filter(kpi => {
-              const kpiActivityName = (kpi['Activity Name'] || '').toLowerCase().trim()
+              const kpiActivityName = (kpi['Activity Name'] as string || '').toLowerCase().trim()
               return kpiActivityName.includes(activityNameLower) || 
                      activityNameLower.includes(kpiActivityName)
             })

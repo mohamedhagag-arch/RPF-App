@@ -34,8 +34,7 @@ import {
 import { 
   generateKPIsFromBOQ, 
   saveGeneratedKPIs,
-  updateKPIsFromBOQ,
-  calculateKPISummary
+  generateAndSaveKPIs
 } from '@/lib/autoKPIGenerator'
 import { Clock, CheckCircle2, Info, Sparkles, X, Calendar, TrendingUp, AlertCircle } from 'lucide-react'
 
@@ -321,8 +320,14 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         project_full_name: project?.project_name || ''
       }
       
-      const kpis = await generateKPIsFromBOQ(tempActivity, workdaysConfig)
-      const summary = calculateKPISummary(kpis)
+      const kpis = await generateKPIsFromBOQ(tempActivity as any, workdaysConfig)
+      const summary = {
+        totalQuantity: kpis.reduce((sum, kpi) => sum + kpi.quantity, 0),
+        numberOfDays: kpis.length,
+        averagePerDay: kpis.length > 0 ? kpis.reduce((sum, kpi) => sum + kpi.quantity, 0) / kpis.length : 0,
+        startDate: kpis.length > 0 ? kpis[0].target_date : '',
+        endDate: kpis.length > 0 ? kpis[kpis.length - 1].target_date : ''
+      }
       
       setKpiPreview({ kpis, summary })
       setKpiGenerationStatus('ready')
@@ -439,23 +444,14 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
           })
           
           // ✅ Pass old activity name to find existing KPIs
-          const updateResult = await updateKPIsFromBOQ(
-            activityData, 
-            workdaysConfig, 
-            activity.activity_name // ✅ OLD activity name
-          )
+          const updateResult = await generateAndSaveKPIs(activityData, workdaysConfig)
           
           if (updateResult.success) {
-            const parts = []
-            if (updateResult.updated > 0) parts.push(`Updated ${updateResult.updated} KPIs`)
-            if (updateResult.added > 0) parts.push(`Added ${updateResult.added} new KPIs`)
-            if (updateResult.deleted > 0) parts.push(`Deleted ${updateResult.deleted} extra KPIs`)
-            
-            setSuccess(`✅ Activity updated! ${parts.join(', ')}`)
-            console.log(`✅ Smart KPI Update: Updated=${updateResult.updated}, Added=${updateResult.added}, Deleted=${updateResult.deleted}`)
+            setSuccess(`✅ Activity updated! ${updateResult.message}`)
+            console.log(`✅ KPI Generation: Generated=${updateResult.kpisGenerated}, Saved=${updateResult.kpisSaved}`)
           } else {
-            console.error('❌ KPI update failed:', updateResult.error)
-            setSuccess('⚠️ Activity updated but KPI sync failed: ' + updateResult.error)
+            console.error('❌ KPI generation failed:', updateResult.message)
+            setSuccess('⚠️ Activity updated but KPI sync failed: ' + updateResult.message)
           }
         } else {
           // ✅ CREATE MODE: Create new KPIs
@@ -465,11 +461,11 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
           const result = await saveGeneratedKPIs(kpiPreview.kpis)
           
           if (result.success) {
-            setSuccess(`✅ Activity created with ${result.count} KPI records!`)
-            console.log('✅ Created', result.count, 'KPI records')
+            setSuccess(`✅ Activity created with ${result.savedCount} KPI records!`)
+            console.log('✅ Created', result.savedCount, 'KPI records')
           } else {
-            console.error('❌ KPI generation failed:', result.error)
-            setSuccess('⚠️ Activity created but KPI generation failed: ' + result.error)
+            console.error('❌ KPI generation failed:', result.message)
+            setSuccess('⚠️ Activity created but KPI generation failed: ' + result.message)
           }
         }
       } else {

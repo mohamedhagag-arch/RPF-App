@@ -94,7 +94,7 @@ export function GlobalSearch({ onResultClick, onClose, isOpen = false }: GlobalS
           .limit(10)
 
         if (projects) {
-          projects.forEach(project => {
+          projects.forEach((project: any) => {
             searchResults.push({
               id: project.id,
               type: 'project',
@@ -120,7 +120,7 @@ export function GlobalSearch({ onResultClick, onClose, isOpen = false }: GlobalS
           .limit(10)
 
         if (activities) {
-          activities.forEach(activity => {
+          activities.forEach((activity: any) => {
             searchResults.push({
               id: activity.id,
               type: 'activity',
@@ -147,7 +147,7 @@ export function GlobalSearch({ onResultClick, onClose, isOpen = false }: GlobalS
           .limit(10)
 
         if (kpis) {
-          kpis.forEach(kpi => {
+          kpis.forEach((kpi: any) => {
             searchResults.push({
               id: kpi.id,
               type: 'kpi',

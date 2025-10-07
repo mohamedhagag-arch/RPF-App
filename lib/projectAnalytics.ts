@@ -171,14 +171,14 @@ export function calculateProjectAnalytics(
     console.log('🔍 Sample activity:', projectActivities[0])
   } else {
     console.warn(`⚠️ NO ACTIVITIES found for project ${project.project_code}`)
-    console.log('🔍 Available project codes in activities:', [...new Set(allActivities.map(a => a.project_code))].slice(0, 10))
+    console.log('🔍 Available project codes in activities:', Array.from(new Set(allActivities.map(a => a.project_code))).slice(0, 10))
   }
   
   if (projectKPIs.length > 0) {
     console.log('🔍 Sample KPI:', projectKPIs[0])
   } else {
     console.warn(`⚠️ NO KPIs found for project ${project.project_code}`)
-    console.log('🔍 Available project codes in KPIs:', [...new Set(allKPIs.map(k => k.project_code))].slice(0, 10))
+    console.log('🔍 Available project codes in KPIs:', Array.from(new Set(allKPIs.map(k => k.project_code))).slice(0, 10))
   }
   
   // BOQ Statistics

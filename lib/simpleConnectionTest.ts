@@ -32,13 +32,14 @@ export async function testSimpleConnectionSystem() {
     
     // 4. اختبار استعلام بسيط
     console.log('4️⃣ Testing simple query...')
-    const { data, error } = await executeQuery(() =>
-      client
+    const { data, error } = await executeQuery(async () => {
+      const result = await client
         .from('users')
         .select('id')
         .limit(1)
         .maybeSingle()
-    )
+      return result
+    })
     
     if (error && error.code !== 'PGRST116') {
       console.error('❌ Query test failed:', error)
