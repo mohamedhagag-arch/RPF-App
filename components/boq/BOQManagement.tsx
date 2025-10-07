@@ -177,7 +177,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     // ✅ Initial load: Only fetch projects list (lightweight)
     const fetchInitialData = async () => {
       try {
-        setLoading(true)
+        setSafeLoading(setLoading, true)
         console.log('🟡 BOQ: Fetching initial data (projects list only)...')
         
         const { data: projectsData, error: projectsError } = await supabase

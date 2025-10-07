@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { getSupabaseClient } from '@/lib/supabaseConnectionManager'
+import { useSyncingFix } from '@/lib/syncingFix'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -31,6 +32,7 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const { setSafeLoading } = useSyncingFix() // ✅ Syncing fix
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedRole, setSelectedRole] = useState('')
   const [showForm, setShowForm] = useState(false)
@@ -46,7 +48,7 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
 
   const fetchUsers = async () => {
     try {
-      setLoading(true)
+      setSafeLoading(setLoading, true)
       const { data, error } = await supabase
         .from('users')
         .select('*')
@@ -57,7 +59,7 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
     } catch (error: any) {
       setError(error.message)
     } finally {
-      setLoading(false)
+      setSafeLoading(setLoading, false)
     }
   }
 

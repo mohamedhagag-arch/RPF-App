@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { getSupabaseClient } from '@/lib/supabaseConnectionManager'
+import { useSyncingFix } from '@/lib/syncingFix'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Alert } from '@/components/ui/Alert'
@@ -86,6 +87,7 @@ export function EnhancedDashboardOverview({
   const [error, setError] = useState('')
   const [mounted, setMounted] = useState(false)
   const mountedRef = useRef(false)
+  const { setSafeLoading } = useSyncingFix() // ✅ Syncing fix
   
   const supabase = getSupabaseClient()
 
@@ -101,7 +103,7 @@ export function EnhancedDashboardOverview({
 
     const fetchEnhancedStats = async () => {
       try {
-        setLoading(true)
+        setSafeLoading(setLoading, true)
         setError('')
 
         // Fetch all data with enhanced queries
@@ -284,7 +286,7 @@ export function EnhancedDashboardOverview({
         setError('Failed to load dashboard data')
         setStats(null)
       } finally {
-        setLoading(false)
+        setSafeLoading(setLoading, false)
       }
     }
 

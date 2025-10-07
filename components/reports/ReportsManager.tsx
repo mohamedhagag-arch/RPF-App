@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { getSupabaseClient } from '@/lib/supabaseConnectionManager'
+import { useSyncingFix } from '@/lib/syncingFix'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -51,6 +52,7 @@ export function ReportsManager({ userRole = 'viewer' }: ReportsManagerProps) {
   const [reports, setReports] = useState<ReportData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const { setSafeLoading } = useSyncingFix() // ✅ Syncing fix
   const [activeReport, setActiveReport] = useState<'summary' | 'projects' | 'activities' | 'kpis' | 'financial'>('summary')
   const [dateRange, setDateRange] = useState({
     start: '',
@@ -81,7 +83,7 @@ export function ReportsManager({ userRole = 'viewer' }: ReportsManagerProps) {
 
   const generateReport = async () => {
     try {
-      setLoading(true)
+      setSafeLoading(setLoading, true)
       setError('')
 
       // Fetch all data
@@ -139,7 +141,7 @@ export function ReportsManager({ userRole = 'viewer' }: ReportsManagerProps) {
     } catch (error: any) {
       setError('Failed to generate report: ' + error.message)
     } finally {
-      setLoading(false)
+      setSafeLoading(setLoading, false)
     }
   }
 
@@ -147,7 +149,7 @@ export function ReportsManager({ userRole = 'viewer' }: ReportsManagerProps) {
     if (!reports) return
 
     try {
-      setLoading(true)
+      setSafeLoading(setLoading, true)
 
       let exportData = ''
       let fileName = ''
@@ -182,7 +184,7 @@ export function ReportsManager({ userRole = 'viewer' }: ReportsManagerProps) {
     } catch (error: any) {
       setError('Export failed: ' + error.message)
     } finally {
-      setLoading(false)
+      setSafeLoading(setLoading, false)
     }
   }
 
