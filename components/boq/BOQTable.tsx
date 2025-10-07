@@ -21,6 +21,11 @@ interface BOQTableProps {
 export function BOQTable({ activities, projects, allKPIs, onEdit, onDelete, onBulkDelete }: BOQTableProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   
+  // 🔧 FIX: Clear selection when activities change
+  useEffect(() => {
+    setSelectedIds([])
+  }, [activities])
+  
   // Debug: Log allKPIs when updated
   useEffect(() => {
     console.log('📋 BOQTable: allKPIs updated', {
@@ -35,7 +40,7 @@ export function BOQTable({ activities, projects, allKPIs, onEdit, onDelete, onBu
   }, [allKPIs, activities])
   
   const handleSelectAll = (checked: boolean) => {
-    if (checked) {
+    if (checked && activities.length > 0) {
       setSelectedIds(activities.map(a => a.id))
     } else {
       setSelectedIds([])
@@ -44,7 +49,7 @@ export function BOQTable({ activities, projects, allKPIs, onEdit, onDelete, onBu
   
   const handleSelectOne = (id: string, checked: boolean) => {
     if (checked) {
-      setSelectedIds(prev => [...prev, id])
+      setSelectedIds(prev => prev.includes(id) ? prev : [...prev, id])
     } else {
       setSelectedIds(prev => prev.filter(selectedId => selectedId !== id))
     }
@@ -59,8 +64,8 @@ export function BOQTable({ activities, projects, allKPIs, onEdit, onDelete, onBu
     }
   }
   
-  const allSelected = activities.length > 0 && selectedIds.length === activities.length
-  const someSelected = selectedIds.length > 0 && !allSelected
+  const allSelected = activities.length > 0 && selectedIds.length === activities.length && selectedIds.length > 0
+  const someSelected = selectedIds.length > 0 && selectedIds.length < activities.length
   
   const getProjectInfo = (projectCode: string) => {
     const project = projects.find(p => p.project_code === projectCode)

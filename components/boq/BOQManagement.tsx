@@ -97,9 +97,24 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         .order('created_at', { ascending: false })
         .range(from, to)
       
-      // Filter by selected projects if any
+      // 🔧 FIX: Apply all filters
       if (selectedProjects.length > 0) {
         activitiesQuery = activitiesQuery.in('Project Code', selectedProjects)
+      }
+      
+      // Filter by selected activities if any
+      if (selectedActivities.length > 0) {
+        activitiesQuery = activitiesQuery.in('Activity Name', selectedActivities)
+      }
+      
+      // Filter by selected types if any
+      if (selectedTypes.length > 0) {
+        activitiesQuery = activitiesQuery.in('Activity Division', selectedTypes)
+      }
+      
+      // Filter by selected statuses if any
+      if (selectedStatuses.length > 0) {
+        activitiesQuery = activitiesQuery.in('Activity Actual Status', selectedStatuses)
       }
       
       const { data: activitiesData, error: activitiesError, count } = await activitiesQuery
@@ -479,74 +494,8 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     }
   }
 
-  // Get filtered activities with Smart Filter
-  const filteredActivities = activities.filter(activity => {
-    // Multi-Project filter (Smart Filter)
-    if (selectedProjects.length > 0) {
-      const matchesProject = selectedProjects.some(projectCode =>
-        activity.project_code === projectCode ||
-        activity.project_full_code === projectCode ||
-        activity.project_code?.includes(projectCode)
-      )
-      if (!matchesProject) return false
-    }
-    
-    // Multi-Activity filter (Smart Filter)
-    if (selectedActivities.length > 0) {
-      const matchesActivity = selectedActivities.some(activityName =>
-        activity.activity_name === activityName ||
-        activity.activity_name?.toLowerCase().includes(activityName.toLowerCase())
-      )
-      if (!matchesActivity) return false
-    }
-    
-    // Legacy search filter
-    if (filters.search) {
-      const searchLower = filters.search.toLowerCase()
-      const matchesSearch =
-        (activity.activity_name || '').toLowerCase().includes(searchLower) ||
-        (activity.project_code || '').toLowerCase().includes(searchLower) ||
-        (activity.activity_division || '').toLowerCase().includes(searchLower)
-      if (!matchesSearch) return false
-    }
-    
-    // Legacy project filter (fallback)
-    if (filters.project && selectedProjects.length === 0) {
-      if (activity.project_code !== filters.project) return false
-    }
-    
-    // Status filter (mapped to activity status)
-    if (filters.status) {
-      if (filters.status === 'completed' && !activity.activity_completed) return false
-      if (filters.status === 'delayed' && !activity.activity_delayed) return false
-      if (filters.status === 'on_track' && !activity.activity_on_track) return false
-    }
-    
-    // Division filter
-    if (filters.division && activity.activity_division !== filters.division) return false
-    
-    // Completion filter
-    if (filters.completion) {
-      if (filters.completion === 'completed' && !activity.activity_completed) return false
-      if (filters.completion === 'in_progress' && (activity.activity_completed || activity.actual_units === 0)) return false
-      if (filters.completion === 'not_started' && activity.actual_units > 0) return false
-    }
-    
-    // Date range filter
-    if (filters.dateFrom) {
-      const activityDate = new Date(activity.deadline)
-      const fromDate = new Date(filters.dateFrom)
-      if (activityDate < fromDate) return false
-    }
-    
-    if (filters.dateTo) {
-      const activityDate = new Date(activity.deadline)
-      const toDate = new Date(filters.dateTo)
-      if (activityDate > toDate) return false
-    }
-    
-    return true
-  })
+  // 🔧 FIX: Use activities directly since filtering is done in fetchData
+  const filteredActivities = activities
   
   // Calculate statistics
   const totalActivities = activities.length
@@ -612,9 +561,21 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
             setAllKPIs([])
           }
         }}
-        onActivitiesChange={setSelectedActivities}
-        onTypesChange={setSelectedTypes}
-        onStatusesChange={setSelectedStatuses}
+        onActivitiesChange={(activities) => {
+          setSelectedActivities(activities)
+          setCurrentPage(1)
+          fetchData(1)
+        }}
+        onTypesChange={(types) => {
+          setSelectedTypes(types)
+          setCurrentPage(1)
+          fetchData(1)
+        }}
+        onStatusesChange={(statuses) => {
+          setSelectedStatuses(statuses)
+          setCurrentPage(1)
+          fetchData(1)
+        }}
         onClearAll={() => {
           console.log('🔄 Clearing all BOQ filters...')
           setSelectedProjects([])
