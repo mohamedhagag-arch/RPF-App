@@ -270,12 +270,14 @@ export async function updateKPIsFromBOQ(
         const { error: updateError } = await supabase
           .from(TABLES.KPI)
           .update({
+            'Activity Name': newKPI.activity_name || activity.activity_name,
             'Quantity': newKPI.quantity.toString(),
             'Unit': newKPI.unit || '',
             'Target Date': newKPI['Target Date'] || '',
             'Activity Date': newKPI.activity_date || newKPI['Target Date'] || '',
             'Project Code': newKPI.project_code || '',
             'Project Sub Code': newKPI.project_sub_code || '',
+            'Project Full Code': newKPI.project_full_code || activity.project_full_code || activity.project_code,
             'Section': newKPI.section || '',
             'Day': newKPI.day || ''
           })
@@ -303,12 +305,14 @@ export async function updateKPIsFromBOQ(
         const { error: updateError } = await supabase
           .from(TABLES.KPI)
           .update({
+            'Activity Name': newKPI.activity_name || activity.activity_name,
             'Quantity': newKPI.quantity.toString(),
             'Unit': newKPI.unit || '',
             'Target Date': newKPI['Target Date'] || '',
             'Activity Date': newKPI.activity_date || newKPI['Target Date'] || '',
             'Project Code': newKPI.project_code || '',
             'Project Sub Code': newKPI.project_sub_code || '',
+            'Project Full Code': newKPI.project_full_code || activity.project_full_code || activity.project_code,
             'Section': newKPI.section || '',
             'Day': newKPI.day || ''
           })
@@ -346,12 +350,14 @@ export async function updateKPIsFromBOQ(
         const { error: updateError } = await supabase
           .from(TABLES.KPI)
           .update({
+            'Activity Name': newKPI.activity_name || activity.activity_name,
             'Quantity': newKPI.quantity.toString(),
             'Unit': newKPI.unit || '',
             'Target Date': newKPI['Target Date'] || '',
             'Activity Date': newKPI.activity_date || newKPI['Target Date'] || '',
             'Project Code': newKPI.project_code || '',
             'Project Sub Code': newKPI.project_sub_code || '',
+            'Project Full Code': newKPI.project_full_code || activity.project_full_code || activity.project_code,
             'Section': newKPI.section || '',
             'Day': newKPI.day || ''
           })
