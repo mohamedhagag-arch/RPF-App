@@ -55,7 +55,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
-  const [itemsPerPage] = useState(24) // 24 items per page (2 rows of 12 cards)
+  const [itemsPerPage] = useState(12) // 12 items per page (1 row of 12 cards)
   
   // Advanced sorting and filtering states
   const [currentSort, setCurrentSort] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null)
@@ -417,7 +417,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
   }
 
   // Get filtered and sorted projects with Smart Filter
-  const filteredProjects = getFilteredAndSortedProjects().filter(project => {
+  const allFilteredProjects = getFilteredAndSortedProjects().filter(project => {
     // Search filter
     const matchesSearch = (project.project_name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
     (project.project_code?.toLowerCase() || '').includes(searchTerm.toLowerCase())
@@ -446,6 +446,14 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
     
     return true
   })
+  
+  // ✅ Apply pagination to filtered results
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const filteredProjects = allFilteredProjects.slice(startIndex, endIndex)
+  
+  // ✅ Update total count based on filtered results
+  const filteredTotalCount = allFilteredProjects.length
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -643,11 +651,11 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
         </CardContent>
         
         {/* Pagination */}
-        {totalCount > itemsPerPage && (
+        {filteredTotalCount > itemsPerPage && (
           <Pagination
             currentPage={currentPage}
-            totalPages={Math.ceil(totalCount / itemsPerPage)}
-            totalItems={totalCount}
+            totalPages={Math.ceil(filteredTotalCount / itemsPerPage)}
+            totalItems={filteredTotalCount}
             itemsPerPage={itemsPerPage}
             onPageChange={handlePageChange}
             loading={loading}
