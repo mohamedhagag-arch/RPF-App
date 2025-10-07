@@ -34,7 +34,8 @@ import {
 import { 
   generateKPIsFromBOQ, 
   saveGeneratedKPIs,
-  generateAndSaveKPIs
+  generateAndSaveKPIs,
+  updateExistingKPIs
 } from '@/lib/autoKPIGenerator'
 import { Clock, CheckCircle2, Info, Sparkles, X, Calendar, TrendingUp, AlertCircle } from 'lucide-react'
 
@@ -443,14 +444,15 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
             planned_units: activityData.planned_units
           })
           
-          // ✅ Pass old activity name to find existing KPIs
-          const updateResult = await generateAndSaveKPIs(activityData, workdaysConfig)
+          // ✅ UPDATE MODE: Update existing KPIs instead of creating new ones
+          console.log('🔄 UPDATING existing KPIs...')
+          const updateResult = await updateExistingKPIs(activityData, activity.activity_name, workdaysConfig)
           
           if (updateResult.success) {
             setSuccess(`✅ Activity updated! ${updateResult.message}`)
-            console.log(`✅ KPI Generation: Generated=${updateResult.kpisGenerated}, Saved=${updateResult.kpisSaved}`)
+            console.log(`✅ KPI Update: Updated=${updateResult.updatedCount}, Added=${updateResult.addedCount}, Deleted=${updateResult.deletedCount}`)
           } else {
-            console.error('❌ KPI generation failed:', updateResult.message)
+            console.error('❌ KPI update failed:', updateResult.message)
             setSuccess('⚠️ Activity updated but KPI sync failed: ' + updateResult.message)
           }
         } else {

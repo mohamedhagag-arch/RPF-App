@@ -192,6 +192,231 @@ export async function generateAndSaveKPIs(
 }
 
 /**
+ * Update existing KPIs when BOQ activity is modified
+ */
+export async function updateExistingKPIs(
+  activity: BOQActivity,
+  oldActivityName: string,
+  config?: WorkdaysConfig
+): Promise<{ success: boolean; message: string; updatedCount: number; deletedCount: number; addedCount: number }> {
+  try {
+    const supabase = getSupabaseClient()
+    
+    console.log('🔄 Updating existing KPIs for activity:', {
+      oldName: oldActivityName,
+      newName: activity.activity_name,
+      projectCode: activity.project_code
+    })
+    
+    // Step 1: Find existing KPIs by old activity name
+    const { data: existingKPIs, error: fetchError } = await supabase
+      .from(TABLES.KPI)
+      .select('*')
+      .eq('Project Code', activity.project_code)
+      .eq('Activity Name', oldActivityName)
+      .eq('Input Type', 'Planned')
+      .order('Target Date', { ascending: true })
+    
+    if (fetchError) {
+      console.error('❌ Error fetching existing KPIs:', fetchError)
+      return { success: false, message: fetchError.message, updatedCount: 0, deletedCount: 0, addedCount: 0 }
+    }
+    
+    console.log(`📊 Found ${existingKPIs?.length || 0} existing KPIs to update`)
+    
+    // Step 2: Generate new KPIs based on updated activity
+    const newKPIs = await generateKPIsFromBOQ(activity, config)
+    
+    if (newKPIs.length === 0) {
+      // If no new KPIs, delete all existing ones
+      if (existingKPIs && existingKPIs.length > 0) {
+        const { error: deleteError } = await supabase
+          .from(TABLES.KPI)
+          .delete()
+          .eq('Project Code', activity.project_code)
+          .eq('Activity Name', oldActivityName)
+          .eq('Input Type', 'Planned')
+        
+        if (deleteError) {
+          console.error('❌ Error deleting KPIs:', deleteError)
+          return { success: false, message: deleteError.message, updatedCount: 0, deletedCount: 0, addedCount: 0 }
+        }
+        
+        console.log(`🗑️ Deleted ${existingKPIs.length} KPIs (no new KPIs generated)`)
+        return { success: true, message: `Deleted ${existingKPIs.length} KPIs (no new KPIs generated)`, updatedCount: 0, deletedCount: existingKPIs.length, addedCount: 0 }
+      }
+      return { success: true, message: 'No KPIs to update', updatedCount: 0, deletedCount: 0, addedCount: 0 }
+    }
+    
+    const existingCount = existingKPIs?.length || 0
+    const newCount = newKPIs.length
+    let updatedCount = 0
+    let deletedCount = 0
+    let addedCount = 0
+    
+    // Step 3: Smart update based on count difference
+    if (existingCount === 0) {
+      // No existing KPIs → Insert all new
+      console.log('🆕 No existing KPIs, creating all from scratch...')
+      const insertResult = await saveGeneratedKPIs(newKPIs)
+      if (!insertResult.success) {
+        return { success: false, message: insertResult.message, updatedCount: 0, deletedCount: 0, addedCount: 0 }
+      }
+      addedCount = insertResult.savedCount
+      
+    } else if (newCount === existingCount) {
+      // Same count → Update existing KPIs with new values
+      console.log(`✏️ Same count (${existingCount}), updating existing KPIs...`)
+      
+      for (let i = 0; i < existingCount; i++) {
+        const existingKPI = existingKPIs[i]
+        const newKPI = newKPIs[i]
+        
+        const { error: updateError } = await supabase
+          .from(TABLES.KPI)
+          // @ts-ignore
+          .update({
+            'Activity Name': newKPI.activity_name,
+            'Quantity': newKPI.quantity.toString(),
+            'Unit': newKPI.unit,
+            'Target Date': newKPI.target_date,
+            'Activity Date': newKPI.activity_date,
+            'Project Code': newKPI.project_code,
+            'Project Sub Code': newKPI.project_sub_code,
+            'Project Full Code': newKPI.project_full_code,
+            'Section': newKPI.section,
+            'Day': newKPI.day
+          })
+          .eq('id', (existingKPI as any).id)
+        
+        if (updateError) {
+          console.error(`❌ Error updating KPI ${i + 1}:`, updateError)
+        } else {
+          updatedCount++
+        }
+      }
+      
+    } else if (newCount > existingCount) {
+      // More days → Update existing + Add new
+      console.log(`➕ Increased from ${existingCount} to ${newCount} days`)
+      
+      // Update existing KPIs
+      for (let i = 0; i < existingCount; i++) {
+        const existingKPI = existingKPIs[i]
+        const newKPI = newKPIs[i]
+        
+        const { error: updateError } = await supabase
+          .from(TABLES.KPI)
+          // @ts-ignore
+          .update({
+            'Activity Name': newKPI.activity_name,
+            'Quantity': newKPI.quantity.toString(),
+            'Unit': newKPI.unit,
+            'Target Date': newKPI.target_date,
+            'Activity Date': newKPI.activity_date,
+            'Project Code': newKPI.project_code,
+            'Project Sub Code': newKPI.project_sub_code,
+            'Project Full Code': newKPI.project_full_code,
+            'Section': newKPI.section,
+            'Day': newKPI.day
+          })
+          .eq('id', (existingKPI as any).id)
+        
+        if (updateError) {
+          console.error(`❌ Error updating KPI ${i + 1}:`, updateError)
+        } else {
+          updatedCount++
+        }
+      }
+      
+      // Insert new KPIs for additional days
+      const additionalKPIs = newKPIs.slice(existingCount)
+      const insertResult = await saveGeneratedKPIs(additionalKPIs)
+      if (insertResult.success) {
+        addedCount = insertResult.savedCount
+      }
+      
+    } else {
+      // Fewer days → Update remaining + Delete extra
+      console.log(`➖ Decreased from ${existingCount} to ${newCount} days`)
+      
+      // Update remaining KPIs
+      for (let i = 0; i < newCount; i++) {
+        const existingKPI = existingKPIs[i]
+        const newKPI = newKPIs[i]
+        
+        const { error: updateError } = await supabase
+          .from(TABLES.KPI)
+          // @ts-ignore
+          .update({
+            'Activity Name': newKPI.activity_name,
+            'Quantity': newKPI.quantity.toString(),
+            'Unit': newKPI.unit,
+            'Target Date': newKPI.target_date,
+            'Activity Date': newKPI.activity_date,
+            'Project Code': newKPI.project_code,
+            'Project Sub Code': newKPI.project_sub_code,
+            'Project Full Code': newKPI.project_full_code,
+            'Section': newKPI.section,
+            'Day': newKPI.day
+          })
+          .eq('id', (existingKPI as any).id)
+        
+        if (updateError) {
+          console.error(`❌ Error updating KPI ${i + 1}:`, updateError)
+        } else {
+          updatedCount++
+        }
+      }
+      
+      // Delete extra KPIs
+      const extraKPIs = existingKPIs.slice(newCount)
+      const idsToDelete = extraKPIs.map(kpi => (kpi as any).id)
+      
+      const { error: deleteError } = await supabase
+        .from(TABLES.KPI)
+        .delete()
+        .in('id', idsToDelete)
+      
+      if (deleteError) {
+        console.error('❌ Error deleting extra KPIs:', deleteError)
+      } else {
+        deletedCount = idsToDelete.length
+      }
+    }
+    
+    console.log('✅ KPI update complete!', {
+      updated: updatedCount,
+      added: addedCount,
+      deleted: deletedCount
+    })
+    
+    const parts = []
+    if (updatedCount > 0) parts.push(`Updated ${updatedCount} KPIs`)
+    if (addedCount > 0) parts.push(`Added ${addedCount} new KPIs`)
+    if (deletedCount > 0) parts.push(`Deleted ${deletedCount} extra KPIs`)
+    
+    return {
+      success: true,
+      message: parts.length > 0 ? parts.join(', ') : 'KPIs updated successfully',
+      updatedCount,
+      deletedCount,
+      addedCount
+    }
+    
+  } catch (error: any) {
+    console.error('❌ Error updating KPIs:', error)
+    return {
+      success: false,
+      message: error.message || 'Failed to update KPIs',
+      updatedCount: 0,
+      deletedCount: 0,
+      addedCount: 0
+    }
+  }
+}
+
+/**
  * Preview KPIs without saving
  */
 export function previewKPIs(activity: BOQActivity, config?: WorkdaysConfig): GeneratedKPI[] {
