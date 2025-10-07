@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
+import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { Project, TABLES } from '@/lib/supabase'
 import { mapBOQFromDB, mapKPIFromDB } from '@/lib/dataMappers'
 import { calculateProjectAnalytics } from '@/lib/projectAnalytics'
@@ -34,7 +35,8 @@ export function EnhancedProjectCard({
     loaded: false
   })
   
-  const supabase = createClientComponentClient()
+  const supabase = getSupabaseClient()
+  const { startSmartLoading, stopSmartLoading } = useSmartLoading('project-card')
   
   useEffect(() => {
     // Only fetch if card is visible (intersection observer could be added)

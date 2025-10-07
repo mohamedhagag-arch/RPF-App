@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
+import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { TABLES } from '@/lib/supabase'
 import { mapProjectFromDB, mapBOQFromDB, mapKPIFromDB } from '@/lib/dataMappers'
@@ -33,7 +34,8 @@ export function DashboardOverview() {
   const [loading, setLoading] = useState(true)
   const [mounted, setMounted] = useState(false)
   const mountedRef = useRef(false)
-  const supabase = createClientComponentClient()
+  const supabase = getSupabaseClient()
+  const { startSmartLoading, stopSmartLoading } = useSmartLoading('dashboard-overview')
 
   useEffect(() => {
     if (!mountedRef.current) {

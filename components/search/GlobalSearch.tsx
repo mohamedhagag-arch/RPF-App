@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
+import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -56,7 +57,8 @@ export function GlobalSearch({ onResultClick, onClose, isOpen = false }: GlobalS
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   
   const searchInputRef = useRef<HTMLInputElement>(null)
-  const supabase = createClientComponentClient()
+  const supabase = getSupabaseClient()
+  const { startSmartLoading, stopSmartLoading } = useSmartLoading('search')
 
   useEffect(() => {
     if (isOpen && searchInputRef.current) {

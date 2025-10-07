@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
+import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { Project, BOQActivity, TABLES } from '@/lib/supabase'
 import { mapBOQFromDB, mapKPIFromDB } from '@/lib/dataMappers'
 import { calculateProjectAnalytics, ProjectAnalytics } from '@/lib/projectAnalytics'
@@ -36,7 +37,8 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
   const [loading, setLoading] = useState(true)
   const [activeView, setActiveView] = useState<'overview' | 'activities' | 'kpis'>('overview')
   
-  const supabase = createClientComponentClient()
+  const supabase = getSupabaseClient()
+  const { startSmartLoading, stopSmartLoading } = useSmartLoading('project-details')
   
   useEffect(() => {
     fetchProjectAnalytics()
@@ -44,33 +46,39 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
   
   const fetchProjectAnalytics = async () => {
     try {
-      setLoading(true)
+      startSmartLoading(setLoading)
       
       console.log(`📊 Fetching analytics for project: ${project.project_code} (${project.project_name})`)
       
       // ✅ Fetch ONLY activities for THIS project from 'Planning Database - BOQ Rates'
-      const { data: activitiesData, error: activitiesError } = await supabase
-        .from(TABLES.BOQ_ACTIVITIES)
-        .select('*')
-        .eq('Project Code', project.project_code)
+      const { data: activitiesData, error: activitiesError } = await executeQuery(async () =>
+        supabase
+          .from(TABLES.BOQ_ACTIVITIES)
+          .select('*')
+          .eq('Project Code', project.project_code)
+      )
       
       if (activitiesError) {
         console.error('❌ Error fetching activities:', activitiesError)
       }
       
       // ✅ Fetch ONLY KPIs for THIS project from MAIN TABLE
-      let { data: kpisData, error: kpisError } = await supabase
-        .from(TABLES.KPI)
-        .select('*')
-        .eq('Project Full Code', project.project_code)
-      
-      // If no results, try with 'Project Code' column
-      if (!kpisData || kpisData.length === 0) {
-        console.log('🔄 No KPIs found with Project Full Code, trying Project Code...')
-        const result = await supabase
+      let { data: kpisData, error: kpisError } = await executeQuery(async () =>
+        supabase
           .from(TABLES.KPI)
           .select('*')
-          .eq('Project Code', project.project_code)
+          .eq('Project Full Code', project.project_code)
+      )
+      
+      // If no results, try with 'Project Code' column
+      if (!kpisData || (Array.isArray(kpisData) && kpisData.length === 0)) {
+        console.log('🔄 No KPIs found with Project Full Code, trying Project Code...')
+        const result = await executeQuery(async () =>
+          supabase
+            .from(TABLES.KPI)
+            .select('*')
+            .eq('Project Code', project.project_code)
+        )
         kpisData = result.data
         kpisError = result.error
       }
@@ -79,8 +87,8 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
         console.error('❌ Error fetching KPIs:', kpisError)
       }
       
-      const activities = (activitiesData || []).map(mapBOQFromDB)
-      const kpis = (kpisData || []).map(mapKPIFromDB)
+      const activities = (Array.isArray(activitiesData) ? activitiesData : []).map(mapBOQFromDB)
+      const kpis = (Array.isArray(kpisData) ? kpisData : []).map(mapKPIFromDB)
       
       console.log(`✅ Loaded ${activities.length} activities for ${project.project_code}`)
       console.log(`✅ Loaded ${kpis.length} KPIs for ${project.project_code}`)
@@ -104,8 +112,8 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
         console.warn(`⚠️ NO KPIs FOUND for project ${project.project_code}!`)
         console.log('💡 Check if KPIs exist in "Planning Database - KPI Combined" view')
       } else {
-        const plannedKPIs = kpis.filter(k => k.input_type === 'Planned')
-        const actualKPIs = kpis.filter(k => k.input_type === 'Actual')
+        const plannedKPIs = kpis.filter((k: any) => k.input_type === 'Planned')
+        const actualKPIs = kpis.filter((k: any) => k.input_type === 'Actual')
         console.log('📊 KPIs breakdown:', {
           total: kpis.length,
           planned: plannedKPIs.length,
@@ -133,7 +141,7 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
     } catch (error) {
       console.error('❌ Error fetching project analytics:', error)
     } finally {
-      setLoading(false)
+      stopSmartLoading(setLoading)
     }
   }
   

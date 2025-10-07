@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { getSupabaseClient } from '@/lib/supabaseConnectionManager'
+import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
+import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { TABLES } from '@/lib/supabase'
 import { ModernCard, StatCard, ProgressCard } from '@/components/ui/ModernCard'
 import { 
@@ -34,6 +35,7 @@ export function ModernDashboard() {
   const [loading, setLoading] = useState(true)
   
   const supabase = getSupabaseClient()
+  const { startSmartLoading, stopSmartLoading } = useSmartLoading('modern-dashboard')
   
   // Quick lightweight stats fetch
   useEffect(() => {

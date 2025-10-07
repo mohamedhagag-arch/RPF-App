@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
+import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { Card, CardContent, CardHeader, CardTitle } from './Card'
 import { Button } from './Button'
 import { LoadingSpinner } from './LoadingSpinner'
@@ -76,7 +77,8 @@ export function RelationshipViewer({
     details: false
   })
   
-  const supabase = createClientComponentClient()
+  const supabase = getSupabaseClient()
+  const { startSmartLoading, stopSmartLoading } = useSmartLoading('relationship-viewer')
 
   useEffect(() => {
     if (projectId || activityId || kpiId) {

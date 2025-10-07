@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { getSupabaseClient } from '@/lib/supabaseConnectionManager'
+import { getSupabaseClient } from '@/lib/simpleConnectionManager'
+import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -34,6 +35,9 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   
+  // ✅ Smart loading for settings
+  const { startSmartLoading, stopSmartLoading } = useSmartLoading('settings')
+  
   // Profile settings
   const [profileData, setProfileData] = useState({
     full_name: '',
@@ -61,7 +65,7 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
 
   const fetchUserProfile = async () => {
     try {
-      setLoading(true)
+      startSmartLoading(setLoading)
       const { data: { user } } = await supabase.auth.getUser()
       
       if (user) {
@@ -86,13 +90,13 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
     } catch (error: any) {
       setError('Failed to load profile data')
     } finally {
-      setLoading(false)
+      stopSmartLoading(setLoading)
     }
   }
 
   const handleProfileUpdate = async () => {
     try {
-      setLoading(true)
+      startSmartLoading(setLoading)
       setError('')
       
       const { data: { user } } = await supabase.auth.getUser()
@@ -114,13 +118,13 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
     } catch (error: any) {
       setError(error.message)
     } finally {
-      setLoading(false)
+      stopSmartLoading(setLoading)
     }
   }
 
   const handleExportData = async () => {
     try {
-      setLoading(true)
+      startSmartLoading(setLoading)
       setError('')
       
       // Export projects
@@ -161,7 +165,7 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
     } catch (error: any) {
       setError('Failed to export data')
     } finally {
-      setLoading(false)
+      stopSmartLoading(setLoading)
     }
   }
 
@@ -170,7 +174,7 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
     if (!file) return
 
     try {
-      setLoading(true)
+      startSmartLoading(setLoading)
       setError('')
       
       const text = await file.text()
@@ -212,13 +216,13 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
     } catch (error: any) {
       setError('Failed to import data: ' + error.message)
     } finally {
-      setLoading(false)
+      stopSmartLoading(setLoading)
     }
   }
 
   const handleClearCache = async () => {
     try {
-      setLoading(true)
+      startSmartLoading(setLoading)
       // Clear browser cache and localStorage
       localStorage.clear()
       sessionStorage.clear()
@@ -228,7 +232,7 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
     } catch (error: any) {
       setError('Failed to clear cache')
     } finally {
-      setLoading(false)
+      stopSmartLoading(setLoading)
     }
   }
 

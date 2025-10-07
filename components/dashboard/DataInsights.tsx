@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
+import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { TABLES } from '@/lib/supabase'
 import { mapProjectFromDB, mapBOQFromDB, mapKPIFromDB } from '@/lib/dataMappers'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -68,7 +69,8 @@ export function DataInsights({ expanded = false }: DataInsightsProps) {
   const [error, setError] = useState('')
   const [selectedView, setSelectedView] = useState<'overview' | 'trends' | 'performance' | 'financial'>('overview')
   
-  const supabase = createClientComponentClient()
+  const supabase = getSupabaseClient()
+  const { startSmartLoading, stopSmartLoading } = useSmartLoading('data-insights')
 
   useEffect(() => {
     const fetchInsights = async () => {

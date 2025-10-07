@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
+import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { BOQActivity } from '@/lib/supabase'
 import { TABLES } from '@/lib/supabase'
 import { mapKPIFromDB } from '@/lib/dataMappers'
@@ -28,7 +29,8 @@ export function BOQWithKPIStatus({ activity, allKPIs }: BOQWithKPIStatusProps) {
     hasData: false
   })
   const [showDetails, setShowDetails] = useState(false)
-  const supabase = createClientComponentClient()
+  const supabase = getSupabaseClient()
+  const { startSmartLoading, stopSmartLoading } = useSmartLoading('boq-kpi-status')
 
   useEffect(() => {
     // If allKPIs is provided, use it (no fetching!)

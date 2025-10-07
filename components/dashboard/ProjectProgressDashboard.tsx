@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
+import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { TABLES } from '@/lib/supabase'
 import { mapBOQFromDB, mapProjectFromDB } from '@/lib/dataMappers'
@@ -21,7 +22,8 @@ export function ProjectProgressDashboard() {
   const [stats, setStats] = useState<ProjectStats | null>(null)
   const [projectBreakdown, setProjectBreakdown] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const supabase = createClientComponentClient()
+  const supabase = getSupabaseClient()
+  const { startSmartLoading, stopSmartLoading } = useSmartLoading('project-progress-dashboard')
 
   useEffect(() => {
     fetchProgressData()

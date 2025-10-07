@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
+import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { Project, TABLES } from '@/lib/supabase'
 import { ModernCard } from '@/components/ui/ModernCard'
 import { ModernButton } from '@/components/ui/ModernButton'
@@ -69,7 +70,8 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   const [showKPITable, setShowKPITable] = useState(false)
   const [kpiGenerationStatus, setKpiGenerationStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
   
-  const supabase = createClientComponentClient()
+  const supabase = getSupabaseClient()
+  const { startSmartLoading, stopSmartLoading } = useSmartLoading('boq-form')
   
   // Workdays Configuration
   const workdaysConfig: WorkdaysConfig = {

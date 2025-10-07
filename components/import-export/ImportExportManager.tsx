@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { getSupabaseClient } from '@/lib/supabaseConnectionManager'
+import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
+import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Alert } from '@/components/ui/Alert'
@@ -48,6 +49,8 @@ export function ImportExportManager({ userRole = 'viewer', onClose }: ImportExpo
   const [activeTab, setActiveTab] = useState<'export' | 'import'>('export')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  
+  const { startSmartLoading, stopSmartLoading } = useSmartLoading('import-export') // ✅ Smart loading
   const [success, setSuccess] = useState('')
   const [progress, setProgress] = useState(0)
   

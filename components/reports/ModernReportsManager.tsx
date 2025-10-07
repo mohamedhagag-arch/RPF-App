@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { getSupabaseClient } from '@/lib/supabaseConnectionManager'
+import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
+import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { Project, BOQActivity, TABLES } from '@/lib/supabase'
 import { mapProjectFromDB, mapBOQFromDB, mapKPIFromDB } from '@/lib/dataMappers'
 import { processKPIRecord, ProcessedKPI } from '@/lib/kpiProcessor'
@@ -39,6 +40,8 @@ export function ModernReportsManager() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [activeReport, setActiveReport] = useState<ReportType>('summary')
+  
+  const { startSmartLoading, stopSmartLoading } = useSmartLoading('modern-reports')
   
   // Smart Filter State
   const [selectedProjects, setSelectedProjects] = useState<string[]>([])

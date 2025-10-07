@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
+import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { Project, TABLES } from '@/lib/supabase'
 import { mapBOQFromDB, mapKPIFromDB } from '@/lib/dataMappers'
 import { Button } from '@/components/ui/Button'
@@ -33,7 +34,8 @@ export function ProjectsTable({
   getStatusText
 }: ProjectsTableProps) {
   const [projectStats, setProjectStats] = useState<Record<string, ProjectStats>>({})
-  const supabase = createClientComponentClient()
+  const supabase = getSupabaseClient()
+  const { startSmartLoading, stopSmartLoading } = useSmartLoading('projects-table')
   
   useEffect(() => {
     if (projects.length > 0) {

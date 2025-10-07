@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { getSupabaseClient } from '@/lib/supabaseConnectionManager'
-import { useSyncingFix } from '@/lib/syncingFix'
+import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
+import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Alert } from '@/components/ui/Alert'
@@ -87,7 +87,7 @@ export function EnhancedDashboardOverview({
   const [error, setError] = useState('')
   const [mounted, setMounted] = useState(false)
   const mountedRef = useRef(false)
-  const { setSafeLoading } = useSyncingFix() // ✅ Syncing fix
+  const { startSmartLoading, stopSmartLoading } = useSmartLoading('dashboard') // ✅ Smart loading
   
   const supabase = getSupabaseClient()
 
@@ -103,7 +103,7 @@ export function EnhancedDashboardOverview({
 
     const fetchEnhancedStats = async () => {
       try {
-        setSafeLoading(setLoading, true)
+        startSmartLoading(setLoading)
         setError('')
 
         // Fetch all data with enhanced queries
@@ -286,7 +286,7 @@ export function EnhancedDashboardOverview({
         setError('Failed to load dashboard data')
         setStats(null)
       } finally {
-        setSafeLoading(setLoading, false)
+        stopSmartLoading(setLoading)
       }
     }
 

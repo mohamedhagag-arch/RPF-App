@@ -91,6 +91,44 @@ function getSmartTimeout(tabName: string): number {
       return 25000 // 25 ثانية للـ BOQ (أكبر)
     case 'kpi':
       return 20000 // 20 ثانية للـ KPI
+    case 'settings':
+      return 15000 // 15 ثانية للإعدادات (خفيفة)
+    case 'project-details':
+      return 30000 // 30 ثانية لتفاصيل المشروع (تحليلات معقدة)
+    case 'dashboard':
+      return 25000 // 25 ثانية للـ Dashboard (تحليلات)
+    case 'reports':
+      return 30000 // 30 ثانية للتقارير (معقدة)
+    case 'users':
+      return 15000 // 15 ثانية للمستخدمين (خفيفة)
+    case 'import-export':
+      return 20000 // 20 ثانية للاستيراد/التصدير
+    case 'boq-form':
+      return 20000 // 20 ثانية لنموذج BOQ
+    case 'modern-dashboard':
+      return 20000 // 20 ثانية للـ Dashboard الحديث
+    case 'modern-reports':
+      return 30000 // 30 ثانية للتقارير الحديثة (معقدة)
+    case 'search':
+      return 10000 // 10 ثانية للبحث (سريع)
+    case 'projects-table':
+      return 20000 // 20 ثانية لجدول المشاريع
+    case 'project-card':
+      return 15000 // 15 ثانية لبطاقة المشروع
+    case 'boq-status':
+      return 10000 // 10 ثانية لحالة BOQ (سريع)
+    case 'boq-progress':
+      return 10000 // 10 ثانية لتقدم BOQ (سريع)
+    case 'boq-kpi-status':
+      return 10000 // 10 ثانية لحالة KPI في BOQ (سريع)
+    case 'relationship-viewer':
+      return 20000 // 20 ثانية لعرض العلاقات
+    case 'data-insights':
+      return 25000 // 25 ثانية لرؤى البيانات (تحليلات)
+    case 'dashboard-overview':
+      return 20000 // 20 ثانية لنظرة عامة على Dashboard
+    case 'project-progress-dashboard':
+      return 25000 // 25 ثانية لـ Dashboard تقدم المشاريع
     default:
       return 15000 // 15 ثانية افتراضي
   }
