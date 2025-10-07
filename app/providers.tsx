@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useRef } from 'react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
-import { getSupabaseClient } from '@/lib/supabaseConnectionManager'
+import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { User } from '@supabase/supabase-js'
 import { User as AppUser } from '@/lib/supabase'
 import { SessionManager } from '@/components/auth/SessionManager'

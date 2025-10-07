@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { getSupabaseClient } from '@/lib/supabaseConnectionManager'
+import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 
 export function SessionManager() {
   const supabase = getSupabaseClient()

@@ -25,7 +25,7 @@ export function useSyncingFix() {
   /**
    * Force stop syncing after timeout
    */
-  const forceStopSyncing = (setLoading: (loading: boolean) => void, timeoutMs: number = 10000) => {
+  const forceStopSyncing = (setLoading: (loading: boolean) => void, timeoutMs: number = 30000) => {
     if (syncingTimeoutRef.current) {
       clearTimeout(syncingTimeoutRef.current)
     }

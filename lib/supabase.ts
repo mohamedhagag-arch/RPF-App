@@ -1,10 +1,7 @@
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseClient } from './simpleConnectionManager'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-// Create Supabase client (using default public schema)
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+// Use the simple connection manager for all Supabase operations
+export const supabase = getSupabaseClient()
 
 // ✅ NEW: Table names with split KPI system
 export const TABLES = {

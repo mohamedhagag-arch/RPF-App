@@ -9,6 +9,9 @@ import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { LogOut, User } from 'lucide-react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { ConnectionMonitor } from '@/components/common/ConnectionMonitor'
+// Simple connection management - no complex systems needed
+// Import simple connection test for development
+import '@/lib/simpleConnectionTest'
 
 export default function AuthenticatedLayout({
   children,

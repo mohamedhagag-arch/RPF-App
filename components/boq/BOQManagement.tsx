@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import { getSimpleSupabaseClient, simpleQuery, simpleConnectionMonitor } from '@/lib/simpleConnectionManager'
-import { useSyncingFix } from '@/lib/syncingFix'
+import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
+import { useTabNavigationFix } from '@/lib/tabNavigationFix'
 import { BOQActivity, Project, TABLES } from '@/lib/supabase'
 import { mapBOQFromDB, mapProjectFromDB, mapKPIFromDB } from '@/lib/dataMappers'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -47,9 +47,9 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage] = useState(10) // 10 items per page
   
-  const supabase = getSimpleSupabaseClient()
+  const supabase = getSupabaseClient()
   const isMountedRef = useRef(true) // ✅ Track if component is mounted
-  const { setSafeLoading } = useSyncingFix() // ✅ Syncing fix
+  const { startLoading, stopLoading } = useTabNavigationFix('boq') // ✅ Tab navigation fix
 
   // Handle unified filter changes  
   const handleFilterChange = (newFilters: FilterState) => {
@@ -83,7 +83,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     if (!isMountedRef.current) return
     
     try {
-      setSafeLoading(setLoading, true)
+      startLoading(setLoading)
       console.log(`📄 BOQManagement: Fetching activities (page ${page})...`)
       
       // Calculate range for pagination
@@ -149,21 +149,19 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       // ✅ Try to reconnect if connection failed
       if (error.message?.includes('connection') || error.message?.includes('network')) {
         console.log('🔄 Connection error detected, attempting to reconnect...')
-        const { reconnectSimple } = await import('@/lib/simpleConnectionManager')
-        const reconnected = await reconnectSimple()
-        if (reconnected) {
-          console.log('✅ Reconnected successfully, retrying data fetch...')
-          // Retry the fetch after reconnection
-          setTimeout(() => {
-            if (isMountedRef.current) {
-              fetchData(page)
-            }
-          }, 1000)
-          return
-        }
+        const { resetClient } = await import('@/lib/simpleConnectionManager')
+        resetClient()
+        console.log('✅ Client reset, retrying data fetch...')
+        // Retry the fetch after reset
+        setTimeout(() => {
+          if (isMountedRef.current) {
+            fetchData(page)
+          }
+        }, 1000)
+        return
       }
     } finally {
-      setSafeLoading(setLoading, false)
+      stopLoading(setLoading)
     }
   }
 
@@ -171,18 +169,19 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     isMountedRef.current = true
     console.log('🟡 BOQ: Component mounted')
     
-    // Start simple connection monitoring
-    simpleConnectionMonitor.start()
+    // Connection monitoring is handled by simpleConnectionManager
     
     // ✅ Initial load: Only fetch projects list (lightweight)
     const fetchInitialData = async () => {
       try {
-        setSafeLoading(setLoading, true)
+        startLoading(setLoading)
         console.log('🟡 BOQ: Fetching initial data (projects list only)...')
         
-        const { data: projectsData, error: projectsError } = await supabase
-          .from(TABLES.PROJECTS)
-          .select('*')
+        const { data: projectsData, error: projectsError } = await executeQuery(async () =>
+          supabase
+            .from(TABLES.PROJECTS)
+            .select('*')
+        )
         
         // ✅ ALWAYS update state (React handles unmounted safely)
         
@@ -192,7 +191,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
           return
         }
         
-        if (projectsData) {
+        if (projectsData && Array.isArray(projectsData)) {
           const mappedProjects = projectsData.map(mapProjectFromDB)
           setProjects(mappedProjects)
           console.log('✅ BOQ: Projects list loaded -', mappedProjects.length, 'projects')
@@ -203,7 +202,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         setError(error.message || 'Failed to load initial data')
       } finally {
         // ✅ ALWAYS stop loading (React handles unmounted safely)
-        setLoading(false)
+        stopLoading(setLoading)
       }
     }
     
@@ -213,8 +212,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     return () => {
       console.log('🔴 BOQ: Cleanup - component unmounting')
       isMountedRef.current = false
-      // Stop connection monitoring when component unmounts
-      simpleConnectionMonitor.stop()
+      // Connection monitoring is handled globally
     }
   }, []) // Run ONCE only!
   

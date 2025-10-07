@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import { getSimpleSupabaseClient, simpleQuery, simpleConnectionMonitor } from '@/lib/simpleConnectionManager'
-import { useSyncingFix } from '@/lib/syncingFix'
+import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
+import { useTabNavigationFix } from '@/lib/tabNavigationFix'
 import { KPIRecord, Project, BOQActivity, TABLES } from '@/lib/supabase'
 import { mapKPIFromDB, mapProjectFromDB, mapBOQFromDB } from '@/lib/dataMappers'
 import { processKPIRecord, ProcessedKPI } from '@/lib/kpiProcessor'
@@ -47,8 +47,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   const [totalKPICount, setTotalKPICount] = useState(0)
   const itemsPerPage = 50 // Show 50 KPIs per page
   
-  const supabase = getSimpleSupabaseClient()
-  const { setSafeLoading } = useSyncingFix() // ✅ Syncing fix
+  const supabase = getSupabaseClient()
+  const { startLoading, stopLoading } = useTabNavigationFix('kpi') // ✅ Tab navigation fix
 
   // Handle unified filter changes
   const handleFilterChange = (newFilters: FilterState) => {
@@ -66,7 +66,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     if (!isMountedRef.current) return
     
     try {
-      setSafeLoading(setLoading, true)
+      startLoading(setLoading)
       console.log('🟡 KPITracking: Fetching KPIs and activities...')
       
       // ✅ Don't re-fetch projects! They're already loaded in initial load
@@ -179,22 +179,20 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       // ✅ Try to reconnect if connection failed
       if (error.message?.includes('connection') || error.message?.includes('network')) {
         console.log('🔄 Connection error detected, attempting to reconnect...')
-        const { reconnectSimple } = await import('@/lib/simpleConnectionManager')
-        const reconnected = await reconnectSimple()
-        if (reconnected) {
-          console.log('✅ Reconnected successfully, retrying data fetch...')
-          // Retry the fetch after reconnection
-          setTimeout(() => {
-            if (isMountedRef.current) {
-              fetchData(filters.project)
-            }
-          }, 1000)
-          return
-        }
+        const { resetClient } = await import('@/lib/simpleConnectionManager')
+        resetClient()
+        console.log('✅ Client reset, retrying data fetch...')
+        // Retry the fetch after reset
+        setTimeout(() => {
+          if (isMountedRef.current) {
+            fetchData(filters.project)
+          }
+        }, 1000)
+        return
       }
     } finally {
       // ✅ ALWAYS stop loading (React handles unmounted safely)
-      setSafeLoading(setLoading, false)
+      stopLoading(setLoading)
       console.log('🟡 KPITracking: Loading finished')
     }
   }
@@ -204,8 +202,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     isMountedRef.current = true
     console.log('🟡 KPITracking: Component mounted')
     
-    // Start simple connection monitoring
-    simpleConnectionMonitor.start()
+    // Connection monitoring is handled globally by ConnectionMonitor
     
     // Get total KPI count for info display (without loading all data)
     async function getTotalCount() {
@@ -240,8 +237,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     return () => {
       console.log('🔴 KPITracking: Component unmounting - cleanup')
       isMountedRef.current = false
-      // Stop connection monitoring when component unmounts
-      simpleConnectionMonitor.stop()
+      // Connection monitoring is handled globally
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // Run only once on mount

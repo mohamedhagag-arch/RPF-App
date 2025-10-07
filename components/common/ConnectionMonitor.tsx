@@ -1,43 +1,36 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
-import { checkSupabaseConnection, monitorSupabaseHealth } from '@/lib/supabaseConnectionManager'
+import { useEffect } from 'react'
+import { checkConnection, getConnectionInfo } from '@/lib/simpleConnectionManager'
 
 /**
- * Connection Monitor Component
+ * Simple Connection Monitor Component
  * 
- * Monitors Supabase connection health and prevents "Syncing..." issues
- * by detecting and recovering from connection problems.
+ * Uses the simple connection manager to prevent "Syncing..." issues
+ * Minimal monitoring without complex intervals
  */
 export function ConnectionMonitor() {
-  const monitorRef = useRef<(() => void) | null>(null)
-
   useEffect(() => {
-    console.log('🔍 Connection Monitor: Starting health monitoring')
+    console.log('🔍 Simple Connection Monitor: Starting...')
     
-    // Initial health check
-    checkSupabaseConnection()
+    // Initial connection check
+    checkConnection()
     
-    // Start continuous monitoring with faster intervals
-    monitorRef.current = monitorSupabaseHealth()
-    
-    // Additional connection check every 5 seconds
-    const fastCheckInterval = setInterval(async () => {
-      const isHealthy = await checkSupabaseConnection()
-      if (!isHealthy) {
-        console.warn('⚠️ Fast check detected connection issue')
-        // Force reconnection
-        const { reconnectSupabase } = await import('@/lib/supabaseConnectionManager')
-        await reconnectSupabase()
-      }
-    }, 5000)
+    // Simple periodic check every 60 seconds (less frequent)
+    const checkInterval = setInterval(async () => {
+      const isConnected = await checkConnection()
+      const info = getConnectionInfo()
+      
+      console.log('📊 Connection Status:', {
+        isConnected,
+        isInitialized: info.isInitialized,
+        hasClient: info.hasClient
+      })
+    }, 60000) // كل دقيقة بدلاً من كل 30 ثانية
     
     return () => {
-      console.log('🔍 Connection Monitor: Stopping health monitoring')
-      if (monitorRef.current) {
-        monitorRef.current()
-      }
-      clearInterval(fastCheckInterval)
+      console.log('🔍 Simple Connection Monitor: Cleanup')
+      clearInterval(checkInterval)
     }
   }, [])
 

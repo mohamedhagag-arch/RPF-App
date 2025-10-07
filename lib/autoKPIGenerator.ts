@@ -8,7 +8,7 @@ import {
   distributeOverWorkdays, 
   WorkdaysConfig 
 } from './workdaysCalculator'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseClient, executeQuery } from './simpleConnectionManager'
 import { TABLES } from './supabase'
 
 export interface BOQActivity {
@@ -125,7 +125,7 @@ export async function saveGeneratedKPIs(
   }
   
   try {
-    const supabase = createClientComponentClient()
+    const supabase = getSupabaseClient()
     
     console.log('========================================')
     console.log('💾 SAVING KPIs TO DATABASE')
@@ -188,7 +188,7 @@ export async function updateKPIsFromBOQ(
   oldActivityName?: string // ✅ NEW: Pass old activity name to find existing KPIs
 ): Promise<{ success: boolean; added: number; deleted: number; updated: number; error?: string }> {
   try {
-    const supabase = createClientComponentClient()
+    const supabase = getSupabaseClient()
     
     console.log('========================================')
     console.log('🧠 SMART KPI UPDATE for activity')

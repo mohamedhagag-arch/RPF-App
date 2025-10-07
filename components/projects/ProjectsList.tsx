@@ -1,9 +1,9 @@
 'use client'
 
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { getSimpleSupabaseClient, simpleQuery, simpleConnectionMonitor } from '@/lib/simpleConnectionManager'
+import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { withSafeLoading, createSafeLoadingSetter } from '@/lib/loadingStateManager'
-import { useSyncingFix } from '@/lib/syncingFix'
+import { useTabNavigationFix } from '@/lib/tabNavigationFix'
 import { getGridClasses, shouldLoadAnalytics, getViewModeIcon, getViewModeName } from '@/lib/viewModeOptimizer'
 import { getCardGridClasses, shouldLoadCardAnalytics, getCardViewName, getCardViewDescription } from '@/lib/cardViewOptimizer'
 import { Project, TABLES } from '@/lib/supabase'
@@ -61,9 +61,9 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
   const [currentFilters, setCurrentFilters] = useState<Record<string, any>>({})
   const [currentProjectCode, setCurrentProjectCode] = useState<string>('')
   
-  const supabase = getSimpleSupabaseClient()
+  const supabase = getSupabaseClient()
   const isMountedRef = useRef(true) // ✅ Track if component is mounted
-  const { setSafeLoading } = useSyncingFix() // ✅ Syncing fix
+  const { startLoading, stopLoading } = useTabNavigationFix('projects') // ✅ Tab navigation fix
 
   // Sort options for projects
   const sortOptions: SortOption[] = [
@@ -205,7 +205,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
   // Fetch projects with pagination
   const fetchProjects = useCallback(async (page: number) => {
     try {
-      setSafeLoading(setLoading, true)
+      startLoading(setLoading)
       setError('')
       
       console.log(`📄 Fetching page ${page} (${itemsPerPage} items per page)`)
@@ -273,21 +273,19 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
         
         // ✅ Try to reconnect if connection failed
         console.log('🔄 Connection error detected, attempting to reconnect...')
-        const { reconnectSimple } = await import('@/lib/simpleConnectionManager')
-        const reconnected = await reconnectSimple()
-        if (reconnected) {
-          console.log('✅ Reconnected successfully, retrying data fetch...')
-          // Retry the fetch after reconnection
-          setTimeout(() => {
-            if (isMountedRef.current) {
-              fetchProjects(page)
-            }
-          }, 1000)
-          return
-        }
+        const { resetClient } = await import('@/lib/simpleConnectionManager')
+        resetClient()
+        console.log('✅ Client reset, retrying data fetch...')
+        // Retry the fetch after reset
+        setTimeout(() => {
+          if (isMountedRef.current) {
+            fetchProjects(page)
+          }
+        }, 1000)
+        return
     } finally {
-      // ✅ ALWAYS stop loading (React handles unmounted safely)
-      setSafeLoading(setLoading, false)
+        // ✅ ALWAYS stop loading (React handles unmounted safely)
+        stopLoading(setLoading)
       console.log('🟡 Projects: Loading finished')
     }
   }, [itemsPerPage, viewMode]) // ✅ FIXED: Removed supabase to prevent infinite loop
@@ -296,21 +294,22 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
     isMountedRef.current = true
     console.log('🟡 Projects: Component mounted')
     
-    // Start simple connection monitoring
-    simpleConnectionMonitor.start()
+    // Connection monitoring is handled by simpleConnectionManager
     
     // ✅ Initial load: Fetch ONLY projects list for filter dropdown (lightweight)
     // NO full project details, NO activities, NO KPIs
     const fetchProjectsForFilter = async () => {
       try {
-        setLoading(true)
+        startLoading(setLoading)
         console.log('🟡 Projects: Fetching projects list for filters...')
         
         // Fetch ALL fields to avoid column errors (still lightweight - just project count)
-        const { data: projectsData, error: projectsError } = await supabase
-          .from(TABLES.PROJECTS)
-          .select('*')
-          .order('created_at', { ascending: false })
+        const { data: projectsData, error: projectsError } = await executeQuery(async () =>
+          supabase
+            .from(TABLES.PROJECTS)
+            .select('*')
+            .order('created_at', { ascending: false })
+        )
         
         // ✅ ALWAYS update state (React handles unmounted safely)
         
@@ -320,7 +319,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
           return
         }
         
-        if (projectsData) {
+        if (projectsData && Array.isArray(projectsData)) {
           const mappedProjects = projectsData.map(mapProjectFromDB)
           setProjects(mappedProjects)
           setTotalCount(mappedProjects.length)
@@ -342,8 +341,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
     return () => {
       console.log('🔴 Projects: Cleanup - component unmounting')
       isMountedRef.current = false
-      // Stop connection monitoring when component unmounts
-      simpleConnectionMonitor.stop()
+      // Connection monitoring is handled globally
     }
   }, []) // Empty dependency - run ONCE only!
   
