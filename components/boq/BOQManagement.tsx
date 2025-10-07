@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
-import { useTabNavigationFix } from '@/lib/tabNavigationFix'
+import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { BOQActivity, Project, TABLES } from '@/lib/supabase'
 import { mapBOQFromDB, mapProjectFromDB, mapKPIFromDB } from '@/lib/dataMappers'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -49,7 +49,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   
   const supabase = getSupabaseClient()
   const isMountedRef = useRef(true) // ✅ Track if component is mounted
-  const { startLoading, stopLoading } = useTabNavigationFix('boq') // ✅ Tab navigation fix
+  const { startSmartLoading, stopSmartLoading } = useSmartLoading('boq') // ✅ Smart loading
 
   // Handle unified filter changes  
   const handleFilterChange = (newFilters: FilterState) => {
@@ -83,7 +83,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     if (!isMountedRef.current) return
     
     try {
-      startLoading(setLoading)
+      startSmartLoading(setLoading)
       console.log(`📄 BOQManagement: Fetching activities (page ${page})...`)
       
       // Calculate range for pagination
@@ -161,7 +161,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         return
       }
     } finally {
-      stopLoading(setLoading)
+      stopSmartLoading(setLoading)
     }
   }
 
@@ -174,7 +174,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     // ✅ Initial load: Only fetch projects list (lightweight)
     const fetchInitialData = async () => {
       try {
-        startLoading(setLoading)
+        startSmartLoading(setLoading)
         console.log('🟡 BOQ: Fetching initial data (projects list only)...')
         
         const { data: projectsData, error: projectsError } = await executeQuery(async () =>
@@ -202,7 +202,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         setError(error.message || 'Failed to load initial data')
       } finally {
         // ✅ ALWAYS stop loading (React handles unmounted safely)
-        stopLoading(setLoading)
+        stopSmartLoading(setLoading)
       }
     }
     

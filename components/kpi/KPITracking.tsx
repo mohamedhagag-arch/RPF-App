@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
-import { useTabNavigationFix } from '@/lib/tabNavigationFix'
+import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { KPIRecord, Project, BOQActivity, TABLES } from '@/lib/supabase'
 import { mapKPIFromDB, mapProjectFromDB, mapBOQFromDB } from '@/lib/dataMappers'
 import { processKPIRecord, ProcessedKPI } from '@/lib/kpiProcessor'
@@ -48,7 +48,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   const itemsPerPage = 50 // Show 50 KPIs per page
   
   const supabase = getSupabaseClient()
-  const { startLoading, stopLoading } = useTabNavigationFix('kpi') // ✅ Tab navigation fix
+  const { startSmartLoading, stopSmartLoading } = useSmartLoading('kpi') // ✅ Smart loading
 
   // Handle unified filter changes
   const handleFilterChange = (newFilters: FilterState) => {
@@ -66,7 +66,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     if (!isMountedRef.current) return
     
     try {
-      startLoading(setLoading)
+      startSmartLoading(setLoading)
       console.log('🟡 KPITracking: Fetching KPIs and activities...')
       
       // ✅ Don't re-fetch projects! They're already loaded in initial load
@@ -192,7 +192,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       }
     } finally {
       // ✅ ALWAYS stop loading (React handles unmounted safely)
-      stopLoading(setLoading)
+      stopSmartLoading(setLoading)
       console.log('🟡 KPITracking: Loading finished')
     }
   }

@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { withSafeLoading, createSafeLoadingSetter } from '@/lib/loadingStateManager'
-import { useTabNavigationFix } from '@/lib/tabNavigationFix'
+import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { getGridClasses, shouldLoadAnalytics, getViewModeIcon, getViewModeName } from '@/lib/viewModeOptimizer'
 import { getCardGridClasses, shouldLoadCardAnalytics, getCardViewName, getCardViewDescription } from '@/lib/cardViewOptimizer'
 import { Project, TABLES } from '@/lib/supabase'
@@ -63,7 +63,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
   
   const supabase = getSupabaseClient()
   const isMountedRef = useRef(true) // ✅ Track if component is mounted
-  const { startLoading, stopLoading } = useTabNavigationFix('projects') // ✅ Tab navigation fix
+  const { startSmartLoading, stopSmartLoading } = useSmartLoading('projects') // ✅ Smart loading
 
   // Sort options for projects
   const sortOptions: SortOption[] = [
@@ -205,7 +205,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
   // Fetch projects with pagination
   const fetchProjects = useCallback(async (page: number) => {
     try {
-      startLoading(setLoading)
+      startSmartLoading(setLoading)
       setError('')
       
       console.log(`📄 Fetching page ${page} (${itemsPerPage} items per page)`)
@@ -285,7 +285,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
         return
     } finally {
         // ✅ ALWAYS stop loading (React handles unmounted safely)
-        stopLoading(setLoading)
+        stopSmartLoading(setLoading)
       console.log('🟡 Projects: Loading finished')
     }
   }, [itemsPerPage, viewMode]) // ✅ FIXED: Removed supabase to prevent infinite loop
@@ -300,7 +300,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
     // NO full project details, NO activities, NO KPIs
     const fetchProjectsForFilter = async () => {
       try {
-        startLoading(setLoading)
+        startSmartLoading(setLoading)
         console.log('🟡 Projects: Fetching projects list for filters...')
         
         // Fetch ALL fields to avoid column errors (still lightweight - just project count)

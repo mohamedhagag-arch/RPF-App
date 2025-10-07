@@ -10,7 +10,8 @@ import { useEffect, useRef } from 'react'
 let globalLoadingState = {
   isNavigating: false,
   lastNavigation: Date.now(),
-  activeTab: ''
+  activeTab: '',
+  loadingTabs: new Set<string>() // تتبع التابات التي تحمل حالياً
 }
 
 /**
@@ -34,13 +35,13 @@ export function useTabNavigationFix(tabName: string) {
       clearTimeout(loadingTimeoutRef.current)
     }
     
-    // timeout قصير للتحميل (5 ثواني بدلاً من 10)
+    // timeout معقول للتحميل (15 ثانية)
     loadingTimeoutRef.current = setTimeout(() => {
       if (isMountedRef.current) {
-        console.log(`⚠️ Tab ${tabName}: Loading timeout, forcing stop`)
-        // لا نفعل أي شيء هنا، فقط نسجل
+        console.log(`⚠️ Tab ${tabName}: Loading timeout after 15s, this might indicate a slow connection`)
+        // لا نفعل أي شيء هنا، فقط نسجل للتحقق
       }
-    }, 5000)
+    }, 15000)
     
     return () => {
       isMountedRef.current = false
@@ -55,6 +56,9 @@ export function useTabNavigationFix(tabName: string) {
    * إيقاف التحميل بأمان
    */
   const stopLoading = (setLoading: (loading: boolean) => void) => {
+    // إزالة التاب من قائمة التحميل
+    globalLoadingState.loadingTabs.delete(tabName)
+    
     if (loadingTimeoutRef.current) {
       clearTimeout(loadingTimeoutRef.current)
       loadingTimeoutRef.current = null
@@ -66,6 +70,9 @@ export function useTabNavigationFix(tabName: string) {
    * بدء التحميل بأمان
    */
   const startLoading = (setLoading: (loading: boolean) => void) => {
+    // إضافة التاب لقائمة التحميل
+    globalLoadingState.loadingTabs.add(tabName)
+    
     setLoading(true)
     
     // تنظيف timeout السابق
@@ -73,13 +80,14 @@ export function useTabNavigationFix(tabName: string) {
       clearTimeout(loadingTimeoutRef.current)
     }
     
-    // timeout قصير للتحميل
+    // timeout معقول للتحميل
     loadingTimeoutRef.current = setTimeout(() => {
       if (isMountedRef.current) {
-        console.log(`⚠️ Tab ${tabName}: Loading timeout, forcing stop`)
+        console.log(`⚠️ Tab ${tabName}: Loading timeout after 15s, forcing stop`)
         setLoading(false)
+        globalLoadingState.loadingTabs.delete(tabName)
       }
-    }, 5000)
+    }, 15000)
   }
   
   return {
@@ -95,7 +103,9 @@ export function useTabNavigationFix(tabName: string) {
 export function getNavigationState() {
   return {
     ...globalLoadingState,
-    timeSinceLastNavigation: Date.now() - globalLoadingState.lastNavigation
+    timeSinceLastNavigation: Date.now() - globalLoadingState.lastNavigation,
+    loadingTabsCount: globalLoadingState.loadingTabs.size,
+    loadingTabsList: Array.from(globalLoadingState.loadingTabs)
   }
 }
 
@@ -106,7 +116,8 @@ export function resetNavigationState() {
   globalLoadingState = {
     isNavigating: false,
     lastNavigation: Date.now(),
-    activeTab: ''
+    activeTab: '',
+    loadingTabs: new Set<string>()
   }
   console.log('🔄 Navigation state reset')
 }
