@@ -4,7 +4,6 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { getSimpleSupabaseClient, simpleQuery, simpleConnectionMonitor } from '@/lib/simpleConnectionManager'
 import { withSafeLoading, createSafeLoadingSetter } from '@/lib/loadingStateManager'
 import { useSyncingFix } from '@/lib/syncingFix'
-import { useGlobalSyncingFix } from '@/lib/globalSyncingFix'
 import { getGridClasses, shouldLoadAnalytics, getViewModeIcon, getViewModeName } from '@/lib/viewModeOptimizer'
 import { getCardGridClasses, shouldLoadCardAnalytics, getCardViewName, getCardViewDescription } from '@/lib/cardViewOptimizer'
 import { Project, TABLES } from '@/lib/supabase'
@@ -65,7 +64,6 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
   const supabase = getSimpleSupabaseClient()
   const isMountedRef = useRef(true) // ✅ Track if component is mounted
   const { setSafeLoading } = useSyncingFix() // ✅ Syncing fix
-  const { registerSyncing, unregisterSyncing } = useGlobalSyncingFix('projects-list') // ✅ Global syncing fix
 
   // Sort options for projects
   const sortOptions: SortOption[] = [
@@ -208,7 +206,6 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
   const fetchProjects = useCallback(async (page: number) => {
     try {
       setSafeLoading(setLoading, true)
-      registerSyncing() // ✅ Register with global manager
       setError('')
       
       console.log(`📄 Fetching page ${page} (${itemsPerPage} items per page)`)
@@ -291,7 +288,6 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
     } finally {
       // ✅ ALWAYS stop loading (React handles unmounted safely)
       setSafeLoading(setLoading, false)
-      unregisterSyncing() // ✅ Unregister from global manager
       console.log('🟡 Projects: Loading finished')
     }
   }, [itemsPerPage, viewMode]) // ✅ FIXED: Removed supabase to prevent infinite loop
@@ -585,7 +581,10 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
                 <Input
                   placeholder="Search projects..."
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value)
+                    setCurrentPage(1) // ✅ Reset to first page when searching
+                  }}
                   className="pl-10"
                 />
               </div>
