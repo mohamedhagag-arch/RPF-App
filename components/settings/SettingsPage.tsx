@@ -22,8 +22,14 @@ import {
   EyeOff,
   Globe,
   Palette,
-  BellOff
+  BellOff,
+  Building2,
+  Briefcase,
+  DollarSign
 } from 'lucide-react'
+import { DivisionsManager } from './DivisionsManager'
+import { ProjectTypesManager } from './ProjectTypesManager'
+import { CurrenciesManager } from './CurrenciesManager'
 
 interface SettingsPageProps {
   userRole?: string
@@ -240,6 +246,9 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
     { id: 'profile', label: 'Profile', icon: User, roles: ['admin', 'manager', 'engineer', 'viewer'] },
     { id: 'notifications', label: 'Notifications', icon: Bell, roles: ['admin', 'manager', 'engineer', 'viewer'] },
     { id: 'appearance', label: 'Appearance', icon: Palette, roles: ['admin', 'manager', 'engineer', 'viewer'] },
+    { id: 'divisions', label: 'Divisions', icon: Building2, roles: ['admin', 'manager'] },
+    { id: 'project-types', label: 'Project Types', icon: Briefcase, roles: ['admin', 'manager'] },
+    { id: 'currencies', label: 'Currencies', icon: DollarSign, roles: ['admin', 'manager'] },
     { id: 'data', label: 'Data Management', icon: Database, roles: ['admin', 'manager'] },
     { id: 'security', label: 'Security', icon: Shield, roles: ['admin', 'manager'] }
   ]
@@ -362,6 +371,15 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
             </div>
           </div>
         )
+
+      case 'divisions':
+        return <DivisionsManager />
+
+      case 'project-types':
+        return <ProjectTypesManager />
+
+      case 'currencies':
+        return <CurrenciesManager />
 
       case 'data':
         return (

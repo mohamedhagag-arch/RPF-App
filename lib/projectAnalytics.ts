@@ -52,6 +52,56 @@ export interface ProjectAnalytics {
 }
 
 /**
+ * Create empty analytics for projects with no data
+ */
+function createEmptyAnalytics(project: Project): ProjectAnalytics {
+  return {
+    project,
+    
+    // BOQ Statistics
+    totalActivities: 0,
+    completedActivities: 0,
+    onTrackActivities: 0,
+    delayedActivities: 0,
+    notStartedActivities: 0,
+    
+    // Financial Metrics
+    totalContractValue: project.contract_amount || 0,
+    totalPlannedValue: 0,
+    totalEarnedValue: 0,
+    totalRemainingValue: 0,
+    financialProgress: 0,
+    
+    // Progress Metrics
+    overallProgress: 0,
+    weightedProgress: 0,
+    averageActivityProgress: 0,
+    
+    // KPI Metrics
+    totalKPIs: 0,
+    plannedKPIs: 0,
+    actualKPIs: 0,
+    completedKPIs: 0,
+    onTrackKPIs: 0,
+    delayedKPIs: 0,
+    atRiskKPIs: 0,
+    
+    // Time Metrics
+    activitiesOnSchedule: 0,
+    activitiesBehindSchedule: 0,
+    averageDelay: 0,
+    
+    // Related Data
+    activities: [],
+    kpis: [],
+    
+    // Status Summary
+    projectHealth: 'warning',
+    riskLevel: 'low'
+  }
+}
+
+/**
  * Calculate comprehensive analytics for a project
  */
 export function calculateProjectAnalytics(
@@ -62,6 +112,20 @@ export function calculateProjectAnalytics(
   console.log('🔍 Calculating analytics for project:', project.project_code)
   console.log('📦 Total activities in database:', allActivities.length)
   console.log('📊 Total KPIs in database:', allKPIs.length)
+  console.log('🔍 Sample activities project codes:', allActivities.slice(0, 3).map(a => a.project_code))
+  console.log('🔍 Sample KPIs project codes:', allKPIs.slice(0, 3).map(k => k.project_code))
+  
+  // 🔍 DEBUG: Check if we have any data at all
+  if (allActivities.length === 0 && allKPIs.length === 0) {
+    console.warn('⚠️ NO DATA: No activities or KPIs found in database!')
+    console.log('🔍 This means the issue is in data fetching, not calculation')
+  }
+  
+  // 🔧 PERFORMANCE: Early return if no data
+  if (allActivities.length === 0 && allKPIs.length === 0) {
+    console.log('⚡ Early return: No data to process')
+    return createEmptyAnalytics(project)
+  }
   
   // Filter activities for this project by project_code
   // Match by Project Code OR if Project Full Code starts with Project Code
@@ -102,6 +166,20 @@ export function calculateProjectAnalytics(
     activities: projectActivities.length,
     kpis: projectKPIs.length
   })
+  
+  if (projectActivities.length > 0) {
+    console.log('🔍 Sample activity:', projectActivities[0])
+  } else {
+    console.warn(`⚠️ NO ACTIVITIES found for project ${project.project_code}`)
+    console.log('🔍 Available project codes in activities:', [...new Set(allActivities.map(a => a.project_code))].slice(0, 10))
+  }
+  
+  if (projectKPIs.length > 0) {
+    console.log('🔍 Sample KPI:', projectKPIs[0])
+  } else {
+    console.warn(`⚠️ NO KPIs found for project ${project.project_code}`)
+    console.log('🔍 Available project codes in KPIs:', [...new Set(allKPIs.map(k => k.project_code))].slice(0, 10))
+  }
   
   // BOQ Statistics
   const totalActivities = projectActivities.length

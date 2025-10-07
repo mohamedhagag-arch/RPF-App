@@ -16,6 +16,7 @@ import { Alert } from '@/components/ui/Alert'
 import { IntelligentProjectForm } from './IntelligentProjectForm'
 import { ProjectCard } from './ProjectCard'
 import { ProjectCardWithAnalytics } from './ProjectCardWithAnalytics'
+import { ModernProjectCard } from './ModernProjectCard'
 import { ProjectDetailsPanel } from './ProjectDetailsPanel'
 import { AdvancedSorting, SortOption, FilterOption } from '@/components/ui/AdvancedSorting'
 import { Pagination } from '@/components/ui/Pagination'
@@ -240,22 +241,40 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
         setTotalCount(count || 0)
         
         // Only load activities and KPIs if analytics are needed
+        console.log('🔍 View mode:', viewMode, 'shouldLoadCardAnalytics:', shouldLoadCardAnalytics(viewMode))
         if (shouldLoadCardAnalytics(viewMode) && mappedProjects.length > 0) {
           console.log('📊 Loading activities and KPIs for enhanced cards...')
+          
+          // 🔧 PERFORMANCE: Add loading indicator
+          setLoading(true)
           
           // Get project codes for current page
           const projectCodes = mappedProjects.map(p => p.project_code)
           
+          // 🔧 FIX: Use the same approach as ProjectDetailsPanel
           const [activitiesResult, kpisResult] = await Promise.all([
+            // For activities - try both Project Code and Project Full Code
             supabase
               .from(TABLES.BOQ_ACTIVITIES)
               .select('*')
-              .in('Project Code', projectCodes),
+              .or(projectCodes.map(code => `Project Code.eq.${code},Project Full Code.like.${code}%`).join(',')),
+            // For KPIs - try Project Full Code first, then Project Code
             supabase
               .from(TABLES.KPI)
               .select('*')
-              .in('Project Code', projectCodes)
+              .or(projectCodes.map(code => `Project Full Code.eq.${code},Project Code.eq.${code},Project Full Code.like.${code}%`).join(','))
           ])
+          
+          console.log('🔍 Activities query result:', activitiesResult)
+          console.log('🔍 KPIs query result:', kpisResult)
+          
+          // 🔍 DEBUG: Check for errors
+          if (activitiesResult.error) {
+            console.error('❌ Activities query error:', activitiesResult.error)
+          }
+          if (kpisResult.error) {
+            console.error('❌ KPIs query error:', kpisResult.error)
+          }
           
           const mappedActivities = (activitiesResult.data || []).map(mapBOQFromDB)
           const mappedKPIs = (kpisResult.data || []).map(mapKPIFromDB)
@@ -264,6 +283,32 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
           setAllKPIs(mappedKPIs)
           
           console.log(`✅ Loaded ${mappedActivities.length} activities and ${mappedKPIs.length} KPIs`)
+          console.log('🔍 Setting allActivities and allKPIs state...')
+          
+          // 🔧 PERFORMANCE: Stop loading indicator
+          setLoading(false)
+          
+          // 🔍 DEBUG: Verify state was set
+          setTimeout(() => {
+            console.log('🔍 State verification (after 100ms):', {
+              allActivitiesLength: allActivities.length,
+              allKPIsLength: allKPIs.length
+            })
+          }, 100)
+          console.log('🔍 Sample activities:', mappedActivities.slice(0, 2))
+          console.log('🔍 Sample KPIs:', mappedKPIs.slice(0, 2))
+          console.log('🔍 Project codes:', projectCodes)
+          
+          // 🔍 DEBUG: Check if we have data for the current projects
+          projectCodes.forEach(code => {
+            const projectActivities = mappedActivities.filter(a => 
+              a.project_code === code || a.project_full_code?.startsWith(code)
+            )
+            const projectKPIs = mappedKPIs.filter(k => 
+              k.project_code === code || k.project_full_code?.startsWith(code)
+            )
+            console.log(`🔍 Project ${code}: ${projectActivities.length} activities, ${projectKPIs.length} KPIs`)
+          })
         }
         }
       } catch (error: any) {
@@ -620,19 +665,34 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
                   ? calculateProjectAnalytics(project, allActivities, allKPIs)
                   : null
                 
-                return shouldLoadCardAnalytics(viewMode) ? (
-                  <ProjectCardWithAnalytics
-                    key={project.id}
-                    project={project}
-                    analytics={analytics}
-                    onEdit={setEditingProject}
-                    onDelete={handleDeleteProject}
-                    onViewDetails={setViewingProject}
-                    getStatusColor={getStatusColor}
-                    getStatusText={getStatusText}
-                  />
-                ) : (
-                  <ProjectCard
+                // 🔍 DEBUG: Log analytics calculation
+                if (shouldLoadCardAnalytics(viewMode)) {
+                  console.log(`🔍 Analytics for ${project.project_code}:`, {
+                    allActivitiesCount: allActivities.length,
+                    allKPIsCount: allKPIs.length,
+                    analytics: analytics,
+                    hasAnalytics: !!analytics
+                  })
+                  
+                  // 🔍 DEBUG: Check if we have data for this specific project
+                  const projectActivities = allActivities.filter(a => 
+                    a.project_code === project.project_code || a.project_full_code?.startsWith(project.project_code)
+                  )
+                  const projectKPIs = allKPIs.filter(k => 
+                    k.project_code === project.project_code || k.project_full_code?.startsWith(project.project_code)
+                  )
+                  
+                  console.log(`🔍 Data for ${project.project_code}:`, {
+                    projectActivities: projectActivities.length,
+                    projectKPIs: projectKPIs.length,
+                    sampleActivity: projectActivities[0],
+                    sampleKPI: projectKPIs[0]
+                  })
+                }
+                
+                // 🔧 NEW: Always use ModernProjectCard for better UX
+                return (
+                  <ModernProjectCard
                     key={project.id}
                     project={project}
                     onEdit={setEditingProject}

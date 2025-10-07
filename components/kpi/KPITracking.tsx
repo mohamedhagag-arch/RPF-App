@@ -183,12 +183,12 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         resetClient()
         console.log('✅ Client reset, retrying data fetch...')
         // Retry the fetch after reset
-        setTimeout(() => {
-          if (isMountedRef.current) {
-            fetchData(filters.project)
-          }
-        }, 1000)
-        return
+          setTimeout(() => {
+            if (isMountedRef.current) {
+              fetchData(filters.project)
+            }
+          }, 1000)
+          return
       }
     } finally {
       // ✅ ALWAYS stop loading (React handles unmounted safely)

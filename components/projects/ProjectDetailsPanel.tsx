@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Badge } from '@/components/ui/Badge'
+import { IntelligentBOQForm } from '@/components/boq/IntelligentBOQForm'
 import { 
   X, 
   Activity, 
@@ -36,9 +37,41 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
   const [analytics, setAnalytics] = useState<ProjectAnalytics | null>(null)
   const [loading, setLoading] = useState(true)
   const [activeView, setActiveView] = useState<'overview' | 'activities' | 'kpis'>('overview')
+  const [showActivityDetails, setShowActivityDetails] = useState<{[key: string]: boolean}>({})
+  const [showKpiDetails, setShowKpiDetails] = useState<{[key: string]: boolean}>({})
+  const [showBOQModal, setShowBOQModal] = useState(false)
   
   const supabase = getSupabaseClient()
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('project-details')
+
+  // Toggle activity details
+  const toggleActivityDetails = (activityId: string) => {
+    setShowActivityDetails(prev => ({
+      ...prev,
+      [activityId]: !prev[activityId]
+    }))
+  }
+
+  // Toggle KPI details
+  const toggleKpiDetails = (kpiId: string) => {
+    setShowKpiDetails(prev => ({
+      ...prev,
+      [kpiId]: !prev[kpiId]
+    }))
+  }
+
+  // Handle BOQ form submission
+  const handleBOQSubmit = async (data: any) => {
+    try {
+      // The form will handle the submission internally
+      // We just need to close the modal and refresh
+      setShowBOQModal(false)
+      // Refresh analytics to show new activity
+      fetchProjectAnalytics()
+    } catch (error) {
+      console.error('Error handling BOQ submission:', error)
+    }
+  }
   
   useEffect(() => {
     fetchProjectAnalytics()
@@ -244,6 +277,22 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
             <Target className="h-4 w-4 mr-2" />
             KPIs ({analytics.totalKPIs})
           </Button>
+          
+          {/* Add Activity BOQ Button */}
+          <div className="ml-auto">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => {
+                console.log('➕ Add Activity BOQ clicked for project:', project.project_code)
+                setShowBOQModal(true)
+              }}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              <Activity className="h-4 w-4 mr-2" />
+              Add Activity BOQ
+            </Button>
+          </div>
         </div>
         
         {/* Content */}
@@ -479,16 +528,23 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
               ) : (
                 <div className="space-y-3">
                   {analytics.activities.map((activity) => (
-                    <Card key={activity.id} className="hover:shadow-md transition-shadow">
-                      <CardContent className="p-4">
-                        <div className="flex justify-between items-start mb-3">
+                    <Card key={activity.id} className="hover:shadow-lg transition-all duration-200 border-l-4 border-l-blue-500">
+                      <CardContent className="p-6">
+                        <div className="flex justify-between items-start mb-4">
                           <div className="flex-1">
-                            <h4 className="font-medium text-gray-900 dark:text-white">
+                            <h4 className="font-semibold text-lg text-gray-900 dark:text-white mb-1">
                               {activity.activity_name || activity.activity}
                             </h4>
-                            <p className="text-sm text-gray-600 dark:text-gray-400">
-                              {activity.activity_division || 'No division'}
-                            </p>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-xs">
+                                {activity.activity_division || 'No division'}
+                              </Badge>
+                              {activity.unit && (
+                                <Badge variant="outline" className="text-xs">
+                                  {activity.unit}
+                                </Badge>
+                              )}
+                            </div>
                           </div>
                           <div className="flex gap-2">
                             {activity.activity_completed && (
@@ -500,29 +556,104 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                             {activity.activity_delayed && (
                               <Badge className="bg-red-100 text-red-800">Delayed</Badge>
                             )}
+                            <button
+                              type="button"
+                              onClick={() => toggleActivityDetails(activity.id)}
+                              className="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded"
+                            >
+                              {showActivityDetails[activity.id] ? "Hide" : "Show"}
+                            </button>
                           </div>
                         </div>
                         
-                        <div className="grid grid-cols-3 gap-4 text-sm">
-                          <div>
-                            <p className="text-gray-500">Progress</p>
-                            <p className="font-bold text-lg">{formatPercent(activity.activity_progress_percentage || 0)}</p>
+                        {/* Activity Details - Collapsible */}
+                        {showActivityDetails[activity.id] && (
+                          <>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                              <div>
+                                <p className="text-gray-500 dark:text-gray-400 mb-1">Progress</p>
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                                <div 
+                                  className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                                  style={{ width: `${Math.min(activity.activity_progress_percentage || 0, 100)}%` }}
+                                />
+                              </div>
+                              <span className="font-bold text-sm text-blue-600 dark:text-blue-400">
+                                {formatPercent(activity.activity_progress_percentage || 0)}
+                              </span>
+                            </div>
                           </div>
                           <div>
-                            <p className="text-gray-500">Planned / Actual</p>
-                            <p className="font-medium">{activity.planned_units} / {activity.actual_units} {activity.unit}</p>
+                            <p className="text-gray-500 dark:text-gray-400">Planned / Actual</p>
+                            <p className="font-medium text-gray-900 dark:text-white">
+                              {activity.planned_units} / {activity.actual_units} {activity.unit}
+                            </p>
                           </div>
                           <div>
-                            <p className="text-gray-500">Value</p>
-                            <p className="font-medium">{formatCurrency(activity.earned_value || 0)}</p>
+                            <p className="text-gray-500 dark:text-gray-400">Value</p>
+                            <p className="font-medium text-green-600 dark:text-green-400">
+                              {formatCurrency(activity.earned_value || 0)}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-gray-500 dark:text-gray-400">Rate</p>
+                            <p className="font-medium text-gray-900 dark:text-white">
+                              {formatCurrency(activity.rate || 0)} / {activity.unit}
+                            </p>
                           </div>
                         </div>
                         
-                        {activity.deadline && (
-                          <div className="mt-3 text-sm text-gray-600 dark:text-gray-400">
-                            <Calendar className="h-3 w-3 inline mr-1" />
-                            Deadline: {new Date(activity.deadline).toLocaleDateString()}
+                        {/* Dates Section */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                          <div className="flex items-center gap-2">
+                            <Calendar className="h-4 w-4 text-blue-500" />
+                            <div>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">Start Date</p>
+                              <p className="text-sm font-medium text-gray-900 dark:text-white">
+                                {activity.planned_activity_start_date 
+                                  ? new Date(activity.planned_activity_start_date).toLocaleDateString()
+                                  : 'Not set'
+                                }
+                              </p>
+                            </div>
                           </div>
+                          <div className="flex items-center gap-2">
+                            <Clock className="h-4 w-4 text-red-500" />
+                            <div>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">Deadline</p>
+                              <p className="text-sm font-medium text-gray-900 dark:text-white">
+                                {activity.deadline 
+                                  ? new Date(activity.deadline).toLocaleDateString()
+                                  : 'Not set'
+                                }
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Additional Details */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                          <div>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">Duration</p>
+                            <p className="text-sm font-medium text-gray-900 dark:text-white">
+                              {activity.calendar_duration ? `${activity.calendar_duration} days` : 'Not set'}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">Zone</p>
+                            <p className="text-sm font-medium text-gray-900 dark:text-white">
+                              {activity.zone_ref || 'N/A'}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">Total Value</p>
+                            <p className="text-sm font-medium text-green-600 dark:text-green-400">
+                              {formatCurrency(activity.total_value || 0)}
+                            </p>
+                          </div>
+                        </div>
+                          </>
                         )}
                       </CardContent>
                     </Card>
@@ -543,45 +674,139 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
               ) : (
                 <div className="space-y-3">
                   {analytics.kpis.map((kpi) => (
-                    <Card key={kpi.id} className="hover:shadow-md transition-shadow">
-                      <CardContent className="p-4">
-                        <div className="flex justify-between items-start mb-3">
+                    <Card key={kpi.id} className="hover:shadow-lg transition-all duration-200 border-l-4 border-l-green-500">
+                      <CardContent className="p-6">
+                        <div className="flex justify-between items-start mb-4">
                           <div className="flex-1">
-                            <h4 className="font-medium text-gray-900 dark:text-white">
+                            <h4 className="font-semibold text-lg text-gray-900 dark:text-white mb-1">
                               {kpi.activity_name || kpi.kpi_name}
                             </h4>
-                            <p className="text-sm text-gray-600 dark:text-gray-400">
-                              Type: {kpi.input_type} {kpi.section && `| Section: ${kpi.section}`}
-                            </p>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-xs">
+                                {kpi.input_type}
+                              </Badge>
+                              {kpi.section && (
+                                <Badge variant="outline" className="text-xs">
+                                  {kpi.section}
+                                </Badge>
+                              )}
+                            </div>
                           </div>
-                          <Badge className={
-                            kpi.status === 'completed' ? 'bg-green-100 text-green-800' :
-                            kpi.status === 'on_track' ? 'bg-blue-100 text-blue-800' :
-                            kpi.status === 'at_risk' ? 'bg-yellow-100 text-yellow-800' :
-                            'bg-red-100 text-red-800'
-                          }>
-                            {kpi.status}
-                          </Badge>
+                          <div className="flex gap-2">
+                            <Badge className={
+                              kpi.status === 'completed' ? 'bg-green-100 text-green-800' :
+                              kpi.status === 'on_track' ? 'bg-blue-100 text-blue-800' :
+                              kpi.status === 'at_risk' ? 'bg-yellow-100 text-yellow-800' :
+                              'bg-red-100 text-red-800'
+                            }>
+                              {kpi.status}
+                            </Badge>
+                            <button
+                              type="button"
+                              onClick={() => toggleKpiDetails(kpi.id)}
+                              className="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded"
+                            >
+                              {showKpiDetails[kpi.id] ? "Hide" : "Show"}
+                            </button>
+                          </div>
                         </div>
                         
-                        <div className="grid grid-cols-3 gap-4 text-sm">
-                          <div>
-                            <p className="text-gray-500">Quantity</p>
-                            <p className="font-bold text-lg">{kpi.quantity || 0}</p>
+                        {/* KPI Details - Collapsible */}
+                        {showKpiDetails[kpi.id] && (
+                          <>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                              <div>
+                                <p className="text-gray-500 dark:text-gray-400 mb-1">Quantity</p>
+                            <p className="font-bold text-lg text-green-600 dark:text-green-400">
+                              {kpi.quantity || 0}
+                            </p>
                           </div>
                           {kpi.drilled_meters > 0 && (
                             <div>
-                              <p className="text-gray-500">Drilled Meters</p>
-                              <p className="font-medium">{kpi.drilled_meters}m</p>
+                              <p className="text-gray-500 dark:text-gray-400 mb-1">Drilled Meters</p>
+                              <p className="font-medium text-gray-900 dark:text-white">
+                                {kpi.drilled_meters}m
+                              </p>
                             </div>
                           )}
                           {kpi.progress_percentage !== undefined && (
                             <div>
-                              <p className="text-gray-500">Progress</p>
-                              <p className="font-bold">{formatPercent(kpi.progress_percentage)}</p>
+                              <p className="text-gray-500 dark:text-gray-400 mb-1">Progress</p>
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                                  <div 
+                                    className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                                    style={{ width: `${Math.min(kpi.progress_percentage || 0, 100)}%` }}
+                                  />
+                                </div>
+                                <span className="font-bold text-sm text-green-600 dark:text-green-400">
+                                  {formatPercent(kpi.progress_percentage)}
+                                </span>
+                              </div>
                             </div>
                           )}
+                          <div>
+                            <p className="text-gray-500 dark:text-gray-400 mb-1">Target</p>
+                            <p className="font-medium text-gray-900 dark:text-white">
+                              {kpi.target_value || 'N/A'}
+                            </p>
+                          </div>
                         </div>
+                        
+                        {/* Dates Section */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                          <div className="flex items-center gap-2">
+                            <Calendar className="h-4 w-4 text-blue-500" />
+                            <div>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">Date</p>
+                              <p className="text-sm font-medium text-gray-900 dark:text-white">
+                                {kpi.start_date || kpi.target_date || kpi.end_date
+                                  ? new Date(kpi.start_date || kpi.target_date || kpi.end_date).toLocaleDateString()
+                                  : 'Not set'
+                                }
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <CheckCircle className="h-4 w-4 text-green-500" />
+                            <div>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">Actual Work Date</p>
+                              <p className="text-sm font-medium text-gray-900 dark:text-white">
+                                {kpi.actual_work_date 
+                                  ? new Date(kpi.actual_work_date).toLocaleDateString()
+                                  : 'Not set'
+                                }
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Additional Details */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                          <div>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">Unit</p>
+                            <p className="text-sm font-medium text-gray-900 dark:text-white">
+                              {kpi.unit || 'N/A'}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">Frequency</p>
+                            <p className="text-sm font-medium text-gray-900 dark:text-white">
+                              {kpi.frequency || 'N/A'}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">Last Updated</p>
+                            <p className="text-sm font-medium text-gray-900 dark:text-white">
+                              {kpi.updated_at 
+                                ? new Date(kpi.updated_at).toLocaleDateString()
+                                : 'N/A'
+                              }
+                            </p>
+                          </div>
+                        </div>
+                          </>
+                        )}
                       </CardContent>
                     </Card>
                   ))}
@@ -591,6 +816,35 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
           )}
         </div>
       </Card>
+
+      {/* BOQ Modal */}
+      {showBOQModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                Add Activity BOQ - {project.project_name}
+              </h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowBOQModal(false)}
+                className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+            <div className="p-6">
+              <IntelligentBOQForm
+                activity={{ project_code: project.project_code }}
+                onSubmit={handleBOQSubmit}
+                onCancel={() => setShowBOQModal(false)}
+                projects={[project]}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

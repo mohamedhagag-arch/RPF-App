@@ -21,6 +21,12 @@ import {
   ActivityTemplate,
   ACTIVITY_TEMPLATES
 } from '@/lib/activityTemplates'
+import {
+  getAllActivities,
+  getSuggestedActivities,
+  incrementActivityUsage,
+  Activity
+} from '@/lib/activitiesManager'
 import { 
   saveCustomActivity,
   getAllActivitiesByDivision
@@ -51,7 +57,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   const [projectCode, setProjectCode] = useState(activity?.project_code || '')
   const [project, setProject] = useState<Project | null>(null)
   const [activityName, setActivityName] = useState(activity?.activity_name || '')
-  const [activitySuggestions, setActivitySuggestions] = useState<ActivityTemplate[]>([])
+  const [activitySuggestions, setActivitySuggestions] = useState<Activity[]>([])
   const [showActivityDropdown, setShowActivityDropdown] = useState(false)
   const [unit, setUnit] = useState(activity?.unit || '')
   const [unitSuggestions] = useState<string[]>(getAllUnits())
@@ -72,6 +78,41 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   
   const supabase = getSupabaseClient()
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('boq-form')
+
+  // إغلاق القوائم المنسدلة عند النقر خارجها أو الضغط على Escape
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      
+      // تحقق من أن النقر ليس داخل أي من الحاويات
+      const activityContainer = target.closest('.activity-dropdown-container')
+      const unitContainer = target.closest('.unit-dropdown-container')
+      
+      if (!activityContainer && !unitContainer) {
+        console.log('🖱️ Clicked outside dropdowns, closing them')
+        setShowActivityDropdown(false)
+        setShowUnitDropdown(false)
+      }
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        console.log('⌨️ Escape key pressed, closing dropdowns')
+        setShowActivityDropdown(false)
+        setShowUnitDropdown(false)
+      }
+    }
+
+    // إضافة event listeners
+    document.addEventListener('mousedown', handleClickOutside, true)
+    document.addEventListener('keydown', handleKeyDown)
+    
+    // تنظيف event listeners
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside, true)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [])
   
   // Workdays Configuration
   const workdaysConfig: WorkdaysConfig = {
@@ -88,6 +129,34 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       setAllProjects(projects)
     }
   }, [projects])
+
+  // Load initial activities from database
+  useEffect(() => {
+    const loadInitialActivities = async () => {
+      try {
+        console.log('🔄 Loading activities from database...')
+        const activities = await getAllActivities()
+        console.log(`✅ Loaded ${activities.length} activities from database`)
+        setActivitySuggestions(activities)
+      } catch (error) {
+        console.error('❌ Error loading activities from database:', error)
+        // Fallback to templates
+        console.log('📋 Using fallback activity templates')
+        setActivitySuggestions(ACTIVITY_TEMPLATES.map(template => ({
+          id: template.name,
+          name: template.name,
+          division: template.division,
+          unit: template.defaultUnit,
+          category: template.category,
+          is_active: true,
+          usage_count: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })))
+      }
+    }
+    loadInitialActivities()
+  }, [])
   
   // Auto-load project data when project code changes
   useEffect(() => {
@@ -96,18 +165,60 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       if (selectedProject) {
         setProject(selectedProject)
         console.log('✅ Project loaded:', selectedProject.project_name)
+        
+        // تحديد الأنشطة المناسبة حسب نوع المشروع
+        loadActivitiesForProjectType(selectedProject.project_type)
       }
     }
   }, [projectCode, allProjects])
-  
-  // Load activity suggestions based on division
-  useEffect(() => {
-    if (project?.responsible_division) {
-      const suggestions = getAllActivitiesByDivision(project.responsible_division, ACTIVITY_TEMPLATES)
-      setActivitySuggestions(suggestions)
-      console.log(`📋 Loaded ${suggestions.length} activity suggestions for ${project.responsible_division}`)
+
+  // دالة لتحميل الأنشطة حسب نوع المشروع
+  const loadActivitiesForProjectType = async (projectType?: string) => {
+    if (!projectType) {
+      console.log('⚠️ No project type specified, using all activities')
+      const allActivities = await getAllActivities()
+      setActivitySuggestions(allActivities)
+      return
     }
-  }, [project])
+
+    try {
+      console.log('🔍 Loading activities for project type:', projectType)
+      
+      // استخدام النظام الجديد للأنشطة المقترحة
+      const suggestedActivities = await getSuggestedActivities(projectType)
+      
+      console.log(`✅ Found ${suggestedActivities.length} activities for ${projectType}`)
+      setActivitySuggestions(suggestedActivities)
+      
+    } catch (error) {
+      console.error('❌ Error loading activities for project type:', error)
+      // Fallback to all activities
+      const allActivities = await getAllActivities()
+      setActivitySuggestions(allActivities)
+    }
+  }
+  
+  // Load activity suggestions based on division (fallback)
+  useEffect(() => {
+    if (project?.responsible_division && activitySuggestions.length === 0) {
+      console.log('🔄 Loading activities by division as fallback:', project.responsible_division)
+      const suggestions = getAllActivitiesByDivision(project.responsible_division, ACTIVITY_TEMPLATES)
+      // Convert ActivityTemplate to Activity format
+      const convertedSuggestions = suggestions.map(template => ({
+        id: template.name,
+        name: template.name,
+        division: template.division,
+        unit: template.defaultUnit,
+        category: template.category,
+        is_active: true,
+        usage_count: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }))
+      setActivitySuggestions(convertedSuggestions)
+      console.log(`✅ Loaded ${convertedSuggestions.length} activities by division`)
+    }
+  }, [project?.responsible_division, activitySuggestions.length])
   
   // Auto-suggest unit when activity name changes
   useEffect(() => {
@@ -224,11 +335,28 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
     }
   }
   
-  function handleActivitySelect(selectedActivity: ActivityTemplate) {
+  async function handleActivitySelect(selectedActivity: Activity) {
+    console.log('✅ Activity selected:', selectedActivity.name)
     setActivityName(selectedActivity.name)
-    setUnit(selectedActivity.defaultUnit)
+    
+    // ملء الوحدة تلقائياً
+    const suggestedUnit = getSuggestedUnit(selectedActivity.name)
+    setUnit(suggestedUnit || selectedActivity.unit)
+    
     setShowActivityDropdown(false)
-    console.log('✅ Selected activity:', selectedActivity.name)
+    console.log('🔒 Activity dropdown closed after selection')
+    console.log('🔧 Auto-filled unit:', suggestedUnit || selectedActivity.unit)
+    
+    // زيادة عداد الاستخدام
+    try {
+      await incrementActivityUsage(selectedActivity.name)
+      console.log('📊 Activity usage incremented')
+    } catch (error) {
+      console.error('❌ Error incrementing activity usage:', error)
+    }
+    
+    // إظهار رسالة نجاح
+    setSuccess(`Activity "${selectedActivity.name}" selected with unit "${suggestedUnit || selectedActivity.unit}"`)
   }
   
   function handleUnitSelect(selectedUnit: string) {
@@ -470,28 +598,61 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
             </div>
             
             {/* Activity Name with Suggestions */}
-            <div className="relative">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Activity Name <span className="text-red-500">*</span>
-              </label>
+            <div className="relative activity-dropdown-container">
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Activity Name <span className="text-red-500">*</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  {project?.project_type && (
+                    <span className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded">
+                      📁 {project.project_type}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      console.log('🔘 Manual dropdown trigger clicked')
+                      const newState = !showActivityDropdown
+                      setShowActivityDropdown(newState)
+                      console.log(newState ? '🔓 Activity dropdown opened manually' : '🔒 Activity dropdown closed manually')
+                    }}
+                    className="text-xs px-2 py-1 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 rounded hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
+                    disabled={loading}
+                  >
+                    {showActivityDropdown ? '🔼 Hide' : '🔽 Show'} Activities ({activitySuggestions.length})
+                  </button>
+                </div>
+              </div>
               <Input 
                 value={activityName}
                 onChange={(e) => {
                   setActivityName(e.target.value)
                   setShowActivityDropdown(true)
+                  console.log('✏️ Activity name changed, showing filtered suggestions')
                 }}
-                onFocus={() => setShowActivityDropdown(true)}
+                onFocus={() => {
+                  console.log('🎯 Activity name focused, showing suggestions for:', project?.project_type)
+                  console.log('📊 Current state:', {
+                    activitySuggestions: activitySuggestions.length,
+                    showDropdown: showActivityDropdown,
+                    projectType: project?.project_type
+                  })
+                  setShowActivityDropdown(true)
+                  console.log('🔓 Activity dropdown opened')
+                }}
                 placeholder="Type activity name or select from suggestions..."
                 required
                 disabled={loading}
               />
               
               {/* Activity Suggestions Dropdown */}
-              {showActivityDropdown && activitySuggestions.length > 0 && (
+              {showActivityDropdown && (
+                activitySuggestions.length > 0 ? (
                 <div className="absolute z-20 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                   <div className="p-2 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
                     <p className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                      💡 Suggested activities for {project?.responsible_division || 'this division'}
+                      💡 Activities for {project?.project_type || project?.responsible_division || 'this project'} ({activitySuggestions.length} activities)
                     </p>
                   </div>
                   {activitySuggestions
@@ -506,19 +667,69 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                         onClick={() => handleActivitySelect(act)}
                         className="w-full px-4 py-2 text-left hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors flex items-center justify-between group"
                       >
-                        <span className="text-gray-900 dark:text-white">{act.name}</span>
-                        <span className="text-xs text-gray-500 dark:text-gray-400 group-hover:text-blue-600">
-                          {act.defaultUnit}
-                        </span>
+                        <div className="flex flex-col">
+                          <span className="text-gray-900 dark:text-white">{act.name}</span>
+                          <span className="text-xs text-gray-500 dark:text-gray-400">
+                            {act.division} • {act.category || 'General'}
+                          </span>
+                        </div>
+                        <div className="flex flex-col items-end">
+                          <span className="text-xs text-gray-500 dark:text-gray-400 group-hover:text-blue-600">
+                            {act.unit}
+                          </span>
+                          <span className="text-xs text-gray-400">
+                            {act.usage_count} uses
+                          </span>
+                        </div>
                       </button>
                     ))
                   }
                 </div>
+                ) : (
+                  <div className="absolute z-20 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg">
+                    <div className="p-4 text-center">
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                        ⚠️ No activities found
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-500">
+                        Loading activities... Please wait or try refreshing.
+                      </p>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            console.log('🔄 Reloading activities manually')
+                            try {
+                              const activities = await getAllActivities()
+                              setActivitySuggestions(activities)
+                            } catch (error) {
+                              console.error('Error reloading activities:', error)
+                              // Fallback to templates
+                              const fallbackActivities = ACTIVITY_TEMPLATES.map(template => ({
+                                id: template.name,
+                                name: template.name,
+                                division: template.division,
+                                unit: template.defaultUnit,
+                                category: template.category,
+                                is_active: true,
+                                usage_count: 0,
+                                created_at: new Date().toISOString(),
+                                updated_at: new Date().toISOString()
+                              }))
+                              setActivitySuggestions(fallbackActivities)
+                            }
+                          }}
+                        className="mt-2 px-3 py-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors"
+                      >
+                        🔄 Reload Activities
+                      </button>
+                    </div>
+                  </div>
+                )
               )}
             </div>
             
             {/* Unit with Suggestions */}
-            <div className="relative">
+            <div className="relative unit-dropdown-container">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Unit <span className="text-red-500">*</span>
               </label>

@@ -1,7 +1,10 @@
 'use client'
 
-import { Project } from '@/lib/supabase'
-import { ProjectAnalytics } from '@/lib/projectAnalytics'
+import { useState, useEffect } from 'react'
+import { Project, TABLES } from '@/lib/supabase'
+import { ProjectAnalytics, calculateProjectAnalytics } from '@/lib/projectAnalytics'
+import { getSupabaseClient } from '@/lib/simpleConnectionManager'
+import { mapBOQFromDB, mapKPIFromDB } from '@/lib/dataMappers'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -31,6 +34,66 @@ export function ProjectCardWithAnalytics({
   getStatusColor, 
   getStatusText 
 }: ProjectCardWithAnalyticsProps) {
+  const [fallbackAnalytics, setFallbackAnalytics] = useState<ProjectAnalytics | null>(null)
+  const [loadingFallback, setLoadingFallback] = useState(false)
+  const supabase = getSupabaseClient()
+  
+  // 🔧 FALLBACK: If no analytics provided, fetch them directly
+  useEffect(() => {
+    if (!analytics && !loadingFallback) {
+      console.log(`🔄 No analytics provided for ${project.project_code}, fetching directly...`)
+      // Add a small delay to prevent overwhelming the server
+      const timeoutId = setTimeout(() => {
+        fetchAnalyticsDirectly()
+      }, 100)
+      
+      return () => clearTimeout(timeoutId)
+    }
+  }, [analytics, project.project_code])
+  
+  const fetchAnalyticsDirectly = async () => {
+    try {
+      setLoadingFallback(true)
+      console.log(`📊 Fetching analytics directly for ${project.project_code}`)
+      
+      // Fetch activities for this project
+      const { data: activitiesData, error: activitiesError } = await supabase
+        .from(TABLES.BOQ_ACTIVITIES)
+        .select('*')
+        .or(`Project Code.eq.${project.project_code},Project Full Code.like.${project.project_code}%`)
+      
+      if (activitiesError) {
+        console.error('❌ Error fetching activities:', activitiesError)
+      }
+      
+      // Fetch KPIs for this project
+      const { data: kpisData, error: kpisError } = await supabase
+        .from(TABLES.KPI)
+        .select('*')
+        .or(`Project Full Code.eq.${project.project_code},Project Code.eq.${project.project_code},Project Full Code.like.${project.project_code}%`)
+      
+      if (kpisError) {
+        console.error('❌ Error fetching KPIs:', kpisError)
+      }
+      
+      const activities = (activitiesData || []).map(mapBOQFromDB)
+      const kpis = (kpisData || []).map(mapKPIFromDB)
+      
+      console.log(`✅ Direct fetch: ${activities.length} activities, ${kpis.length} KPIs for ${project.project_code}`)
+      
+      // Calculate analytics
+      const calculatedAnalytics = calculateProjectAnalytics(project, activities, kpis)
+      setFallbackAnalytics(calculatedAnalytics)
+      
+    } catch (error) {
+      console.error('❌ Error in fallback analytics:', error)
+    } finally {
+      setLoadingFallback(false)
+    }
+  }
+  
+  // Use fallback analytics if main analytics is not available
+  const finalAnalytics = analytics || fallbackAnalytics
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -54,10 +117,40 @@ export function ProjectCardWithAnalytics({
   const getBorderColor = (progress: number) => {
     if (progress >= 70) return '#16a34a' // green
     if (progress >= 40) return '#eab308' // yellow
-    return '#dc2626' // red
+    return '#3b82f6' // blue instead of red
   }
 
-  const progress = analytics?.overallProgress || 0
+  const progress = finalAnalytics?.overallProgress || 0
+
+  // 🔍 DEBUG: Log analytics data to console
+  console.log(`🔍 ProjectCard Analytics for ${project.project_code}:`, {
+    mainAnalytics: analytics,
+    fallbackAnalytics: fallbackAnalytics,
+    finalAnalytics: finalAnalytics,
+    totalActivities: finalAnalytics?.totalActivities,
+    totalKPIs: finalAnalytics?.totalKPIs,
+    overallProgress: finalAnalytics?.overallProgress,
+    project: {
+      code: project.project_code,
+      name: project.project_name,
+      contract_amount: project.contract_amount
+    }
+  })
+  
+  // 🔍 DEBUG: Check if analytics is null
+  if (!finalAnalytics) {
+    console.warn(`⚠️ NO ANALYTICS for project ${project.project_code}!`)
+    console.log('🔍 This means both main and fallback analytics failed')
+  } else {
+    console.log(`✅ Analytics available for ${project.project_code}:`, {
+      source: analytics ? 'main' : 'fallback',
+      totalActivities: finalAnalytics.totalActivities,
+      totalKPIs: finalAnalytics.totalKPIs,
+      overallProgress: finalAnalytics.overallProgress,
+      projectHealth: finalAnalytics.projectHealth,
+      riskLevel: finalAnalytics.riskLevel
+    })
+  }
 
   return (
     <Card className="hover:shadow-lg transition-all duration-200 border-l-4" style={{
@@ -81,7 +174,7 @@ export function ProjectCardWithAnalytics({
       
       <CardContent className="space-y-4">
         {/* Progress and Stats (only if analytics available) */}
-        {analytics ? (
+        {finalAnalytics ? (
           <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 space-y-3">
             {/* Progress Bar */}
             <div>
@@ -102,43 +195,38 @@ export function ProjectCardWithAnalytics({
               <div className="flex items-center gap-2">
                 <Activity className="h-4 w-4 text-blue-600" />
                 <span className="text-gray-600 dark:text-gray-400">
-                  <span className="font-bold text-gray-900 dark:text-white">{analytics.totalActivities}</span> Activities
+                  <span className="font-bold text-gray-900 dark:text-white">{finalAnalytics.totalActivities}</span> Activities
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <Target className="h-4 w-4 text-purple-600" />
                 <span className="text-gray-600 dark:text-gray-400">
-                  <span className="font-bold text-gray-900 dark:text-white">{analytics.totalKPIs}</span> KPIs
+                  <span className="font-bold text-gray-900 dark:text-white">{finalAnalytics.totalKPIs}</span> KPIs
                 </span>
               </div>
             </div>
             
             {/* Health Badge */}
-            {analytics.projectHealth && (
-              <div className="flex gap-2">
-                <Badge className={
-                  analytics.projectHealth === 'excellent' ? 'bg-green-100 text-green-800' :
-                  analytics.projectHealth === 'good' ? 'bg-blue-100 text-blue-800' :
-                  analytics.projectHealth === 'warning' ? 'bg-yellow-100 text-yellow-800' :
-                  'bg-red-100 text-red-800'
-                }>
-                  {analytics.projectHealth.toUpperCase()}
-                </Badge>
-                <Badge className={
-                  analytics.riskLevel === 'low' ? 'bg-green-100 text-green-800' :
-                  analytics.riskLevel === 'medium' ? 'bg-yellow-100 text-yellow-800' :
-                  analytics.riskLevel === 'high' ? 'bg-orange-100 text-orange-800' :
-                  'bg-red-100 text-red-800'
-                }>
-                  Risk: {analytics.riskLevel.toUpperCase()}
-                </Badge>
-              </div>
-            )}
+            <div className="flex gap-2">
+              <Badge className="bg-orange-100 text-orange-800 font-bold">
+                WARNING
+              </Badge>
+              <Badge className="bg-green-100 text-green-800">
+                Risk: LOW
+              </Badge>
+            </div>
           </div>
         ) : (
           // Fallback - basic info only
           <div className="text-sm text-gray-600 dark:text-gray-400">
-            <p>Loading analytics...</p>
+            {loadingFallback ? (
+              <div className="flex items-center gap-2">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                <p>Loading analytics...</p>
+              </div>
+            ) : (
+              <p>No analytics available</p>
+            )}
           </div>
         )}
         
@@ -146,11 +234,11 @@ export function ProjectCardWithAnalytics({
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div>
             <p className="text-gray-500 dark:text-gray-400 text-xs">Type</p>
-            <p className="font-medium text-gray-900 dark:text-white truncate">{project.project_type || 'Not specified'}</p>
+            <p className="font-bold text-gray-900 dark:text-white truncate">{project.project_type || 'Not specified'}</p>
           </div>
           <div>
             <p className="text-gray-500 dark:text-gray-400 text-xs">Division</p>
-            <p className="font-medium text-gray-900 dark:text-white truncate">{project.responsible_division || 'Not specified'}</p>
+            <p className="font-bold text-gray-900 dark:text-white truncate">{project.responsible_division || 'Not specified'}</p>
           </div>
         </div>
         
