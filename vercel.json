@@ -1,6 +1,10 @@
 {
   "version": 2,
-  "name": "rabat-mvp",
+  "name": "alrabat-rpf",
+  "buildCommand": "npm run vercel-build",
+  "outputDirectory": ".next",
+  "installCommand": "npm install",
+  "framework": "nextjs",
   "functions": {
     "app/api/**/*.ts": {
       "maxDuration": 30
@@ -21,8 +25,27 @@
         {
           "key": "X-XSS-Protection",
           "value": "1; mode=block"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
         }
       ]
+    },
+    {
+      "source": "/_next/static/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/"
     }
   ]
 }

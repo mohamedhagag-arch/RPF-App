@@ -19,6 +19,8 @@ const nextConfig = {
   experimental: {
     optimizeCss: false,
   },
+  // Output configuration for Vercel
+  output: 'standalone',
   // Webpack configuration for better static file handling
   webpack: (config, { dev, isServer }) => {
     if (dev && !isServer) {
@@ -27,6 +29,27 @@ const nextConfig = {
         aggregateTimeout: 300,
       }
     }
+    
+    // Fix for static file issues in production
+    if (!dev && !isServer) {
+      config.optimization = {
+        ...config.optimization,
+        splitChunks: {
+          chunks: 'all',
+          cacheGroups: {
+            default: false,
+            vendors: false,
+            // Create a separate chunk for vendor libraries
+            vendor: {
+              name: 'vendor',
+              chunks: 'all',
+              test: /node_modules/,
+            },
+          },
+        },
+      }
+    }
+    
     return config
   },
   // Disable caching in development to prevent stale data issues
