@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
+import { getCachedCompanySettings, type CompanySettings } from '@/lib/companySettings'
 import {
   LayoutDashboard,
   FolderKanban,
@@ -14,7 +15,8 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
-  Menu
+  Menu,
+  User
 } from 'lucide-react'
 
 interface SidebarItem {
@@ -33,7 +35,6 @@ const sidebarItems: SidebarItem[] = [
   { icon: BarChart3, label: 'Reports', tab: 'reports' },
   { icon: Users, label: 'Users', tab: 'users' },
   { icon: FileDown, label: 'Import/Export', tab: 'import-export' },
-  { icon: Settings, label: 'Settings', tab: 'settings' },
 ]
 
 interface ModernSidebarProps {
@@ -41,11 +42,40 @@ interface ModernSidebarProps {
   onTabChange: (tab: string) => void
   userName?: string
   userRole?: string
+  onProfileClick?: () => void
+  onCollapseChange?: (collapsed: boolean) => void
 }
 
-export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userRole = 'Admin' }: ModernSidebarProps) {
+export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userRole = 'Admin', onProfileClick, onCollapseChange }: ModernSidebarProps) {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [companyName, setCompanyName] = useState('AlRabat RPF')
+  const [companySlogan, setCompanySlogan] = useState('Masters of Foundation Construction')
+  const [logoUrl, setLogoUrl] = useState('')
+
+  // تحميل إعدادات الشركة من قاعدة البيانات
+  useEffect(() => {
+    const loadCompanySettings = async () => {
+      try {
+        console.log('🔄 Loading company settings for sidebar...')
+        const settings = await getCachedCompanySettings()
+        
+        setCompanyName(settings.company_name)
+        setCompanySlogan(settings.company_slogan)
+        setLogoUrl(settings.company_logo_url || '')
+        
+        console.log('✅ Company settings loaded for sidebar:', settings)
+      } catch (error) {
+        console.error('❌ Error loading company settings for sidebar:', error)
+        // استخدام القيم الافتراضية في حالة الخطأ
+        setCompanyName('AlRabat RPF')
+        setCompanySlogan('Masters of Foundation Construction')
+        setLogoUrl('')
+      }
+    }
+    
+    loadCompanySettings()
+  }, [])
 
   return (
     <>
@@ -65,35 +95,63 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
         <Menu className="h-6 w-6 text-gray-700 dark:text-gray-300" />
       </button>
 
+      {/* Desktop Toggle Button - When Sidebar is Collapsed */}
+      {collapsed && (
+        <button
+          onClick={() => {
+            setCollapsed(false)
+            onCollapseChange?.(false)
+          }}
+          className="hidden lg:flex fixed top-4 left-4 z-40 p-2 bg-white dark:bg-gray-800 rounded-lg shadow-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+        >
+          <ChevronRight className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+        </button>
+      )}
+
       {/* Sidebar */}
       <aside
         className={cn(
-          'fixed left-0 top-0 h-screen bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 transition-all duration-300 z-40',
-          collapsed ? 'w-20' : 'w-72',
+          'fixed left-0 top-0 h-screen sidebar-modern transition-all duration-300 z-40',
+          collapsed ? 'w-16' : 'w-64',
           mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         )}
       >
         {/* Logo Section */}
-        <div className="h-16 flex items-center justify-between px-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="py-4 px-4 border-b" style={{ borderColor: 'rgba(0, 0, 0, 0.06)' }}>
           {!collapsed && (
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-gradient-to-br from-blue-600 to-purple-600 rounded-lg">
-                <LayoutDashboard className="h-6 w-6 text-white" />
-              </div>
-              <div>
-                <h1 className="font-bold text-xl bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                  Rabat MVP
+            <div className="flex flex-col items-center gap-3">
+              {logoUrl ? (
+                <div className="w-20 h-20 rounded-lg overflow-hidden bg-white flex items-center justify-center">
+                  <img
+                    src={logoUrl}
+                    alt="Company Logo"
+                    className="w-full h-full object-contain p-2"
+                  />
+                </div>
+              ) : (
+                <div className="icon-circle cyan flex items-center justify-center shadow-lg" style={{ width: '80px', height: '80px' }}>
+                  <LayoutDashboard className="h-10 w-10 text-white" />
+                </div>
+              )}
+              <div className="text-center">
+                <h1 className="font-bold text-lg leading-tight" style={{ color: 'var(--text-primary)' }}>
+                  {companyName}
                 </h1>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Project Management
+                <p className="text-xs leading-tight mt-1" style={{ color: 'var(--text-secondary)' }}>
+                  {companySlogan}
                 </p>
               </div>
             </div>
           )}
           
+          {/* Toggle Button - Always Visible */}
           <button
-            onClick={() => setCollapsed(!collapsed)}
-            className="hidden lg:flex p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+            onClick={() => {
+              const newCollapsed = !collapsed
+              setCollapsed(newCollapsed)
+              onCollapseChange?.(newCollapsed)
+            }}
+            className="absolute top-4 right-4 p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors z-10"
           >
             {collapsed ? (
               <ChevronRight className="h-5 w-5 text-gray-600 dark:text-gray-400" />
@@ -105,20 +163,24 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
 
         {/* User Profile */}
         {!collapsed && (
-          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-            <div className="flex items-center gap-3 p-3 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-gray-700 dark:to-gray-700 rounded-lg">
-              <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center text-white font-bold">
+          <div className="p-4 border-b" style={{ borderColor: 'rgba(0, 0, 0, 0.06)' }}>
+            <button
+              onClick={onProfileClick}
+              className="w-full flex items-center gap-3 p-3 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-gray-700 dark:to-gray-700 rounded-lg hover:from-blue-100 hover:to-purple-100 dark:hover:from-gray-600 dark:hover:to-gray-600 transition-all duration-200 cursor-pointer mb-3"
+              title="View Profile"
+            >
+              <div className="h-8 w-8 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center text-white font-bold text-sm">
                 {userName.charAt(0).toUpperCase()}
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-gray-900 dark:text-white truncate">
+              <div className="flex-1 min-w-0 text-left">
+                <p className="font-semibold text-sm text-gray-900 dark:text-white truncate">
                   {userName}
                 </p>
                 <p className="text-xs text-gray-600 dark:text-gray-400">
                   {userRole}
                 </p>
               </div>
-            </div>
+            </button>
           </div>
         )}
 
@@ -136,21 +198,19 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
                   setMobileOpen(false)
                 }}
                 className={cn(
-                  'w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 group',
-                  isActive
-                    ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg'
-                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700',
+                  'nav-item',
+                  isActive ? 'active' : '',
                   collapsed && 'justify-center px-3'
                 )}
               >
                 <Icon className={cn(
-                  'h-5 w-5 flex-shrink-0',
+                  'h-4 w-4 flex-shrink-0',
                   isActive ? 'text-white' : 'text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-300'
                 )} />
                 
                 {!collapsed && (
                   <>
-                    <span className="flex-1 text-left font-medium">
+                    <span className="flex-1 text-left font-medium text-sm">
                       {item.label}
                     </span>
                     {item.badge && (
@@ -171,29 +231,24 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
         </nav>
 
         {/* Search (if not collapsed) */}
+
+        {/* Search */}
         {!collapsed && (
-          <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+          <div className="p-4">
             <button
               onClick={() => onTabChange('search')}
-              className="w-full flex items-center gap-3 px-4 py-3 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
+              className="nav-item w-full"
             >
-              <Search className="h-5 w-5 text-gray-500 dark:text-gray-400" />
-              <span className="text-gray-700 dark:text-gray-300 font-medium">
-                Search
-              </span>
-              <kbd className="ml-auto px-2 py-1 text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded">
+              <Search className="h-4 w-4" />
+              <span className="font-medium text-sm">Search</span>
+              <kbd className="ml-auto px-2 py-1 text-xs bg-white border border-gray-300 rounded">
                 ⌘K
               </kbd>
             </button>
           </div>
         )}
-      </aside>
 
-      {/* Spacer for content */}
-      <div className={cn(
-        'hidden lg:block transition-all duration-300',
-        collapsed ? 'w-20' : 'w-72'
-      )} />
+      </aside>
     </>
   )
 }

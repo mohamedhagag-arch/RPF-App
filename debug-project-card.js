@@ -219,3 +219,4 @@ checkDataAttributes(card);
 
 console.log('📊 Final card data:', cardData);
 console.log('✅ Project card debug complete!');
+

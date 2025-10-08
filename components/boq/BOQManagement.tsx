@@ -90,6 +90,11 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       const from = (page - 1) * itemsPerPage
       const to = from + itemsPerPage - 1
       
+      // ✅ تحميل متوازي مع timeout
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('BOQ fetch timeout')), 15000)
+      )
+      
       // ✅ Only fetch activities based on selected projects
       let activitiesQuery = supabase
         .from(TABLES.BOQ_ACTIVITIES)
@@ -117,7 +122,10 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         activitiesQuery = activitiesQuery.in('Activity Actual Status', selectedStatuses)
       }
       
-      const { data: activitiesData, error: activitiesError, count } = await activitiesQuery
+      const { data: activitiesData, error: activitiesError, count } = await Promise.race([
+        activitiesQuery,
+        timeoutPromise
+      ]) as any
 
       // ✅ ALWAYS update state (React handles unmounted safely)
 
@@ -131,16 +139,23 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       
       // Only fetch KPIs for activities on current page
       if (mappedActivities.length > 0) {
-        const projectCodes = mappedActivities.map(a => a.project_code).filter(Boolean)
+        const projectCodes = mappedActivities.map((a: any) => a.project_code).filter(Boolean)
         
         if (projectCodes.length > 0) {
           console.log('📊 Fetching KPIs for current activities...', { projectCodes })
           
-          // ✅ Fetch KPIs by both 'Project Code' and 'Project Full Code'
-          const [kpisData1, kpisData2] = await Promise.all([
-            supabase.from(TABLES.KPI).select('*').in('Project Code', projectCodes),
-            supabase.from(TABLES.KPI).select('*').in('Project Full Code', projectCodes)
-          ])
+          // ✅ Fetch KPIs by both 'Project Code' and 'Project Full Code' with timeout
+          const kpiTimeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('KPI fetch timeout')), 10000)
+          )
+          
+          const [kpisData1, kpisData2] = await Promise.race([
+            Promise.all([
+              supabase.from(TABLES.KPI).select('*').in('Project Code', projectCodes),
+              supabase.from(TABLES.KPI).select('*').in('Project Full Code', projectCodes)
+            ]),
+            kpiTimeoutPromise
+          ]) as any
           
           // Merge and deduplicate
           const allKPIsData = [...(kpisData1.data || []), ...(kpisData2.data || [])]

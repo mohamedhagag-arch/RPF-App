@@ -64,19 +64,29 @@ export function ModernProjectCard({
       setLoading(true)
       setError(null)
       
-      console.log(`🚀 Loading analytics for ${project.project_code}...`)
+      // تقليل التسجيل لتجنب البطء
+      if (Math.random() < 0.1) {
+        console.log(`🚀 Loading analytics for ${project.project_code}...`)
+      }
       
-      // 🔧 FIX: Fetch data directly for this project
-      const [activitiesResult, kpisResult] = await Promise.all([
-        supabase
-          .from(TABLES.BOQ_ACTIVITIES)
-          .select('*')
-          .or(`Project Code.eq.${project.project_code},Project Full Code.like.${project.project_code}%`),
-        supabase
-          .from(TABLES.KPI)
-          .select('*')
-          .or(`Project Full Code.eq.${project.project_code},Project Code.eq.${project.project_code},Project Full Code.like.${project.project_code}%`)
-      ])
+      // 🔧 FIX: Fetch data directly for this project with timeout
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), 10000)
+      )
+      
+      const [activitiesResult, kpisResult] = await Promise.race([
+        Promise.all([
+          supabase
+            .from(TABLES.BOQ_ACTIVITIES)
+            .select('*')
+            .or(`Project Code.eq.${project.project_code},Project Full Code.like.${project.project_code}%`),
+          supabase
+            .from(TABLES.KPI)
+            .select('*')
+            .or(`Project Full Code.eq.${project.project_code},Project Code.eq.${project.project_code},Project Full Code.like.${project.project_code}%`)
+        ]),
+        timeoutPromise
+      ]) as any
       
       if (activitiesResult.error) {
         console.error('❌ Activities error:', activitiesResult.error)
@@ -88,10 +98,13 @@ export function ModernProjectCard({
       const activities = (activitiesResult.data || []).map(mapBOQFromDB)
       const kpis = (kpisResult.data || []).map(mapKPIFromDB)
       
-      console.log(`✅ Loaded for ${project.project_code}:`, {
-        activities: activities.length,
-        kpis: kpis.length
-      })
+      // تقليل التسجيل لتجنب البطء
+      if (Math.random() < 0.05) {
+        console.log(`✅ Loaded for ${project.project_code}:`, {
+          activities: activities.length,
+          kpis: kpis.length
+        })
+      }
       
       if (!mountedRef.current) return
       
@@ -99,11 +112,14 @@ export function ModernProjectCard({
       const calculatedAnalytics = calculateProjectAnalytics(project, activities, kpis)
       setAnalytics(calculatedAnalytics)
       
-      console.log(`🎯 Analytics calculated for ${project.project_code}:`, {
-        totalActivities: calculatedAnalytics.totalActivities,
-        totalKPIs: calculatedAnalytics.totalKPIs,
-        overallProgress: calculatedAnalytics.overallProgress
-      })
+      // تقليل التسجيل لتجنب البطء
+      if (Math.random() < 0.05) {
+        console.log(`🎯 Analytics calculated for ${project.project_code}:`, {
+          totalActivities: calculatedAnalytics.totalActivities,
+          totalKPIs: calculatedAnalytics.totalKPIs,
+          overallProgress: calculatedAnalytics.overallProgress
+        })
+      }
       
     } catch (error: any) {
       console.error('❌ Error loading analytics:', error)
@@ -158,14 +174,15 @@ export function ModernProjectCard({
   const totalKPIs = analytics?.totalKPIs || 0
 
   return (
-    <Card className="group hover:shadow-xl transition-all duration-300 border-l-4 bg-white dark:bg-gray-800 overflow-hidden" style={{
-      borderLeftColor: getBorderColor(progress)
+    <Card className="card-modern group overflow-hidden" style={{
+      borderLeftColor: getBorderColor(progress),
+      borderLeftWidth: '4px'
     }}>
       {/* Header */}
       <CardHeader className="pb-4 bg-gradient-to-r from-gray-50 to-white dark:from-gray-800 dark:to-gray-700">
         <div className="flex justify-between items-start">
           <div className="flex-1">
-            <CardTitle className="text-xl font-bold text-gray-900 dark:text-white mb-2 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+            <CardTitle className="text-lg font-bold text-gray-900 dark:text-white mb-2 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
               {project.project_name}
             </CardTitle>
             <div className="flex gap-2 flex-wrap">
@@ -216,7 +233,7 @@ export function ModernProjectCard({
         <div className="grid grid-cols-2 gap-4">
           <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 rounded-lg p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-500 rounded-lg">
+              <div className="icon-circle cyan">
                 <Activity className="w-5 h-5 text-white" />
               </div>
               <div>
@@ -236,7 +253,7 @@ export function ModernProjectCard({
 
           <div className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20 rounded-lg p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-purple-500 rounded-lg">
+              <div className="icon-circle purple">
                 <Target className="w-5 h-5 text-white" />
               </div>
               <div>
@@ -274,7 +291,7 @@ export function ModernProjectCard({
         {/* Contract Value */}
         <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-lg p-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-green-500 rounded-lg">
+            <div className="icon-circle green">
               <DollarSign className="w-5 h-5 text-white" />
             </div>
             <div className="flex-1">
@@ -311,35 +328,29 @@ export function ModernProjectCard({
         )}
 
         {/* Action Buttons */}
-        <div className="flex justify-end space-x-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+        <div className="flex justify-end space-x-2 pt-4 border-t" style={{ borderColor: 'rgba(0, 0, 0, 0.06)' }}>
           {onViewDetails && (
-            <Button
-              variant="primary"
-              size="sm"
+            <button
               onClick={() => onViewDetails(project)}
-              className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white"
+              className="btn-primary flex items-center space-x-2"
             >
               <Eye className="w-4 h-4" />
               <span>Details</span>
-            </Button>
+            </button>
           )}
-          <Button
-            variant="outline"
-            size="sm"
+          <button
             onClick={() => onEdit(project)}
-            className="flex items-center space-x-2 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
+            className="flex items-center space-x-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
           >
             <Edit className="w-4 h-4" />
             <span>Edit</span>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
+          </button>
+          <button
             onClick={() => onDelete(project.id)}
-            className="flex items-center space-x-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 border-red-200 dark:border-red-800"
+            className="flex items-center space-x-2 px-4 py-2 text-red-600 hover:text-red-700 hover:bg-red-50 border border-red-200 rounded-lg transition-colors"
           >
             <Trash2 className="w-4 h-4" />
-          </Button>
+          </button>
         </div>
 
         {/* Loading State */}

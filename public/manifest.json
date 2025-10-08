@@ -1,7 +1,7 @@
 {
-  "name": "Rabat MVP - Project Management System",
-  "short_name": "Rabat MVP",
-  "description": "Advanced Project Management System with BOQ, KPI tracking, and Analytics",
+  "name": "AlRabat RPF - Masters of Foundation Construction",
+  "short_name": "AlRabat RPF",
+  "description": "Masters of Foundation Construction - Advanced Project Management System with BOQ, KPI tracking, and Analytics",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",

@@ -217,7 +217,7 @@ export function DashboardOverview() {
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-6">
           <div className="text-center">
             <h3 className="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-2">
-              Welcome to Rabat MVP Project Management System
+              Welcome to AlRabat RPF Project Management System
             </h3>
             <p className="text-blue-700 dark:text-blue-300 mb-4">
               No data found. Please set up your database and create some projects to get started.

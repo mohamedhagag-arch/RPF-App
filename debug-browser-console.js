@@ -140,3 +140,4 @@ checkStorage();
 checkGlobalVariables();
 
 console.log('✅ Debug complete! Check the logs above for findings.');
+

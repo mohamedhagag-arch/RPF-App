@@ -341,46 +341,64 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
     
     // Connection monitoring is handled by simpleConnectionManager
     
-    // ✅ Initial load: Fetch ONLY projects list for filter dropdown (lightweight)
-    // NO full project details, NO activities, NO KPIs
-    const fetchProjectsForFilter = async () => {
+    // ✅ Initial load: Fetch projects, activities, and KPIs in parallel
+    const fetchAllData = async () => {
       try {
         startSmartLoading(setLoading)
-        console.log('🟡 Projects: Fetching projects list for filters...')
+        console.log('🟡 Projects: Fetching all data in parallel...')
         
-        // Fetch ALL fields to avoid column errors (still lightweight - just project count)
-        const { data: projectsData, error: projectsError } = await executeQuery(async () =>
+        // Fetch all data in parallel for better performance
+        const [projectsResult, activitiesResult, kpisResult] = await Promise.all([
           supabase
             .from(TABLES.PROJECTS)
             .select('*')
-            .order('created_at', { ascending: false })
-        )
+            .order('created_at', { ascending: false }),
+          supabase
+            .from(TABLES.BOQ_ACTIVITIES)
+            .select('*'),
+          supabase
+            .from(TABLES.KPI)
+            .select('*')
+        ])
         
-        // ✅ ALWAYS update state (React handles unmounted safely)
-        
-        if (projectsError) {
-          console.error('❌ Supabase Error loading projects:', projectsError)
-          setError(`Failed to load projects: ${projectsError.message || 'Unknown error'}`)
+        if (projectsResult.error) {
+          console.error('❌ Projects Error:', projectsResult.error)
+          setError(`Failed to load projects: ${projectsResult.error.message}`)
           return
         }
         
-        if (projectsData && Array.isArray(projectsData)) {
-          const mappedProjects = projectsData.map(mapProjectFromDB)
-          setProjects(mappedProjects)
-          setTotalCount(mappedProjects.length)
-          console.log('✅ Projects: Loaded', mappedProjects.length, 'projects')
-          console.log('💡 All projects loaded - filtering is now client-side!')
+        if (activitiesResult.error) {
+          console.error('❌ Activities Error:', activitiesResult.error)
         }
+        
+        if (kpisResult.error) {
+          console.error('❌ KPIs Error:', kpisResult.error)
+        }
+        
+        // Map all data
+        const mappedProjects = (projectsResult.data || []).map(mapProjectFromDB)
+        const mappedActivities = (activitiesResult.data || []).map(mapBOQFromDB)
+        const mappedKPIs = (kpisResult.data || []).map(mapKPIFromDB)
+        
+        setProjects(mappedProjects)
+        setAllActivities(mappedActivities)
+        setAllKPIs(mappedKPIs)
+        setTotalCount(mappedProjects.length)
+        
+        console.log('✅ Projects: Loaded', mappedProjects.length, 'projects')
+        console.log('✅ Activities: Loaded', mappedActivities.length, 'activities')
+        console.log('✅ KPIs: Loaded', mappedKPIs.length, 'KPIs')
+        console.log('💡 All data loaded - analytics ready!')
+        
       } catch (error: any) {
-        console.error('❌ Exception loading projects:', error)
-        setError(error.message || 'Failed to load projects')
+        console.error('❌ Exception loading data:', error)
+        setError(error.message || 'Failed to load data')
       } finally {
-        // ✅ ALWAYS stop loading (React handles unmounted safely)
-        setLoading(false)
+        stopSmartLoading(setLoading)
       }
     }
     
-    fetchProjectsForFilter()
+    fetchAllData()
     
     // Cleanup function to prevent memory leaks and hanging
     return () => {
@@ -522,7 +540,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
       <div className="flex justify-between items-center">
         <div>
           <div className="flex items-center gap-3">
-          <h2 className="text-3xl font-bold text-gray-900 dark:text-white">Project Management</h2>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Project Management</h2>
             {loading && (
               <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-full animate-pulse">
                 <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
@@ -530,7 +548,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
               </div>
             )}
           </div>
-          <p className="text-gray-600 dark:text-gray-400 mt-2">Manage and track all projects with smart analytics</p>
+          <p className="text-gray-600 dark:text-gray-400 mt-2">Masters of Foundation Construction - Manage and track all projects with smart analytics</p>
         </div>
         <div className="flex gap-2">
           {/* View Mode Toggle */}
@@ -558,11 +576,11 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
           </div>
           
           
-          <Button onClick={() => setShowForm(true)} className="flex items-center space-x-2">
+          <button onClick={() => setShowForm(true)} className="btn-primary flex items-center space-x-2">
             <Plus className="h-4 w-4" />
             <span className="hidden sm:inline">Add New Project</span>
             <span className="sm:hidden">Add</span>
-          </Button>
+          </button>
         </div>
       </div>
       
@@ -615,7 +633,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
         </Alert>
       )}
 
-      <Card>
+      <Card className="card-modern">
         <CardHeader>
           <div className="flex flex-col md:flex-row gap-4">
             <div className="flex-1">
@@ -665,28 +683,12 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
                   ? calculateProjectAnalytics(project, allActivities, allKPIs)
                   : null
                 
-                // 🔍 DEBUG: Log analytics calculation
-                if (shouldLoadCardAnalytics(viewMode)) {
+                // تقليل التسجيل لتجنب البطء
+                if (shouldLoadCardAnalytics(viewMode) && Math.random() < 0.1) {
                   console.log(`🔍 Analytics for ${project.project_code}:`, {
                     allActivitiesCount: allActivities.length,
                     allKPIsCount: allKPIs.length,
-                    analytics: analytics,
                     hasAnalytics: !!analytics
-                  })
-                  
-                  // 🔍 DEBUG: Check if we have data for this specific project
-                  const projectActivities = allActivities.filter(a => 
-                    a.project_code === project.project_code || a.project_full_code?.startsWith(project.project_code)
-                  )
-                  const projectKPIs = allKPIs.filter(k => 
-                    k.project_code === project.project_code || k.project_full_code?.startsWith(project.project_code)
-                  )
-                  
-                  console.log(`🔍 Data for ${project.project_code}:`, {
-                    projectActivities: projectActivities.length,
-                    projectKPIs: projectKPIs.length,
-                    sampleActivity: projectActivities[0],
-                    sampleKPI: projectKPIs[0]
                   })
                 }
                 

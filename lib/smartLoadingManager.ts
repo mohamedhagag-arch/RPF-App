@@ -80,23 +80,23 @@ export function useSmartLoading(tabName: string) {
 function getSmartTimeout(tabName: string): number {
   // إذا كان التاب معروف بالبطء، أعطيه وقت أكثر
   if (slowQueries.has(tabName)) {
-    return 30000 // 30 ثانية للاستعلامات البطيئة
+    return 90000 // 90 ثانية للاستعلامات البطيئة
   }
   
   // timeout عادي حسب نوع التاب
   switch (tabName) {
     case 'projects':
-      return 20000 // 20 ثانية للمشاريع
+      return 60000 // 60 ثانية للمشاريع (تحليلات معقدة)
     case 'boq':
-      return 25000 // 25 ثانية للـ BOQ (أكبر)
+      return 45000 // 45 ثانية للـ BOQ (أكبر)
     case 'kpi':
-      return 20000 // 20 ثانية للـ KPI
+      return 30000 // 30 ثانية للـ KPI
     case 'settings':
       return 15000 // 15 ثانية للإعدادات (خفيفة)
     case 'project-details':
-      return 30000 // 30 ثانية لتفاصيل المشروع (تحليلات معقدة)
+      return 45000 // 45 ثانية لتفاصيل المشروع (تحليلات معقدة)
     case 'dashboard':
-      return 25000 // 25 ثانية للـ Dashboard (تحليلات)
+      return 40000 // 40 ثانية للـ Dashboard (تحليلات)
     case 'reports':
       return 30000 // 30 ثانية للتقارير (معقدة)
     case 'users':

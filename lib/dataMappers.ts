@@ -62,8 +62,8 @@ export function mapBOQFromDB(row: any): any {
   const activityName = row['Activity Name'] || row['Activity'] || 
                        (row['Zone Ref'] ? row['Zone Ref'].split('‣')[1]?.trim() : '') || ''
   
-  // Debug logging for planned units mapping
-  if (row['Column 44']) {
+  // تقليل التسجيل لتجنب البطء
+  if (row['Column 44'] && Math.random() < 0.01) { // تسجيل 1% فقط
     console.log('📊 Mapping BOQ - Column 44 (Planned Units):', row['Column 44'], 'for activity:', activityName)
   }
   

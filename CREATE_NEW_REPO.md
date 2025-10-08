@@ -9,7 +9,7 @@ Vercel يستخدم commit قديم ولا يحصل على آخر التحديث
 1. اذهب إلى [GitHub](https://github.com)
 2. انقر على **"New"** أو **"+"** > **"New repository"**
 3. **Repository name**: `rabat-mvp-live`
-4. **Description**: `Rabat MVP - Production Ready Project Management System`
+4. **Description**: `AlRabat RPF - Masters of Foundation Construction - Production Ready Project Management System`
 5. اختر **Public**
 6. **لا** تضع علامة على "Add a README file"
 7. **لا** تضع علامة على "Add .gitignore"

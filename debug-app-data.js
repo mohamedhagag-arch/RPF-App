@@ -78,3 +78,4 @@ if (supabase) {
 } else {
   console.error('❌ Supabase client not available');
 }
+

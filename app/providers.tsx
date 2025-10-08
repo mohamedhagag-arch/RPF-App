@@ -40,6 +40,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     mounted.current = true
 
+    // تجنب التهيئة المتعددة
+    if (initialized.current) {
+      return
+    }
+    initialized.current = true
+
     const initializeAuth = async () => {
       try {
         // First try to get session
@@ -87,19 +93,23 @@ export function Providers({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // Always initialize auth on mount
-    initializeAuth()
+    // Initialize auth only once on mount
+    if (!initialized.current) {
+      initializeAuth()
+      initialized.current = true
+    }
 
     // Set up auth state change listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (!mounted.current) return
         
-        console.log('Auth state changed:', event, session?.user?.email)
+        console.log('🔄 Providers: Auth state changed:', event, session?.user?.email)
         
         setUser(session?.user ?? null)
         
         if (session?.user) {
+          console.log('✅ Providers: User session valid, fetching profile...')
           try {
             const { data: profile, error } = await supabase
               .from('users')
@@ -108,16 +118,18 @@ export function Providers({ children }: { children: React.ReactNode }) {
               .single()
             
             if (error) {
-              console.log('User profile not found, will be created on first login')
+              console.log('⚠️ Providers: User profile not found, will be created on first login')
               setAppUser(null)
             } else {
+              console.log('✅ Providers: User profile loaded successfully')
               setAppUser(profile)
             }
           } catch (error) {
-            console.log('Error fetching user profile:', error)
+            console.log('❌ Providers: Error fetching user profile:', error)
             setAppUser(null)
           }
         } else {
+          console.log('❌ Providers: No user session - clearing app user')
           setAppUser(null)
         }
         

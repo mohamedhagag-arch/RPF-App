@@ -4,6 +4,14 @@
  * هذا الملف يختبر النظام البسيط للتأكد من عمله بشكل صحيح
  */
 
+// إعلان TypeScript للـ window object
+declare global {
+  interface Window {
+    __connectionTestRun?: boolean
+    __connectionMonitorActive?: boolean
+  }
+}
+
 import { 
   getSupabaseClient, 
   checkConnection,
@@ -56,10 +64,14 @@ export async function testSimpleConnectionSystem() {
   }
 }
 
-// ✅ تشغيل الاختبار تلقائياً في بيئة التطوير
+// ✅ تشغيل الاختبار تلقائياً في بيئة التطوير (مرة واحدة فقط)
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   // تأخير لضمان تحميل النظام
   setTimeout(() => {
-    testSimpleConnectionSystem()
+    // تشغيل الاختبار مرة واحدة فقط
+    if (!window.__connectionTestRun) {
+      window.__connectionTestRun = true
+      testSimpleConnectionSystem()
+    }
   }, 2000)
 }

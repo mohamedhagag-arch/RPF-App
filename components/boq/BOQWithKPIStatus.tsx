@@ -44,10 +44,13 @@ export function BOQWithKPIStatus({ activity, allKPIs }: BOQWithKPIStatusProps) {
 
     const fetchKPIData = async () => {
       try {
-        console.log('🔍 Fetching KPI for:', {
-          project_code: activity.project_code,
-          activity_name: activity.activity_name
-        })
+        // تقليل التسجيل لتجنب البطء
+        if (Math.random() < 0.1) {
+          console.log('🔍 Fetching KPI for:', {
+            project_code: activity.project_code,
+            activity_name: activity.activity_name
+          })
+        }
 
         // Try exact match first from MAIN TABLE
         let { data: kpiRecords } = await supabase

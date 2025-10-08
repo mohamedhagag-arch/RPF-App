@@ -54,14 +54,14 @@ export function LoginForm() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8" style={{ background: 'var(--bg-main)' }}>
       <div className="max-w-md w-full space-y-8">
         <div className="flex justify-end">
           <ThemeToggle />
         </div>
         
         <div className="text-center">
-          <h2 className="mt-6 text-3xl font-extrabold text-gray-900 dark:text-white">
+          <h2 className="mt-6 text-2xl font-extrabold text-gray-900 dark:text-white">
             {isSignUp ? 'Create New Account' : 'Sign In'}
           </h2>
           <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
@@ -76,7 +76,7 @@ export function LoginForm() {
           </p>
         </div>
 
-        <Card className="mt-8">
+        <Card className="card-modern mt-8">
           <form className="space-y-6 p-6" onSubmit={handleSubmit}>
             {error && (
               <Alert variant="error">
@@ -131,19 +131,19 @@ export function LoginForm() {
               />
             </div>
 
-            <Button
+            <button
               type="submit"
               disabled={loading}
-              className="w-full"
+              className="btn-primary w-full"
             >
               {loading ? 'Processing...' : (isSignUp ? 'Create Account' : 'Sign In')}
-            </Button>
+            </button>
           </form>
         </Card>
 
         <div className="text-center">
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            Project Management System - Rabat MVP
+            AlRabat RPF - Masters of Foundation Construction
           </p>
         </div>
       </div>

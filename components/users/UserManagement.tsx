@@ -9,6 +9,14 @@ import { Input } from '@/components/ui/Input'
 import { Alert } from '@/components/ui/Alert'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { User } from '@/lib/supabase'
+import { AdvancedPermissionsManager } from './AdvancedPermissionsManager'
+import { 
+  UserWithPermissions,
+  getUserPermissions,
+  getPermissionsCount,
+  ALL_PERMISSIONS,
+  DEFAULT_ROLE_PERMISSIONS
+} from '@/lib/permissionsSystem'
 import { 
   Users, 
   Plus, 
@@ -21,7 +29,12 @@ import {
   UserX,
   Mail,
   Calendar,
-  Building
+  Building,
+  Lock,
+  Eye,
+  CheckCircle,
+  XCircle,
+  Key
 } from 'lucide-react'
 
 interface UserManagementProps {
@@ -32,11 +45,12 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const { startSmartLoading, stopSmartLoading } = useSmartLoading('users') // ✅ Smart loading
+  const { startSmartLoading, stopSmartLoading } = useSmartLoading('users')
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedRole, setSelectedRole] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editingUser, setEditingUser] = useState<User | null>(null)
+  const [managingPermissionsUser, setManagingPermissionsUser] = useState<UserWithPermissions | null>(null)
 
   const supabase = getSupabaseClient()
 
@@ -128,6 +142,44 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
         .eq('id', id)
 
       if (profileError) throw profileError
+
+      fetchUsers()
+    } catch (error: any) {
+      setError(error.message)
+    }
+  }
+
+  const handleUpdatePermissions = async (userId: string, permissions: string[], customEnabled: boolean) => {
+    try {
+      const { error } = await (supabase as any)
+        .from('users')
+        .update({
+          permissions: permissions,
+          custom_permissions_enabled: customEnabled,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userId)
+
+      if (error) throw error
+
+      fetchUsers()
+    } catch (error: any) {
+      setError(error.message)
+      throw error
+    }
+  }
+
+  const handleToggleUserStatus = async (userId: string, currentStatus: boolean) => {
+    try {
+      const { error } = await (supabase as any)
+        .from('users')
+        .update({
+          is_active: !currentStatus,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userId)
+
+      if (error) throw error
 
       fetchUsers()
     } catch (error: any) {
@@ -265,40 +317,49 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+                <thead className="bg-gray-50 dark:bg-gray-800">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       User
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Role
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Permissions
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Division
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Created
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Status
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
                   {filteredUsers.map((user) => {
                     const RoleIcon = getRoleIcon(user.role)
+                    const userWithPerms = user as UserWithPermissions
+                    const permissionsCount = userWithPerms.custom_permissions_enabled && userWithPerms.permissions 
+                      ? userWithPerms.permissions.length 
+                      : getPermissionsCount(user.role)
+                    const isActive = (userWithPerms.is_active !== undefined) ? userWithPerms.is_active : true
+                    
                     return (
-                      <tr key={user.id} className="hover:bg-gray-50">
+                      <tr key={user.id} className={`hover:bg-gray-50 dark:hover:bg-gray-800 ${!isActive ? 'opacity-50' : ''}`}>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
-                            <div className="h-10 w-10 rounded-full bg-primary-100 flex items-center justify-center">
+                            <div className="h-10 w-10 rounded-full bg-primary-100 dark:bg-primary-900 flex items-center justify-center">
                               <Users className="h-5 w-5 text-primary-600" />
                             </div>
                             <div className="ml-4">
-                              <div className="text-sm font-medium text-gray-900">
+                              <div className="text-sm font-medium text-gray-900 dark:text-white">
                                 {user.full_name}
                               </div>
-                              <div className="text-sm text-gray-500 flex items-center">
+                              <div className="text-sm text-gray-500 dark:text-gray-400 flex items-center">
                                 <Mail className="h-3 w-3 mr-1" />
                                 {user.email}
                               </div>
@@ -311,37 +372,73 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
                             {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
                           </span>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            <Shield className="h-4 w-4 text-gray-400" />
+                            <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                              {permissionsCount}
+                            </span>
+                            <span className="text-xs text-gray-500">permissions</span>
+                            {userWithPerms.custom_permissions_enabled && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300">
+                                <Key className="h-3 w-3 mr-1" />
+                                Custom
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
                           <div className="flex items-center">
                             <Building className="h-4 w-4 mr-1 text-gray-400" />
                             {user.division || 'Not specified'}
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          <div className="flex items-center">
-                            <Calendar className="h-4 w-4 mr-1 text-gray-400" />
-                            {new Date(user.created_at).toLocaleDateString()}
-                          </div>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <button
+                            onClick={() => handleToggleUserStatus(user.id, isActive)}
+                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium cursor-pointer ${
+                              isActive 
+                                ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' 
+                                : 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'
+                            }`}
+                          >
+                            {isActive ? (
+                              <>
+                                <CheckCircle className="h-3 w-3 mr-1" />
+                                Active
+                              </>
+                            ) : (
+                              <>
+                                <XCircle className="h-3 w-3 mr-1" />
+                                Inactive
+                              </>
+                            )}
+                          </button>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <div className="flex space-x-2">
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setManagingPermissionsUser(userWithPerms)}
+                              title="Manage Permissions"
+                            >
+                              <Shield className="h-4 w-4" />
+                            </Button>
                             <Button
                               variant="outline"
                               size="sm"
                               onClick={() => setEditingUser(user)}
-                              className="flex items-center space-x-1"
                             >
                               <Edit className="h-4 w-4" />
-                              <span>Edit</span>
                             </Button>
                             <Button
                               variant="outline"
                               size="sm"
                               onClick={() => handleDeleteUser(user.id)}
-                              className="flex items-center space-x-1 text-red-600 hover:text-red-700"
+                              className="text-red-600 hover:text-red-700"
                             >
                               <Trash2 className="h-4 w-4" />
-                              <span>Delete</span>
                             </Button>
                           </div>
                         </td>
@@ -369,6 +466,48 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
           user={editingUser}
           onSubmit={(data) => handleUpdateUser(editingUser.id, data)}
           onCancel={() => setEditingUser(null)}
+        />
+      )}
+
+      {/* Permissions Manager */}
+      {managingPermissionsUser && (
+        <AdvancedPermissionsManager
+          user={managingPermissionsUser}
+          onUpdate={(permissions, customEnabled) => 
+            handleUpdatePermissions(managingPermissionsUser.id, permissions, customEnabled)
+          }
+          onClose={() => setManagingPermissionsUser(null)}
+          onEditUser={async (userData) => {
+            const updateData: Partial<User> = {
+              full_name: userData.full_name,
+              email: userData.email,
+              role: userData.role as 'admin' | 'manager' | 'engineer' | 'viewer',
+              division: userData.division
+            }
+            await handleUpdateUser(managingPermissionsUser.id, updateData)
+            setManagingPermissionsUser(null)
+          }}
+          onAddRole={async (roleData) => {
+            try {
+              // Add role to DEFAULT_ROLE_PERMISSIONS
+              const newRoleKey = roleData.name.toLowerCase().replace(/\s+/g, '_')
+              DEFAULT_ROLE_PERMISSIONS[newRoleKey] = roleData.permissions
+              
+              console.log('✅ New role added successfully:', {
+                key: newRoleKey,
+                name: roleData.name,
+                description: roleData.description,
+                permissionsCount: roleData.permissions.length
+              })
+              
+              // TODO: Save to database if needed
+              // You can add database save logic here
+              
+            } catch (error) {
+              console.error('❌ Error adding role:', error)
+              throw error
+            }
+          }}
         />
       )}
     </div>

@@ -8,14 +8,14 @@
 - **URL**: https://github.com/mohamedhagag-arch/RPF-App.git
 - **Status**: ✅ **UPDATED** - Enhanced version deployed
 - **Branch**: main
-- **Last Commit**: `2b9f790` - "Merge: Updated Rabat MVP with Enhanced Features and Syncing Fixes"
+- **Last Commit**: `2b9f790` - "Merge: Updated AlRabat RPF with Enhanced Features and Syncing Fixes"
 - **Files**: 235 files, 148,223+ lines of code
 
 #### 2. RPFGroup/RPF-App  
 - **URL**: https://github.com/RPFGroup/RPF-App.git
 - **Status**: ✅ **DEPLOYED** - Fresh deployment
 - **Branch**: main
-- **Last Commit**: `2b9f790` - "Merge: Updated Rabat MVP with Enhanced Features and Syncing Fixes"
+- **Last Commit**: `2b9f790` - "Merge: Updated AlRabat RPF with Enhanced Features and Syncing Fixes"
 - **Files**: 235 files, 148,223+ lines of code
 
 ## 🎯 What's Included
@@ -91,4 +91,4 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 
 ## 🎉 Deployment Complete!
 
-Both repositories are now updated with the latest enhanced version of Rabat MVP. The project is ready for Vercel deployment with all the latest fixes and improvements.
+Both repositories are now updated with the latest enhanced version of AlRabat RPF. The project is ready for Vercel deployment with all the latest fixes and improvements.

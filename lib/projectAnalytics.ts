@@ -109,21 +109,13 @@ export function calculateProjectAnalytics(
   allActivities: BOQActivity[],
   allKPIs: any[]
 ): ProjectAnalytics {
-  console.log('🔍 Calculating analytics for project:', project.project_code)
-  console.log('📦 Total activities in database:', allActivities.length)
-  console.log('📊 Total KPIs in database:', allKPIs.length)
-  console.log('🔍 Sample activities project codes:', allActivities.slice(0, 3).map(a => a.project_code))
-  console.log('🔍 Sample KPIs project codes:', allKPIs.slice(0, 3).map(k => k.project_code))
-  
-  // 🔍 DEBUG: Check if we have any data at all
-  if (allActivities.length === 0 && allKPIs.length === 0) {
-    console.warn('⚠️ NO DATA: No activities or KPIs found in database!')
-    console.log('🔍 This means the issue is in data fetching, not calculation')
+  // تقليل التسجيل لتجنب البطء
+  if (Math.random() < 0.1) { // تسجيل 10% فقط من المشاريع
+    console.log('🔍 Calculating analytics for project:', project.project_code)
   }
   
   // 🔧 PERFORMANCE: Early return if no data
   if (allActivities.length === 0 && allKPIs.length === 0) {
-    console.log('⚡ Early return: No data to process')
     return createEmptyAnalytics(project)
   }
   
@@ -162,23 +154,12 @@ export function calculateProjectAnalytics(
     return false
   })
   
-  console.log(`✅ Filtered for ${project.project_code}:`, {
-    activities: projectActivities.length,
-    kpis: projectKPIs.length
-  })
-  
-  if (projectActivities.length > 0) {
-    console.log('🔍 Sample activity:', projectActivities[0])
-  } else {
-    console.warn(`⚠️ NO ACTIVITIES found for project ${project.project_code}`)
-    console.log('🔍 Available project codes in activities:', Array.from(new Set(allActivities.map(a => a.project_code))).slice(0, 10))
-  }
-  
-  if (projectKPIs.length > 0) {
-    console.log('🔍 Sample KPI:', projectKPIs[0])
-  } else {
-    console.warn(`⚠️ NO KPIs found for project ${project.project_code}`)
-    console.log('🔍 Available project codes in KPIs:', Array.from(new Set(allKPIs.map(k => k.project_code))).slice(0, 10))
+  // تقليل التسجيل لتجنب البطء
+  if (Math.random() < 0.05) { // تسجيل 5% فقط من المشاريع
+    console.log(`✅ Filtered for ${project.project_code}:`, {
+      activities: projectActivities.length,
+      kpis: projectKPIs.length
+    })
   }
   
   // BOQ Statistics
@@ -202,12 +183,15 @@ export function calculateProjectAnalytics(
   const totalRemainingValue = totalPlannedValue - totalEarnedValue
   const financialProgress = totalPlannedValue > 0 ? (totalEarnedValue / totalPlannedValue) * 100 : 0
   
-  console.log('💰 Financial Metrics:', {
-    totalPlannedValue,
-    totalEarnedValue,
-    totalRemainingValue,
-    financialProgress: financialProgress.toFixed(1) + '%'
-  })
+  // تقليل التسجيل لتجنب البطء
+  if (Math.random() < 0.02) { // تسجيل 2% فقط من المشاريع
+    console.log('💰 Financial Metrics:', {
+      totalPlannedValue,
+      totalEarnedValue,
+      totalRemainingValue,
+      financialProgress: financialProgress.toFixed(1) + '%'
+    })
+  }
   
   // ✅ Progress Metrics - Based on KPIs (Actual vs Planned)
   // Calculate progress from KPI quantities, not BOQ directly
@@ -241,16 +225,19 @@ export function calculateProjectAnalytics(
     ? ((averageActivityProgress + financialProgress + weightedProgress) / 3)
     : 0
   
-  console.log('📊 Progress Calculation (from KPIs):', {
-    plannedKPIs: plannedKPIsData.length,
-    actualKPIs: actualKPIsData.length,
-    totalPlannedQuantity,
-    totalActualQuantity,
-    kpiProgress: averageActivityProgress.toFixed(1) + '%',
-    financialProgress: financialProgress.toFixed(1) + '%',
-    weightedProgress: weightedProgress.toFixed(1) + '%',
-    overallProgress: overallProgress.toFixed(1) + '%'
-  })
+  // تقليل التسجيل لتجنب البطء
+  if (Math.random() < 0.02) { // تسجيل 2% فقط من المشاريع
+    console.log('📊 Progress Calculation (from KPIs):', {
+      plannedKPIs: plannedKPIsData.length,
+      actualKPIs: actualKPIsData.length,
+      totalPlannedQuantity,
+      totalActualQuantity,
+      kpiProgress: averageActivityProgress.toFixed(1) + '%',
+      financialProgress: financialProgress.toFixed(1) + '%',
+      weightedProgress: weightedProgress.toFixed(1) + '%',
+      overallProgress: overallProgress.toFixed(1) + '%'
+    })
+  }
   
   // KPI Metrics
   const totalKPIs = projectKPIs.length

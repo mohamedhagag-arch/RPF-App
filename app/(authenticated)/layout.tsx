@@ -6,6 +6,7 @@ import { ModernSidebar } from '@/components/dashboard/ModernSidebar'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { useEffect, useState } from 'react'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
+import { UserDropdown } from '@/components/ui/UserDropdown'
 import { LogOut, User } from 'lucide-react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { ConnectionMonitor } from '@/components/common/ConnectionMonitor'
@@ -22,6 +23,7 @@ export default function AuthenticatedLayout({
   const router = useRouter()
   const pathname = usePathname()
   const [mounted, setMounted] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const supabase = createClientComponentClient()
 
   useEffect(() => {
@@ -43,6 +45,7 @@ export default function AuthenticatedLayout({
     if (pathname === '/users') return 'users'
     if (pathname === '/reports') return 'reports'
     if (pathname === '/import-export') return 'import-export'
+    if (pathname === '/profile') return 'profile'
     return 'dashboard'
   }
 
@@ -53,6 +56,14 @@ export default function AuthenticatedLayout({
   const handleSignOut = async () => {
     await supabase.auth.signOut()
     router.push('/')
+  }
+
+  const handleProfileClick = () => {
+    router.push('/profile')
+  }
+
+  const handleSettingsClick = () => {
+    router.push('/settings')
   }
 
   if (!mounted || loading) {
@@ -75,10 +86,14 @@ export default function AuthenticatedLayout({
         onTabChange={handleTabChange}
         userName={appUser?.full_name || user?.email || 'User'}
         userRole={appUser?.role || 'viewer'}
+        onProfileClick={handleProfileClick}
+        onCollapseChange={setSidebarCollapsed}
       />
 
       {/* Main Content */}
-      <div className="lg:pl-72">
+      <div className={`transition-all duration-300 ${
+        sidebarCollapsed ? 'lg:pl-16' : 'lg:pl-64'
+      }`}>
         {/* Top Bar */}
         <div className="sticky top-0 z-30 bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between px-6 py-4">
@@ -91,20 +106,13 @@ export default function AuthenticatedLayout({
             <div className="flex items-center gap-3">
               <ThemeToggle />
               
-              <div className="hidden md:flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
-                <User className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {appUser?.full_name || user?.email}
-                </span>
-              </div>
-
-              <button
-                onClick={handleSignOut}
-                className="flex items-center gap-2 px-3 py-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-              >
-                <LogOut className="h-4 w-4" />
-                <span className="text-sm font-medium hidden md:inline">Sign Out</span>
-              </button>
+              <UserDropdown
+                userName={appUser?.full_name || user?.email || 'User'}
+                userRole={appUser?.role || 'viewer'}
+                onProfileClick={handleProfileClick}
+                onSettingsClick={handleSettingsClick}
+                onSignOut={handleSignOut}
+              />
             </div>
           </div>
         </div>

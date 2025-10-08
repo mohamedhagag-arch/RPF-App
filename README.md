@@ -1,8 +1,8 @@
-# Rabat MVP - Project Management System
+# AlRabat RPF - Masters of Foundation Construction
 
-🚀 **Live Demo**: [https://rabat-mvp.vercel.app](https://rabat-mvp.vercel.app)
+🚀 **Live Demo**: [https://alrabat-rpf.vercel.app](https://alrabat-rpf.vercel.app)
 
-Advanced project management system using Next.js and Supabase for managing projects, activities, and key performance indicators with real-time progress tracking and comprehensive reporting.
+**Masters of Foundation Construction** - Advanced project management system using Next.js and Supabase for managing projects, activities, and key performance indicators with real-time progress tracking and comprehensive reporting.
 
 ## 🎯 Quick Start
 

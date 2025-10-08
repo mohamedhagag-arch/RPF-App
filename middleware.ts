@@ -12,14 +12,15 @@ export async function middleware(req: NextRequest) {
       res
     })
     
-    // Refresh session if expired - this is critical for maintaining session
-    await supabase.auth.getSession()
+    // فقط تحقق من الجلسة بدون إعادة توجيه
+    const { data: { session } } = await supabase.auth.getSession()
     
     // Add connection headers to prevent disconnection
     res.headers.set('Connection', 'keep-alive')
     res.headers.set('Keep-Alive', 'timeout=30, max=1000')
     
-    // The response must be returned to ensure cookies are set properly
+    // لا نقوم بأي إعادة توجيه هنا - نترك للمكونات التعامل مع ذلك
+    
   } catch (error) {
     console.log('Middleware error:', error)
     // Don't fail the request, just log the error

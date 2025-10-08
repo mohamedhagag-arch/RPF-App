@@ -8,7 +8,8 @@ export const TABLES = {
   PROJECTS: 'Planning Database - ProjectsList',
   BOQ_ACTIVITIES: 'Planning Database - BOQ Rates',
   KPI: 'Planning Database - KPI',                      // ✅ MAIN TABLE - Single source of truth!
-  USERS: 'users'
+  USERS: 'users',
+  COMPANY_SETTINGS: 'company_settings'                 // ✅ NEW: Company settings table
 } as const
 
 // Backward compatibility alias

@@ -5,6 +5,7 @@ import { LoginForm } from '@/components/auth/LoginForm'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { checkReloadProtection } from '@/lib/reloadProtection'
 
 export default function Home() {
   const { user, loading } = useAuth()
@@ -19,10 +20,22 @@ export default function Home() {
     }
   }, [])
 
-  // Redirect authenticated users to dashboard
+  // Redirect authenticated users to dashboard - with delay to prevent rapid redirects
   useEffect(() => {
     if (user && mounted && !loading) {
-      router.push('/dashboard')
+      // فحص حماية من الـ reload المتكرر
+      if (!checkReloadProtection()) {
+        console.warn('⚠️ Too many redirects, stopping automatic redirect')
+        return
+      }
+      
+      console.log('✅ User authenticated, redirecting to dashboard...')
+      // تأخير بسيط لتجنب إعادة التوجيه السريعة
+      const timer = setTimeout(() => {
+        router.push('/dashboard')
+      }, 2000) // زيادة التأخير إلى ثانيتين
+      
+      return () => clearTimeout(timer)
     }
   }, [user, mounted, loading, router])
 

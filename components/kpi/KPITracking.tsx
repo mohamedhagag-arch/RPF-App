@@ -69,47 +69,41 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       startSmartLoading(setLoading)
       console.log('🟡 KPITracking: Fetching KPIs and activities...')
       
-      // ✅ Don't re-fetch projects! They're already loaded in initial load
-      // Only fetch projects if we don't have them yet
-      if (projects.length === 0) {
-        const { data: projectsData } = await supabase
-          .from(TABLES.PROJECTS)
-          .select('*')
-          .order('created_at', { ascending: false })
-        
-        // ✅ ALWAYS update state (React handles unmounted safely)
-        if (projectsData) {
-          setProjects(projectsData.map(mapProjectFromDB))
-          console.log('✅ Loaded', projectsData.length, 'projects')
-        }
+      // ✅ تحميل متوازي لجميع البيانات
+      const [projectsResult, activitiesResult] = await Promise.all([
+        projects.length === 0 
+          ? supabase.from(TABLES.PROJECTS).select('*').order('created_at', { ascending: false })
+          : Promise.resolve({ data: null, error: null }),
+        supabase.from(TABLES.BOQ_ACTIVITIES).select('*')
+      ])
+      
+      // ✅ تحديث المشاريع إذا لم تكن محملة
+      if (projects.length === 0 && projectsResult.data) {
+        setProjects(projectsResult.data.map(mapProjectFromDB))
+        console.log('✅ Loaded', projectsResult.data.length, 'projects')
+      }
+      
+      // ✅ تحديث الأنشطة
+      if (activitiesResult.data) {
+        setActivities(activitiesResult.data.map(mapBOQFromDB))
+        console.log('✅ Loaded', activitiesResult.data.length, 'activities')
       }
 
-      // Fetch activities (if projects selected, filter by projects)
-      let activitiesQuery = supabase
-        .from(TABLES.BOQ_ACTIVITIES)
-        .select('*')
-      
       // Handle multiple project codes
       const projectCodesArray = Array.isArray(selectedProjectCodes) 
         ? selectedProjectCodes 
         : selectedProjectCodes 
           ? [selectedProjectCodes] 
           : []
-      
-      if (projectCodesArray.length > 0) {
-        if (projectCodesArray.length === 1) {
-          activitiesQuery = activitiesQuery.eq('Project Code', projectCodesArray[0])
-        } else {
-          activitiesQuery = activitiesQuery.in('Project Code', projectCodesArray)
-        }
-      }
-      
-      const { data: activitiesData } = await activitiesQuery
-        .order('created_at', { ascending: false })
 
       // ✨ SMART LOADING: Load KPIs based on selected projects OR load all if none selected
       let kpisData = null
       let count = 0
+      
+      // ✅ تحميل KPIs مع timeout
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('KPI fetch timeout')), 15000)
+      )
       
       if (projectCodesArray.length > 0) {
         console.log(`📊 Fetching KPIs for ${projectCodesArray.length} selected project(s):`, projectCodesArray)
@@ -127,7 +121,10 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           kpiQuery = kpiQuery.in('Project Full Code', projectCodesArray)
         }
         
-        const { data, error, count: totalCount } = await kpiQuery
+        const { data, error, count: totalCount } = await Promise.race([
+          kpiQuery,
+          timeoutPromise
+        ]) as any
         
         if (error) throw error
         
@@ -139,11 +136,14 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         // ✅ Load ALL KPIs if no specific projects selected (initial load)
         console.log('📊 No projects filter - fetching ALL KPIs...')
         
-        const { data, error, count: totalCount } = await supabase
-          .from(TABLES.KPI)
-          .select('*', { count: 'exact' })
-          .order('created_at', { ascending: false })
-          .range(0, 19999) // Limit to 20,000 records
+        const { data, error, count: totalCount } = await Promise.race([
+          supabase
+            .from(TABLES.KPI)
+            .select('*', { count: 'exact' })
+            .order('created_at', { ascending: false })
+            .range(0, 19999), // Limit to 20,000 records
+          timeoutPromise
+        ]) as any
         
         if (error) throw error
         
@@ -156,17 +156,16 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       // ✅ ALWAYS update state (React handles unmounted components safely)
       setTotalKPICount(count)
 
-      console.log('✅ KPITracking: Fetched', activitiesData?.length || 0, 'activities,', kpisData?.length || 0, 'KPIs')
+      console.log('✅ KPITracking: Fetched', activitiesResult.data?.length || 0, 'activities,', kpisData?.length || 0, 'KPIs')
       
       // Log KPI types distribution
       if (kpisData && kpisData.length > 0) {
-        const plannedCount = kpisData.filter(k => k['Input Type'] === 'Planned').length
-        const actualCount = kpisData.filter(k => k['Input Type'] === 'Actual').length
+        const plannedCount = kpisData.filter((k: any) => k['Input Type'] === 'Planned').length
+        const actualCount = kpisData.filter((k: any) => k['Input Type'] === 'Actual').length
         console.log('📊 KPI Distribution: Planned =', plannedCount, ', Actual =', actualCount)
       }
       
-      // ✅ Projects already loaded, don't re-set them
-      setActivities((activitiesData || []).map(mapBOQFromDB))
+      // ✅ Activities already loaded in parallel fetch above
       
       // Map and process KPI data
       const mappedKPIs = (kpisData || []).map(mapKPIFromDB)

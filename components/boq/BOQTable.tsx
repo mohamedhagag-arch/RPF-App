@@ -26,17 +26,14 @@ export function BOQTable({ activities, projects, allKPIs, onEdit, onDelete, onBu
     setSelectedIds([])
   }, [activities])
   
-  // Debug: Log allKPIs when updated
+  // تقليل التسجيل لتجنب البطء
   useEffect(() => {
-    console.log('📋 BOQTable: allKPIs updated', {
-      count: allKPIs.length,
-      activities: activities.length,
-      sample: allKPIs.slice(0, 2).map(k => ({
-        project: k.project_code || k.project_full_code,
-        activity: k.activity_name,
-        type: k.input_type
-      }))
-    })
+    if (Math.random() < 0.1) { // تسجيل 10% فقط
+      console.log('📋 BOQTable: allKPIs updated', {
+        count: allKPIs.length,
+        activities: activities.length
+      })
+    }
   }, [allKPIs, activities])
   
   const handleSelectAll = (checked: boolean) => {

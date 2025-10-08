@@ -3,6 +3,7 @@
 import { SettingsPage as Settings } from '@/components/settings/SettingsPage'
 import { HolidaysSettings } from '@/components/settings/HolidaysSettings'
 import { CustomActivitiesManager } from '@/components/settings/CustomActivitiesManager'
+import { CompanySettings } from '@/components/settings/CompanySettings'
 import { useAuth } from '@/app/providers'
 import { useState } from 'react'
 import { ModernCard } from '@/components/ui/ModernCard'
@@ -10,7 +11,7 @@ import { ModernButton } from '@/components/ui/ModernButton'
 
 export default function SettingsPage() {
   const { appUser } = useAuth()
-  const [activeTab, setActiveTab] = useState<'general' | 'holidays' | 'activities'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'company' | 'holidays' | 'activities'>('general')
 
   return (
     <div className="p-6 space-y-6">
@@ -33,6 +34,13 @@ export default function SettingsPage() {
           General Settings
         </ModernButton>
         <ModernButton
+          variant={activeTab === 'company' ? 'primary' : 'ghost'}
+          onClick={() => setActiveTab('company')}
+          size="sm"
+        >
+          Company Settings
+        </ModernButton>
+        <ModernButton
           variant={activeTab === 'holidays' ? 'primary' : 'ghost'}
           onClick={() => setActiveTab('holidays')}
           size="sm"
@@ -50,6 +58,7 @@ export default function SettingsPage() {
 
       {/* Content */}
       {activeTab === 'general' && <Settings userRole={appUser?.role} />}
+      {activeTab === 'company' && <CompanySettings />}
       {activeTab === 'holidays' && <HolidaysSettings />}
       {activeTab === 'activities' && <CustomActivitiesManager />}
     </div>

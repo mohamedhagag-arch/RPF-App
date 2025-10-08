@@ -1,4 +1,4 @@
-# Rabat MVP - Deployment Guide
+# AlRabat RPF - Masters of Foundation Construction - Deployment Guide
 
 ## 🚀 Deployment to Vercel
 
@@ -28,7 +28,7 @@
    ```bash
    git init
    git add .
-   git commit -m "Initial commit: Rabat MVP Project Management System"
+   git commit -m "Initial commit: AlRabat RPF - Masters of Foundation Construction"
    ```
 
 2. **Create GitHub Repository**
