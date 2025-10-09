@@ -347,18 +347,22 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
         startSmartLoading(setLoading)
         console.log('🟡 Projects: Fetching all data in parallel...')
         
-        // Fetch all data in parallel for better performance
+        // Fetch LIMITED data in parallel for better performance
+        console.log('📊 Loading limited data (100 projects, 200 activities, 300 KPIs)...')
         const [projectsResult, activitiesResult, kpisResult] = await Promise.all([
           supabase
             .from(TABLES.PROJECTS)
             .select('*')
-            .order('created_at', { ascending: false }),
+            .order('created_at', { ascending: false })
+            .limit(100), // ← تحديد 100 مشروع فقط
           supabase
             .from(TABLES.BOQ_ACTIVITIES)
-            .select('*'),
+            .select('*')
+            .limit(200), // ← تحديد 200 نشاط فقط
           supabase
             .from(TABLES.KPI)
             .select('*')
+            .limit(300) // ← تحديد 300 KPI فقط
         ])
         
         if (projectsResult.error) {

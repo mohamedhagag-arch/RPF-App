@@ -45,7 +45,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
-  const [itemsPerPage] = useState(10) // 10 items per page
+  const [itemsPerPage] = useState(5) // 5 items per page for better performance
   
   const supabase = getSupabaseClient()
   const isMountedRef = useRef(true) // ✅ Track if component is mounted
@@ -90,9 +90,9 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       const from = (page - 1) * itemsPerPage
       const to = from + itemsPerPage - 1
       
-      // ✅ تحميل متوازي مع timeout
+      // ✅ تحميل متوازي مع timeout أطول
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('BOQ fetch timeout')), 15000)
+        setTimeout(() => reject(new Error('BOQ fetch timeout')), 30000)
       )
       
       // ✅ Only fetch activities based on selected projects
@@ -146,7 +146,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
           
           // ✅ Fetch KPIs by both 'Project Code' and 'Project Full Code' with timeout
           const kpiTimeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('KPI fetch timeout')), 10000)
+            setTimeout(() => reject(new Error('KPI fetch timeout')), 20000)
           )
           
           const [kpisData1, kpisData2] = await Promise.race([
@@ -211,6 +211,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
           supabase
             .from(TABLES.PROJECTS)
             .select('*')
+            .limit(50) // Limit initial projects load
         )
         
         // ✅ ALWAYS update state (React handles unmounted safely)

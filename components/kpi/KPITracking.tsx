@@ -15,7 +15,7 @@ import { ImprovedKPITable } from '@/components/kpi/ImprovedKPITable'
 import { UnifiedFilter, FilterState } from '@/components/ui/UnifiedFilter'
 import { Pagination } from '@/components/ui/Pagination'
 import { SmartFilter } from '@/components/ui/SmartFilter'
-import { Plus, BarChart3, CheckCircle, Clock, AlertCircle, Target, Info } from 'lucide-react'
+import { Plus, BarChart3, CheckCircle, Clock, AlertCircle, Target, Info, Filter } from 'lucide-react'
 
 interface KPITrackingProps {
   globalSearchTerm?: string
@@ -67,28 +67,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     
     try {
       startSmartLoading(setLoading)
-      console.log('🟡 KPITracking: Fetching KPIs and activities...')
       
-      // ✅ تحميل متوازي لجميع البيانات
-      const [projectsResult, activitiesResult] = await Promise.all([
-        projects.length === 0 
-          ? supabase.from(TABLES.PROJECTS).select('*').order('created_at', { ascending: false })
-          : Promise.resolve({ data: null, error: null }),
-        supabase.from(TABLES.BOQ_ACTIVITIES).select('*')
-      ])
-      
-      // ✅ تحديث المشاريع إذا لم تكن محملة
-      if (projects.length === 0 && projectsResult.data) {
-        setProjects(projectsResult.data.map(mapProjectFromDB))
-        console.log('✅ Loaded', projectsResult.data.length, 'projects')
-      }
-      
-      // ✅ تحديث الأنشطة
-      if (activitiesResult.data) {
-        setActivities(activitiesResult.data.map(mapBOQFromDB))
-        console.log('✅ Loaded', activitiesResult.data.length, 'activities')
-      }
-
       // Handle multiple project codes
       const projectCodesArray = Array.isArray(selectedProjectCodes) 
         ? selectedProjectCodes 
@@ -96,62 +75,86 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           ? [selectedProjectCodes] 
           : []
 
-      // ✨ SMART LOADING: Load KPIs based on selected projects OR load all if none selected
-      let kpisData = null
-      let count = 0
+      // ✅ إذا لم يتم اختيار مشاريع، حمل المشاريع فقط ولا تحمل KPIs
+      if (projectCodesArray.length === 0) {
+        console.log('💡 KPITracking: No filter selected - Loading projects list only...')
+        
+        // تحميل المشاريع فقط
+        if (projects.length === 0) {
+          const projectsResult = await supabase
+            .from(TABLES.PROJECTS)
+            .select('*')
+            .order('created_at', { ascending: false })
+          
+          if (projectsResult.data) {
+            setProjects(projectsResult.data.map(mapProjectFromDB))
+            console.log('✅ Loaded', projectsResult.data.length, 'projects')
+          }
+        }
+        
+        // الحصول على العدد الإجمالي للـ KPIs (بدون تحميل البيانات)
+        const { count: totalCount } = await supabase
+          .from(TABLES.KPI)
+          .select('*', { count: 'exact', head: true })
+        
+        setTotalKPICount(totalCount || 0)
+        console.log(`📊 Total KPIs in database: ${totalCount || 0}`)
+        
+        // تعيين البيانات فارغة
+        setKpis([])
+        setActivities([])
+        
+        console.log('💡 Use filter to load KPI data')
+        stopSmartLoading(setLoading)
+        return
+      }
       
-      // ✅ تحميل KPIs مع timeout
+      // ✅ إذا تم اختيار مشاريع، حمل البيانات
+      console.log(`📊 Fetching KPIs for ${projectCodesArray.length} selected project(s):`, projectCodesArray)
+      
+      // تحميل Activities و KPIs معاً
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('KPI fetch timeout')), 15000)
       )
       
-      if (projectCodesArray.length > 0) {
-        console.log(`📊 Fetching KPIs for ${projectCodesArray.length} selected project(s):`, projectCodesArray)
-        
-        let kpiQuery = supabase
-          .from(TABLES.KPI)
-          .select('*', { count: 'exact' })
-          .order('created_at', { ascending: false })
-          .range(0, 19999) // Fetch up to 20,000 records total
-        
-        // Filter by multiple projects
-        if (projectCodesArray.length === 1) {
-          kpiQuery = kpiQuery.eq('Project Full Code', projectCodesArray[0])
-        } else {
-          kpiQuery = kpiQuery.in('Project Full Code', projectCodesArray)
-        }
-        
-        const { data, error, count: totalCount } = await Promise.race([
-          kpiQuery,
-          timeoutPromise
-        ]) as any
-        
-        if (error) throw error
-        
-        kpisData = data
-        count = totalCount || 0
-        
-        console.log(`✅ Fetched ${data?.length || 0} KPIs out of ${count} total for ${projectCodesArray.length} project(s): ${projectCodesArray.join(', ')}`)
-      } else {
-        // ✅ Load ALL KPIs if no specific projects selected (initial load)
-        console.log('📊 No projects filter - fetching ALL KPIs...')
-        
-        const { data, error, count: totalCount } = await Promise.race([
-          supabase
-            .from(TABLES.KPI)
-            .select('*', { count: 'exact' })
-            .order('created_at', { ascending: false })
-            .range(0, 19999), // Limit to 20,000 records
-          timeoutPromise
-        ]) as any
-        
-        if (error) throw error
-        
-        kpisData = data
-        count = totalCount || 0
-        
-        console.log(`✅ Fetched ${data?.length || 0} KPIs out of ${count} total (ALL projects)`)
+      // تحميل Activities
+      const activitiesResult = await supabase
+        .from(TABLES.BOQ_ACTIVITIES)
+        .select('*')
+      
+      if (activitiesResult.data) {
+        setActivities(activitiesResult.data.map(mapBOQFromDB))
+        console.log('✅ Loaded', activitiesResult.data.length, 'activities')
       }
+      
+      // تحميل KPIs للمشاريع المحددة
+      let kpisData = null
+      let count = 0
+      
+      let kpiQuery = supabase
+        .from(TABLES.KPI)
+        .select('*', { count: 'exact' })
+        .order('created_at', { ascending: false })
+        .range(0, 999) // حد أقصى 1000 للمشاريع المحددة
+      
+      // Filter by multiple projects
+      if (projectCodesArray.length === 1) {
+        kpiQuery = kpiQuery.eq('Project Full Code', projectCodesArray[0])
+      } else {
+        kpiQuery = kpiQuery.in('Project Full Code', projectCodesArray)
+      }
+      
+      const { data, error, count: totalCount } = await Promise.race([
+        kpiQuery,
+        timeoutPromise
+      ]) as any
+      
+      if (error) throw error
+      
+      kpisData = data
+      count = totalCount || 0
+      
+      console.log(`✅ Fetched ${data?.length || 0} KPIs out of ${count} total for ${projectCodesArray.length} project(s)`)
       
       // ✅ ALWAYS update state (React handles unmounted components safely)
       setTotalKPICount(count)
@@ -623,30 +626,6 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         </Alert>
       )}
       
-      {/* Info: Loading KPIs or No Data */}
-      {kpis.length === 0 && !loading && (
-        <div className="p-8 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-blue-900/20 dark:via-indigo-900/20 dark:to-purple-900/20 border-2 border-blue-300 dark:border-blue-700 rounded-lg">
-          <div className="flex flex-col items-center gap-4 text-center">
-            <div className="p-4 bg-blue-600 rounded-full">
-              <Target className="h-12 w-12 text-white" />
-            </div>
-            <div>
-              <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-                📊 No KPI Data Available
-              </h3>
-              <p className="text-gray-600 dark:text-gray-400 max-w-md">
-                {selectedProjects.length > 0 
-                  ? 'No KPIs found for the selected project(s). Try selecting different filters or add new KPI records.'
-                  : 'No KPI records found in the database. Click "Add New KPI" to create your first KPI record.'}
-              </p>
-            </div>
-            <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-              <Info className="h-4 w-4" />
-              <span>Database contains <strong>{totalKPICount > 0 ? totalKPICount.toLocaleString() : '0'}</strong> total KPI records</span>
-            </div>
-          </div>
-        </div>
-      )}
       
       {/* Info about loaded records */}
       {filters.project && totalKPICount > 0 && (
@@ -751,6 +730,39 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           </CardContent>
         </Card>
       </div>
+      )}
+
+      {/* Empty State - Show when no data loaded */}
+      {kpis.length === 0 && !loading && (
+        <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border-2 border-dashed border-blue-300 dark:border-blue-700">
+          <CardContent className="p-12 text-center">
+            <div className="flex flex-col items-center space-y-4">
+              <div className="p-4 bg-blue-100 dark:bg-blue-800/30 rounded-full">
+                <Target className="h-12 w-12 text-blue-600 dark:text-blue-400" />
+              </div>
+              <div>
+                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+                  No KPI Data Loaded
+                </h3>
+                <p className="text-gray-600 dark:text-gray-300 max-w-md mx-auto">
+                  Select one or more projects using the filter above to load and view KPI data.
+                  This helps improve performance by loading only the data you need.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                <Filter className="h-4 w-4" />
+                <span>Use the Smart Filter to select projects</span>
+              </div>
+              {totalKPICount > 0 && (
+                <div className="mt-4 px-4 py-2 bg-blue-100 dark:bg-blue-800/30 rounded-lg">
+                  <p className="text-sm text-blue-800 dark:text-blue-200">
+                    📊 <strong>{totalKPICount.toLocaleString()}</strong> total KPIs available in database
+                  </p>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* KPI Table - Show if KPIs are loaded */}
