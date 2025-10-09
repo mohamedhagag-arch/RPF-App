@@ -4,6 +4,7 @@ import { SettingsPage as Settings } from '@/components/settings/SettingsPage'
 import { HolidaysSettings } from '@/components/settings/HolidaysSettings'
 import { CustomActivitiesManager } from '@/components/settings/CustomActivitiesManager'
 import { CompanySettings } from '@/components/settings/CompanySettings'
+import { DatabaseManagement } from '@/components/settings/DatabaseManagement'
 import { useAuth } from '@/app/providers'
 import { useState } from 'react'
 import { ModernCard } from '@/components/ui/ModernCard'
@@ -11,7 +12,10 @@ import { ModernButton } from '@/components/ui/ModernButton'
 
 export default function SettingsPage() {
   const { appUser } = useAuth()
-  const [activeTab, setActiveTab] = useState<'general' | 'company' | 'holidays' | 'activities'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'company' | 'holidays' | 'activities' | 'database'>('general')
+  
+  // Check if user is admin (only admins can access database management)
+  const isAdmin = appUser?.role === 'admin'
 
   return (
     <div className="p-6 space-y-6">
@@ -25,7 +29,7 @@ export default function SettingsPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700">
+      <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700 overflow-x-auto pb-2">
         <ModernButton
           variant={activeTab === 'general' ? 'primary' : 'ghost'}
           onClick={() => setActiveTab('general')}
@@ -54,6 +58,15 @@ export default function SettingsPage() {
         >
           Custom Activities
         </ModernButton>
+        {isAdmin && (
+          <ModernButton
+            variant={activeTab === 'database' ? 'primary' : 'ghost'}
+            onClick={() => setActiveTab('database')}
+            size="sm"
+          >
+            🗄️ Database Management
+          </ModernButton>
+        )}
       </div>
 
       {/* Content */}
@@ -61,6 +74,7 @@ export default function SettingsPage() {
       {activeTab === 'company' && <CompanySettings />}
       {activeTab === 'holidays' && <HolidaysSettings />}
       {activeTab === 'activities' && <CustomActivitiesManager />}
+      {activeTab === 'database' && isAdmin && <DatabaseManagement />}
     </div>
   )
 }

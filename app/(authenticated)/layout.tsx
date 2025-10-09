@@ -49,6 +49,7 @@ export default function AuthenticatedLayout({
     return 'dashboard'
   }
 
+
   const handleTabChange = (tab: string) => {
     router.push(`/${tab}`)
   }
@@ -91,11 +92,11 @@ export default function AuthenticatedLayout({
       />
 
       {/* Main Content */}
-      <div className={`transition-all duration-300 ${
+      <div className={`transition-all duration-300 overflow-visible ${
         sidebarCollapsed ? 'lg:pl-16' : 'lg:pl-64'
       }`}>
         {/* Top Bar */}
-        <div className="sticky top-0 z-30 bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-700">
+        <div className="sticky top-0 z-30 bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-700 overflow-visible sticky-header">
           <div className="flex items-center justify-between px-6 py-4">
             <div className="flex items-center gap-4">
               <div className="lg:hidden">

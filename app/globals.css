@@ -599,3 +599,67 @@ main {
 .dark ::-webkit-scrollbar-thumb:hover {
   background: #9ca3af;
 }
+
+/* Fix dropdown z-index issues */
+.dropdown-menu {
+  z-index: 99999 !important;
+  position: fixed !important;
+  /* Remove from document flow to prevent empty space */
+  pointer-events: auto;
+  /* Ensure it doesn't push content down */
+  margin: 0 !important;
+  /* Make sure it floats above content */
+  transform: translateZ(0);
+}
+
+.dropdown-container {
+  position: relative;
+  z-index: 99999;
+  /* Ensure container doesn't expand when dropdown opens */
+  display: inline-block;
+}
+
+/* Ensure dropdowns appear above all other elements */
+[data-dropdown] {
+  z-index: 99999 !important;
+}
+
+/* Fix for sticky headers that might clip dropdowns */
+.sticky-header {
+  overflow: visible !important;
+  z-index: 30 !important;
+}
+
+/* Override any high z-index elements that might interfere */
+.dropdown-menu {
+  z-index: 99999 !important;
+  position: fixed !important;
+}
+
+/* Force dropdown to appear above all dashboard elements */
+.dropdown-menu {
+  z-index: 99999 !important;
+  position: fixed !important;
+  /* Ensure it's above all other elements */
+  isolation: isolate;
+}
+
+/* Override any potential stacking context issues */
+.dropdown-container {
+  z-index: 99999 !important;
+  position: relative !important;
+  isolation: isolate;
+}
+
+/* Simple dropdown menu positioning */
+.dropdown-menu {
+  z-index: 99999 !important;
+  position: fixed !important;
+  transform: translateZ(0);
+}
+
+/* Dropdown container */
+.dropdown-container {
+  z-index: 99999 !important;
+  position: relative !important;
+}

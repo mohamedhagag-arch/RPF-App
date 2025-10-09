@@ -84,6 +84,7 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
       case 'reports': return FileText
       case 'settings': return Settings
       case 'system': return Lock
+      case 'database': return Database
       default: return Shield
     }
   }
@@ -97,6 +98,7 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
       case 'reports': return 'orange'
       case 'settings': return 'indigo'
       case 'system': return 'gray'
+      case 'database': return 'cyan'
       default: return 'gray'
     }
   }
@@ -247,14 +249,14 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
-      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-7xl max-h-[95vh] flex flex-col border border-gray-200 dark:border-gray-700">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col border border-gray-200 dark:border-gray-700">
         {/* Header */}
-        <div className="sticky top-0 bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 p-8 z-10">
+        <div className="sticky top-0 bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 p-6 z-10">
           <div className="flex items-center justify-between">
             <div className="text-white">
-              <h2 className="text-3xl font-bold flex items-center gap-3 mb-2">
-                <div className="p-2 bg-white/20 rounded-xl backdrop-blur-sm">
-                  <Shield className="h-8 w-8" />
+              <h2 className="text-2xl font-bold flex items-center gap-2 mb-2">
+                <div className="p-1.5 bg-white/20 rounded-lg backdrop-blur-sm">
+                  <Shield className="h-6 w-6" />
                 </div>
                 Manage Permissions
               </h2>
@@ -282,17 +284,17 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
           </div>
 
           {/* Role Info */}
-          <div className="mt-6 p-6 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl">
+          <div className="mt-4 p-4 bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg">
             <div className="flex items-start gap-4">
-              <div className="p-3 bg-white/20 rounded-lg">
-                <Settings className="h-6 w-6 text-white" />
+              <div className="p-2 bg-white/20 rounded-lg">
+                <Settings className="h-5 w-5 text-white" />
               </div>
               <div className="flex-1">
-                <h3 className="text-lg font-semibold text-white mb-2">Role Information</h3>
-                <p className="text-blue-100 text-sm leading-relaxed">
+                <h3 className="text-base font-semibold text-white mb-1">Role Information</h3>
+                <p className="text-blue-100 text-xs leading-relaxed">
                   {getRoleDescription(user.role)}
                 </p>
-                <div className="mt-3 flex items-center gap-4 text-blue-200 text-sm">
+                <div className="mt-2 flex items-center gap-3 text-blue-200 text-xs">
                   <span className="flex items-center gap-2">
                     <Shield className="h-4 w-4" />
                     Default permissions: <strong>{getPermissionsCount(user.role)}</strong>
@@ -303,30 +305,30 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
           </div>
 
           {/* Custom Mode Toggle */}
-          <div className="mt-6 p-6 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl">
+          <div className="mt-3 p-4 bg-white/10 backdrop-blur-sm border border-white/20 rounded-lg">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-white/20 rounded-lg">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-white/20 rounded-lg">
                   {customMode ? (
-                    <Unlock className="h-6 w-6 text-yellow-300" />
+                    <Unlock className="h-5 w-5 text-yellow-300" />
                   ) : (
-                    <Lock className="h-6 w-6 text-green-300" />
+                    <Lock className="h-5 w-5 text-green-300" />
                   )}
                 </div>
                 <div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
                     <input
                       type="checkbox"
                       id="customMode"
                       checked={customMode}
                       onChange={(e) => setCustomMode(e.target.checked)}
-                      className="h-5 w-5 text-blue-600 rounded-lg focus:ring-2 focus:ring-white/50"
+                      className="h-4 w-4 text-blue-600 rounded-lg focus:ring-2 focus:ring-white/50"
                     />
-                    <label htmlFor="customMode" className="text-lg font-semibold text-white cursor-pointer">
+                    <label htmlFor="customMode" className="text-base font-semibold text-white cursor-pointer">
                       Enable Custom Permissions
                     </label>
                   </div>
-                  <p className="text-blue-100 text-sm mt-1">
+                  <p className="text-blue-100 text-xs mt-1">
                     {customMode 
                       ? '🔓 Custom mode active - You can override role defaults'
                       : '🔒 Using default role permissions'
@@ -378,7 +380,7 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
         </div>
 
         {/* Content */}
-        <div className="flex-1 p-8 bg-gray-50 dark:bg-gray-800/50 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 scrollbar-track-gray-100 dark:scrollbar-track-gray-800">
+        <div className="flex-1 p-6 bg-gray-50 dark:bg-gray-800/50 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 scrollbar-track-gray-100 dark:scrollbar-track-gray-800">
           {error && (
             <Alert variant="error" className="mb-6 rounded-xl border-2">
               {error}
@@ -387,70 +389,70 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
 
 
           {/* Statistics */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-            <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-6 text-white shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105">
-              <div className="flex items-center justify-between mb-4">
-                <div className="p-3 bg-white/20 rounded-xl">
-                  <Shield className="h-6 w-6" />
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-4 text-white shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105">
+              <div className="flex items-center justify-between mb-2">
+                <div className="p-2 bg-white/20 rounded-lg">
+                  <Shield className="h-5 w-5" />
                 </div>
-                <span className="text-blue-100 text-sm font-medium">Total</span>
+                <span className="text-blue-100 text-xs font-medium">Total</span>
               </div>
-              <p className="text-3xl font-bold mb-1">
+              <p className="text-2xl font-bold mb-1">
                 {selectedPermissions.length}
               </p>
-              <p className="text-blue-100 text-sm">
+              <p className="text-blue-100 text-xs">
                 of {ALL_PERMISSIONS.length} available
               </p>
             </div>
 
-            <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-2xl p-6 text-white shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105">
-              <div className="flex items-center justify-between mb-4">
-                <div className="p-3 bg-white/20 rounded-xl">
-                  <Plus className="h-6 w-6" />
+            <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-4 text-white shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105">
+              <div className="flex items-center justify-between mb-2">
+                <div className="p-2 bg-white/20 rounded-lg">
+                  <Plus className="h-5 w-5" />
                 </div>
-                <span className="text-green-100 text-sm font-medium">Create</span>
+                <span className="text-green-100 text-xs font-medium">Create</span>
               </div>
-              <p className="text-3xl font-bold mb-1">
+              <p className="text-2xl font-bold mb-1">
                 {selectedPermissions.filter(p => p.includes('.create')).length}
               </p>
-              <p className="text-green-100 text-sm">
+              <p className="text-green-100 text-xs">
                 Creation permissions
               </p>
             </div>
 
-            <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-2xl p-6 text-white shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105">
-              <div className="flex items-center justify-between mb-4">
-                <div className="p-3 bg-white/20 rounded-xl">
-                  <Edit className="h-6 w-6" />
+            <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl p-4 text-white shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105">
+              <div className="flex items-center justify-between mb-2">
+                <div className="p-2 bg-white/20 rounded-lg">
+                  <Edit className="h-5 w-5" />
                 </div>
-                <span className="text-orange-100 text-sm font-medium">Edit</span>
+                <span className="text-orange-100 text-xs font-medium">Edit</span>
               </div>
-              <p className="text-3xl font-bold mb-1">
+              <p className="text-2xl font-bold mb-1">
                 {selectedPermissions.filter(p => p.includes('.edit')).length}
               </p>
-              <p className="text-orange-100 text-sm">
+              <p className="text-orange-100 text-xs">
                 Modification permissions
               </p>
             </div>
 
-            <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-2xl p-6 text-white shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105">
-              <div className="flex items-center justify-between mb-4">
-                <div className="p-3 bg-white/20 rounded-xl">
-                  <Trash2 className="h-6 w-6" />
+            <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-xl p-4 text-white shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105">
+              <div className="flex items-center justify-between mb-2">
+                <div className="p-2 bg-white/20 rounded-lg">
+                  <Trash2 className="h-5 w-5" />
                 </div>
-                <span className="text-red-100 text-sm font-medium">Delete</span>
+                <span className="text-red-100 text-xs font-medium">Delete</span>
               </div>
-              <p className="text-3xl font-bold mb-1">
+              <p className="text-2xl font-bold mb-1">
                 {selectedPermissions.filter(p => p.includes('.delete')).length}
               </p>
-              <p className="text-red-100 text-sm">
+              <p className="text-red-100 text-xs">
                 Deletion permissions
               </p>
             </div>
           </div>
 
           {/* Permissions by Category */}
-          <div className="space-y-6">
+          <div className="space-y-4">
             {Object.entries(permissionsByCategory).map(([category, permissions]) => {
               const Icon = getCategoryIcon(category)
               const color = getCategoryColor(category)
@@ -491,19 +493,19 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
               }
 
               return (
-                <div key={category} className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <div key={category} className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
                   {/* Category Header */}
-                  <div className={`bg-gradient-to-r ${colorClasses[color as keyof typeof colorClasses]} p-6`}>
+                  <div className={`bg-gradient-to-r ${colorClasses[color as keyof typeof colorClasses]} p-4`}>
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="p-3 bg-white/20 rounded-xl">
-                          <Icon className="h-6 w-6 text-white" />
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-white/20 rounded-lg">
+                          <Icon className="h-5 w-5 text-white" />
                         </div>
                         <div>
-                          <h3 className="text-xl font-bold text-white capitalize">
+                          <h3 className="text-lg font-bold text-white capitalize">
                             {category} Permissions
                           </h3>
-                          <p className="text-white/80 text-sm">
+                          <p className="text-white/80 text-xs">
                             {selectedInCategory} of {totalInCategory} permissions selected
                           </p>
                         </div>
@@ -534,8 +536,8 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
                   </div>
 
                   {/* Permissions Grid */}
-                  <div className="p-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="p-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                       {permissions.map(permission => {
                         const isSelected = selectedPermissions.includes(permission.id)
                         const isInRoleDefaults = roleDefaults.includes(permission.id)
@@ -543,26 +545,26 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
                         return (
                           <div
                             key={permission.id}
-                            className={`group p-4 border-2 rounded-xl cursor-pointer transition-all duration-300 hover:shadow-lg ${
+                            className={`group p-3 border-2 rounded-lg cursor-pointer transition-all duration-300 hover:shadow-lg ${
                               isSelected
                                 ? `border-${color}-400 bg-${color}-50 dark:bg-${color}-900/20 shadow-md`
                                 : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50'
                             } ${!customMode ? 'opacity-75' : ''}`}
                             onClick={() => customMode && togglePermission(permission.id)}
                           >
-                            <div className="flex items-start gap-3">
+                            <div className="flex items-start gap-2">
                               <input
                                 type="checkbox"
                                 checked={isSelected}
                                 onChange={() => customMode && togglePermission(permission.id)}
                                 disabled={!customMode}
-                                className={`h-5 w-5 text-${color}-600 rounded-lg focus:ring-2 focus:ring-${color}-500/50 mt-0.5`}
+                                className={`h-4 w-4 text-${color}-600 rounded focus:ring-2 focus:ring-${color}-500/50 mt-0.5`}
                               />
                               <div className="flex-1 min-w-0">
-                                <h4 className="font-semibold text-gray-900 dark:text-white text-sm mb-1">
+                                <h4 className="font-semibold text-gray-900 dark:text-white text-xs mb-1">
                                   {permission.name}
                                 </h4>
-                                <p className="text-xs text-gray-600 dark:text-gray-400 mb-3 leading-relaxed">
+                                <p className="text-xs text-gray-600 dark:text-gray-400 mb-2 leading-relaxed">
                                   {permission.description}
                                 </p>
                                 <div className="flex items-center gap-2 flex-wrap">
@@ -595,21 +597,21 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
           </div>
 
           {/* Summary */}
-          <div className="mt-8 mb-4 bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 rounded-2xl p-8 text-white shadow-2xl">
+          <div className="mt-6 mb-4 bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 rounded-xl p-6 text-white shadow-2xl">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-6">
-                <div className="p-4 bg-white/20 rounded-2xl">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-white/20 rounded-xl">
                   {customMode ? (
-                    <Unlock className="h-8 w-8 text-yellow-300" />
+                    <Unlock className="h-6 w-6 text-yellow-300" />
                   ) : (
-                    <Lock className="h-8 w-8 text-green-300" />
+                    <Lock className="h-6 w-6 text-green-300" />
                   )}
                 </div>
                 <div>
-                  <h3 className="text-2xl font-bold mb-2">
+                  <h3 className="text-xl font-bold mb-1">
                     {customMode ? 'Custom Permissions Mode' : 'Default Role Mode'}
                   </h3>
-                  <div className="flex items-center gap-4 text-blue-100">
+                  <div className="flex items-center gap-3 text-blue-100">
                     <span className="flex items-center gap-2">
                       <Shield className="h-4 w-4" />
                       <strong>{selectedPermissions.length}</strong> permissions selected
@@ -631,19 +633,19 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
                   </div>
                 </div>
               </div>
-              <div className="flex gap-4">
+              <div className="flex gap-3">
                 <Button 
                   variant="outline" 
                   onClick={onClose} 
                   disabled={saving}
-                  className="bg-white/10 border-white/20 text-white hover:bg-white/20 px-6 py-3"
+                  className="bg-white/10 border-white/20 text-white hover:bg-white/20 px-4 py-2"
                 >
                   Cancel
                 </Button>
                 <Button 
                   onClick={handleSave} 
                   disabled={saving}
-                  className="bg-white text-blue-600 hover:bg-gray-100 px-8 py-3 font-semibold shadow-lg"
+                  className="bg-white text-blue-600 hover:bg-gray-100 px-6 py-2 font-semibold shadow-lg"
                 >
                   {saving ? (
                     <div className="flex items-center gap-2">

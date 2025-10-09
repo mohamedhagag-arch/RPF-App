@@ -7,9 +7,9 @@
 export interface Permission {
   id: string
   name: string
-  category: 'projects' | 'boq' | 'kpi' | 'users' | 'reports' | 'settings' | 'system'
+  category: 'projects' | 'boq' | 'kpi' | 'users' | 'reports' | 'settings' | 'system' | 'database'
   description: string
-  action: 'view' | 'create' | 'edit' | 'delete' | 'manage' | 'export' | 'approve'
+  action: 'view' | 'create' | 'edit' | 'delete' | 'manage' | 'export' | 'approve' | 'backup' | 'restore'
 }
 
 // جميع الصلاحيات المتاحة
@@ -54,16 +54,27 @@ export const ALL_PERMISSIONS: Permission[] = [
   
   // Settings Permissions
   { id: 'settings.view', name: 'View Settings', category: 'settings', description: 'Can view settings', action: 'view' },
+  { id: 'settings.company', name: 'Manage Company Settings', category: 'settings', description: 'Can manage company settings', action: 'manage' },
   { id: 'settings.divisions', name: 'Manage Divisions', category: 'settings', description: 'Can manage divisions', action: 'manage' },
   { id: 'settings.project_types', name: 'Manage Project Types', category: 'settings', description: 'Can manage project types', action: 'manage' },
   { id: 'settings.currencies', name: 'Manage Currencies', category: 'settings', description: 'Can manage currencies', action: 'manage' },
   { id: 'settings.activities', name: 'Manage Activities', category: 'settings', description: 'Can manage activity templates', action: 'manage' },
+  { id: 'settings.holidays', name: 'Manage Holidays', category: 'settings', description: 'Can manage holidays and workdays', action: 'manage' },
   
   // System Permissions
   { id: 'system.import', name: 'Import Data', category: 'system', description: 'Can import data from files', action: 'manage' },
   { id: 'system.export', name: 'Export System Data', category: 'system', description: 'Can export all system data', action: 'export' },
   { id: 'system.backup', name: 'Backup System', category: 'system', description: 'Can backup system data', action: 'manage' },
   { id: 'system.audit', name: 'View Audit Logs', category: 'system', description: 'Can view system audit logs', action: 'view' },
+  
+  // Database Management Permissions (Admin Only)
+  { id: 'database.view', name: 'View Database Stats', category: 'database', description: 'Can view database statistics and information', action: 'view' },
+  { id: 'database.backup', name: 'Create Backups', category: 'database', description: 'Can create database backups', action: 'backup' },
+  { id: 'database.restore', name: 'Restore Database', category: 'database', description: 'Can restore database from backups', action: 'restore' },
+  { id: 'database.export', name: 'Export Tables', category: 'database', description: 'Can export individual tables', action: 'export' },
+  { id: 'database.import', name: 'Import Tables', category: 'database', description: 'Can import data to tables', action: 'manage' },
+  { id: 'database.clear', name: 'Clear Table Data', category: 'database', description: 'Can clear all data from tables (DANGEROUS)', action: 'delete' },
+  { id: 'database.manage', name: 'Full Database Management', category: 'database', description: 'Complete database management access (Admin only)', action: 'manage' },
 ]
 
 // الصلاحيات الافتراضية لكل دور
@@ -81,10 +92,12 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'kpi.view', 'kpi.create', 'kpi.edit', 'kpi.delete', 'kpi.export',
     // Reports
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly', 'reports.financial', 'reports.export', 'reports.print',
-    // Settings (view only)
-    'settings.view',
+    // Settings (manage most settings)
+    'settings.view', 'settings.company', 'settings.divisions', 'settings.project_types', 'settings.currencies', 'settings.activities', 'settings.holidays',
     // System (limited)
-    'system.export'
+    'system.export', 'system.backup',
+    // Database (view and export only - no dangerous operations)
+    'database.view', 'database.export', 'database.backup'
   ],
   
   // Engineer - إنشاء وتعديل البيانات فقط
@@ -98,7 +111,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     // Reports (view and export)
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly', 'reports.export', 'reports.print',
     // Settings (view only)
-    'settings.view'
+    'settings.view',
+    // Database (view only)
+    'database.view'
   ],
   
   // Viewer - عرض فقط
@@ -107,7 +122,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'boq.view',
     'kpi.view',
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly',
-    'settings.view'
+    'settings.view',
+    'database.view'
   ]
 }
 
@@ -196,13 +212,13 @@ export function getMissingPermissions(user: UserWithPermissions, requiredPermiss
 export function getRoleDescription(role: string): string {
   switch (role) {
     case 'admin':
-      return 'Full system access with all permissions. Can manage users, permissions, and system settings.'
+      return 'Full system access with all permissions. Can manage users, permissions, system settings, and database operations including backups, restore, and data management.'
     case 'manager':
-      return 'Can manage projects, activities, and KPIs. Can view and export reports. Cannot manage users or system settings.'
+      return 'Can manage projects, activities, KPIs, and most settings (divisions, types, currencies). Can create backups and export data. Cannot manage users or perform dangerous database operations.'
     case 'engineer':
-      return 'Can create and edit activities and KPIs. Can view projects and reports. Limited delete permissions.'
+      return 'Can create and edit activities and KPIs. Can view projects, reports, and database stats. Can export data. Limited delete permissions.'
     case 'viewer':
-      return 'Read-only access. Can view all data but cannot create, edit, or delete anything.'
+      return 'Read-only access. Can view all data, reports, and database statistics but cannot create, edit, delete, or perform any management operations.'
     default:
       return 'Unknown role'
   }
