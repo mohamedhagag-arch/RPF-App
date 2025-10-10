@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { User } from '@/lib/supabase'
 import { LogOut, User as UserIcon } from 'lucide-react'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 
 interface HeaderProps {
   user: User | null
