@@ -235,16 +235,20 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   
   // Calculate duration when dates change
   useEffect(() => {
-    if (startDate && endDate) {
-      const workdays = calculateWorkdays(startDate, endDate, workdaysConfig)
-      setDuration(workdays)
-      console.log(`📅 Duration calculated: ${workdays} working days`)
-      
-      // Auto-generate KPI preview if enabled
-      if (autoGenerateKPIs && plannedUnits && parseFloat(plannedUnits) > 0) {
-        generateKPIPreview()
+    const calculateDuration = async () => {
+      if (startDate && endDate) {
+        const workdays = await calculateWorkdays(startDate, endDate, workdaysConfig)
+        setDuration(workdays)
+        console.log(`📅 Duration calculated: ${workdays} working days`)
+        
+        // Auto-generate KPI preview if enabled
+        if (autoGenerateKPIs && plannedUnits && parseFloat(plannedUnits) > 0) {
+          generateKPIPreview()
+        }
       }
     }
+    
+    calculateDuration()
   }, [startDate, endDate, includeWeekends, plannedUnits, autoGenerateKPIs])
   
   // Load custom holidays from localStorage
