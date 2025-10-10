@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { Project, TABLES } from '@/lib/supabase'
 import { ProjectAnalytics, calculateProjectAnalytics } from '@/lib/projectAnalytics'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
@@ -34,6 +35,7 @@ export function ProjectCardWithAnalytics({
   getStatusColor, 
   getStatusText 
 }: ProjectCardWithAnalyticsProps) {
+  const guard = usePermissionGuard()
   const [fallbackAnalytics, setFallbackAnalytics] = useState<ProjectAnalytics | null>(null)
   const [loadingFallback, setLoadingFallback] = useState(false)
   const supabase = getSupabaseClient()

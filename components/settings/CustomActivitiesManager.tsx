@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { ModernCard } from '@/components/ui/ModernCard'
 import { ModernButton } from '@/components/ui/ModernButton'
 import { ModernBadge } from '@/components/ui/ModernBadge'
@@ -14,6 +15,7 @@ import {
 import { Sparkles, Trash2, Download, Upload, TrendingUp, Info } from 'lucide-react'
 
 export function CustomActivitiesManager() {
+  const guard = usePermissionGuard()
   const [activities, setActivities] = useState<CustomActivity[]>([])
 
   useEffect(() => {
@@ -80,34 +82,38 @@ export function CustomActivitiesManager() {
         </div>
 
         <div className="flex gap-3">
-          <ModernButton
-            variant="outline"
-            onClick={handleExport}
-            icon={<Download className="h-4 w-4" />}
-            size="sm"
-            disabled={activities.length === 0}
-          >
-            Export
-          </ModernButton>
+          {guard.hasAccess('settings.activities') && (
+            <ModernButton
+              variant="outline"
+              onClick={handleExport}
+              icon={<Download className="h-4 w-4" />}
+              size="sm"
+              disabled={activities.length === 0}
+            >
+              Export
+            </ModernButton>
+          )}
           
-          <label className="cursor-pointer">
-            <div className="inline-block">
-              <ModernButton
-                variant="primary"
-                icon={<Upload className="h-4 w-4" />}
-                size="sm"
-                type="button"
-              >
-                Import
-              </ModernButton>
-            </div>
-            <input
-              type="file"
-              accept=".json"
-              onChange={handleImport}
-              className="hidden"
-            />
-          </label>
+          {guard.hasAccess('settings.activities') && (
+            <label className="cursor-pointer">
+              <div className="inline-block">
+                <ModernButton
+                  variant="primary"
+                  icon={<Upload className="h-4 w-4" />}
+                  size="sm"
+                  type="button"
+                >
+                  Import
+                </ModernButton>
+              </div>
+              <input
+                type="file"
+                accept=".json"
+                onChange={handleImport}
+                className="hidden"
+              />
+            </label>
+          )}
         </div>
       </div>
 
@@ -189,12 +195,14 @@ export function CustomActivitiesManager() {
                         )}
                       </div>
 
-                      <button
-                        onClick={() => handleDelete(activity.name, activity.division)}
-                        className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      {guard.hasAccess('settings.activities') && (
+                        <button
+                          onClick={() => handleDelete(activity.name, activity.division)}
+                          className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
                     </div>
                   ))}
               </div>

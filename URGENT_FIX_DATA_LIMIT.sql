@@ -63,3 +63,4 @@ SELECT 'KPI', COUNT(*) FROM public."Planning_KPI_Limited";
 -- بعد تطبيق هذا، يجب تحديث الكود ليستخدم الـ Views بدلاً من الجداول
 -- أو استخدام الحل الأفضل: تحديد limit في الكود مباشرة
 
+

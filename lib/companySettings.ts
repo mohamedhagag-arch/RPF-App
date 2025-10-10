@@ -141,13 +141,18 @@ export async function canUpdateCompanySettings(): Promise<boolean> {
     
     const { data: userData, error } = await supabase
       .from('users')
-      .select('role')
+      .select('role, permissions, custom_permissions_enabled')
       .eq('id', user.id)
       .single()
     
     if (error || !userData) return false
     
-    return (userData as any)?.role === 'admin'
+    // Admin لديه صلاحية دائماً
+    if ((userData as any)?.role === 'admin') return true
+    
+    // فحص الصلاحيات المخصصة
+    const userPermissions = (userData as any)?.permissions || []
+    return userPermissions.includes('settings.company')
   } catch (error) {
     console.error('❌ Error checking user permissions:', error)
     return false

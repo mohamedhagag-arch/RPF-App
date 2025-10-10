@@ -1,15 +1,18 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
+import { useAuth } from '@/app/providers'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Alert } from '@/components/ui/Alert'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { User } from '@/lib/supabase'
-import { AdvancedPermissionsManager } from './AdvancedPermissionsManager'
+import { EnhancedPermissionsManager } from './EnhancedPermissionsManager'
+import { IntegratedUserManager } from './IntegratedUserManager'
 import { 
   UserWithPermissions,
   getUserPermissions,
@@ -42,40 +45,112 @@ interface UserManagementProps {
 }
 
 export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
+  const guard = usePermissionGuard()
+  const { appUser, refreshUserProfile } = useAuth()
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
+  
+  // Add logging for loading state changes
+  const setLoadingWithLog = (value: boolean) => {
+    console.log(`🔄 setLoading called with value: ${value} at ${new Date().toISOString()}`)
+    setLoading(value)
+    console.log(`✅ setLoading completed with value: ${value}`)
+  }
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('users')
+  
+  // Create custom startSmartLoading and stopSmartLoading with logging
+  const startSmartLoadingWithLog = (setLoadingFn: (loading: boolean) => void) => {
+    console.log('🔄 startSmartLoadingWithLog called')
+    startSmartLoading(setLoadingWithLog)
+  }
+  
+  const stopSmartLoadingWithLog = (setLoadingFn: (loading: boolean) => void) => {
+    console.log('🔄 stopSmartLoadingWithLog called')
+    stopSmartLoading(setLoadingWithLog)
+  }
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedRole, setSelectedRole] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editingUser, setEditingUser] = useState<User | null>(null)
   const [managingPermissionsUser, setManagingPermissionsUser] = useState<UserWithPermissions | null>(null)
+  const [useIntegratedSystem, setUseIntegratedSystem] = useState(false) // Force use regular system
 
   const supabase = getSupabaseClient()
 
+  // Check permissions for user management access
+  const canManageUsers = guard.hasAccess('users.view') || guard.hasAccess('users.permissions') || userRole === 'admin'
+  
+  console.log('🔍 UserManagement Debug:', {
+    userRole: userRole,
+    canManageUsers: canManageUsers,
+    hasUsersView: guard.hasAccess('users.view'),
+    hasUsersPermissions: guard.hasAccess('users.permissions'),
+    appUserEmail: appUser?.email
+  })
+
   useEffect(() => {
-    if (userRole === 'admin') {
+    console.log('🔄 UserManagement useEffect triggered:', { canManageUsers: canManageUsers, userRole: userRole })
+    // Check permissions and fetch users if allowed
+    if (canManageUsers) {
+      console.log('✅ Calling fetchUsers because canManageUsers is true')
       fetchUsers()
+    } else {
+      console.log('❌ Not calling fetchUsers because canManageUsers is false')
     }
-  }, [userRole])
+  }, [userRole, canManageUsers])
 
-  const fetchUsers = async () => {
-    try {
-      startSmartLoading(setLoading)
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .order('created_at', { ascending: false })
+         const fetchUsers = async () => {
+           try {
+             startSmartLoadingWithLog(setLoading)
+             console.log('🔄 Fetching users data...')
+             
+             const { data, error } = await supabase
+               .from('users')
+               .select('*')
+               .order('created_at', { ascending: false })
 
-      if (error) throw error
-      setUsers(data || [])
-    } catch (error: any) {
-      setError(error.message)
-    } finally {
-      stopSmartLoading(setLoading)
-    }
-  }
+             if (error) {
+               console.error('❌ Error fetching users:', error)
+               throw error
+             }
+
+             console.log('📥 Fetched users data:', data)
+             console.log('📊 Total users fetched:', data?.length)
+             
+             const targetUser = data?.find((u: any) => u.email === 'hajeta4728@aupvs.com')
+             console.log('📊 User with email hajeta4728@aupvs.com:', targetUser)
+             
+             if (targetUser) {
+               console.log('🔍 Target user permissions:', (targetUser as any).permissions)
+               console.log('🔍 Target user permissions length:', (targetUser as any).permissions?.length)
+               console.log('🔍 Target user custom_enabled:', (targetUser as any).custom_permissions_enabled)
+               console.log('🔍 Target user updated_at:', (targetUser as any).updated_at)
+               console.log('🔍 Target user created_at:', (targetUser as any).created_at)
+               console.log('🔍 Time difference (seconds):', 
+                 new Date((targetUser as any).updated_at).getTime() - new Date((targetUser as any).created_at).getTime() / 1000
+               )
+             } else {
+               console.warn('⚠️ Target user hajeta4728@aupvs.com not found in fetched data!')
+             }
+
+             // Also log all users with their permission counts
+             console.log('📋 All users permission summary:')
+             data?.forEach((user: any, index: number) => {
+               console.log(`${index + 1}. ${user.email}: ${user.permissions?.length || 0} permissions, updated: ${user.updated_at}`)
+             })
+
+             setUsers(data || [])
+           } catch (error: any) {
+             console.error('❌ Error in fetchUsers:', error)
+             setError(error.message)
+           } finally {
+             console.log('🔄 Calling stopSmartLoading to set loading to false')
+             stopSmartLoadingWithLog(setLoading)
+             console.log('✅ Loading should now be false')
+           }
+         }
 
   const handleCreateUser = async (userData: Partial<User>) => {
     try {
@@ -151,20 +226,79 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
 
   const handleUpdatePermissions = async (userId: string, permissions: string[], customEnabled: boolean) => {
     try {
-      const { error } = await (supabase as any)
+      console.log('🔄 Updating permissions for user:', userId, {
+        permissions: permissions.length,
+        customEnabled
+      })
+
+      console.log('🔍 About to update user with data:', {
+        userId,
+        permissions,
+        permissionsLength: permissions.length,
+        customEnabled,
+        timestamp: new Date().toISOString()
+      })
+
+      const { data, error } = await (supabase as any)
         .from('users')
         .update({
-          permissions: permissions,
+          permissions: permissions, // Store as TEXT[] array directly
           custom_permissions_enabled: customEnabled,
           updated_at: new Date().toISOString()
         })
         .eq('id', userId)
+        .select()
 
-      if (error) throw error
+      console.log('🔍 Update query result:', {
+        data,
+        error,
+        errorMessage: error?.message,
+        errorCode: error?.code,
+        errorDetails: error?.details
+      })
 
-      fetchUsers()
+      if (error) {
+        console.error('❌ Error updating permissions:', error)
+        throw error
+      }
+
+      console.log('✅ Permissions updated successfully:', data)
+      console.log('📋 Updated permissions data:', data[0]?.permissions)
+      console.log('📊 Permissions count:', data[0]?.permissions?.length)
+      console.log('🔍 Updated user full data:', data[0])
+      console.log('🔍 Updated user custom_permissions_enabled:', data[0]?.custom_permissions_enabled)
+      console.log('🔍 Updated user updated_at:', data[0]?.updated_at)
+      
+      // Show success message
+      setSuccess(`Permissions updated successfully for ${data[0]?.email || 'user'}!`)
+      setTimeout(() => setSuccess(''), 3000)
+      
+             // Refresh users list
+             await fetchUsers()
+
+             // Refresh the global user profile if this is the current user
+             if (userId === appUser?.id) {
+               console.log('🔄 Refreshing global user profile for current user...')
+               await refreshUserProfile()
+               console.log('✅ Global user profile refreshed - user should now see updated permissions!')
+             }
+
+             // Update the managing permissions user state
+             if (managingPermissionsUser && managingPermissionsUser.id === userId) {
+               console.log('🔄 Updating managingPermissionsUser state with:', { permissions, customEnabled })
+               console.log('🔍 Current managingPermissionsUser:', managingPermissionsUser)
+               const updatedUser = {
+                 ...managingPermissionsUser,
+                 permissions,
+                 custom_permissions_enabled: customEnabled
+               }
+               console.log('🔍 New managingPermissionsUser will be:', updatedUser)
+               setManagingPermissionsUser(updatedUser)
+             }
+      
     } catch (error: any) {
-      setError(error.message)
+      console.error('❌ Failed to update permissions:', error)
+      setError(error.message || 'Failed to update permissions')
       throw error
     }
   }
@@ -218,8 +352,7 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
     return matchesSearch && matchesRole
   })
 
-  // Don't show user management to non-admin users
-  if (userRole !== 'admin') {
+  if (!canManageUsers) {
     return (
       <div className="flex items-center justify-center h-64">
         <Card className="w-full max-w-md">
@@ -227,7 +360,7 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
             <Shield className="h-12 w-12 text-red-500 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-gray-900 mb-2">Access Denied</h3>
             <p className="text-gray-600">
-              You don't have permission to access user management. This feature is only available to administrators.
+              You don't have permission to access user management. This feature requires users.view or users.permissions permissions.
             </p>
           </CardContent>
         </Card>
@@ -235,20 +368,69 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
     )
   }
 
+  console.log('🔍 UserManagement Render Debug:', {
+    loading: loading,
+    loadingType: typeof loading,
+    usersCount: users.length,
+    canManageUsers: canManageUsers,
+    useIntegratedSystem: useIntegratedSystem,
+    usersArrayLength: users.length,
+    timestamp: new Date().toISOString()
+  })
+
   if (loading) {
+    console.log('🔄 Showing Loading Spinner because loading =', loading)
     return (
       <div className="flex items-center justify-center h-64">
         <LoadingSpinner size="lg" />
+        <div className="ml-4 text-sm text-gray-600">
+          Loading users... (loading = {loading.toString()})
+        </div>
       </div>
     )
   }
 
+  // Use the integrated system by default
+  if (useIntegratedSystem) {
+    console.log('🔄 Using IntegratedUserManager because useIntegratedSystem =', useIntegratedSystem)
+    return <IntegratedUserManager userRole={userRole} />
+  }
+  
+  console.log('🔄 Using regular UserManagement because useIntegratedSystem =', useIntegratedSystem)
+
   return (
     <div className="space-y-6">
+      {/* System Toggle */}
       <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-3xl font-bold text-gray-900 dark:text-white">User Management</h2>
-          <p className="text-gray-600 dark:text-gray-400 mt-2">Manage system users and their permissions</p>
+        <div className="flex items-center space-x-4">
+          <div>
+            <h2 className="text-3xl font-bold text-gray-900 dark:text-white">User Management</h2>
+            <p className="text-gray-600 dark:text-gray-400 mt-2">Manage system users and their permissions</p>
+          </div>
+          <div className="flex items-center space-x-2 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+            <button
+              onClick={() => setUseIntegratedSystem(true)}
+              className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                useIntegratedSystem
+                  ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              <Key className="h-3 w-3 inline mr-1" />
+              Integrated System
+            </button>
+            <button
+              onClick={() => setUseIntegratedSystem(false)}
+              className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                !useIntegratedSystem
+                  ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              <Shield className="h-3 w-3 inline mr-1" />
+              Legacy System
+            </button>
+          </div>
         </div>
         <Button onClick={() => setShowForm(true)} className="flex items-center space-x-2">
           <Plus className="h-4 w-4" />
@@ -259,6 +441,12 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
       {error && (
         <Alert variant="error">
           {error}
+        </Alert>
+      )}
+
+      {success && (
+        <Alert variant="success">
+          {success}
         </Alert>
       )}
 
@@ -343,9 +531,22 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
                   {filteredUsers.map((user) => {
                     const RoleIcon = getRoleIcon(user.role)
                     const userWithPerms = user as UserWithPermissions
-                    const permissionsCount = userWithPerms.custom_permissions_enabled && userWithPerms.permissions 
+                    // Always use user.permissions if available, regardless of custom_permissions_enabled
+                    const permissionsCount = userWithPerms.permissions && userWithPerms.permissions.length > 0
                       ? userWithPerms.permissions.length 
                       : getPermissionsCount(user.role)
+                    
+                    // Debug logging for permission counts
+                    if (user.email === 'hajeta4728@aupvs.com') {
+                      console.log('🔍 Permission count calculation for hajeta4728@aupvs.com:', {
+                        userPermissions: userWithPerms.permissions,
+                        permissionsLength: userWithPerms.permissions?.length,
+                        customEnabled: userWithPerms.custom_permissions_enabled,
+                        role: user.role,
+                        defaultCount: getPermissionsCount(user.role),
+                        finalCount: permissionsCount
+                      })
+                    }
                     const isActive = (userWithPerms.is_active !== undefined) ? userWithPerms.is_active : true
                     
                     return (
@@ -469,9 +670,10 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
         />
       )}
 
-      {/* Permissions Manager */}
+      {/* Enhanced Permissions Manager */}
       {managingPermissionsUser && (
-        <AdvancedPermissionsManager
+        <EnhancedPermissionsManager
+          key={managingPermissionsUser.id + managingPermissionsUser.updated_at} // Force re-render when user changes
           user={managingPermissionsUser}
           onUpdate={(permissions, customEnabled) => 
             handleUpdatePermissions(managingPermissionsUser.id, permissions, customEnabled)
@@ -523,6 +725,8 @@ interface UserFormProps {
 
 function UserForm({ user, onSubmit, onCancel }: UserFormProps) {
   const [formData, setFormData] = useState({
+    first_name: '',
+    last_name: '',
     full_name: '',
     email: '',
     role: 'viewer' as 'admin' | 'manager' | 'engineer' | 'viewer',
@@ -533,6 +737,8 @@ function UserForm({ user, onSubmit, onCancel }: UserFormProps) {
   useEffect(() => {
     if (user) {
       setFormData({
+        first_name: user.first_name || user.full_name?.split(' ')[0] || '',
+        last_name: user.last_name || user.full_name?.split(' ').slice(1).join(' ') || '',
         full_name: user.full_name,
         email: user.email,
         role: user.role,
@@ -545,7 +751,7 @@ function UserForm({ user, onSubmit, onCancel }: UserFormProps) {
     e.preventDefault()
     setError('')
 
-    if (!formData.full_name.trim() || !formData.email.trim()) {
+    if (!formData.first_name.trim() || !formData.last_name.trim() || !formData.email.trim()) {
       setError('Please fill in all required fields')
       return
     }
@@ -578,12 +784,30 @@ function UserForm({ user, onSubmit, onCancel }: UserFormProps) {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Full Name *
+                First Name *
               </label>
               <Input
-                value={formData.full_name}
-                onChange={(e) => handleChange('full_name', e.target.value)}
-                placeholder="Enter full name"
+                value={formData.first_name}
+                onChange={(e) => {
+                  handleChange('first_name', e.target.value)
+                  handleChange('full_name', `${e.target.value} ${formData.last_name}`.trim())
+                }}
+                placeholder="Enter first name"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Last Name *
+              </label>
+              <Input
+                value={formData.last_name}
+                onChange={(e) => {
+                  handleChange('last_name', e.target.value)
+                  handleChange('full_name', `${formData.first_name} ${e.target.value}`.trim())
+                }}
+                placeholder="Enter last name"
                 required
               />
             </div>

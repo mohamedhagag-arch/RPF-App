@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { TABLES } from '@/lib/supabase'
@@ -22,6 +23,7 @@ import {
 } from 'lucide-react'
 
 export function ModernDashboard() {
+  const guard = usePermissionGuard()
   const [activeTab, setActiveTab] = useState('overview')
   const [stats, setStats] = useState({
     totalProjects: 0,

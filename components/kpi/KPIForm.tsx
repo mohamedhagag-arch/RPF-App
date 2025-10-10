@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { KPIRecord, Project, BOQActivity } from '@/lib/supabase'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -16,6 +17,7 @@ interface KPIFormProps {
 }
 
 export function KPIForm({ kpi, projects, activities, onSubmit, onCancel }: KPIFormProps) {
+  const guard = usePermissionGuard()
   const [formData, setFormData] = useState({
     project_id: '',
     activity_id: '',

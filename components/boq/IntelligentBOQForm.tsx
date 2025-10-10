@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { Project, TABLES } from '@/lib/supabase'
@@ -47,6 +48,7 @@ interface IntelligentBOQFormProps {
 }
 
 export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = [] }: IntelligentBOQFormProps) {
+  const guard = usePermissionGuard()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')

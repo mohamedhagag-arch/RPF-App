@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { RefreshCw, Link2, CheckCircle2, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { syncBOQFromKPI } from '@/lib/boqKpiSync'
@@ -18,6 +19,7 @@ export function BOQKPIIndicator({
   boqActual,
   onSynced 
 }: BOQKPIIndicatorProps) {
+  const guard = usePermissionGuard()
   const [syncing, setSyncing] = useState(false)
   const [lastSync, setLastSync] = useState<string | null>(null)
 

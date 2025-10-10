@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -30,6 +31,7 @@ interface DashboardStats {
 }
 
 export function DashboardOverview() {
+  const guard = usePermissionGuard()
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [mounted, setMounted] = useState(false)

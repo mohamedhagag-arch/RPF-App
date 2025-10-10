@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { KPIRecord, Project, BOQActivity, TABLES } from '@/lib/supabase'
@@ -28,6 +29,7 @@ interface KPITrackingProps {
 }
 
 export function KPITracking({ globalSearchTerm = '', globalFilters = { project: '', status: '', division: '', dateRange: '' } }: KPITrackingProps = {}) {
+  const guard = usePermissionGuard()
   const [kpis, setKpis] = useState<ProcessedKPI[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [activities, setActivities] = useState<BOQActivity[]>([])
@@ -572,10 +574,12 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           </div>
           <p className="text-gray-600 dark:text-gray-300 mt-2">Monitor and track KPIs for projects and activities</p>
         </div>
-        <Button onClick={() => setShowForm(true)} className="flex items-center space-x-2 ">
-          <Plus className="h-4 w-4" />
-          <span>Add New KPI</span>
-        </Button>
+        {guard.hasAccess('kpi.create') && (
+          <Button onClick={() => setShowForm(true)} className="flex items-center space-x-2 ">
+            <Plus className="h-4 w-4" />
+            <span>Add New KPI</span>
+          </Button>
+        )}
       </div>
       
       {/* Smart Filter */}

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useCallback } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 
 type TabType = 'dashboard' | 'projects' | 'boq' | 'kpi'
 
@@ -47,6 +48,7 @@ const menuItems = [
 ]
 
 export function Sidebar({ activeTab, onTabChange, userRole }: SidebarProps) {
+  const guard = usePermissionGuard()
   const filteredMenuItems = menuItems.filter(item => 
     item.roles.includes(userRole || 'viewer')
   )

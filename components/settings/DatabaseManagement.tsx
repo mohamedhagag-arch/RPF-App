@@ -8,6 +8,7 @@
  */
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { 
   Database, 
   Download, 
@@ -44,6 +45,7 @@ import {
 type ViewMode = 'overview' | 'tables' | 'backup' | 'restore'
 
 export function DatabaseManagement() {
+  const guard = usePermissionGuard()
   const [viewMode, setViewMode] = useState<ViewMode>('overview')
   const [tables, setTables] = useState<TableInfo[]>([])
   const [stats, setStats] = useState<Record<string, any>>({})

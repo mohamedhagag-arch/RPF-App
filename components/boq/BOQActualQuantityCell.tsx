@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { BOQActivity } from '@/lib/supabase'
 
 interface BOQActualQuantityCellProps {
@@ -9,6 +10,7 @@ interface BOQActualQuantityCellProps {
 }
 
 export function BOQActualQuantityCell({ activity, allKPIs }: BOQActualQuantityCellProps) {
+  const guard = usePermissionGuard()
   const [actualQuantity, setActualQuantity] = useState<number>(0)
   const mountedRef = useRef(true)
 

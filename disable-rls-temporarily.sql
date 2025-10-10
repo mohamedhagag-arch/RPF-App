@@ -34,3 +34,4 @@ WHERE schemaname = 'public'
 -- ALTER TABLE public."Planning Database - BOQ Rates" ENABLE ROW LEVEL SECURITY;
 -- ALTER TABLE public."Planning Database - KPI" ENABLE ROW LEVEL SECURITY;
 
+

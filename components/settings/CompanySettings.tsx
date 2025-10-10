@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -30,6 +31,7 @@ interface CompanySettingsProps {
 }
 
 export function CompanySettings({ onClose }: CompanySettingsProps) {
+  const guard = usePermissionGuard()
   const [companyName, setCompanyName] = useState('AlRabat RPF')
   const [companySlogan, setCompanySlogan] = useState('Masters of Foundation Construction')
   const [logoUrl, setLogoUrl] = useState('')

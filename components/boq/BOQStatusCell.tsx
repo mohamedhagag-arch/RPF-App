@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { BOQActivity } from '@/lib/supabase'
@@ -13,6 +14,7 @@ interface BOQStatusCellProps {
 }
 
 export function BOQStatusCell({ activity }: BOQStatusCellProps) {
+  const guard = usePermissionGuard()
   const [status, setStatus] = useState<{
     text: string
     color: string

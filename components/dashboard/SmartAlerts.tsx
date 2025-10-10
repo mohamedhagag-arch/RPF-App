@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { Project, BOQActivity, KPIRecord } from '@/lib/supabase'
 import { 
   AlertTriangle, 
@@ -31,6 +32,7 @@ interface Alert {
 }
 
 export function SmartAlerts({ projects, activities, kpis }: SmartAlertsProps) {
+  const guard = usePermissionGuard()
   const alerts = useMemo(() => {
     const alertsList: Alert[] = []
     const now = new Date()

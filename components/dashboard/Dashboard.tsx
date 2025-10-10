@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { useAuth } from '@/app/providers'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
@@ -12,6 +13,7 @@ import { DashboardOverview } from './DashboardOverview'
 type TabType = 'dashboard' | 'projects' | 'boq' | 'kpi'
 
 export function Dashboard() {
+  const guard = usePermissionGuard()
   const { appUser } = useAuth()
   const [activeTab, setActiveTab] = useState<TabType>('dashboard')
   const [mounted, setMounted] = useState(false)

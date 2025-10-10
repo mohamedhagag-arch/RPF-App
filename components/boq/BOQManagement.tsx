@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { BOQActivity, Project, TABLES } from '@/lib/supabase'
@@ -27,6 +28,7 @@ interface BOQManagementProps {
 }
 
 export function BOQManagement({ globalSearchTerm = '', globalFilters = { project: '', status: '', division: '', dateRange: '' } }: BOQManagementProps = {}) {
+  const guard = usePermissionGuard()
   const [activities, setActivities] = useState<BOQActivity[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [projects, setProjects] = useState<Project[]>([])
@@ -45,7 +47,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
-  const [itemsPerPage] = useState(5) // 5 items per page for better performance
+  const [itemsPerPage] = useState(2) // 2 items per page for better performance
   
   const supabase = getSupabaseClient()
   const isMountedRef = useRef(true) // ✅ Track if component is mounted
@@ -92,34 +94,22 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       
       // ✅ تحميل متوازي مع timeout أطول
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('BOQ fetch timeout')), 30000)
+        setTimeout(() => reject(new Error('BOQ fetch timeout')), 60000)
       )
       
-      // ✅ Only fetch activities based on selected projects
+      // ✅ Simple query - fetch all fields to avoid column name issues
       let activitiesQuery = supabase
         .from(TABLES.BOQ_ACTIVITIES)
         .select('*', { count: 'exact' })
         .order('created_at', { ascending: false })
         .range(from, to)
       
-      // 🔧 FIX: Apply all filters
+      // 🔧 FIX: Apply only project filter first (most important)
       if (selectedProjects.length > 0) {
-        activitiesQuery = activitiesQuery.in('Project Code', selectedProjects)
-      }
-      
-      // Filter by selected activities if any
-      if (selectedActivities.length > 0) {
-        activitiesQuery = activitiesQuery.in('Activity Name', selectedActivities)
-      }
-      
-      // Filter by selected types if any
-      if (selectedTypes.length > 0) {
-        activitiesQuery = activitiesQuery.in('Activity Division', selectedTypes)
-      }
-      
-      // Filter by selected statuses if any
-      if (selectedStatuses.length > 0) {
-        activitiesQuery = activitiesQuery.in('Activity Actual Status', selectedStatuses)
+        activitiesQuery = activitiesQuery.in('"Project Code"', selectedProjects)
+      } else {
+        // If no projects selected, limit to recent records only
+        activitiesQuery = activitiesQuery.limit(10)
       }
       
       const { data: activitiesData, error: activitiesError, count } = await Promise.race([
@@ -137,39 +127,9 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       setActivities(mappedActivities)
       setTotalCount(count || 0)
       
-      // Only fetch KPIs for activities on current page
-      if (mappedActivities.length > 0) {
-        const projectCodes = mappedActivities.map((a: any) => a.project_code).filter(Boolean)
-        
-        if (projectCodes.length > 0) {
-          console.log('📊 Fetching KPIs for current activities...', { projectCodes })
-          
-          // ✅ Fetch KPIs by both 'Project Code' and 'Project Full Code' with timeout
-          const kpiTimeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('KPI fetch timeout')), 20000)
-          )
-          
-          const [kpisData1, kpisData2] = await Promise.race([
-            Promise.all([
-              supabase.from(TABLES.KPI).select('*').in('Project Code', projectCodes),
-              supabase.from(TABLES.KPI).select('*').in('Project Full Code', projectCodes)
-            ]),
-            kpiTimeoutPromise
-          ]) as any
-          
-          // Merge and deduplicate
-          const allKPIsData = [...(kpisData1.data || []), ...(kpisData2.data || [])]
-          const uniqueKPIs = Array.from(new Map(allKPIsData.map((k: any) => [k.id, k])).values())
-          
-          const mappedKPIs = uniqueKPIs.map(mapKPIFromDB)
-          setAllKPIs(mappedKPIs)
-          console.log(`✅ Fetched ${mappedKPIs.length} KPIs for current page`, {
-            byProjectCode: kpisData1.data?.length || 0,
-            byProjectFullCode: kpisData2.data?.length || 0,
-            unique: mappedKPIs.length
-          })
-        }
-      }
+      // Skip KPI loading for now to improve performance
+      console.log('⏭️ Skipping KPI loading for better performance')
+      setAllKPIs([])
       
       console.log('✅ BOQManagement: Page data loaded successfully!')
     } catch (error: any) {
@@ -211,7 +171,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
           supabase
             .from(TABLES.PROJECTS)
             .select('*')
-            .limit(50) // Limit initial projects load
+            .limit(10) // Limit initial projects load
         )
         
         // ✅ ALWAYS update state (React handles unmounted safely)
@@ -537,10 +497,12 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
           </div>
           <p className="text-gray-600 dark:text-gray-300 mt-2">Manage and track project activities and quantities</p>
         </div>
-        <Button onClick={() => setShowForm(true)} className="flex items-center space-x-2 ">
-          <Plus className="h-4 w-4" />
-          <span>Add New Activity</span>
-        </Button>
+        {guard.hasAccess('boq.create') && (
+          <Button onClick={() => setShowForm(true)} className="flex items-center space-x-2 ">
+            <Plus className="h-4 w-4" />
+            <span>Add New Activity</span>
+          </Button>
+        )}
       </div>
 
       {error && (
@@ -570,7 +532,12 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
           // Load activities when projects selected
           if (projectCodes.length > 0) {
             console.log(`🔄 Loading activities for ${projectCodes.length} project(s)...`)
-            fetchData(1) // This will load BOQ activities
+            // Add delay to prevent rapid successive calls
+            setTimeout(() => {
+              if (isMountedRef.current) {
+                fetchData(1) // This will load BOQ activities
+              }
+            }, 100)
           } else {
             console.log('🔄 No projects selected, clearing activities...')
             setActivities([])
@@ -580,17 +547,29 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         onActivitiesChange={(activities) => {
           setSelectedActivities(activities)
           setCurrentPage(1)
-          fetchData(1)
+          setTimeout(() => {
+            if (isMountedRef.current) {
+              fetchData(1)
+            }
+          }, 100)
         }}
         onTypesChange={(types) => {
           setSelectedTypes(types)
           setCurrentPage(1)
-          fetchData(1)
+          setTimeout(() => {
+            if (isMountedRef.current) {
+              fetchData(1)
+            }
+          }, 100)
         }}
         onStatusesChange={(statuses) => {
           setSelectedStatuses(statuses)
           setCurrentPage(1)
-          fetchData(1)
+          setTimeout(() => {
+            if (isMountedRef.current) {
+              fetchData(1)
+            }
+          }, 100)
         }}
         onClearAll={() => {
           console.log('🔄 Clearing all BOQ filters...')

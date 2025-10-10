@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { getKPIContext } from '@/lib/boqKpiSync'
 import { Briefcase, TrendingUp, Target, BarChart3 } from 'lucide-react'
@@ -11,6 +12,7 @@ interface KPIWithBOQContextProps {
 }
 
 export function KPIWithBOQContext({ projectCode, activityName }: KPIWithBOQContextProps) {
+  const guard = usePermissionGuard()
   const [context, setContext] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 

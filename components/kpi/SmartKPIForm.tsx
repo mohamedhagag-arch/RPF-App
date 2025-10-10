@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { ProcessedKPI } from '@/lib/kpiProcessor'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -16,6 +17,7 @@ interface SmartKPIFormProps {
 }
 
 export function SmartKPIForm({ kpi, projects, onSubmit, onCancel }: SmartKPIFormProps) {
+  const guard = usePermissionGuard()
   const [formData, setFormData] = useState({
     project_full_code: '',
     activity_name: '',

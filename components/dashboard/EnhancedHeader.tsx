@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { useAuth } from '@/app/providers'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -43,6 +44,7 @@ export function EnhancedHeader({
   globalFilters = { project: '', status: '', division: '', dateRange: '' },
   onGlobalFiltersChange
 }: EnhancedHeaderProps) {
+  const guard = usePermissionGuard()
   const { signOut } = useAuth()
   const [notifications, setNotifications] = useState(3)
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -214,7 +216,10 @@ export function EnhancedHeader({
             <div className="flex items-center space-x-3">
               <div className="text-right hidden md:block">
                 <p className="text-sm font-medium text-gray-900 dark:text-white">
-                  {user?.full_name}
+                  {user?.first_name && user?.last_name 
+                    ? `${user.first_name} ${user.last_name}` 
+                    : user?.full_name || 'User'
+                  }
                 </p>
                 <div className="flex items-center space-x-2">
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${getRoleColor(user?.role || 'viewer')}`}>

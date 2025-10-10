@@ -4,6 +4,9 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { withSafeLoading, createSafeLoadingSetter } from '@/lib/loadingStateManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
+import { useAuth } from '@/app/providers'
+import { hasPermission } from '@/lib/permissionsSystem'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { getGridClasses, shouldLoadAnalytics, getViewModeIcon, getViewModeName } from '@/lib/viewModeOptimizer'
 import { getCardGridClasses, shouldLoadCardAnalytics, getCardViewName, getCardViewDescription } from '@/lib/cardViewOptimizer'
 import { Project, TABLES } from '@/lib/supabase'
@@ -35,6 +38,9 @@ interface ProjectsListProps {
 }
 
 export function ProjectsList({ globalSearchTerm = '', globalFilters = { project: '', status: '', division: '', dateRange: '' } }: ProjectsListProps = {}) {
+  const { appUser } = useAuth()
+  const guard = usePermissionGuard()
+  
   const [projects, setProjects] = useState<Project[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [allActivities, setAllActivities] = useState<any[]>([])
@@ -580,11 +586,13 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
           </div>
           
           
-          <button onClick={() => setShowForm(true)} className="btn-primary flex items-center space-x-2">
-            <Plus className="h-4 w-4" />
-            <span className="hidden sm:inline">Add New Project</span>
-            <span className="sm:hidden">Add</span>
-          </button>
+          {guard.hasAccess('projects.create') && (
+            <button onClick={() => setShowForm(true)} className="btn-primary flex items-center space-x-2">
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline">Add New Project</span>
+              <span className="sm:hidden">Add</span>
+            </button>
+          )}
         </div>
       </div>
       

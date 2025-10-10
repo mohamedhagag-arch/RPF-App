@@ -4,6 +4,9 @@ import { useState, useEffect, useRef } from 'react'
 import { Project, TABLES } from '@/lib/supabase'
 import { ProjectAnalytics, calculateProjectAnalytics } from '@/lib/projectAnalytics'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
+import { useAuth } from '@/app/providers'
+import { hasPermission } from '@/lib/permissionsSystem'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { mapBOQFromDB, mapKPIFromDB } from '@/lib/dataMappers'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -41,6 +44,8 @@ export function ModernProjectCard({
   getStatusColor, 
   getStatusText 
 }: ModernProjectCardProps) {
+  const { appUser } = useAuth()
+  const guard = usePermissionGuard()
   const [analytics, setAnalytics] = useState<ProjectAnalytics | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -338,19 +343,23 @@ export function ModernProjectCard({
               <span>Details</span>
             </button>
           )}
-          <button
-            onClick={() => onEdit(project)}
-            className="flex items-center space-x-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <Edit className="w-4 h-4" />
-            <span>Edit</span>
-          </button>
-          <button
-            onClick={() => onDelete(project.id)}
-            className="flex items-center space-x-2 px-4 py-2 text-red-600 hover:text-red-700 hover:bg-red-50 border border-red-200 rounded-lg transition-colors"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
+          {guard.hasAccess('projects.edit') && (
+            <button
+              onClick={() => onEdit(project)}
+              className="flex items-center space-x-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              <Edit className="w-4 h-4" />
+              <span>Edit</span>
+            </button>
+          )}
+          {guard.hasAccess('projects.delete') && (
+            <button
+              onClick={() => onDelete(project.id)}
+              className="flex items-center space-x-2 px-4 py-2 text-red-600 hover:text-red-700 hover:bg-red-50 border border-red-200 rounded-lg transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
         {/* Loading State */}

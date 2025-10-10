@@ -11,6 +11,7 @@ interface HeaderProps {
 }
 
 export function Header({ user }: HeaderProps) {
+  const guard = usePermissionGuard()
   const { signOut } = useAuth()
 
   const getRoleDisplayName = (role: string) => {
@@ -37,7 +38,12 @@ export function Header({ user }: HeaderProps) {
             <div className="flex items-center space-x-2">
               <UserIcon className="h-5 w-5 text-gray-500 dark:text-gray-400" />
               <div className="text-sm">
-                <p className="font-medium text-gray-900 dark:text-white">{user?.full_name}</p>
+                <p className="font-medium text-gray-900 dark:text-white">
+                  {user?.first_name && user?.last_name 
+                    ? `${user.first_name} ${user.last_name}` 
+                    : user?.full_name || 'User'
+                  }
+                </p>
                 <p className="text-gray-500 dark:text-gray-400">{getRoleDisplayName(user?.role || 'viewer')}</p>
               </div>
             </div>

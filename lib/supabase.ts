@@ -131,9 +131,13 @@ export interface KPIRecord {
 export interface User {
   id: string
   email: string
+  first_name?: string // Optional - may not exist in database
+  last_name?: string // Optional - may not exist in database
   full_name: string
   role: 'admin' | 'manager' | 'engineer' | 'viewer'
   division?: string
+  permissions?: string[] // TEXT[] array of permission IDs
+  custom_permissions_enabled?: boolean
   created_at: string
   updated_at: string
 }

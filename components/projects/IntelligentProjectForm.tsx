@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { Project } from '@/lib/supabase'
 import { ModernCard } from '@/components/ui/ModernCard'
 import { ModernButton } from '@/components/ui/ModernButton'
@@ -62,6 +63,7 @@ interface IntelligentProjectFormProps {
 }
 
 export function IntelligentProjectForm({ project, onSubmit, onCancel }: IntelligentProjectFormProps) {
+  const guard = usePermissionGuard()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')

@@ -42,16 +42,18 @@ export default function AuthenticatedLayout({
     if (pathname === '/boq') return 'boq'
     if (pathname === '/kpi') return 'kpi'
     if (pathname === '/settings') return 'settings'
-    if (pathname === '/users') return 'users'
     if (pathname === '/reports') return 'reports'
-    if (pathname === '/import-export') return 'import-export'
     if (pathname === '/profile') return 'profile'
     return 'dashboard'
   }
 
 
   const handleTabChange = (tab: string) => {
-    router.push(`/${tab}`)
+    if (tab === 'users') {
+      router.push('/settings?tab=users')
+    } else {
+      router.push(`/${tab}`)
+    }
   }
 
   const handleSignOut = async () => {
@@ -108,7 +110,10 @@ export default function AuthenticatedLayout({
               <ThemeToggle />
               
               <UserDropdown
-                userName={appUser?.full_name || user?.email || 'User'}
+                userName={appUser?.first_name && appUser?.last_name 
+                  ? `${appUser.first_name} ${appUser.last_name}` 
+                  : appUser?.full_name || user?.email || 'User'
+                }
                 userRole={appUser?.role || 'viewer'}
                 onProfileClick={handleProfileClick}
                 onSettingsClick={handleSettingsClick}

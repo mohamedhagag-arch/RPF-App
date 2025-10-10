@@ -12,6 +12,7 @@ interface AuthContextType {
   appUser: AppUser | null
   loading: boolean
   signOut: () => Promise<void>
+  refreshUserProfile: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -19,6 +20,7 @@ const AuthContext = createContext<AuthContextType>({
   appUser: null,
   loading: true,
   signOut: async () => {},
+  refreshUserProfile: async () => {}
 })
 
 export const useAuth = () => {
@@ -36,6 +38,37 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const supabase = getSupabaseClient() // ✅ Use managed connection
   const initialized = useRef(false)
   const mounted = useRef(true)
+
+  // Function to refresh user profile data
+  const refreshUserProfile = async () => {
+    if (!user?.id) return
+    
+    try {
+      console.log('🔄 Providers: Refreshing user profile...')
+      const { data: profile, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', user.id)
+        .single()
+      
+      if (error) {
+        console.log('❌ Providers: Error refreshing user profile:', error)
+      } else {
+        console.log('✅ Providers: User profile refreshed successfully')
+        console.log('📊 Providers: Updated permissions:', (profile as any).permissions?.length)
+        setAppUser(profile)
+      }
+    } catch (error) {
+      console.log('❌ Providers: Error refreshing user profile:', error)
+    }
+  }
+
+  // Expose refresh function globally
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).refreshUserProfile = refreshUserProfile
+    }
+  }, [user?.id])
 
   useEffect(() => {
     mounted.current = true
@@ -156,7 +189,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, appUser, loading, signOut }}>
+    <AuthContext.Provider value={{ user, appUser, loading, signOut, refreshUserProfile }}>
       <SessionManager />
       {children}
     </AuthContext.Provider>

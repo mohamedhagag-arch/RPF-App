@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { BOQActivity } from '@/lib/supabase'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -21,6 +22,7 @@ export function BOQActivityCard({
   onDelete,
   onCreateKPI 
 }: BOQActivityCardProps) {
+  const guard = usePermissionGuard()
   const progressPercentage = activity.planned_units > 0 
     ? (activity.actual_units / activity.planned_units) * 100 
     : 0

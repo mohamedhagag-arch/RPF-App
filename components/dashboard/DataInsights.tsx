@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { TABLES } from '@/lib/supabase'
@@ -64,6 +65,7 @@ interface InsightData {
 }
 
 export function DataInsights({ expanded = false }: DataInsightsProps) {
+  const guard = usePermissionGuard()
   const [insights, setInsights] = useState<InsightData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')

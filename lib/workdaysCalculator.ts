@@ -13,13 +13,15 @@ export interface WorkdaysConfig {
   weekendDays: number[] // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
   holidays: Holiday[]
   includeWeekends?: boolean // For compressed projects
+  useDatabaseHolidays?: boolean // Use holidays from database instead of config
 }
 
 // Default configuration - Sunday is weekend
 const DEFAULT_CONFIG: WorkdaysConfig = {
   weekendDays: [0], // Sunday
   holidays: [],
-  includeWeekends: false
+  includeWeekends: false,
+  useDatabaseHolidays: true
 }
 
 /**
@@ -31,9 +33,37 @@ export function isWeekend(date: Date, config: WorkdaysConfig = DEFAULT_CONFIG): 
 }
 
 /**
- * Check if a date is a holiday
+ * Check if a date is a holiday (supports both config and database holidays)
  */
-export function isHoliday(date: Date, config: WorkdaysConfig = DEFAULT_CONFIG): boolean {
+export async function isHoliday(date: Date, config: WorkdaysConfig = DEFAULT_CONFIG): Promise<boolean> {
+  const dateStr = formatDateToYMD(date)
+  
+  // If using database holidays, import and check
+  if (config.useDatabaseHolidays) {
+    try {
+      const { isDateHoliday } = await import('./holidaysManager')
+      return await isDateHoliday(dateStr)
+    } catch (error) {
+      console.warn('⚠️ Failed to check database holidays, falling back to config:', error)
+    }
+  }
+  
+  // Fallback to config holidays
+  return config.holidays.some(holiday => {
+    if (holiday.isRecurring) {
+      // Compare month and day only
+      const holidayDate = new Date(holiday.date)
+      return date.getMonth() === holidayDate.getMonth() && 
+             date.getDate() === holidayDate.getDate()
+    }
+    return holiday.date === dateStr
+  })
+}
+
+/**
+ * Synchronous version for backward compatibility (uses config only)
+ */
+export function isHolidaySync(date: Date, config: WorkdaysConfig = DEFAULT_CONFIG): boolean {
   const dateStr = formatDateToYMD(date)
   return config.holidays.some(holiday => {
     if (holiday.isRecurring) {
@@ -47,16 +77,47 @@ export function isHoliday(date: Date, config: WorkdaysConfig = DEFAULT_CONFIG): 
 }
 
 /**
- * Check if a date is a working day
+ * Check if a date is a working day (supports database holidays)
  */
-export function isWorkingDay(date: Date, config: WorkdaysConfig = DEFAULT_CONFIG): boolean {
-  return !isWeekend(date, config) && !isHoliday(date, config)
+export async function isWorkingDay(date: Date, config: WorkdaysConfig = DEFAULT_CONFIG): Promise<boolean> {
+  return !isWeekend(date, config) && !(await isHoliday(date, config))
 }
 
 /**
- * Calculate number of working days between two dates
+ * Synchronous version for backward compatibility
  */
-export function calculateWorkdays(
+export function isWorkingDaySync(date: Date, config: WorkdaysConfig = DEFAULT_CONFIG): boolean {
+  return !isWeekend(date, config) && !isHolidaySync(date, config)
+}
+
+/**
+ * Calculate number of working days between two dates (supports database holidays)
+ */
+export async function calculateWorkdays(
+  startDate: Date | string,
+  endDate: Date | string,
+  config: WorkdaysConfig = DEFAULT_CONFIG
+): Promise<number> {
+  const start = typeof startDate === 'string' ? new Date(startDate) : new Date(startDate)
+  const end = typeof endDate === 'string' ? new Date(endDate) : new Date(endDate)
+  
+  let workdays = 0
+  const current = new Date(start)
+  
+  while (current <= end) {
+    if (await isWorkingDay(current, config)) {
+      workdays++
+    }
+    current.setDate(current.getDate() + 1)
+  }
+  
+  return workdays
+}
+
+/**
+ * Synchronous version for backward compatibility
+ */
+export function calculateWorkdaysSync(
   startDate: Date | string,
   endDate: Date | string,
   config: WorkdaysConfig = DEFAULT_CONFIG
@@ -68,7 +129,7 @@ export function calculateWorkdays(
   const current = new Date(start)
   
   while (current <= end) {
-    if (isWorkingDay(current, config)) {
+    if (isWorkingDaySync(current, config)) {
       workdays++
     }
     current.setDate(current.getDate() + 1)
@@ -78,9 +139,33 @@ export function calculateWorkdays(
 }
 
 /**
- * Get all working days between two dates
+ * Get all working days between two dates (supports database holidays)
  */
-export function getWorkingDays(
+export async function getWorkingDays(
+  startDate: Date | string,
+  endDate: Date | string,
+  config: WorkdaysConfig = DEFAULT_CONFIG
+): Promise<Date[]> {
+  const start = typeof startDate === 'string' ? new Date(startDate) : new Date(startDate)
+  const end = typeof endDate === 'string' ? new Date(endDate) : new Date(endDate)
+  
+  const workingDays: Date[] = []
+  const current = new Date(start)
+  
+  while (current <= end) {
+    if (await isWorkingDay(current, config)) {
+      workingDays.push(new Date(current))
+    }
+    current.setDate(current.getDate() + 1)
+  }
+  
+  return workingDays
+}
+
+/**
+ * Synchronous version for backward compatibility
+ */
+export function getWorkingDaysSync(
   startDate: Date | string,
   endDate: Date | string,
   config: WorkdaysConfig = DEFAULT_CONFIG
@@ -92,7 +177,7 @@ export function getWorkingDays(
   const current = new Date(start)
   
   while (current <= end) {
-    if (isWorkingDay(current, config)) {
+    if (isWorkingDaySync(current, config)) {
       workingDays.push(new Date(current))
     }
     current.setDate(current.getDate() + 1)

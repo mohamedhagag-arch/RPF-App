@@ -8,6 +8,7 @@
  */
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { 
   Database, 
   Download, 
@@ -42,6 +43,7 @@ interface TableManagerProps {
 }
 
 export function TableManager({ table, onUpdate }: TableManagerProps) {
+  const guard = usePermissionGuard()
   const [stats, setStats] = useState<TableStats | null>(null)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info', text: string } | null>(null)

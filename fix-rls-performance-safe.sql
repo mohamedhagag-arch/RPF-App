@@ -154,3 +154,4 @@ WHERE schemaname = 'public'
 -- راقب أداء الاستعلامات:
 -- EXPLAIN ANALYZE SELECT * FROM public."Planning Database - KPI" LIMIT 100;
 
+

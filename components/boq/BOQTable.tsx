@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { BOQActivity, Project } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
 import { Edit, Trash2, Eye } from 'lucide-react'
@@ -19,6 +20,7 @@ interface BOQTableProps {
 }
 
 export function BOQTable({ activities, projects, allKPIs, onEdit, onDelete, onBulkDelete }: BOQTableProps) {
+  const guard = usePermissionGuard()
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   
   // 🔧 FIX: Clear selection when activities change
@@ -131,15 +133,17 @@ export function BOQTable({ activities, projects, allKPIs, onEdit, onDelete, onBu
               Clear Selection
             </Button>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleBulkDeleteClick}
-            className="flex items-center space-x-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
-          >
-            <Trash2 className="h-4 w-4" />
-            <span>Delete Selected</span>
-          </Button>
+          {guard.hasAccess('boq.delete') && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleBulkDeleteClick}
+              className="flex items-center space-x-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+            >
+              <Trash2 className="h-4 w-4" />
+              <span>Delete Selected</span>
+            </Button>
+          )}
         </div>
       )}
       
@@ -234,24 +238,28 @@ export function BOQTable({ activities, projects, allKPIs, onEdit, onDelete, onBu
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                 <div className="flex space-x-2 ">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onEdit(activity)}
-                    className="flex items-center space-x-1 "
-                  >
-                    <Edit className="h-4 w-4" />
-                    <span>Edit</span>
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onDelete(activity.id)}
-                    className="flex items-center space-x-1  text-red-600 hover:text-red-700"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    <span>Delete</span>
-                  </Button>
+                  {guard.hasAccess('boq.edit') && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onEdit(activity)}
+                      className="flex items-center space-x-1 "
+                    >
+                      <Edit className="h-4 w-4" />
+                      <span>Edit</span>
+                    </Button>
+                  )}
+                  {guard.hasAccess('boq.delete') && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onDelete(activity.id)}
+                      className="flex items-center space-x-1  text-red-600 hover:text-red-700"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      <span>Delete</span>
+                    </Button>
+                  )}
                 </div>
               </td>
             </tr>

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Alert } from '@/components/ui/Alert'
@@ -46,6 +47,7 @@ interface AdvancedPermissionsManagerProps {
 }
 
 export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole, onEditUser }: AdvancedPermissionsManagerProps) {
+  const guard = usePermissionGuard()
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>(
     user.custom_permissions_enabled && user.permissions 
       ? user.permissions 
@@ -977,18 +979,43 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
                 </h3>
                 
                 <div className="space-y-6">
-                  {/* Full Name */}
+                  {/* First Name */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Full Name *
+                      First Name *
                     </label>
                     <div className="relative">
                       <Users className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
                       <input
                         type="text"
-                        value={editUserData.full_name}
-                        onChange={(e) => setEditUserData(prev => ({ ...prev, full_name: e.target.value }))}
-                        placeholder="Enter full name"
+                        value={editUserData.first_name || editUserData.full_name?.split(' ')[0] || ''}
+                        onChange={(e) => setEditUserData(prev => ({ 
+                          ...prev, 
+                          first_name: e.target.value,
+                          full_name: `${e.target.value} ${prev.last_name || prev.full_name?.split(' ').slice(1).join(' ') || ''}`.trim()
+                        }))}
+                        placeholder="Enter first name"
+                        className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Last Name */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Last Name *
+                    </label>
+                    <div className="relative">
+                      <Users className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                      <input
+                        type="text"
+                        value={editUserData.last_name || editUserData.full_name?.split(' ').slice(1).join(' ') || ''}
+                        onChange={(e) => setEditUserData(prev => ({ 
+                          ...prev, 
+                          last_name: e.target.value,
+                          full_name: `${prev.first_name || prev.full_name?.split(' ')[0] || ''} ${e.target.value}`.trim()
+                        }))}
+                        placeholder="Enter last name"
                         className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                       />
                     </div>
@@ -1091,7 +1118,7 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
                     >
                       Cancel
                     </Button>
-                    <Button 
+                    {guard.hasAccess('users.create') && (<Button 
                       onClick={handleEditUser}
                       disabled={editingUser || !editUserData.full_name.trim() || !editUserData.email.trim()}
                       className="bg-white text-blue-600 hover:bg-gray-100 font-semibold"
@@ -1107,7 +1134,7 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
                           Update User
                         </div>
                       )}
-                    </Button>
+                    </Button>)}
                   </div>
                 </div>
               </div>

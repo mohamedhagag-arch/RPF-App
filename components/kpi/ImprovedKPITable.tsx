@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { Button } from '@/components/ui/Button'
 import { Edit, Trash2, Target, CheckCircle } from 'lucide-react'
 import { ProcessedKPI, getKPITypeStatusColor, getKPITypeBadgeColor, getKPITypeIcon } from '@/lib/kpiProcessor'
@@ -14,6 +15,7 @@ interface ImprovedKPITableProps {
 }
 
 export function ImprovedKPITable({ kpis, projects, onEdit, onDelete, onBulkDelete }: ImprovedKPITableProps) {
+  const guard = usePermissionGuard()
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   
   const handleSelectAll = (checked: boolean) => {
@@ -96,15 +98,17 @@ export function ImprovedKPITable({ kpis, projects, onEdit, onDelete, onBulkDelet
               Clear Selection
             </Button>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleBulkDeleteClick}
-            className="flex items-center space-x-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
-          >
-            <Trash2 className="h-4 w-4" />
-            <span>Delete Selected</span>
-          </Button>
+          {guard.hasAccess('kpi.delete') && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleBulkDeleteClick}
+              className="flex items-center space-x-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+            >
+              <Trash2 className="h-4 w-4" />
+              <span>Delete Selected</span>
+            </Button>
+          )}
         </div>
       )}
       
@@ -144,7 +148,7 @@ export function ImprovedKPITable({ kpis, projects, onEdit, onDelete, onBulkDelet
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">
                 Status
               </th>
-              {(onEdit || onDelete) && (
+              {((onEdit && guard.hasAccess('kpi.edit')) || (onDelete && guard.hasAccess('kpi.delete'))) && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">
                   Actions
                 </th>
@@ -252,10 +256,10 @@ export function ImprovedKPITable({ kpis, projects, onEdit, onDelete, onBulkDelet
                   </td>
                   
                   {/* Actions */}
-                  {(onEdit || onDelete) && (
+                  {((onEdit && guard.hasAccess('kpi.edit')) || (onDelete && guard.hasAccess('kpi.delete'))) && (
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-2">
-                        {onEdit && (
+                        {onEdit && guard.hasAccess('kpi.edit') && (
                           <Button
                             variant="outline"
                             size="sm"
@@ -265,7 +269,7 @@ export function ImprovedKPITable({ kpis, projects, onEdit, onDelete, onBulkDelet
                             <Edit className="h-4 w-4" />
                           </Button>
                         )}
-                        {onDelete && (
+                        {onDelete && guard.hasAccess('kpi.delete') && (
                           <Button
                             variant="outline"
                             size="sm"

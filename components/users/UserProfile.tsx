@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { useAuth } from '@/app/providers'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -36,7 +37,8 @@ import {
 } from 'lucide-react'
 
 export function UserProfile() {
-  const { user: authUser, appUser } = useAuth()
+  const guard = usePermissionGuard()
+  const { user: authUser, appUser, refreshUserProfile } = useAuth()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -56,6 +58,8 @@ export function UserProfile() {
   
   // Form data
   const [formData, setFormData] = useState({
+    first_name: '',
+    last_name: '',
     full_name: '',
     division: '',
     phone: '',
@@ -68,9 +72,21 @@ export function UserProfile() {
     loadUserProfile()
   }, [authUser])
 
+  // Add refresh capability
+  useEffect(() => {
+    const handleFocus = () => {
+      // Reload profile when window gains focus (user comes back to tab)
+      loadUserProfile()
+    }
+
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [])
+
   const loadUserProfile = async () => {
     try {
       setLoading(true)
+      console.log('🔄 UserProfile: Loading user profile...')
       
       if (!authUser?.id) {
         setError('No authenticated user')
@@ -86,8 +102,16 @@ export function UserProfile() {
 
       if (userError) throw userError
 
+      console.log('📥 UserProfile: Loaded user data:', user)
+      console.log('🔍 UserProfile: User permissions:', (user as any).permissions)
+      console.log('📊 UserProfile: User permissions length:', (user as any).permissions?.length)
+      console.log('🔍 UserProfile: User custom_enabled:', (user as any).custom_permissions_enabled)
+      console.log('🔍 UserProfile: User updated_at:', (user as any).updated_at)
+
       setUserData(user)
       setFormData({
+        first_name: (user as any).first_name || '',
+        last_name: (user as any).last_name || '',
         full_name: (user as any).full_name || '',
         division: (user as any).division || '',
         phone: (user as any).phone || '',
@@ -96,6 +120,9 @@ export function UserProfile() {
 
       // Load activity statistics
       await loadActivityStats(authUser.id)
+
+      // Refresh global user profile to ensure consistency
+      await refreshUserProfile()
       
     } catch (error: any) {
       console.error('Error loading profile:', error)
@@ -251,6 +278,8 @@ export function UserProfile() {
                     <Button variant="outline" size="sm" onClick={() => {
                       setEditMode(false)
                       setFormData({
+                        first_name: (userData as any).first_name || '',
+                        last_name: (userData as any).last_name || '',
                         full_name: userData.full_name || '',
                         division: userData.division || '',
                         phone: (userData as any).phone || '',
@@ -270,19 +299,43 @@ export function UserProfile() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {/* Full Name */}
+                {/* First Name */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Full Name
+                    First Name
                   </label>
                   {editMode ? (
                     <Input
-                      value={formData.full_name}
-                      onChange={(e) => setFormData(prev => ({ ...prev, full_name: e.target.value }))}
-                      placeholder="Enter your full name"
+                      value={formData.first_name}
+                      onChange={(e) => setFormData(prev => ({ 
+                        ...prev, 
+                        first_name: e.target.value,
+                        full_name: `${e.target.value} ${formData.last_name}`.trim()
+                      }))}
+                      placeholder="Enter your first name"
                     />
                   ) : (
-                    <p className="text-gray-900 dark:text-white font-medium">{userData.full_name}</p>
+                    <p className="text-gray-900 dark:text-white font-medium">{userData.first_name || userData.full_name?.split(' ')[0]}</p>
+                  )}
+                </div>
+
+                {/* Last Name */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Last Name
+                  </label>
+                  {editMode ? (
+                    <Input
+                      value={formData.last_name}
+                      onChange={(e) => setFormData(prev => ({ 
+                        ...prev, 
+                        last_name: e.target.value,
+                        full_name: `${formData.first_name} ${e.target.value}`.trim()
+                      }))}
+                      placeholder="Enter your last name"
+                    />
+                  ) : (
+                    <p className="text-gray-900 dark:text-white font-medium">{userData.last_name || userData.full_name?.split(' ').slice(1).join(' ')}</p>
                   )}
                 </div>
 

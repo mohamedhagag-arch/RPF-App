@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { Project, TABLES } from '@/lib/supabase'
@@ -33,6 +34,7 @@ export function ProjectsTable({
   getStatusColor,
   getStatusText
 }: ProjectsTableProps) {
+  const guard = usePermissionGuard()
   const [projectStats, setProjectStats] = useState<Record<string, ProjectStats>>({})
   const supabase = getSupabaseClient()
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('projects-table')

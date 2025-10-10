@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { 
@@ -28,6 +29,7 @@ interface QuickActionsProps {
 }
 
 export function QuickActions({ onAction, userRole = 'viewer', expanded = false }: QuickActionsProps) {
+  const guard = usePermissionGuard()
   const [selectedAction, setSelectedAction] = useState<string | null>(null)
 
   const getAvailableActions = () => {

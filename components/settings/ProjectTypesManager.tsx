@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { 
   getAllProjectTypes, 
   addProjectType, 
@@ -27,6 +28,7 @@ import {
 } from 'lucide-react'
 
 export function ProjectTypesManager() {
+  const guard = usePermissionGuard()
   const [projectTypes, setProjectTypes] = useState<ProjectType[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -185,16 +187,18 @@ export function ProjectTypesManager() {
               >
                 <RefreshCw className="h-4 w-4" />
               </Button>
-              <Button
-                onClick={() => {
-                  resetForm()
-                  setShowForm(true)
-                }}
-                disabled={loading}
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Project Type
-              </Button>
+              {guard.hasAccess('settings.project_types') && (
+                <Button
+                  onClick={() => {
+                    resetForm()
+                    setShowForm(true)
+                  }}
+                  disabled={loading}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Project Type
+                </Button>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -334,20 +338,24 @@ export function ProjectTypesManager() {
                       )}
                     </div>
                     <div className="flex gap-1 ml-2">
-                      <button
-                        onClick={() => handleEdit(projectType)}
-                        className="p-2 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-lg transition-colors"
-                        title="Edit"
-                      >
-                        <Edit className="h-4 w-4 text-purple-600 dark:text-purple-400" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(projectType)}
-                        className="p-2 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
-                        title="Delete"
-                      >
-                        <Trash2 className="h-4 w-4 text-red-600 dark:text-red-400" />
-                      </button>
+                      {guard.hasAccess('settings.project_types') && (
+                        <button
+                          onClick={() => handleEdit(projectType)}
+                          className="p-2 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-lg transition-colors"
+                          title="Edit"
+                        >
+                          <Edit className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                        </button>
+                      )}
+                      {guard.hasAccess('settings.project_types') && (
+                        <button
+                          onClick={() => handleDelete(projectType)}
+                          className="p-2 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                          title="Delete"
+                        >
+                          <Trash2 className="h-4 w-4 text-red-600 dark:text-red-400" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>

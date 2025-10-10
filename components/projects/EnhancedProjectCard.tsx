@@ -5,6 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Edit, Trash2, Eye, Building, Calendar, DollarSign } from 'lucide-react'
+import { useAuth } from '@/app/providers'
+import { hasPermission } from '@/lib/permissionsSystem'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 
 interface EnhancedProjectCardProps {
   project: Project
@@ -23,6 +26,8 @@ export function EnhancedProjectCard({
   getStatusColor, 
   getStatusText 
 }: EnhancedProjectCardProps) {
+  const { appUser } = useAuth()
+  const guard = usePermissionGuard()
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -91,23 +96,27 @@ export function EnhancedProjectCard({
               <span>Details</span>
             </Button>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onEdit(project)}
-            className="flex items-center space-x-1"
-          >
-            <Edit className="h-4 w-4" />
-            <span>Edit</span>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onDelete(project.id)}
-            className="flex items-center space-x-1 text-red-600 hover:text-red-700"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
+          {guard.hasAccess('projects.edit') && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onEdit(project)}
+              className="flex items-center space-x-1"
+            >
+              <Edit className="h-4 w-4" />
+              <span>Edit</span>
+            </Button>
+          )}
+          {guard.hasAccess('projects.delete') && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onDelete(project.id)}
+              className="flex items-center space-x-1 text-red-600 hover:text-red-700"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>

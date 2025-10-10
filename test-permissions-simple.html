@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>اختبار تحديث الصلاحيات</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: #f9f9f9;
+        }
+        .success { color: #28a745; }
+        .error { color: #dc3545; }
+        .info { color: #007bff; }
+        .warning { color: #ffc107; }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #0056b3; }
+        .console-output {
+            background: #1e1e1e;
+            color: #fff;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        .step {
+            margin: 15px 0;
+            padding: 10px;
+            border-left: 4px solid #007bff;
+            background: #f8f9fa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 اختبار تحديث الصلاحيات</h1>
+        <p>هذا الاختبار يتحقق من أن نظام الصلاحيات يعمل بشكل صحيح</p>
+
+        <div class="test-section">
+            <h2>📋 خطوات الاختبار</h2>
+            
+            <div class="step">
+                <h3>الخطوة 1: فتح Console</h3>
+                <p>اضغط F12 في المتصفح وافتح تبويب Console</p>
+                <button onclick="showConsoleInstructions()">إظهار تعليمات Console</button>
+            </div>
+
+            <div class="step">
+                <h3>الخطوة 2: تحديث الصلاحيات</h3>
+                <p>اذهب إلى Settings → Users → اختر مستخدم → Permissions</p>
+                <p>أزل صلاحية "projects.create" واحفظ</p>
+                <button onclick="checkPermissionsUpdate()">فحص التحديث</button>
+            </div>
+
+            <div class="step">
+                <h3>الخطوة 3: التحقق من النتيجة</h3>
+                <p>اذهب إلى صفحة Projects وتحقق من زر "Add New Project"</p>
+                <p>يجب أن يكون مخفي</p>
+                <button onclick="verifyUIUpdate()">التحقق من الواجهة</button>
+            </div>
+
+            <div class="step">
+                <h3>الخطوة 4: استعادة الصلاحية</h3>
+                <p>ارجع وأضف صلاحية "projects.create" مرة أخرى</p>
+                <p>زر "Add New Project" يجب أن يظهر</p>
+                <button onclick="restorePermission()">استعادة الصلاحية</button>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h2>🔍 فحص Console</h2>
+            <p>ابحث عن هذه الرسائل في Console:</p>
+            <div class="console-output" id="consoleOutput">
+                🔍 Permission Guard: Checking access for: projects.create
+                🔍 Permission Guard: Result: ❌ Denied (عند إزالة الصلاحية)
+                
+                🔍 Permission Guard: Checking access for: projects.create  
+                🔍 Permission Guard: Result: ✅ Granted (عند إضافة الصلاحية)
+                
+                🔄 Providers: Refreshing user profile...
+                ✅ Providers: User profile refreshed successfully
+                📊 Providers: Updated permissions: X
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h2>📊 نتائج الاختبار</h2>
+            <div id="testResults">
+                <p>اضغط على الأزرار أعلاه لإجراء الاختبار</p>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h2>🎯 النتيجة المتوقعة</h2>
+            <ul>
+                <li class="success">✅ تحديث قاعدة البيانات يعمل</li>
+                <li class="success">✅ تحديث السياق العالمي يعمل</li>
+                <li class="success">✅ تحديث واجهة المستخدم فوري</li>
+                <li class="success">✅ تطبيق الصلاحيات فوري</li>
+                <li class="success">✅ لا حاجة لتحديث الصفحة</li>
+                <li class="success">✅ Console يُظهر الرسائل الصحيحة</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        function showConsoleInstructions() {
+            document.getElementById('testResults').innerHTML = `
+                <div class="info">
+                    <h3>تعليمات فتح Console:</h3>
+                    <ol>
+                        <li>اضغط F12 في المتصفح</li>
+                        <li>اختر تبويب "Console"</li>
+                        <li>ستظهر رسائل النظام هناك</li>
+                        <li>ابحث عن الرسائل التي تبدأ بـ 🔍 أو 🔄</li>
+                    </ol>
+                </div>
+            `;
+        }
+
+        function checkPermissionsUpdate() {
+            document.getElementById('testResults').innerHTML = `
+                <div class="info">
+                    <h3>فحص تحديث الصلاحيات:</h3>
+                    <ol>
+                        <li>اذهب إلى Settings → Users</li>
+                        <li>اختر مستخدم واضغط "Permissions"</li>
+                        <li>أزل صلاحية "projects.create"</li>
+                        <li>اضغط "Save Changes"</li>
+                        <li>راقب Console للرسائل التالية:</li>
+                        <ul>
+                            <li>🔄 Providers: Refreshing user profile...</li>
+                            <li>✅ Providers: User profile refreshed successfully</li>
+                        </ul>
+                    </ol>
+                </div>
+            `;
+        }
+
+        function verifyUIUpdate() {
+            document.getElementById('testResults').innerHTML = `
+                <div class="info">
+                    <h3>التحقق من تحديث الواجهة:</h3>
+                    <ol>
+                        <li>اذهب إلى صفحة Projects</li>
+                        <li>ابحث عن زر "Add New Project"</li>
+                        <li>يجب أن يكون مخفي</li>
+                        <li>افتح Console (F12)</li>
+                        <li>ابحث عن:</li>
+                        <ul>
+                            <li>🔍 Permission Guard: Checking access for: projects.create</li>
+                            <li>🔍 Permission Guard: Result: ❌ Denied</li>
+                        </ul>
+                        <li>إذا ظهر الزر، فالنظام لا يعمل بشكل صحيح</li>
+                    </ol>
+                </div>
+            `;
+        }
+
+        function restorePermission() {
+            document.getElementById('testResults').innerHTML = `
+                <div class="info">
+                    <h3>استعادة الصلاحية:</h3>
+                    <ol>
+                        <li>ارجع إلى إدارة الصلاحيات</li>
+                        <li>أضف صلاحية "projects.create" مرة أخرى</li>
+                        <li>احفظ التغييرات</li>
+                        <li>اذهب إلى صفحة Projects</li>
+                        <li>زر "Add New Project" يجب أن يظهر</li>
+                        <li>في Console ابحث عن:</li>
+                        <ul>
+                            <li>🔍 Permission Guard: Checking access for: projects.create</li>
+                            <li>🔍 Permission Guard: Result: ✅ Granted</li>
+                        </ul>
+                    </ol>
+                </div>
+            `;
+        }
+
+        // إضافة رسائل تلقائية
+        setTimeout(() => {
+            console.log('🧪 اختبار تحديث الصلاحيات - النظام جاهز للاختبار');
+            console.log('📋 افتح هذا الملف في المتصفح واتبع التعليمات');
+        }, 1000);
+    </script>
+</body>
+</html>

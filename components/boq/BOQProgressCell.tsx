@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { BOQActivity } from '@/lib/supabase'
@@ -13,6 +14,7 @@ interface BOQProgressCellProps {
 }
 
 export function BOQProgressCell({ activity, allKPIs }: BOQProgressCellProps) {
+  const guard = usePermissionGuard()
   const [kpiProgress, setKpiProgress] = useState<number>(0)
   const [loading, setLoading] = useState(false)
   const supabase = getSupabaseClient()

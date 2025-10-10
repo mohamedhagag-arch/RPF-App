@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { 
   getAllDivisions, 
   addDivision, 
@@ -27,6 +28,7 @@ import {
 } from 'lucide-react'
 
 export function DivisionsManager() {
+  const guard = usePermissionGuard()
   const [divisions, setDivisions] = useState<Division[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -185,16 +187,18 @@ export function DivisionsManager() {
               >
                 <RefreshCw className="h-4 w-4" />
               </Button>
-              <Button
-                onClick={() => {
-                  resetForm()
-                  setShowForm(true)
-                }}
-                disabled={loading}
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Division
-              </Button>
+              {guard.hasAccess('settings.divisions') && (
+                <Button
+                  onClick={() => {
+                    resetForm()
+                    setShowForm(true)
+                  }}
+                  disabled={loading}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Division
+                </Button>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -334,20 +338,24 @@ export function DivisionsManager() {
                       )}
                     </div>
                     <div className="flex gap-1 ml-2">
-                      <button
-                        onClick={() => handleEdit(division)}
-                        className="p-2 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
-                        title="Edit"
-                      >
-                        <Edit className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(division)}
-                        className="p-2 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
-                        title="Delete"
-                      >
-                        <Trash2 className="h-4 w-4 text-red-600 dark:text-red-400" />
-                      </button>
+                      {guard.hasAccess('settings.divisions') && (
+                        <button
+                          onClick={() => handleEdit(division)}
+                          className="p-2 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
+                          title="Edit"
+                        >
+                          <Edit className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                        </button>
+                      )}
+                      {guard.hasAccess('settings.divisions') && (
+                        <button
+                          onClick={() => handleDelete(division)}
+                          className="p-2 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                          title="Delete"
+                        >
+                          <Trash2 className="h-4 w-4 text-red-600 dark:text-red-400" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>

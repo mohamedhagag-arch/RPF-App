@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent } from '@/components/ui/Card'
 import { 
@@ -24,7 +25,7 @@ import {
 } from 'lucide-react'
 import { clsx } from 'clsx'
 
-type TabType = 'dashboard' | 'projects' | 'boq' | 'kpi' | 'insights' | 'actions' | 'settings' | 'users' | 'search' | 'import-export' | 'reports'
+type TabType = 'dashboard' | 'projects' | 'boq' | 'kpi' | 'insights' | 'actions' | 'settings' | 'search' | 'reports'
 
 interface EnhancedSidebarProps {
   activeTab: TabType
@@ -94,29 +95,16 @@ const enhancedMenuItems = [
     description: 'Daily, Weekly, Monthly reports'
   },
   {
-    id: 'import-export' as TabType,
-    label: 'Import/Export',
-    icon: Download,
-    roles: ['admin', 'manager'],
-    description: 'Data management'
-  },
-  {
     id: 'settings' as TabType,
     label: 'Settings',
     icon: Settings,
     roles: ['admin', 'manager', 'engineer', 'viewer'],
-    description: 'App preferences'
-  },
-  {
-    id: 'users' as TabType,
-    label: 'User Management',
-    icon: Users,
-    roles: ['admin'],
-    description: 'Manage users'
+    description: 'App preferences and user management'
   }
 ]
 
 export function EnhancedSidebar({ activeTab, onTabChange, userRole, enhanced = false }: EnhancedSidebarProps) {
+  const guard = usePermissionGuard()
   const [collapsed, setCollapsed] = useState(false)
   const [showFavorites, setShowFavorites] = useState(false)
 

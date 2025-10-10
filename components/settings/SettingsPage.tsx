@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -36,6 +37,7 @@ interface SettingsPageProps {
 }
 
 export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
+  const guard = usePermissionGuard()
   const [activeTab, setActiveTab] = useState('profile')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -68,6 +70,13 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
   useEffect(() => {
     fetchUserProfile()
   }, [])
+
+  // إعادة حساب علامات التبويب عند تغيير الصلاحيات
+  useEffect(() => {
+    console.log('🔍 SettingsPage: User permissions changed, recalculating tabs')
+    console.log('🔍 Current user role:', userRole)
+    console.log('🔍 Available tabs:', filteredTabs.map(t => t.id))
+  }, [userRole, guard])
 
   const fetchUserProfile = async () => {
     try {
@@ -243,17 +252,25 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
   }
 
   const tabs = [
-    { id: 'profile', label: 'Profile', icon: User, roles: ['admin', 'manager', 'engineer', 'viewer'] },
-    { id: 'notifications', label: 'Notifications', icon: Bell, roles: ['admin', 'manager', 'engineer', 'viewer'] },
-    { id: 'appearance', label: 'Appearance', icon: Palette, roles: ['admin', 'manager', 'engineer', 'viewer'] },
-    { id: 'divisions', label: 'Divisions', icon: Building2, roles: ['admin', 'manager'] },
-    { id: 'project-types', label: 'Project Types', icon: Briefcase, roles: ['admin', 'manager'] },
-    { id: 'currencies', label: 'Currencies', icon: DollarSign, roles: ['admin', 'manager'] },
-    { id: 'data', label: 'Data Management', icon: Database, roles: ['admin', 'manager'] },
-    { id: 'security', label: 'Security', icon: Shield, roles: ['admin', 'manager'] }
+    { id: 'profile', label: 'Profile', icon: User, roles: ['admin', 'manager', 'engineer', 'viewer'], permission: 'users.view' },
+    { id: 'notifications', label: 'Notifications', icon: Bell, roles: ['admin', 'manager', 'engineer', 'viewer'], permission: 'users.view' },
+    { id: 'appearance', label: 'Appearance', icon: Palette, roles: ['admin', 'manager', 'engineer', 'viewer'], permission: 'users.view' },
+    { id: 'divisions', label: 'Divisions', icon: Building2, roles: ['admin', 'manager'], permission: 'settings.divisions' },
+    { id: 'project-types', label: 'Project Types', icon: Briefcase, roles: ['admin', 'manager'], permission: 'settings.project_types' },
+    { id: 'currencies', label: 'Currencies', icon: DollarSign, roles: ['admin', 'manager'], permission: 'settings.currencies' },
+    { id: 'data', label: 'Data Management', icon: Database, roles: ['admin', 'manager'], permission: 'system.export' },
+    { id: 'security', label: 'Security', icon: Shield, roles: ['admin', 'manager'], permission: 'users.manage' }
   ]
 
-  const filteredTabs = tabs.filter(tab => tab.roles.includes(userRole))
+  // تصفية علامات التبويب بناءً على الصلاحيات الفعلية
+  const filteredTabs = tabs.filter(tab => {
+    // إذا كانت العلامة للأدوار الأساسية، تحقق من الدور
+    if (['profile', 'notifications', 'appearance'].includes(tab.id)) {
+      return tab.roles.includes(userRole)
+    }
+    // إذا كانت العلامة للإعدادات المتقدمة، تحقق من الصلاحية
+    return guard.hasAccess(tab.permission)
+  })
 
   const renderTabContent = () => {
     switch (activeTab) {
@@ -303,10 +320,12 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
               </div>
             </div>
             <div className="flex justify-end">
-              <Button onClick={handleProfileUpdate} disabled={loading}>
-                <Save className="h-4 w-4 mr-2" />
-                Save Changes
-              </Button>
+              {guard.hasAccess('users.edit') && (
+                <Button onClick={handleProfileUpdate} disabled={loading}>
+                  <Save className="h-4 w-4 mr-2" />
+                  Save Changes
+                </Button>
+              )}
             </div>
           </div>
         )
@@ -373,15 +392,51 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
         )
 
       case 'divisions':
+        if (!guard.hasAccess('settings.divisions')) {
+          return (
+            <div className="text-center py-12">
+              <Shield className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Access Denied</h3>
+              <p className="text-gray-600 dark:text-gray-400">You don't have permission to access divisions management.</p>
+            </div>
+          )
+        }
         return <DivisionsManager />
 
       case 'project-types':
+        if (!guard.hasAccess('settings.project_types')) {
+          return (
+            <div className="text-center py-12">
+              <Shield className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Access Denied</h3>
+              <p className="text-gray-600 dark:text-gray-400">You don't have permission to access project types management.</p>
+            </div>
+          )
+        }
         return <ProjectTypesManager />
 
       case 'currencies':
+        if (!guard.hasAccess('settings.currencies')) {
+          return (
+            <div className="text-center py-12">
+              <Shield className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Access Denied</h3>
+              <p className="text-gray-600 dark:text-gray-400">You don't have permission to access currencies management.</p>
+            </div>
+          )
+        }
         return <CurrenciesManager />
 
       case 'data':
+        if (!guard.hasAccess('system.export') && !guard.hasAccess('system.import') && !guard.hasAccess('system.backup')) {
+          return (
+            <div className="text-center py-12">
+              <Shield className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Access Denied</h3>
+              <p className="text-gray-600 dark:text-gray-400">You don't have permission to access data management.</p>
+            </div>
+          )
+        }
         return (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -396,10 +451,12 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
                   <p className="text-sm text-gray-600 mb-4">
                     Download a complete backup of all your data including projects, activities, and KPIs.
                   </p>
-                  <Button onClick={handleExportData} disabled={loading} className="w-full">
-                    <Download className="h-4 w-4 mr-2" />
-                    Export All Data
-                  </Button>
+                  {guard.hasAccess('system.export') && (
+                    <Button onClick={handleExportData} disabled={loading} className="w-full">
+                      <Download className="h-4 w-4 mr-2" />
+                      Export All Data
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
 
@@ -421,12 +478,14 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
                     className="hidden"
                     id="import-file"
                   />
-                  <label htmlFor="import-file">
-                    <Button type="button" className="w-full">
-                      <Upload className="h-4 w-4 mr-2" />
-                      Choose File to Import
-                    </Button>
-                  </label>
+                  {guard.hasAccess('system.import') && (
+                    <label htmlFor="import-file">
+                      <Button type="button" className="w-full">
+                        <Upload className="h-4 w-4 mr-2" />
+                        Choose File to Import
+                      </Button>
+                    </label>
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -442,21 +501,32 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
                 <p className="text-sm text-gray-600 mb-4">
                   Clear browser cache and temporary data to resolve performance issues.
                 </p>
-                <Button 
-                  variant="outline" 
-                  onClick={handleClearCache} 
-                  disabled={loading}
-                  className="border-red-200 text-red-600 hover:bg-red-50"
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Clear Cache
-                </Button>
+                {guard.hasAccess('system.backup') && (
+                  <Button 
+                    variant="outline" 
+                    onClick={handleClearCache} 
+                    disabled={loading}
+                    className="border-red-200 text-red-600 hover:bg-red-50"
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Clear Cache
+                  </Button>
+                )}
               </CardContent>
             </Card>
           </div>
         )
 
       case 'security':
+        if (!guard.hasAccess('users.manage')) {
+          return (
+            <div className="text-center py-12">
+              <Shield className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Access Denied</h3>
+              <p className="text-gray-600 dark:text-gray-400">You don't have permission to access security settings.</p>
+            </div>
+          )
+        }
         return (
           <div className="space-y-6">
             <Card>

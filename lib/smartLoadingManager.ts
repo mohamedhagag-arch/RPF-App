@@ -53,9 +53,12 @@ export function useSmartLoading(tabName: string) {
    * إيقاف التحميل الذكي
    */
   const stopSmartLoading = (setLoading: (loading: boolean) => void) => {
+    console.log(`🔄 stopSmartLoading called for tab: ${tabName}`)
+    
     if (loadingTimeoutRef.current) {
       clearTimeout(loadingTimeoutRef.current)
       loadingTimeoutRef.current = null
+      console.log(`✅ Cleared timeout for tab: ${tabName}`)
     }
     
     // إزالة من الاستعلامات البطيئة إذا اكتمل بنجاح
@@ -64,7 +67,9 @@ export function useSmartLoading(tabName: string) {
       console.log(`✅ Tab ${tabName}: Query completed successfully`)
     }
     
+    console.log(`🔄 Setting loading to false for tab: ${tabName}`)
     setLoading(false)
+    console.log(`✅ Loading set to false for tab: ${tabName}`)
   }
   
   return {

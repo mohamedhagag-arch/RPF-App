@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { BOQActivity, Project } from '@/lib/supabase'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -15,6 +16,7 @@ interface BOQFormProps {
 }
 
 export function BOQForm({ activity, projects, onSubmit, onCancel }: BOQFormProps) {
+  const guard = usePermissionGuard()
   const [formData, setFormData] = useState({
     project_id: '',
     project_code: '',

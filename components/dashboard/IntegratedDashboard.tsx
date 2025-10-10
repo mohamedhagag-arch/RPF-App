@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { getSupabaseClient, executeQuery, checkConnection } from '@/lib/simpleConnectionManager'
-import { TABLES, Project, BOQActivity, KPIRecord } from '@/lib/supabase'
+import { TABLES, Project, BOQActivity, KPIRecord, User } from '@/lib/supabase'
 import { calculateProjectProgress, calculateActivityProgress } from '@/lib/progressCalculations'
 import { mapProjectFromDB, mapBOQFromDB, mapKPIFromDB } from '@/lib/dataMappers'
 import { processKPIRecord, ProcessedKPI } from '@/lib/kpiProcessor'
@@ -71,6 +72,7 @@ interface RecentActivity {
 }
 
 export function IntegratedDashboard() {
+  const guard = usePermissionGuard()
   const { appUser } = useAuth()
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -455,7 +457,10 @@ export function IntegratedDashboard() {
                 Integrated Dashboard
               </h1>
               <p className="text-gray-600 dark:text-gray-400 mt-2 text-lg">
-                Welcome back, {appUser?.full_name || 'User'}! Here's your complete project overview
+                Welcome back, {appUser?.first_name && appUser?.last_name 
+                  ? `${appUser.first_name} ${appUser.last_name}` 
+                  : appUser?.full_name || 'User'
+                }! Here's your complete project overview
               </p>
             </div>
             

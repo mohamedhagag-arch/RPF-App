@@ -27,6 +27,7 @@ interface SmartStatsProps {
 }
 
 export function SmartDashboardStats({ stats }: SmartStatsProps) {
+  const guard = usePermissionGuard()
   // Calculate smart metrics
   const completionRate = stats.totalProjects > 0 
     ? (stats.completedProjects / stats.totalProjects) * 100 

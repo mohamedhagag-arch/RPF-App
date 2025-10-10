@@ -719,7 +719,7 @@ export async function canManageDatabase(): Promise<boolean> {
     // الحصول على بيانات المستخدم من جدول users
     const { data: appUser, error: appUserError } = await supabase
       .from('users')
-      .select('role')
+      .select('role, permissions, custom_permissions_enabled')
       .eq('id', user.id)
       .single()
     
@@ -727,8 +727,12 @@ export async function canManageDatabase(): Promise<boolean> {
       return false
     }
     
-    // فقط Admin يمكنه إدارة قاعدة البيانات
-    return (appUser as any).role === 'admin'
+    // Admin لديه صلاحية دائماً
+    if ((appUser as any).role === 'admin') return true
+    
+    // فحص الصلاحيات المخصصة
+    const userPermissions = (appUser as any)?.permissions || []
+    return userPermissions.includes('database.manage')
     
   } catch (error) {
     console.error('Error checking database permissions:', error)

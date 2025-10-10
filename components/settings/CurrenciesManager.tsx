@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { 
   getAllCurrencies, 
   addCurrency, 
@@ -29,6 +30,7 @@ import {
 } from 'lucide-react'
 
 export function CurrenciesManager() {
+  const guard = usePermissionGuard()
   const [currencies, setCurrencies] = useState<Currency[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -232,16 +234,18 @@ export function CurrenciesManager() {
               >
                 <RefreshCw className="h-4 w-4" />
               </Button>
-              <Button
-                onClick={() => {
-                  resetForm()
-                  setShowForm(true)
-                }}
-                disabled={loading}
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Currency
-              </Button>
+              {guard.hasAccess('settings.currencies') && (
+                <Button
+                  onClick={() => {
+                    resetForm()
+                    setShowForm(true)
+                  }}
+                  disabled={loading}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Currency
+                </Button>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -420,7 +424,7 @@ export function CurrenciesManager() {
                       )}
                     </div>
                     <div className="flex gap-1 ml-2">
-                      {!currency.is_default && (
+                      {!currency.is_default && guard.hasAccess('settings.currencies') && (
                         <button
                           onClick={() => handleSetDefault(currency)}
                           className="p-2 hover:bg-yellow-50 dark:hover:bg-yellow-900/30 rounded-lg transition-colors"
@@ -429,14 +433,16 @@ export function CurrenciesManager() {
                           <StarOff className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
                         </button>
                       )}
-                      <button
-                        onClick={() => handleEdit(currency)}
-                        className="p-2 hover:bg-green-50 dark:hover:bg-green-900/30 rounded-lg transition-colors"
-                        title="Edit"
-                      >
-                        <Edit className="h-4 w-4 text-green-600 dark:text-green-400" />
-                      </button>
-                      {!currency.is_default && (
+                      {guard.hasAccess('settings.currencies') && (
+                        <button
+                          onClick={() => handleEdit(currency)}
+                          className="p-2 hover:bg-green-50 dark:hover:bg-green-900/30 rounded-lg transition-colors"
+                          title="Edit"
+                        >
+                          <Edit className="h-4 w-4 text-green-600 dark:text-green-400" />
+                        </button>
+                      )}
+                      {!currency.is_default && guard.hasAccess('settings.currencies') && (
                         <button
                           onClick={() => handleDelete(currency)}
                           className="p-2 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"

@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { Project, BOQActivity, KPIRecord } from '@/lib/supabase'
 
 interface DashboardChartsProps {
@@ -10,6 +11,7 @@ interface DashboardChartsProps {
 }
 
 export function DashboardCharts({ projects, activities, kpis }: DashboardChartsProps) {
+  const guard = usePermissionGuard()
   // Project Status Distribution
   const projectStatusData = useMemo(() => {
     const statusCounts = projects.reduce((acc, project) => {

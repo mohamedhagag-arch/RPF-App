@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -553,7 +554,13 @@ export function ReportsManager({ userRole = 'viewer' }: ReportsManagerProps) {
     }
   }
 
-  if (userRole !== 'admin' && userRole !== 'manager') {
+  // Check permissions for reports access
+  const guard = usePermissionGuard()
+  const canViewReports = guard.hasAccess('reports.view') || guard.hasAccess('reports.daily') || 
+                        guard.hasAccess('reports.weekly') || guard.hasAccess('reports.monthly') ||
+                        userRole === 'admin' || userRole === 'manager'
+  
+  if (!canViewReports) {
     return (
       <div className="flex items-center justify-center h-64">
         <Card className="w-full max-w-md">
@@ -561,7 +568,7 @@ export function ReportsManager({ userRole = 'viewer' }: ReportsManagerProps) {
             <FileText className="h-12 w-12 text-red-500 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-gray-900 mb-2">Access Denied</h3>
             <p className="text-gray-600">
-              You don't have permission to access reports. This feature is only available to managers and administrators.
+              You don't have permission to access reports. This feature requires reports.view or any reports permission.
             </p>
           </CardContent>
         </Card>

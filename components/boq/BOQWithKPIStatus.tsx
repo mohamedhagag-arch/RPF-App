@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { BOQActivity } from '@/lib/supabase'
@@ -15,6 +16,7 @@ interface BOQWithKPIStatusProps {
 }
 
 export function BOQWithKPIStatus({ activity, allKPIs }: BOQWithKPIStatusProps) {
+  const guard = usePermissionGuard()
   const [kpiData, setKpiData] = useState<{
     plannedCount: number
     actualCount: number

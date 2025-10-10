@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { Project, BOQActivity } from '@/lib/supabase'
 import { ModernCard } from '@/components/ui/ModernCard'
 import { Button } from '@/components/ui/Button'
@@ -22,6 +23,7 @@ export function IntelligentKPIForm({
   projects = [],
   activities = []
 }: IntelligentKPIFormProps) {
+  const guard = usePermissionGuard()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { Project, BOQActivity, TABLES } from '@/lib/supabase'
@@ -34,6 +35,7 @@ interface ProjectDetailsPanelProps {
 }
 
 export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelProps) {
+  const guard = usePermissionGuard()
   const [analytics, setAnalytics] = useState<ProjectAnalytics | null>(null)
   const [loading, setLoading] = useState(true)
   const [activeView, setActiveView] = useState<'overview' | 'activities' | 'kpis'>('overview')

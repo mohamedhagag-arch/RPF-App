@@ -108,3 +108,4 @@ ANALYZE public."Planning Database - KPI";
 
 إذا كان هناك أي مشاكل، راجع الملفات الأخرى للحلول المفصلة.
 
+

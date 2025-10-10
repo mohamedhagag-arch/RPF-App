@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { cn } from '@/lib/utils'
 import { getCachedCompanySettings, type CompanySettings } from '@/lib/companySettings'
 import {
@@ -33,8 +34,7 @@ const sidebarItems: SidebarItem[] = [
   { icon: ClipboardList, label: 'BOQ', tab: 'boq', badge: 12, badgeColor: 'bg-green-500' },
   { icon: Target, label: 'KPI', tab: 'kpi', badge: 8, badgeColor: 'bg-purple-500' },
   { icon: BarChart3, label: 'Reports', tab: 'reports' },
-  { icon: Users, label: 'Users', tab: 'users' },
-  { icon: FileDown, label: 'Import/Export', tab: 'import-export' },
+  { icon: Settings, label: 'Settings', tab: 'settings' },
 ]
 
 interface ModernSidebarProps {
@@ -47,6 +47,7 @@ interface ModernSidebarProps {
 }
 
 export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userRole = 'Admin', onProfileClick, onCollapseChange }: ModernSidebarProps) {
+  const guard = usePermissionGuard()
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [companyName, setCompanyName] = useState('AlRabat RPF')
@@ -190,6 +191,31 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
             const Icon = item.icon
             const isActive = activeTab === item.tab
 
+            // Check permissions for each navigation item
+            const hasPermission = () => {
+              switch (item.tab) {
+                case 'dashboard':
+                  return guard.hasAccess('dashboard.view')
+                case 'projects':
+                  return guard.hasAccess('projects.view')
+                case 'boq':
+                  return guard.hasAccess('boq.view')
+                case 'kpi':
+                  return guard.hasAccess('kpi.view')
+                case 'reports':
+                  return guard.hasAccess('reports.view')
+                case 'settings':
+                  return guard.hasAccess('settings.view')
+                default:
+                  return true
+              }
+            }
+
+            // Don't render if user doesn't have permission
+            if (!hasPermission()) {
+              return null
+            }
+
             return (
               <button
                 key={item.tab}
@@ -233,7 +259,7 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
         {/* Search (if not collapsed) */}
 
         {/* Search */}
-        {!collapsed && (
+        {!collapsed && guard.hasAccess('system.search') && (
           <div className="p-4">
             <button
               onClick={() => onTabChange('search')}

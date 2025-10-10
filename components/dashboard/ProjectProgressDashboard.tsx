@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -19,6 +20,7 @@ interface ProjectStats {
 }
 
 export function ProjectProgressDashboard() {
+  const guard = usePermissionGuard()
   const [stats, setStats] = useState<ProjectStats | null>(null)
   const [projectBreakdown, setProjectBreakdown] = useState<any[]>([])
   const [loading, setLoading] = useState(true)

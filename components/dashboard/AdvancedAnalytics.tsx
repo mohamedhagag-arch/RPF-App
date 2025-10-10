@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { Project, BOQActivity, KPIRecord } from '@/lib/supabase'
 import { 
   TrendingUp, 
@@ -25,6 +26,7 @@ interface AdvancedAnalyticsProps {
 }
 
 export function AdvancedAnalytics({ projects, activities, kpis }: AdvancedAnalyticsProps) {
+  const guard = usePermissionGuard()
   // Performance Metrics
   const performanceMetrics = useMemo(() => {
     const totalProjects = projects.length

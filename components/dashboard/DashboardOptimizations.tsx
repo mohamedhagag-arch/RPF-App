@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { Project, BOQActivity, KPIRecord } from '@/lib/supabase'
 
 interface DashboardOptimizationsProps {
@@ -10,6 +11,7 @@ interface DashboardOptimizationsProps {
 }
 
 export function DashboardOptimizations({ projects, activities, kpis }: DashboardOptimizationsProps) {
+  const guard = usePermissionGuard()
   // Performance optimizations
   const optimizations = useMemo(() => {
     const suggestions = []
