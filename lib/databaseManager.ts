@@ -423,56 +423,28 @@ export async function importTableData(
 }
 
 /**
- * الحصول على نموذج (template) فارغ للجدول
+ * الحصول على نموذج (template) فارغ للجدول - محسن مع Templates الجديدة
  */
 export async function getTableTemplate(tableName: string): Promise<OperationResult> {
   try {
-    const supabase = getSupabaseClient()
+    console.log(`📋 Getting enhanced template for table: ${tableName}`)
     
-    console.log(`📋 Getting template for table: ${tableName}`)
+    // استخدام Templates الجديدة المحسنة
+    const template = getEnhancedTemplate(tableName)
     
-    // جلب صف واحد للحصول على الأعمدة
-    const { data, error } = await supabase
-      .from(tableName)
-      .select('*')
-      .limit(1)
-    
-    if (error) {
-      console.error(`❌ Error getting template for ${tableName}:`, error)
+    if (!template) {
+      console.error(`❌ No enhanced template found for ${tableName}`)
       return {
         success: false,
-        message: `Failed to get template: ${error.message}`,
-        error: error.message
+        message: `No enhanced template available for ${tableName}`,
+        error: 'Template not found'
       }
     }
     
-    // إنشاء كائن فارغ بنفس الأعمدة مع قيم افتراضية مناسبة
-    const template: any = {}
-    if (data && data.length > 0) {
-      Object.keys(data[0]).forEach(key => {
-        const value = data[0][key]
-        
-        // Set appropriate default values based on column type
-        if (value === null || value === undefined) {
-          template[key] = ''
-        } else if (typeof value === 'number') {
-          template[key] = 0
-        } else if (typeof value === 'boolean') {
-          template[key] = false
-        } else if ((value as any) instanceof Date || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value))) {
-          // Date fields - provide example format
-          template[key] = 'YYYY-MM-DD'
-        } else {
-          // String fields
-          template[key] = ''
-        }
-      })
-    }
-    
-    console.log(`✅ Successfully generated template for ${tableName}`)
+    console.log(`✅ Successfully generated enhanced template for ${tableName}`)
     return {
       success: true,
-      message: 'Template generated successfully',
+      message: 'Enhanced template generated successfully',
       data: template
     }
     
@@ -484,6 +456,94 @@ export async function getTableTemplate(tableName: string): Promise<OperationResu
       error: error.message
     }
   }
+}
+
+/**
+ * الحصول على Template محسن لكل جدول
+ */
+function getEnhancedTemplate(tableName: string): any | null {
+  const templates: Record<string, any> = {
+    // Activities Database Template
+    'activities': {
+      name: 'Activity Name',
+      division: 'Division Name',
+      unit: 'Unit',
+      category: 'Category',
+      description: 'Description',
+      typical_duration: 1,
+      is_active: true,
+      usage_count: 0
+    },
+    
+    // Divisions Template
+    'divisions': {
+      name: 'Division Name',
+      description: 'Division Description',
+      is_active: true
+    },
+    
+    // Project Types Template
+    'project_types': {
+      name: 'Project Type Name',
+      description: 'Project Type Description',
+      is_active: true
+    },
+    
+    // Currencies Template
+    'currencies': {
+      code: 'USD',
+      name: 'Currency Name',
+      symbol: '$',
+      exchange_rate: 1.0,
+      is_default: false,
+      is_active: true
+    },
+    
+    // Projects Template
+    'Planning Database - ProjectsList': {
+      project_code: 'PROJ001',
+      project_sub_code: 'SUB001',
+      project_name: 'Project Name',
+      project_type: 'Construction',
+      responsible_division: 'Enabling Division',
+      plot_number: 'PLOT-001',
+      contract_amount: 1000000,
+      project_status: 'active'
+    },
+    
+    // BOQ Activities Template
+    'Planning Database - BOQ Rates': {
+      project_id: 'project-uuid',
+      project_code: 'PROJ001',
+      project_sub_code: 'SUB001',
+      activity: 'Activity Name',
+      activity_division: 'Division Name',
+      unit: 'Unit',
+      total_units: 100,
+      planned_units: 80,
+      rate: 50.0
+    },
+    
+    // KPI Template
+    'Planning Database - KPI': {
+      project_full_code: 'PROJ001-SUB001',
+      activity_name: 'Activity Name',
+      quantity: 100,
+      input_type: 'Planned',
+      section: 'Section Name',
+      unit: 'Unit'
+    },
+    
+    // Company Settings Template
+    'company_settings': {
+      setting_key: 'setting_key',
+      setting_value: 'setting_value',
+      setting_type: 'text',
+      description: 'Setting Description'
+    }
+  }
+  
+  return templates[tableName] || null
 }
 
 /**
@@ -798,25 +858,31 @@ export function downloadAsCSV(data: any[], filename: string): void {
 }
 
 /**
- * تحميل template CSV فارغ مع أسماء الأعمدة الصحيحة
+ * تحميل template CSV فارغ مع أسماء الأعمدة الصحيحة - محسن مع أمثلة
  */
 export function downloadCSVTemplate(template: any, filename: string): void {
   const headers = Object.keys(template)
   
-  // Create template with example values
+  // إنشاء أمثلة متعددة حسب نوع الجدول
+  const examples = getTemplateExamples(filename)
+  
+  // Create template with headers and examples
   const csvRows = [
     headers.join(','), // Headers
-    headers.map(header => {
-      const value = template[header]
-      if (value === null || value === undefined) return ''
-      
-      // Add quotes if needed
-      const stringValue = String(value)
-      if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
-        return `"${stringValue.replace(/"/g, '""')}"`
-      }
-      return stringValue
-    }).join(',') // Example row
+    // Add example rows
+    ...examples.map(example => 
+      headers.map(header => {
+        const value = example[header] || template[header]
+        if (value === null || value === undefined) return ''
+        
+        // Add quotes if needed
+        const stringValue = String(value)
+        if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+          return `"${stringValue.replace(/"/g, '""')}"`
+        }
+        return stringValue
+      }).join(',')
+    )
   ]
   
   const csv = csvRows.join('\n')
@@ -831,6 +897,165 @@ export function downloadCSVTemplate(template: any, filename: string): void {
   document.body.removeChild(link)
   
   URL.revokeObjectURL(url)
+}
+
+/**
+ * الحصول على أمثلة للـ Templates
+ */
+function getTemplateExamples(filename: string): any[] {
+  const examples: Record<string, any[]> = {
+    'activities': [
+      {
+        name: 'Mobilization',
+        division: 'Enabling Division',
+        unit: 'Lump Sum',
+        category: 'General',
+        description: 'Mobilization activities',
+        typical_duration: 1,
+        is_active: true,
+        usage_count: 0
+      },
+      {
+        name: 'Vibro Compaction',
+        division: 'Enabling Division',
+        unit: 'No.',
+        category: 'Soil Improvement',
+        description: 'Vibro compaction work',
+        typical_duration: 2,
+        is_active: true,
+        usage_count: 0
+      }
+    ],
+    
+    'divisions': [
+      {
+        name: 'Enabling Division',
+        description: 'Main enabling works division',
+        is_active: true
+      },
+      {
+        name: 'Infrastructure Division',
+        description: 'Infrastructure development division',
+        is_active: true
+      }
+    ],
+    
+    'project_types': [
+      {
+        name: 'Construction',
+        description: 'General construction projects',
+        is_active: true
+      },
+      {
+        name: 'Infrastructure',
+        description: 'Infrastructure development projects',
+        is_active: true
+      }
+    ],
+    
+    'currencies': [
+      {
+        code: 'USD',
+        name: 'US Dollar',
+        symbol: '$',
+        exchange_rate: 1.0,
+        is_default: true,
+        is_active: true
+      },
+      {
+        code: 'EUR',
+        name: 'European Euro',
+        symbol: '€',
+        exchange_rate: 0.85,
+        is_default: false,
+        is_active: true
+      }
+    ],
+    
+    'Planning Database - ProjectsList': [
+      {
+        project_code: 'PROJ001',
+        project_sub_code: 'SUB001',
+        project_name: 'Sample Project 1',
+        project_type: 'Construction',
+        responsible_division: 'Enabling Division',
+        plot_number: 'PLOT-001',
+        contract_amount: 1000000,
+        project_status: 'active'
+      },
+      {
+        project_code: 'PROJ002',
+        project_sub_code: 'SUB002',
+        project_name: 'Sample Project 2',
+        project_type: 'Infrastructure',
+        responsible_division: 'Infrastructure Division',
+        plot_number: 'PLOT-002',
+        contract_amount: 2500000,
+        project_status: 'active'
+      }
+    ],
+    
+    'Planning Database - BOQ Rates': [
+      {
+        project_id: 'project-uuid-1',
+        project_code: 'PROJ001',
+        project_sub_code: 'SUB001',
+        activity: 'Mobilization',
+        activity_division: 'Enabling Division',
+        unit: 'Lump Sum',
+        total_units: 1,
+        planned_units: 1,
+        rate: 50000
+      },
+      {
+        project_id: 'project-uuid-2',
+        project_code: 'PROJ001',
+        project_sub_code: 'SUB001',
+        activity: 'Vibro Compaction',
+        activity_division: 'Enabling Division',
+        unit: 'No.',
+        total_units: 100,
+        planned_units: 80,
+        rate: 250
+      }
+    ],
+    
+    'Planning Database - KPI': [
+      {
+        project_full_code: 'PROJ001-SUB001',
+        activity_name: 'Mobilization',
+        quantity: 1,
+        input_type: 'Planned',
+        section: 'General',
+        unit: 'Lump Sum'
+      },
+      {
+        project_full_code: 'PROJ001-SUB001',
+        activity_name: 'Vibro Compaction',
+        quantity: 100,
+        input_type: 'Actual',
+        section: 'Soil Improvement',
+        unit: 'No.'
+      }
+    ],
+    
+    'company_settings': [
+      {
+        setting_key: 'company_name',
+        setting_value: 'Your Company Name',
+        setting_type: 'text',
+        description: 'Company name setting'
+      },
+      {
+        setting_key: 'default_currency',
+        setting_value: 'USD',
+        setting_type: 'text',
+        description: 'Default currency code'
+      }
+    ]
+  }
+  
+  return examples[filename] || []
 }
 
 /**
@@ -935,5 +1160,405 @@ export function readCSVFile(file: File): Promise<any[]> {
     reader.onerror = () => reject(new Error('Failed to read file'))
     reader.readAsText(file, 'UTF-8')
   })
+}
+
+/**
+ * استيراد آمن للبيانات - يحل مشاكل ID والبيانات الفارغة
+ */
+export async function importTableDataSafe(
+  tableName: string, 
+  data: any[],
+  mode: 'append' | 'replace' = 'append'
+): Promise<OperationResult> {
+  try {
+    const supabase = getSupabaseClient()
+    
+    console.log(`🛡️ Safe importing ${data.length} rows to table: ${tableName} (mode: ${mode})`)
+    
+    // تنظيف البيانات وإزالة حقول ID
+    const cleanedData = data.map((row, index) => {
+      const cleanedRow: any = {}
+      
+      Object.keys(row).forEach(key => {
+        let value = row[key]
+        
+        // تخطي حقول ID والحقول الممنوعة
+        if (key.toLowerCase().includes('id') && 
+            (key === 'id' || key === 'uuid' || key === 'created_at' || key === 'updated_at')) {
+          console.log(`🛡️ Skipping ID field: ${key}`)
+          return
+        }
+        
+        // تنظيف القيم الفارغة
+        if (value === '' || value === 'null' || value === 'NULL' || value === null || value === undefined) {
+          cleanedRow[key] = null
+          return
+        }
+        
+        // معالجة أنواع البيانات المختلفة
+        if (typeof value === 'string') {
+          // محاولة تحويل التواريخ
+          if (key.toLowerCase().includes('date') || key.toLowerCase().includes('time')) {
+            if (/[a-zA-Z]{3,}/.test(value) && !value.match(/^\d{4}-\d{2}-\d{2}/)) {
+              console.warn(`⚠️ Skipping invalid date value in row ${index + 1}, column ${key}: "${value}"`)
+              cleanedRow[key] = null
+              return
+            }
+          }
+          
+          // محاولة تحويل الأرقام
+          if (key.toLowerCase().includes('amount') || 
+              key.toLowerCase().includes('rate') || 
+              key.toLowerCase().includes('count') ||
+              key.toLowerCase().includes('duration') ||
+              key.toLowerCase().includes('percentage')) {
+            const numValue = parseFloat(value)
+            if (!isNaN(numValue)) {
+              cleanedRow[key] = numValue
+              return
+            }
+          }
+          
+          // محاولة تحويل Boolean
+          if (key.toLowerCase().includes('active') || 
+              key.toLowerCase().includes('enabled') ||
+              key.toLowerCase().includes('completed')) {
+            if (value.toLowerCase() === 'true' || value === '1') {
+              cleanedRow[key] = true
+              return
+            } else if (value.toLowerCase() === 'false' || value === '0') {
+              cleanedRow[key] = false
+              return
+            }
+          }
+        }
+        
+        cleanedRow[key] = value
+      })
+      
+      return cleanedRow
+    }).filter(row => Object.keys(row).length > 0) // إزالة الصفوف الفارغة
+    
+    console.log(`🛡️ Cleaned data: ${cleanedData.length} rows (removed ${data.length - cleanedData.length} empty rows)`)
+    
+    if (cleanedData.length === 0) {
+      return {
+        success: false,
+        message: 'No valid data to import after cleaning'
+      }
+    }
+    
+    // إذا كان الوضع "replace"، نحذف البيانات القديمة أولاً
+    if (mode === 'replace') {
+      console.log('🗑️ Clearing existing data first...')
+      const clearResult = await clearTableData(tableName)
+      if (!clearResult.success) {
+        return clearResult
+      }
+    }
+    
+    // استخدام الدوال الآمنة للجداول المحددة
+    let result: OperationResult
+    
+    if (tableName === 'activities') {
+      // استخدام الدالة الآمنة للأنشطة
+      result = await importActivitiesSafe(cleanedData)
+    } else if (tableName === 'divisions') {
+      // استخدام الدالة الآمنة للأقسام
+      result = await importDivisionsSafe(cleanedData)
+    } else if (tableName === 'project_types') {
+      // استخدام الدالة الآمنة لأنواع المشاريع
+      result = await importProjectTypesSafe(cleanedData)
+    } else if (tableName === 'currencies') {
+      // استخدام الدالة الآمنة للعملات
+      result = await importCurrenciesSafe(cleanedData)
+    } else {
+      // استخدام الاستيراد العادي للجداول الأخرى
+      result = await importTableData(tableName, cleanedData, mode)
+    }
+    
+    if (result.success) {
+      console.log(`✅ Safe import successful: ${result.message}`)
+    } else {
+      console.error(`❌ Safe import failed: ${result.message}`)
+    }
+    
+    return result
+    
+  } catch (error: any) {
+    console.error('❌ Safe import error:', error)
+    return {
+      success: false,
+      message: `Safe import failed: ${error.message}`,
+      error: error.message
+    }
+  }
+}
+
+/**
+ * استيراد آمن للأنشطة
+ */
+async function importActivitiesSafe(data: any[]): Promise<OperationResult> {
+  try {
+    const supabase = getSupabaseClient()
+    
+    console.log(`🎯 Safe importing ${data.length} activities`)
+    
+    const results = []
+    let successCount = 0
+    let errorCount = 0
+    const errors: string[] = []
+    
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i]
+      
+      try {
+        // التأكد من وجود الحقول المطلوبة
+        if (!row.name || !row.division || !row.unit) {
+          errors.push(`Row ${i + 1}: Missing required fields (name, division, unit)`)
+          errorCount++
+          continue
+        }
+        
+        // إدراج أو تحديث النشاط
+        const { data: result, error } = await supabase
+          .from('activities')
+          .upsert({
+            name: row.name.trim(),
+            division: row.division.trim(),
+            unit: row.unit.trim(),
+            category: row.category || null,
+            description: row.description || null,
+            typical_duration: row.typical_duration || null,
+            is_active: row.is_active !== undefined ? row.is_active : true,
+            usage_count: row.usage_count || 0,
+            updated_at: new Date().toISOString()
+          } as any, {
+            onConflict: 'name,division'
+          })
+        
+        if (error) {
+          errors.push(`Row ${i + 1}: ${error.message}`)
+          errorCount++
+        } else {
+          successCount++
+        }
+        
+      } catch (error: any) {
+        errors.push(`Row ${i + 1}: ${error.message}`)
+        errorCount++
+      }
+    }
+    
+    return {
+      success: errorCount === 0,
+      message: `Imported ${successCount} activities${errorCount > 0 ? ` with ${errorCount} errors` : ''}`,
+      affectedRows: successCount,
+      error: errorCount > 0 ? errors.join('; ') : undefined
+    }
+    
+  } catch (error: any) {
+    return {
+      success: false,
+      message: `Activities import failed: ${error.message}`,
+      error: error.message
+    }
+  }
+}
+
+/**
+ * استيراد آمن للأقسام
+ */
+async function importDivisionsSafe(data: any[]): Promise<OperationResult> {
+  try {
+    const supabase = getSupabaseClient()
+    
+    console.log(`🏢 Safe importing ${data.length} divisions`)
+    
+    let successCount = 0
+    let errorCount = 0
+    const errors: string[] = []
+    
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i]
+      
+      try {
+        if (!row.name) {
+          errors.push(`Row ${i + 1}: Missing required field (name)`)
+          errorCount++
+          continue
+        }
+        
+        const { error } = await supabase
+          .from('divisions')
+          .upsert({
+            name: row.name.trim(),
+            description: row.description || null,
+            is_active: row.is_active !== undefined ? row.is_active : true,
+            updated_at: new Date().toISOString()
+          } as any, {
+            onConflict: 'name'
+          })
+        
+        if (error) {
+          errors.push(`Row ${i + 1}: ${error.message}`)
+          errorCount++
+        } else {
+          successCount++
+        }
+        
+      } catch (error: any) {
+        errors.push(`Row ${i + 1}: ${error.message}`)
+        errorCount++
+      }
+    }
+    
+    return {
+      success: errorCount === 0,
+      message: `Imported ${successCount} divisions${errorCount > 0 ? ` with ${errorCount} errors` : ''}`,
+      affectedRows: successCount,
+      error: errorCount > 0 ? errors.join('; ') : undefined
+    }
+    
+  } catch (error: any) {
+    return {
+      success: false,
+      message: `Divisions import failed: ${error.message}`,
+      error: error.message
+    }
+  }
+}
+
+/**
+ * استيراد آمن لأنواع المشاريع
+ */
+async function importProjectTypesSafe(data: any[]): Promise<OperationResult> {
+  try {
+    const supabase = getSupabaseClient()
+    
+    console.log(`📁 Safe importing ${data.length} project types`)
+    
+    let successCount = 0
+    let errorCount = 0
+    const errors: string[] = []
+    
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i]
+      
+      try {
+        if (!row.name) {
+          errors.push(`Row ${i + 1}: Missing required field (name)`)
+          errorCount++
+          continue
+        }
+        
+        const { error } = await supabase
+          .from('project_types')
+          .upsert({
+            name: row.name.trim(),
+            description: row.description || null,
+            is_active: row.is_active !== undefined ? row.is_active : true,
+            updated_at: new Date().toISOString()
+          } as any, {
+            onConflict: 'name'
+          })
+        
+        if (error) {
+          errors.push(`Row ${i + 1}: ${error.message}`)
+          errorCount++
+        } else {
+          successCount++
+        }
+        
+      } catch (error: any) {
+        errors.push(`Row ${i + 1}: ${error.message}`)
+        errorCount++
+      }
+    }
+    
+    return {
+      success: errorCount === 0,
+      message: `Imported ${successCount} project types${errorCount > 0 ? ` with ${errorCount} errors` : ''}`,
+      affectedRows: successCount,
+      error: errorCount > 0 ? errors.join('; ') : undefined
+    }
+    
+  } catch (error: any) {
+    return {
+      success: false,
+      message: `Project types import failed: ${error.message}`,
+      error: error.message
+    }
+  }
+}
+
+/**
+ * استيراد آمن للعملات
+ */
+async function importCurrenciesSafe(data: any[]): Promise<OperationResult> {
+  try {
+    const supabase = getSupabaseClient()
+    
+    console.log(`💰 Safe importing ${data.length} currencies`)
+    
+    let successCount = 0
+    let errorCount = 0
+    const errors: string[] = []
+    
+    // ملاحظة: إذا كان هناك عملة افتراضية جديدة، سيتم التعامل معها في upsert
+    // النظام سيتعامل مع is_default تلقائياً في upsert
+    // يمكن تشغيل Database/currency_default_management.sql لإدارة أفضل
+    
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i]
+      
+      try {
+        if (!row.code || !row.name) {
+          errors.push(`Row ${i + 1}: Missing required fields (code, name)`)
+          errorCount++
+          continue
+        }
+        
+        const { error } = await supabase
+          .from('currencies')
+          .upsert({
+            code: row.code.trim().toUpperCase(),
+            name: row.name.trim(),
+            symbol: row.symbol || null,
+            exchange_rate: row.exchange_rate || 1,
+            is_default: row.is_default === true || row.is_default === 'true',
+            is_active: row.is_active !== undefined ? row.is_active : true,
+            updated_at: new Date().toISOString()
+          } as any, {
+            onConflict: 'code'
+          })
+        
+        if (error) {
+          errors.push(`Row ${i + 1}: ${error.message}`)
+          errorCount++
+        } else {
+          successCount++
+        }
+        
+      } catch (error: any) {
+        errors.push(`Row ${i + 1}: ${error.message}`)
+        errorCount++
+      }
+    }
+    
+    return {
+      success: errorCount === 0,
+      message: `Imported ${successCount} currencies${errorCount > 0 ? ` with ${errorCount} errors` : ''}`,
+      affectedRows: successCount,
+      error: errorCount > 0 ? errors.join('; ') : undefined
+    }
+    
+  } catch (error: any) {
+    return {
+      success: false,
+      message: `Currencies import failed: ${error.message}`,
+      error: error.message
+    }
+  }
 }
 

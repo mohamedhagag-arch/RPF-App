@@ -1,0 +1,6 @@
+project_code,project_sub_code,project_name,project_type,responsible_division,plot_number,contract_amount,project_status
+PROJ001,SUB001,Sample Project 1,Construction,Enabling Division,PLOT-001,1000000,active
+PROJ002,SUB002,Sample Project 2,Infrastructure,Infrastructure Division,PLOT-002,2500000,active
+PROJ003,SUB003,Sample Project 3,Marine,Marine Division,PLOT-003,5000000,completed
+PROJ004,SUB004,Sample Project 4,Soil Improvement,Soil Improvement Division,PLOT-004,750000,on_hold
+PROJ005,SUB005,Sample Project 5,Construction,Enabling Division,PLOT-005,1800000,active

@@ -127,7 +127,7 @@ export function TableManager({ table, onUpdate }: TableManagerProps) {
     }
   }
 
-  // استيراد البيانات
+  // استيراد البيانات - محسن للتعامل مع مشاكل ID
   const handleImport = async () => {
     if (!importFile) return
 
@@ -150,7 +150,20 @@ export function TableManager({ table, onUpdate }: TableManagerProps) {
         return
       }
 
-      const result = await importTableData(table.name, data, importMode)
+      // تحسين: إزالة عمود ID إذا كان موجوداً لتجنب مشاكل الاستيراد
+      const cleanData = data.map(row => {
+        const cleanRow = { ...row }
+        // إزالة حقول ID المشتركة
+        delete cleanRow.id
+        delete cleanRow.uuid
+        delete cleanRow.created_at
+        delete cleanRow.updated_at
+        return cleanRow
+      })
+
+      // استخدام دالة الاستيراد العادية (محسنة مع تنظيف البيانات)
+      const result = await importTableData(table.name, cleanData, importMode)
+
       if (result.success) {
         showMessage('success', `✅ ${result.message}`)
         await loadStats()
