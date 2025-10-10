@@ -232,7 +232,7 @@ export function LoginForm() {
 
             <Button
               type="submit"
-              disabled={loading || (email && !validateEmail(email)) || (password && !validatePassword(password))}
+              disabled={loading || Boolean(email && !validateEmail(email)) || Boolean(password && !validatePassword(password))}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (
