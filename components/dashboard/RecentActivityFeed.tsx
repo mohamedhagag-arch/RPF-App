@@ -17,7 +17,6 @@ interface RecentActivityFeedProps {
 }
 
 export function RecentActivityFeed({ activities }: RecentActivityFeedProps) {
-  const guard = usePermissionGuard()
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'completed': return <CheckCircle className="w-4 h-4 text-green-500" />
