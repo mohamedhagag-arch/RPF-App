@@ -217,6 +217,11 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
       
       console.log(`📄 Fetching page ${page} (${itemsPerPage} items per page)`)
       
+      // ✅ تحسين: إضافة timeout protection
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Projects fetch timeout')), 30000)
+      )
+      
       // Calculate range for pagination
       const from = (page - 1) * itemsPerPage
       const to = from + itemsPerPage - 1
@@ -226,12 +231,15 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
         .from(TABLES.PROJECTS)
         .select('*', { count: 'exact', head: true })
       
-      // Fetch paginated projects
-      const { data: projectsData, error: projectsError } = await supabase
-            .from(TABLES.PROJECTS)
-            .select('*')
-        .order('created_at', { ascending: false })
-        .range(from, to)
+      // Fetch paginated projects with timeout protection
+      const { data: projectsData, error: projectsError } = await Promise.race([
+        supabase
+          .from(TABLES.PROJECTS)
+          .select('*')
+          .order('created_at', { ascending: false })
+          .range(from, to),
+        timeoutPromise
+      ]) as any
 
       // ✅ ALWAYS update state (React handles unmounted safely)
 
@@ -255,7 +263,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
           setLoading(true)
           
           // Get project codes for current page
-          const projectCodes = mappedProjects.map(p => p.project_code)
+          const projectCodes = mappedProjects.map((p: any) => p.project_code)
           
           // 🔧 FIX: Use the same approach as ProjectDetailsPanel
           const [activitiesResult, kpisResult] = await Promise.all([
@@ -263,12 +271,12 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
             supabase
               .from(TABLES.BOQ_ACTIVITIES)
               .select('*')
-              .or(projectCodes.map(code => `Project Code.eq.${code},Project Full Code.like.${code}%`).join(',')),
+              .or(projectCodes.map((code: any) => `Project Code.eq.${code},Project Full Code.like.${code}%`).join(',')),
             // For KPIs - try Project Full Code first, then Project Code
             supabase
               .from(TABLES.KPI)
               .select('*')
-              .or(projectCodes.map(code => `Project Full Code.eq.${code},Project Code.eq.${code},Project Full Code.like.${code}%`).join(','))
+              .or(projectCodes.map((code: any) => `Project Full Code.eq.${code},Project Code.eq.${code},Project Full Code.like.${code}%`).join(','))
           ])
           
           console.log('🔍 Activities query result:', activitiesResult)
@@ -306,7 +314,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
           console.log('🔍 Project codes:', projectCodes)
           
           // 🔍 DEBUG: Check if we have data for the current projects
-          projectCodes.forEach(code => {
+          projectCodes.forEach((code: any) => {
             const projectActivities = mappedActivities.filter(a => 
               a.project_code === code || a.project_full_code?.startsWith(code)
             )

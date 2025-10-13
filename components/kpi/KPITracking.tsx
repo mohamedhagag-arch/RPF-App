@@ -116,33 +116,35 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       
       // تحميل Activities و KPIs معاً
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('KPI fetch timeout')), 15000)
+        setTimeout(() => reject(new Error('KPI fetch timeout')), 60000) // زيادة إلى 60 ثانية
       )
       
-      // تحميل Activities
+      // تحميل Activities مع تحسين
       const activitiesResult = await supabase
         .from(TABLES.BOQ_ACTIVITIES)
         .select('*')
+        .limit(100) // تقليل البيانات المحملة
       
       if (activitiesResult.data) {
         setActivities(activitiesResult.data.map(mapBOQFromDB))
         console.log('✅ Loaded', activitiesResult.data.length, 'activities')
       }
       
-      // تحميل KPIs للمشاريع المحددة
+      // تحميل KPIs للمشاريع المحددة مع تحسين
       let kpisData = null
       let count = 0
       
+      // ✅ تحسين: استعلام أبسط وأسرع
       let kpiQuery = supabase
         .from(TABLES.KPI)
         .select('*', { count: 'exact' })
         .order('created_at', { ascending: false })
-        .range(0, 999) // حد أقصى 1000 للمشاريع المحددة
+        .limit(500) // تقليل الحد الأقصى لتحسين الأداء
       
       // Filter by multiple projects
       if (projectCodesArray.length === 1) {
         kpiQuery = kpiQuery.eq('Project Full Code', projectCodesArray[0])
-      } else {
+      } else if (projectCodesArray.length > 1) {
         kpiQuery = kpiQuery.in('Project Full Code', projectCodesArray)
       }
       
@@ -151,7 +153,18 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         timeoutPromise
       ]) as any
       
-      if (error) throw error
+      if (error) {
+        console.error('❌ KPITracking: Error fetching KPIs:', error)
+        // ✅ تحسين: معالجة أفضل للأخطاء
+        if (error.message.includes('timeout')) {
+          setError('Loading KPIs is taking longer than expected. Please try again or select fewer projects.')
+        } else {
+          setError(`Failed to load KPIs: ${error.message}`)
+        }
+        setKpis([])
+        setTotalKPICount(0)
+        return
+      }
       
       kpisData = data
       count = totalCount || 0

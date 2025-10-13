@@ -106,10 +106,18 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
              startSmartLoadingWithLog(setLoading)
              console.log('🔄 Fetching users data...')
              
-             const { data, error } = await supabase
-               .from('users')
-               .select('*')
-               .order('created_at', { ascending: false })
+             // ✅ تحسين: إضافة timeout protection
+             const timeoutPromise = new Promise((_, reject) => 
+               setTimeout(() => reject(new Error('Users fetch timeout')), 20000)
+             )
+             
+             const { data, error } = await Promise.race([
+               supabase
+                 .from('users')
+                 .select('*')
+                 .order('created_at', { ascending: false }),
+               timeoutPromise
+             ]) as any
 
              if (error) {
                console.error('❌ Error fetching users:', error)

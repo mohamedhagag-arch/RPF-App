@@ -87,12 +87,20 @@ export function ReportsManager({ userRole = 'viewer' }: ReportsManagerProps) {
       startSmartLoading(setLoading)
       setError('')
 
-      // Fetch all data
-      const [projectsResult, activitiesResult, kpisResult] = await Promise.all([
-        (supabase as any).from('projects').select('*'),
-        (supabase as any).from('boq_activities').select('*'),
-        (supabase as any).from('kpi_records').select('*')
-      ])
+      // ✅ تحسين: إضافة timeout protection
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Reports fetch timeout')), 45000)
+      )
+
+      // Fetch all data with timeout protection
+      const [projectsResult, activitiesResult, kpisResult] = await Promise.race([
+        Promise.all([
+          (supabase as any).from('projects').select('*').limit(100), // تقليل البيانات
+          (supabase as any).from('boq_activities').select('*').limit(200),
+          (supabase as any).from('kpi_records').select('*').limit(300)
+        ]),
+        timeoutPromise
+      ]) as any
 
       const projectsData = projectsResult.data || []
       const activitiesData = activitiesResult.data || []

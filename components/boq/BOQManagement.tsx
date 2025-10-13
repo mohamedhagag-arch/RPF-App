@@ -104,12 +104,30 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         .order('created_at', { ascending: false })
         .range(from, to)
       
-      // 🔧 FIX: Apply only project filter first (most important)
+      // ✅ تحسين: تطبيق جميع الفلاتر
       if (selectedProjects.length > 0) {
         activitiesQuery = activitiesQuery.in('"Project Code"', selectedProjects)
-      } else {
-        // If no projects selected, limit to recent records only
-        activitiesQuery = activitiesQuery.limit(10)
+      }
+      
+      // ✅ إضافة فلترة على Activities
+      if (selectedActivities.length > 0) {
+        activitiesQuery = activitiesQuery.in('"Activity"', selectedActivities)
+      }
+      
+      // ✅ إضافة فلترة على Types (Activity Division)
+      if (selectedTypes.length > 0) {
+        activitiesQuery = activitiesQuery.in('"Activity Division"', selectedTypes)
+      }
+      
+      // ✅ إضافة فلترة على Status (إذا كان هناك حقل مناسب)
+      if (selectedStatuses.length > 0) {
+        // يمكن إضافة فلترة على حقل Status إذا كان موجوداً
+        // activitiesQuery = activitiesQuery.in('"Status"', selectedStatuses)
+      }
+      
+      // ✅ إذا لم يتم اختيار أي فلتر، اعرض سجلات محدودة
+      if (selectedProjects.length === 0 && selectedActivities.length === 0 && selectedTypes.length === 0) {
+        activitiesQuery = activitiesQuery.limit(50) // زيادة من 10 إلى 50
       }
       
       const { data: activitiesData, error: activitiesError, count } = await Promise.race([
@@ -470,8 +488,20 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     }
   }
 
-  // 🔧 FIX: Use activities directly since filtering is done in fetchData
-  const filteredActivities = activities
+  // ✅ تحسين: إضافة فلترة محلية إضافية
+  const filteredActivities = activities.filter(activity => {
+    // فلترة محلية إضافية للتأكد من دقة النتائج
+    if (selectedProjects.length > 0 && !selectedProjects.includes(activity.project_code)) {
+      return false
+    }
+    if (selectedActivities.length > 0 && !selectedActivities.includes(activity.activity_name)) {
+      return false
+    }
+    if (selectedTypes.length > 0 && !selectedTypes.includes(activity.activity_division)) {
+      return false
+    }
+    return true
+  })
   
   // Calculate statistics
   const totalActivities = activities.length
