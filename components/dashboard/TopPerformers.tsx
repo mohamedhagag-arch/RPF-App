@@ -15,7 +15,6 @@ interface TopPerformersProps {
 }
 
 export function TopPerformers({ projects }: TopPerformersProps) {
-  const guard = usePermissionGuard()
   if (projects.length === 0) {
     return (
       <Card>
