@@ -419,7 +419,7 @@ export async function updateExistingKPIs(
 /**
  * Preview KPIs without saving
  */
-export function previewKPIs(activity: BOQActivity, config?: WorkdaysConfig): GeneratedKPI[] {
+export async function previewKPIs(activity: BOQActivity, config?: WorkdaysConfig): Promise<GeneratedKPI[]> {
   try {
     const startDate = new Date(activity.planned_activity_start_date || activity.activity_planned_start_date || '')
     const endDate = new Date(activity.deadline || activity.activity_planned_completion_date || '')
@@ -428,7 +428,7 @@ export function previewKPIs(activity: BOQActivity, config?: WorkdaysConfig): Gen
       return []
     }
     
-    const workdays = getWorkingDays(startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0], config)
+    const workdays = await getWorkingDays(startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0], config)
     const totalQuantity = activity.planned_units || 0
     const baseQuantityPerDay = Math.round(totalQuantity / workdays.length)
     const remainder = totalQuantity - (baseQuantityPerDay * workdays.length)
