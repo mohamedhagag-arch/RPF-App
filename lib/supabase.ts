@@ -142,3 +142,15 @@ export interface User {
   created_at: string
   updated_at: string
 }
+
+export interface Holiday {
+  id: string
+  date: string
+  name: string
+  description?: string | null
+  is_recurring: boolean
+  is_active: boolean
+  created_by: string
+  created_at?: string
+  updated_at?: string
+}

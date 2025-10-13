@@ -33,8 +33,8 @@ export async function getHolidays(): Promise<DatabaseHoliday[]> {
   try {
     const supabase = getSupabaseClient()
     
-    const { data, error } = await supabase
-      .from(TABLES.HOLIDAYS)
+    const { data, error } = await (supabase
+      .from(TABLES.HOLIDAYS) as any)
       .select('*')
       .eq('is_active', true)
       .order('date', { ascending: true })
@@ -58,8 +58,8 @@ export async function getHolidaysForYear(year: number): Promise<DatabaseHoliday[
   try {
     const supabase = getSupabaseClient()
     
-    const { data, error } = await supabase
-      .from(TABLES.HOLIDAYS)
+    const { data, error } = await (supabase
+      .from(TABLES.HOLIDAYS) as any)
       .select('*')
       .eq('is_active', true)
       .or(`date.gte.${year}-01-01,date.lte.${year}-12-31,is_recurring.eq.true`)
@@ -87,8 +87,8 @@ export async function addHoliday(holiday: HolidayFormData): Promise<DatabaseHoli
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error('User not authenticated')
 
-    const { data, error } = await supabase
-      .from(TABLES.HOLIDAYS)
+    const { data, error } = await (supabase
+      .from(TABLES.HOLIDAYS) as any)
       .insert({
         date: holiday.date,
         name: holiday.name,
@@ -120,8 +120,8 @@ export async function updateHoliday(id: string, updates: Partial<HolidayFormData
   try {
     const supabase = getSupabaseClient()
     
-    const { data, error } = await supabase
-      .from(TABLES.HOLIDAYS)
+    const { data, error } = await (supabase
+      .from(TABLES.HOLIDAYS) as any)
       .update({
         ...updates,
         updated_at: new Date().toISOString()
@@ -150,8 +150,8 @@ export async function deleteHoliday(id: string): Promise<void> {
   try {
     const supabase = getSupabaseClient()
     
-    const { error } = await supabase
-      .from(TABLES.HOLIDAYS)
+    const { error } = await (supabase
+      .from(TABLES.HOLIDAYS) as any)
       .update({ 
         is_active: false,
         updated_at: new Date().toISOString()
@@ -201,8 +201,8 @@ export async function getHolidaysInRange(startDate: string, endDate: string): Pr
   try {
     const supabase = getSupabaseClient()
     
-    const { data, error } = await supabase
-      .from(TABLES.HOLIDAYS)
+    const { data, error } = await (supabase
+      .from(TABLES.HOLIDAYS) as any)
       .select('*')
       .eq('is_active', true)
       .or(`date.gte.${startDate},date.lte.${endDate},is_recurring.eq.true`)
