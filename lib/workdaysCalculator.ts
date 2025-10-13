@@ -189,18 +189,18 @@ export function getWorkingDaysSync(
 /**
  * Add working days to a start date
  */
-export function addWorkdays(
+export async function addWorkdays(
   startDate: Date | string,
   days: number,
   config: WorkdaysConfig = DEFAULT_CONFIG
-): Date {
+): Promise<Date> {
   const start = typeof startDate === 'string' ? new Date(startDate) : new Date(startDate)
   const result = new Date(start)
   let addedDays = 0
   
   while (addedDays < days) {
     result.setDate(result.getDate() + 1)
-    if (isWorkingDay(result, config)) {
+    if (await isWorkingDay(result, config)) {
       addedDays++
     }
   }
@@ -211,28 +211,28 @@ export function addWorkdays(
 /**
  * Calculate end date from start date and duration (in working days)
  */
-export function calculateEndDate(
+export async function calculateEndDate(
   startDate: Date | string,
   durationInWorkdays: number,
   config: WorkdaysConfig = DEFAULT_CONFIG
-): Date {
+): Promise<Date> {
   if (durationInWorkdays <= 0) {
     return typeof startDate === 'string' ? new Date(startDate) : new Date(startDate)
   }
-  return addWorkdays(startDate, durationInWorkdays - 1, config)
+  return await addWorkdays(startDate, durationInWorkdays - 1, config)
 }
 
 /**
  * Distribute quantity over working days
  * Uses smart rounding to ensure total equals exactly the input quantity
  */
-export function distributeOverWorkdays(
+export async function distributeOverWorkdays(
   startDate: Date | string,
   endDate: Date | string,
   totalQuantity: number,
   config: WorkdaysConfig = DEFAULT_CONFIG
-): Array<{ date: Date; quantity: number }> {
-  const workingDays = getWorkingDays(startDate, endDate, config)
+): Promise<Array<{ date: Date; quantity: number }>> {
+  const workingDays = await getWorkingDays(startDate, endDate, config)
   
   if (workingDays.length === 0) {
     return []
