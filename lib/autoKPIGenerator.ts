@@ -42,7 +42,7 @@ export async function generateKPIsFromBOQ(
       return []
     }
     
-    const workdays = getWorkingDays(startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0], config)
+    const workdays = await getWorkingDays(startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0], config)
     console.log(`📅 Calculated ${workdays.length} workdays for ${activity.activity_name}`)
     
     if (workdays.length === 0) {
