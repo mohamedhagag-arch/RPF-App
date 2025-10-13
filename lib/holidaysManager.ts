@@ -5,6 +5,7 @@
 
 import { getSupabaseClient } from './simpleConnectionManager'
 import { Holiday } from './workdaysCalculator'
+import { TABLES } from './supabase'
 
 export interface DatabaseHoliday {
   id: string
@@ -33,7 +34,7 @@ export async function getHolidays(): Promise<DatabaseHoliday[]> {
     const supabase = getSupabaseClient()
     
     const { data, error } = await supabase
-      .from('holidays')
+      .from(TABLES.HOLIDAYS)
       .select('*')
       .eq('is_active', true)
       .order('date', { ascending: true })
@@ -58,7 +59,7 @@ export async function getHolidaysForYear(year: number): Promise<DatabaseHoliday[
     const supabase = getSupabaseClient()
     
     const { data, error } = await supabase
-      .from('holidays')
+      .from(TABLES.HOLIDAYS)
       .select('*')
       .eq('is_active', true)
       .or(`date.gte.${year}-01-01,date.lte.${year}-12-31,is_recurring.eq.true`)
@@ -87,7 +88,7 @@ export async function addHoliday(holiday: HolidayFormData): Promise<DatabaseHoli
     if (!user) throw new Error('User not authenticated')
 
     const { data, error } = await supabase
-      .from('holidays')
+      .from(TABLES.HOLIDAYS)
       .insert({
         date: holiday.date,
         name: holiday.name,
@@ -120,7 +121,7 @@ export async function updateHoliday(id: string, updates: Partial<HolidayFormData
     const supabase = getSupabaseClient()
     
     const { data, error } = await supabase
-      .from('holidays')
+      .from(TABLES.HOLIDAYS)
       .update({
         ...updates,
         updated_at: new Date().toISOString()
@@ -150,7 +151,7 @@ export async function deleteHoliday(id: string): Promise<void> {
     const supabase = getSupabaseClient()
     
     const { error } = await supabase
-      .from('holidays')
+      .from(TABLES.HOLIDAYS)
       .update({ 
         is_active: false,
         updated_at: new Date().toISOString()
@@ -201,7 +202,7 @@ export async function getHolidaysInRange(startDate: string, endDate: string): Pr
     const supabase = getSupabaseClient()
     
     const { data, error } = await supabase
-      .from('holidays')
+      .from(TABLES.HOLIDAYS)
       .select('*')
       .eq('is_active', true)
       .or(`date.gte.${startDate},date.lte.${endDate},is_recurring.eq.true`)

@@ -9,7 +9,8 @@ export const TABLES = {
   BOQ_ACTIVITIES: 'Planning Database - BOQ Rates',
   KPI: 'Planning Database - KPI',                      // ✅ MAIN TABLE - Single source of truth!
   USERS: 'users',
-  COMPANY_SETTINGS: 'company_settings'                 // ✅ NEW: Company settings table
+  COMPANY_SETTINGS: 'company_settings',                // ✅ NEW: Company settings table
+  HOLIDAYS: 'holidays'                                  // ✅ NEW: Holidays table
 } as const
 
 // Backward compatibility alias
