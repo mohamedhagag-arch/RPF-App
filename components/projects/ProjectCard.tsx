@@ -22,7 +22,6 @@ export function ProjectCard({
   getStatusColor, 
   getStatusText 
 }: ProjectCardProps) {
-  const guard = usePermissionGuard()
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',

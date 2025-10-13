@@ -13,7 +13,6 @@ interface KPITableProps {
 }
 
 export function KPITable({ kpis, projects, activities, onEdit, onDelete }: KPITableProps) {
-  const guard = usePermissionGuard()
   const getProjectInfo = (projectCode: string) => {
     const project = projects.find(p => p.project_code === projectCode)
     if (!project) return { code: projectCode || 'N/A', name: 'Not specified' }
