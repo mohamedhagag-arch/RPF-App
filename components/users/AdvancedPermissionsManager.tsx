@@ -988,12 +988,14 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
                       <Users className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
                       <input
                         type="text"
-                        value={editUserData.first_name || editUserData.full_name?.split(' ')[0] || ''}
-                        onChange={(e) => setEditUserData(prev => ({ 
-                          ...prev, 
-                          first_name: e.target.value,
-                          full_name: `${e.target.value} ${prev.last_name || prev.full_name?.split(' ').slice(1).join(' ') || ''}`.trim()
-                        }))}
+                        value={editUserData.full_name?.split(' ')[0] || ''}
+                        onChange={(e) => {
+                          const lastName = editUserData.full_name?.split(' ').slice(1).join(' ') || ''
+                          setEditUserData(prev => ({ 
+                            ...prev, 
+                            full_name: `${e.target.value} ${lastName}`.trim()
+                          }))
+                        }}
                         placeholder="Enter first name"
                         className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                       />
@@ -1009,12 +1011,14 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
                       <Users className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
                       <input
                         type="text"
-                        value={editUserData.last_name || editUserData.full_name?.split(' ').slice(1).join(' ') || ''}
-                        onChange={(e) => setEditUserData(prev => ({ 
-                          ...prev, 
-                          last_name: e.target.value,
-                          full_name: `${prev.first_name || prev.full_name?.split(' ')[0] || ''} ${e.target.value}`.trim()
-                        }))}
+                        value={editUserData.full_name?.split(' ').slice(1).join(' ') || ''}
+                        onChange={(e) => {
+                          const firstName = editUserData.full_name?.split(' ')[0] || ''
+                          setEditUserData(prev => ({ 
+                            ...prev, 
+                            full_name: `${firstName} ${e.target.value}`.trim()
+                          }))
+                        }}
                         placeholder="Enter last name"
                         className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                       />
