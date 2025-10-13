@@ -21,8 +21,6 @@ export function ProjectProgressCard({
   activities,
   showDetailed = false 
 }: ProjectProgressCardProps) {
-  const guard = usePermissionGuard()
-  
   const stats = getProjectStatistics(project, activities)
   
   const getProgressColor = (percentage: number) => {
