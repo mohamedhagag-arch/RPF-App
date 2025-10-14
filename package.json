@@ -13,6 +13,8 @@
     "setup-db": "npm run import-data",
     "check-db": "node scripts/check-database-structure.js",
     "verify-data": "node scripts/final-verification.js",
+    "migrate-to-production": "node scripts/migrate-to-production.js",
+    "test-kpi-math": "node scripts/test-kpi-generation-math.js",
     "vercel-build": "next build",
     "postbuild": "echo 'Build completed successfully'"
   },

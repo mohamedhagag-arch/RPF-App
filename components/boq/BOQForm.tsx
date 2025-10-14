@@ -300,7 +300,7 @@ export function BOQForm({ activity, projects, onSubmit, onCancel }: BOQFormProps
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Total Quantity
+                  Total Units
                 </label>
                 <Input
                   type="number"
@@ -312,7 +312,7 @@ export function BOQForm({ activity, projects, onSubmit, onCancel }: BOQFormProps
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Planned Quantity
+                  Total Quantity
                 </label>
                 <Input
                   type="number"

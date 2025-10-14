@@ -250,10 +250,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         'Zone Ref': activityData.zone_ref || activityData.activity_division || '',
         
         // ✅ Use BOTH old and new column names for compatibility
-        'Column 44': activityData.planned_units?.toString() || '0',
         'Planned Units': activityData.planned_units?.toString() || '0',
-        
-        'Column 45': activityData.deadline || '',
         'Deadline': activityData.deadline || '',
         
         'Total Units': activityData.total_units?.toString() || '0',
@@ -282,8 +279,8 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       
       console.log('✅ CREATE SUCCESS!')
       console.log('Created Data:', data)
-      console.log('📊 Verify Column 44 (Planned Units):', data?.['Column 44'])
-      console.log('📊 Verify Column 45 (Deadline):', data?.['Column 45'])
+      console.log('📊 Verify Planned Units:', data?.['Planned Units'])
+      console.log('📊 Verify Deadline:', data?.['Deadline'])
       
       // Close form and refresh
       setShowForm(false)
@@ -317,10 +314,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         'Zone Ref': activityData.zone_ref || activityData.activity_division || '',
         
         // ✅ Use BOTH old and new column names for compatibility
-        'Column 44': activityData.planned_units?.toString() || '0',
         'Planned Units': activityData.planned_units?.toString() || '0',
-        
-        'Column 45': activityData.deadline || '',
         'Deadline': activityData.deadline || '',
         
         'Total Units': activityData.total_units?.toString() || '0',

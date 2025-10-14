@@ -136,8 +136,15 @@ export function clearCompanySettingsCache(): void {
  */
 export async function canUpdateCompanySettings(): Promise<boolean> {
   try {
+    console.log('🔍 Checking company settings permissions...')
+    
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return false
+    if (!user) {
+      console.log('❌ No authenticated user')
+      return false
+    }
+    
+    console.log('👤 User ID:', user.id, 'Email:', user.email)
     
     const { data: userData, error } = await supabase
       .from('users')
@@ -145,16 +152,36 @@ export async function canUpdateCompanySettings(): Promise<boolean> {
       .eq('id', user.id)
       .single()
     
-    if (error || !userData) return false
+    if (error) {
+      console.error('❌ Error fetching user data:', error.message)
+      console.error('❌ Error details:', error)
+      return false
+    }
+    
+    if (!userData) {
+      console.log('❌ No user data found')
+      return false
+    }
+    
+    console.log('📊 User data:', {
+      role: (userData as any)?.role,
+      permissions: (userData as any)?.permissions,
+      custom_enabled: (userData as any)?.custom_permissions_enabled
+    })
     
     // Admin لديه صلاحية دائماً
-    if ((userData as any)?.role === 'admin') return true
+    if ((userData as any)?.role === 'admin') {
+      console.log('✅ User is admin - access granted')
+      return true
+    }
     
     // فحص الصلاحيات المخصصة
     const userPermissions = (userData as any)?.permissions || []
-    return userPermissions.includes('settings.company')
+    const hasPermission = userPermissions.includes('settings.company')
+    console.log(`${hasPermission ? '✅' : '❌'} User has settings.company permission:`, hasPermission)
+    return hasPermission
   } catch (error) {
-    console.error('❌ Error checking user permissions:', error)
+    console.error('❌ Exception checking user permissions:', error)
     return false
   }
 }

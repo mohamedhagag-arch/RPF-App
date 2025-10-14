@@ -172,7 +172,7 @@ export function BOQTable({ activities, projects, allKPIs, onEdit, onDelete, onBu
               Activity
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Planned Quantity
+              Total Quantity
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
               Actual Quantity

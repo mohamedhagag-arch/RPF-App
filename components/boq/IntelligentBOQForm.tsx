@@ -328,12 +328,22 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       }
       
       const kpis = await generateKPIsFromBOQ(tempActivity as any, workdaysConfig)
+      const calculatedTotal = kpis.reduce((sum, kpi) => sum + kpi.quantity, 0)
+      const plannedUnitsValue = parseFloat(plannedUnits)
+      
       const summary = {
-        totalQuantity: kpis.reduce((sum, kpi) => sum + kpi.quantity, 0),
+        totalQuantity: calculatedTotal,
         numberOfDays: kpis.length,
-        averagePerDay: kpis.length > 0 ? kpis.reduce((sum, kpi) => sum + kpi.quantity, 0) / kpis.length : 0,
+        averagePerDay: kpis.length > 0 ? calculatedTotal / kpis.length : 0,
         startDate: kpis.length > 0 ? kpis[0].target_date : '',
         endDate: kpis.length > 0 ? kpis[kpis.length - 1].target_date : ''
+      }
+      
+      // ✅ Verify total matches planned units
+      if (calculatedTotal !== plannedUnitsValue) {
+        console.warn(`⚠️ MISMATCH! Generated Total (${calculatedTotal}) ≠ Planned Units (${plannedUnitsValue})`)
+      } else {
+        console.log(`✅ VERIFIED: Total Quantity (${calculatedTotal}) === Planned Units (${plannedUnitsValue})`)
       }
       
       setKpiPreview({ kpis, summary })

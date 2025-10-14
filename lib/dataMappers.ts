@@ -62,11 +62,6 @@ export function mapBOQFromDB(row: any): any {
   const activityName = row['Activity Name'] || row['Activity'] || 
                        (row['Zone Ref'] ? row['Zone Ref'].split('‣')[1]?.trim() : '') || ''
   
-  // تقليل التسجيل لتجنب البطء
-  if (row['Column 44'] && Math.random() < 0.01) { // تسجيل 1% فقط
-    console.log('📊 Mapping BOQ - Column 44 (Planned Units):', row['Column 44'], 'for activity:', activityName)
-  }
-  
   return {
     id: row.id,
     project_code: row['Project Code'] || '',
@@ -76,21 +71,18 @@ export function mapBOQFromDB(row: any): any {
     activity_division: row['Activity Division'] || '',
     unit: row['Unit'] || '',
     zone_ref: row['Zone Ref'] || '',
-    zone_number: row['Zone #'] || '',
+    zone_number: row['Zone Number'] || row['Zone #'] || '',
     activity_name: activityName,
-    column_45: row['Column 45'] || '',
-    column_44: row['Column 44'] || '',
     total_units: parseNum(row['Total Units']),
-    // ✅ Try new column first, fallback to old column for backward compatibility
-    planned_units: parseNum(row['Planned Units']) || parseNum(row['Column 44']),
+    // ✅ Use new column names only
+    planned_units: parseNum(row['Planned Units']),
     actual_units: parseNum(row['Actual Units']),
     difference: parseNum(row['Difference']),
     variance_units: parseNum(row['Variance Units']),
     rate: parseNum(row['Rate']),
     total_value: parseNum(row['Total Value']),
     planned_activity_start_date: row['Planned Activity Start Date'] || '',
-    // ✅ Try new column first, fallback to old column for backward compatibility
-    deadline: row['Deadline'] || row['Column 45'] || row['Planned Activity Start Date'] || '',
+    deadline: row['Deadline'] || row['Planned Activity Start Date'] || '',
     calendar_duration: parseNum(row['Calendar Duration']),
     activity_progress_percentage: parseNum(row['Activity Progress %']),
     activity_completed: row['Activity Completed'] === 'TRUE' || row['Activity Completed'] === true || false,
@@ -122,10 +114,9 @@ export function mapBOQToDB(boq: any): any {
     'Activity Division': boq.activity_division,
     'Unit': boq.unit,
     'Zone Ref': boq.zone_ref,
-    'Zone #': boq.zone_number,
+    'Zone Number': boq.zone_number,
     'Activity Name': boq.activity_name,
-    'Column 45': boq.column_45,
-    'Column 44': boq.column_44,
+    // ✅ Removed Column 44 and Column 45 - use new column names only
     'Total Units': boq.total_units?.toString(),
     'Planned Units': boq.planned_units?.toString(),
     'Actual Units': boq.actual_units?.toString(),
@@ -137,7 +128,7 @@ export function mapBOQToDB(boq: any): any {
     'Deadline': boq.deadline,
     'Calendar Duration': boq.calendar_duration?.toString(),
     'Activity Progress %': boq.activity_progress_percentage?.toString(),
-    'Activity Completed': boq.activity_completed ? 'TRUE' : 'FALSE',
+    'Activity Completed?': boq.activity_completed ? 'TRUE' : 'FALSE',
     'Activity Delayed?': boq.activity_delayed ? 'TRUE' : 'FALSE',
     'Activity On Track?': boq.activity_on_track ? 'TRUE' : 'FALSE',
     'Planned Value': boq.planned_value?.toString(),

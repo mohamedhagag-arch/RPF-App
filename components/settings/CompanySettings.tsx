@@ -48,15 +48,19 @@ export function CompanySettings({ onClose }: CompanySettingsProps) {
         setLoadingSettings(true)
         console.log('🔄 Loading company settings from database...')
         
-        // التحقق من الصلاحيات
-        const hasPermission = await canUpdateCompanySettings()
+        // ✅ استخدام guard مباشرة بدلاً من canUpdateCompanySettings()
+        const hasPermission = guard.hasAccess('settings.company')
+        console.log('✅ Permission check result:', hasPermission)
         setCanEdit(hasPermission)
         
         if (!hasPermission) {
+          console.log('❌ User does not have settings.company permission')
           setError('You do not have permission to edit company settings. Only administrators can edit.')
           setLoadingSettings(false)
           return
         }
+        
+        console.log('✅ User has permission, loading settings...')
         
         // جلب الإعدادات من قاعدة البيانات
         const settings = await getCompanySettings()
@@ -65,6 +69,8 @@ export function CompanySettings({ onClose }: CompanySettingsProps) {
           setCompanySlogan(settings.company_slogan)
           setLogoUrl(settings.company_logo_url || '')
           console.log('✅ Company settings loaded from database')
+        } else {
+          console.log('⚠️ No company settings found, using defaults')
         }
       } catch (error: any) {
         console.error('❌ Error loading company settings:', error)
@@ -75,7 +81,7 @@ export function CompanySettings({ onClose }: CompanySettingsProps) {
     }
     
     loadSettings()
-  }, [])
+  }, [guard])
 
   const handleSave = async () => {
     if (!canEdit) {

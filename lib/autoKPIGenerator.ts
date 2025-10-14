@@ -50,12 +50,13 @@ export async function generateKPIsFromBOQ(
       return []
     }
     
-    // Calculate quantity per day (rounded to nearest integer)
+    // ✅ Calculate quantity per day using FLOOR to ensure total matches
     const totalQuantity = activity.planned_units || 0
-    const baseQuantityPerDay = Math.round(totalQuantity / workdays.length)
-    const remainder = totalQuantity - (baseQuantityPerDay * workdays.length)
+    const baseQuantityPerDay = Math.floor(totalQuantity / workdays.length) // Use floor instead of round
+    const remainder = totalQuantity - (baseQuantityPerDay * workdays.length) // Calculate exact remainder
     
     console.log(`📊 Quantity distribution: ${totalQuantity} total → ${baseQuantityPerDay} per day (base) + ${remainder} remainder`)
+    console.log(`✅ Verification: ${baseQuantityPerDay} × ${workdays.length} + ${remainder} = ${(baseQuantityPerDay * workdays.length) + remainder} (should equal ${totalQuantity})`)
     
     // Generate KPIs with proper distribution
     const kpis: GeneratedKPI[] = workdays.map((date, index) => {
@@ -77,7 +78,17 @@ export async function generateKPIsFromBOQ(
       }
     })
     
+    // ✅ Verify total quantity matches planned units
+    const calculatedTotal = kpis.reduce((sum, kpi) => sum + kpi.quantity, 0)
     console.log(`✅ Generated ${kpis.length} KPIs for ${activity.activity_name}`)
+    console.log(`📊 Total Quantity Verification: ${calculatedTotal} (Generated) === ${totalQuantity} (Planned Units)`)
+    
+    if (calculatedTotal !== totalQuantity) {
+      console.error(`❌ MISMATCH! Generated total (${calculatedTotal}) ≠ Planned Units (${totalQuantity})`)
+    } else {
+      console.log(`✅ VERIFIED: Total matches Planned Units perfectly!`)
+    }
+    
     return kpis
     
   } catch (error) {
@@ -430,8 +441,8 @@ export async function previewKPIs(activity: BOQActivity, config?: WorkdaysConfig
     
     const workdays = await getWorkingDays(startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0], config)
     const totalQuantity = activity.planned_units || 0
-    const baseQuantityPerDay = Math.round(totalQuantity / workdays.length)
-    const remainder = totalQuantity - (baseQuantityPerDay * workdays.length)
+    const baseQuantityPerDay = Math.floor(totalQuantity / workdays.length) // ✅ Use floor to ensure total matches
+    const remainder = totalQuantity - (baseQuantityPerDay * workdays.length) // ✅ Calculate exact remainder
     
     return workdays.map((date, index) => {
       // Add remainder to first few days to ensure total matches

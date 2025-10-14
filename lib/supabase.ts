@@ -1,7 +1,7 @@
-import { getSupabaseClient } from './simpleConnectionManager'
+import { getStableSupabaseClient } from './stableConnection'
 
-// Use the simple connection manager for all Supabase operations
-export const supabase = getSupabaseClient()
+// ✅ Use the STABLE connection manager - حل نهائي لمشكلة فقد الاتصال
+export const supabase = getStableSupabaseClient()
 
 // ✅ NEW: Table names with split KPI system
 export const TABLES = {

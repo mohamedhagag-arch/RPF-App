@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useRef } from 'react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
-import { getSupabaseClient } from '@/lib/simpleConnectionManager'
+import { getStableSupabaseClient } from '@/lib/stableConnection'
 import { User } from '@supabase/supabase-js'
 import { User as AppUser } from '@/lib/supabase'
 import { SessionManager } from '@/components/auth/SessionManager'
@@ -35,7 +35,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [appUser, setAppUser] = useState<AppUser | null>(null)
   const [loading, setLoading] = useState(true)
-  const supabase = getSupabaseClient() // ✅ Use managed connection
+  const supabase = getStableSupabaseClient() // ✅ Use STABLE connection - حل نهائي
   const initialized = useRef(false)
   const mounted = useRef(true)
 
