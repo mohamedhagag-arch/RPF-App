@@ -93,7 +93,7 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
       console.log('📦 Database format:', dbData)
       
       // Insert into BOQ Rates table
-      const { data: inserted, error } = await supabase
+      const { data: inserted, error } = await (supabase as any)
         .from('Planning Database - BOQ Rates')
         .insert(dbData)
         .select()
