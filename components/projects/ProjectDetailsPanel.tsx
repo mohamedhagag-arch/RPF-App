@@ -65,13 +65,57 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
   // Handle BOQ form submission
   const handleBOQSubmit = async (data: any) => {
     try {
-      // The form will handle the submission internally
-      // We just need to close the modal and refresh
+      console.log('💾 ProjectDetailsPanel: Saving BOQ activity to database...', data)
+      
+      // Map to database format
+      const dbData = {
+        'Project Code': data.project_code || '',
+        'Project Sub Code': data.project_sub_code || '',
+        'Project Full Code': data.project_full_code || data.project_code || '',
+        'Activity': data.activity_name || '',
+        'Activity Division': data.activity_division || data.zone_ref || '',
+        'Unit': data.unit || '',
+        'Zone Ref': data.zone_ref || data.activity_division || '',
+        'Activity Name': data.activity_name || '',
+        'Planned Units': data.planned_units?.toString() || '0',
+        'Deadline': data.deadline || '',
+        'Total Units': data.total_units?.toString() || '0',
+        'Actual Units': data.actual_units?.toString() || '0',
+        'Total Value': data.planned_value?.toString() || '0',
+        'Planned Value': data.planned_value?.toString() || '0',
+        'Planned Activity Start Date': data.planned_activity_start_date || '',
+        'Total Drilling Meters': data.total_drilling_meters?.toString() || '0',
+        'Calendar Duration': data.calendar_duration?.toString() || '0',
+        'Project Full Name': data.project_full_name || '',
+        'Project Status': data.project_status || 'active'
+      }
+      
+      console.log('📦 Database format:', dbData)
+      
+      // Insert into BOQ Rates table
+      const { data: inserted, error } = await supabase
+        .from('Planning Database - BOQ Rates')
+        .insert(dbData)
+        .select()
+        .single()
+      
+      if (error) {
+        console.error('❌ Error saving BOQ activity:', error)
+        throw error
+      }
+      
+      console.log('✅ BOQ activity saved successfully:', inserted)
+      
+      // Close modal and refresh
       setShowBOQModal(false)
+      
       // Refresh analytics to show new activity
-      fetchProjectAnalytics()
+      await fetchProjectAnalytics()
+      
+      console.log('✅ ProjectDetailsPanel: BOQ activity added and analytics refreshed')
     } catch (error) {
-      console.error('Error handling BOQ submission:', error)
+      console.error('❌ Error handling BOQ submission:', error)
+      throw error
     }
   }
   
