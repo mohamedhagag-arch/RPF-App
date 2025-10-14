@@ -176,26 +176,16 @@ export function getUserPermissions(user: UserWithPermissions): string[] {
   // الحصول على الصلاحيات الافتراضية للدور
   const defaultRolePermissions = DEFAULT_ROLE_PERMISSIONS[user.role] || DEFAULT_ROLE_PERMISSIONS.viewer
   
-  // إذا كان نظام الصلاحيات المخصصة مفعل وكان لديه صلاحيات محفوظة
-  if (user.custom_permissions_enabled && user.permissions && user.permissions.length > 0) {
-    console.log('✅ Using custom permissions:', user.permissions.length)
-    return user.permissions
+  // ✅ إذا كان نظام الصلاحيات المخصصة مفعل (حتى لو كان Admin)
+  if (user.custom_permissions_enabled) {
+    // استخدم الصلاحيات المخصصة فقط
+    const customPerms = user.permissions || []
+    console.log('✅ Using CUSTOM permissions ONLY:', customPerms.length, '(custom mode enabled)')
+    return customPerms
   }
   
-  // إذا كان لديه صلاحيات إضافية (حتى لو لم يكن في وضع مخصص)
-  if (user.permissions && user.permissions.length > 0) {
-    // دمج الصلاحيات الافتراضية مع الصلاحيات الإضافية
-    const combinedPermissions = Array.from(new Set([...defaultRolePermissions, ...user.permissions]))
-    console.log('✅ Using combined permissions:', {
-      default: defaultRolePermissions.length,
-      additional: user.permissions.length,
-      total: combinedPermissions.length
-    })
-    return combinedPermissions
-  }
-  
-  // وإلا استخدم الصلاحيات الافتراضية للدور فقط
-  console.log('✅ Using default role permissions only:', defaultRolePermissions.length, 'for role:', user.role)
+  // إذا لم يكن custom mode، استخدم الصلاحيات الافتراضية للدور
+  console.log('✅ Using default role permissions:', defaultRolePermissions.length, 'for role:', user.role)
   return defaultRolePermissions
 }
 
@@ -217,12 +207,13 @@ export function hasPermission(user: UserWithPermissions | null, permission: stri
     return false
   }
   
-  // Admin لديه كل الصلاحيات دائماً
-  if (user.role === 'admin') {
-    console.log('✅ Permission granted: Admin role')
+  // ✅ Admin لديه كل الصلاحيات دائماً (إلا إذا كان custom_permissions_enabled)
+  if (user.role === 'admin' && !user.custom_permissions_enabled) {
+    console.log('✅ Permission granted: Admin role (using default admin permissions)')
     return true
   }
   
+  // إذا كان Admin مع custom permissions، نفحص الصلاحيات المخصصة
   const userPermissions = getUserPermissions(user)
   const hasAccess = userPermissions.includes(permission)
   

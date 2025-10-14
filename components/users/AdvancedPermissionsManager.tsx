@@ -106,6 +106,12 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
   }
 
   const togglePermission = (permissionId: string) => {
+    // ✅ تفعيل custom mode تلقائياً عند تغيير أي صلاحية
+    if (!customMode) {
+      setCustomMode(true)
+      console.log('✅ Custom mode enabled automatically due to permission change')
+    }
+    
     setSelectedPermissions(prev => {
       if (prev.includes(permissionId)) {
         return prev.filter(p => p !== permissionId)
@@ -116,6 +122,12 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
   }
 
   const selectAll = (category: string) => {
+    // ✅ تفعيل custom mode تلقائياً
+    if (!customMode) {
+      setCustomMode(true)
+      console.log('✅ Custom mode enabled automatically (selectAll)')
+    }
+    
     const categoryPerms = ALL_PERMISSIONS
       .filter(p => p.category === category)
       .map(p => p.id)
@@ -127,6 +139,12 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
   }
 
   const deselectAll = (category: string) => {
+    // ✅ تفعيل custom mode تلقائياً
+    if (!customMode) {
+      setCustomMode(true)
+      console.log('✅ Custom mode enabled automatically (deselectAll)')
+    }
+    
     const categoryPerms = ALL_PERMISSIONS
       .filter(p => p.category === category)
       .map(p => p.id)

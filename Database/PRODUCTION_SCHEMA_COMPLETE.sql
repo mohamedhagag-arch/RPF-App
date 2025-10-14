@@ -465,6 +465,54 @@ CREATE TRIGGER update_company_settings_updated_at BEFORE UPDATE ON public.compan
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================================
+-- Auto-Create User in users table on Auth signup
+-- ============================================================
+
+-- Function to handle new user registration
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  -- إضافة المستخدم الجديد في جدول users تلقائياً
+  INSERT INTO public.users (
+    id,
+    email,
+    full_name,
+    role,
+    is_active,
+    custom_permissions_enabled,
+    permissions,
+    created_at,
+    updated_at
+  )
+  VALUES (
+    NEW.id,
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.email),
+    'viewer', -- الدور الافتراضي
+    true,
+    false,
+    ARRAY[]::TEXT[],
+    NOW(),
+    NOW()
+  )
+  ON CONFLICT (id) DO NOTHING;
+  
+  RETURN NEW;
+END;
+$$;
+
+-- Trigger to create user on signup
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW
+  EXECUTE FUNCTION public.handle_new_user();
+
+-- ============================================================
 -- PART 7: Grant Permissions
 -- ============================================================
 

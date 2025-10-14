@@ -45,6 +45,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
     
     try {
       console.log('🔄 Providers: Refreshing user profile...')
+      console.log('👤 Current user ID:', user.id)
+      
       const { data: profile, error } = await supabase
         .from('users')
         .select('*')
@@ -55,8 +57,16 @@ export function Providers({ children }: { children: React.ReactNode }) {
         console.log('❌ Providers: Error refreshing user profile:', error)
       } else {
         console.log('✅ Providers: User profile refreshed successfully')
-        console.log('📊 Providers: Updated permissions:', (profile as any).permissions?.length)
+        console.log('📊 Providers: New data:', {
+          email: (profile as any).email,
+          role: (profile as any).role,
+          permissions: (profile as any).permissions,
+          permissionsLength: (profile as any).permissions?.length,
+          customEnabled: (profile as any).custom_permissions_enabled,
+          updated_at: (profile as any).updated_at
+        })
         setAppUser(profile)
+        console.log('✅ Providers: appUser state updated')
       }
     } catch (error) {
       console.log('❌ Providers: Error refreshing user profile:', error)

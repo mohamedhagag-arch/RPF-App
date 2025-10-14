@@ -222,6 +222,12 @@ export function EnhancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
   }, [selectedPermissions, categories])
 
   const handlePermissionToggle = (permissionId: string) => {
+    // ✅ تفعيل custom mode تلقائياً عند تغيير أي صلاحية
+    if (!customEnabled) {
+      setCustomEnabled(true)
+      console.log('✅ Custom mode enabled automatically (permission toggle)')
+    }
+    
     setSelectedPermissions(prev => 
       prev.includes(permissionId)
         ? prev.filter(id => id !== permissionId)
@@ -230,6 +236,12 @@ export function EnhancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
   }
 
   const handleCategoryToggle = (categoryId: string) => {
+    // ✅ تفعيل custom mode تلقائياً
+    if (!customEnabled) {
+      setCustomEnabled(true)
+      console.log('✅ Custom mode enabled automatically (category toggle)')
+    }
+    
     const categoryPermissions = ALL_PERMISSIONS
       .filter(p => p.category === categoryId)
       .map(p => p.id)
@@ -254,10 +266,20 @@ export function EnhancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
   }
 
   const handleSelectAll = () => {
+    // ✅ تفعيل custom mode تلقائياً
+    if (!customEnabled) {
+      setCustomEnabled(true)
+      console.log('✅ Custom mode enabled automatically (select all)')
+    }
     setSelectedPermissions(ALL_PERMISSIONS.map(p => p.id))
   }
 
   const handleSelectNone = () => {
+    // ✅ تفعيل custom mode تلقائياً
+    if (!customEnabled) {
+      setCustomEnabled(true)
+      console.log('✅ Custom mode enabled automatically (select none)')
+    }
     setSelectedPermissions([])
   }
 
