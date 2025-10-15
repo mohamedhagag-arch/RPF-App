@@ -26,6 +26,7 @@
     "@supabase/auth-ui-react": "^0.4.6",
     "@supabase/auth-ui-shared": "^0.1.8",
     "@supabase/supabase-js": "^2.38.4",
+    "@types/qrcode": "^1.5.5",
     "autoprefixer": "^10.4.16",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
@@ -33,14 +34,17 @@
     "dotenv": "^17.2.2",
     "lucide-react": "^0.294.0",
     "next": "14.2.33",
+    "next-sitemap": "^4.2.3",
     "postcss": "^8.4.32",
+    "qrcode": "^1.5.4",
+    "qrcode-with-logos": "^1.1.1",
     "react": "^18",
     "react-dom": "^18",
     "react-hook-form": "^7.48.2",
     "react-query": "^3.39.3",
     "recharts": "^2.8.0",
     "tailwindcss": "^3.3.6",
-    "next-sitemap": "^4.2.3"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^20",

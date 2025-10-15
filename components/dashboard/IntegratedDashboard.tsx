@@ -324,15 +324,8 @@ export function IntegratedDashboard() {
   useEffect(() => {
     fetchDashboardData()
     
-    // فحص دوري للاتصال كل 5 دقائق
-    const connectionCheckInterval = setInterval(async () => {
-      const isConnected = await checkConnection()
-      if (!isConnected) {
-        console.warn('⚠️ Connection lost, attempting to reconnect...')
-        // محاولة إعادة تحميل البيانات
-        fetchDashboardData(true)
-      }
-    }, 5 * 60 * 1000) // كل 5 دقائق
+    // ✅ Removed periodic connection check to avoid disturbing users
+    // Only check connection when browser detects offline/online events
     
     // معالج لانقطاع الاتصال في المتصفح
     const handleOnline = () => {
@@ -348,7 +341,6 @@ export function IntegratedDashboard() {
     window.addEventListener('offline', handleOffline)
     
     return () => {
-      clearInterval(connectionCheckInterval)
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
     }

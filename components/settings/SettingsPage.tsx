@@ -31,6 +31,11 @@ import {
 import { DivisionsManager } from './DivisionsManager'
 import { ProjectTypesManager } from './ProjectTypesManager'
 import { CurrenciesManager } from './CurrenciesManager'
+import { SystemSettingsManager } from './SystemSettingsManager'
+import { UserPreferencesManager } from './UserPreferencesManager'
+import { NotificationSettingsManager } from './NotificationSettingsManager'
+import { ProfileManager } from './ProfileManager'
+import { DepartmentsJobTitlesManager } from './DepartmentsJobTitlesManager'
 
 interface SettingsPageProps {
   userRole?: string
@@ -253,8 +258,11 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
 
   const tabs = [
     { id: 'profile', label: 'Profile', icon: User, roles: ['admin', 'manager', 'engineer', 'viewer'], permission: 'users.view' },
+    { id: 'preferences', label: 'Preferences', icon: Settings, roles: ['admin', 'manager', 'engineer', 'viewer'], permission: 'users.view' },
     { id: 'notifications', label: 'Notifications', icon: Bell, roles: ['admin', 'manager', 'engineer', 'viewer'], permission: 'users.view' },
     { id: 'appearance', label: 'Appearance', icon: Palette, roles: ['admin', 'manager', 'engineer', 'viewer'], permission: 'users.view' },
+    { id: 'system', label: 'System Settings', icon: Shield, roles: ['admin'], permission: 'settings.manage' },
+    { id: 'departments-titles', label: 'Departments & Titles', icon: Building2, roles: ['admin', 'manager'], permission: 'settings.divisions' },
     { id: 'divisions', label: 'Divisions', icon: Building2, roles: ['admin', 'manager'], permission: 'settings.divisions' },
     { id: 'project-types', label: 'Project Types', icon: Briefcase, roles: ['admin', 'manager'], permission: 'settings.project_types' },
     { id: 'currencies', label: 'Currencies', icon: DollarSign, roles: ['admin', 'manager'], permission: 'settings.currencies' },
@@ -265,7 +273,7 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
   // تصفية علامات التبويب بناءً على الصلاحيات الفعلية
   const filteredTabs = tabs.filter(tab => {
     // إذا كانت العلامة للأدوار الأساسية، تحقق من الدور
-    if (['profile', 'notifications', 'appearance'].includes(tab.id)) {
+    if (['profile', 'preferences', 'notifications', 'appearance'].includes(tab.id)) {
       return tab.roles.includes(userRole)
     }
     // إذا كانت العلامة للإعدادات المتقدمة، تحقق من الصلاحية
@@ -275,98 +283,37 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
   const renderTabContent = () => {
     switch (activeTab) {
       case 'profile':
-        return (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Full Name
-                </label>
-                <Input
-                  value={profileData.full_name}
-                  onChange={(e) => setProfileData(prev => ({ ...prev, full_name: e.target.value }))}
-                  placeholder="Enter your full name"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Email
-                </label>
-                <Input
-                  value={profileData.email}
-                  disabled
-                  className="bg-gray-100"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Division
-                </label>
-                <Input
-                  value={profileData.division}
-                  onChange={(e) => setProfileData(prev => ({ ...prev, division: e.target.value }))}
-                  placeholder="Enter your division"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Role
-                </label>
-                <Input
-                  value={profileData.role}
-                  disabled
-                  className="bg-gray-100 capitalize"
-                />
-              </div>
+        return <ProfileManager />
+
+      case 'preferences':
+        return <UserPreferencesManager />
+
+      case 'system':
+        if (!guard.hasAccess('settings.manage')) {
+          return (
+            <div className="text-center py-12">
+              <Shield className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Access Denied</h3>
+              <p className="text-gray-600 dark:text-gray-400">You don't have permission to access system settings.</p>
             </div>
-            <div className="flex justify-end">
-              {guard.hasAccess('users.edit') && (
-                <Button onClick={handleProfileUpdate} disabled={loading}>
-                  <Save className="h-4 w-4 mr-2" />
-                  Save Changes
-                </Button>
-              )}
+          )
+        }
+        return <SystemSettingsManager />
+
+      case 'departments-titles':
+        if (!guard.hasAccess('settings.divisions')) {
+          return (
+            <div className="text-center py-12">
+              <Shield className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Access Denied</h3>
+              <p className="text-gray-600 dark:text-gray-400">You don't have permission to manage departments and job titles.</p>
             </div>
-          </div>
-        )
+          )
+        }
+        return <DepartmentsJobTitlesManager />
 
       case 'notifications':
-        return (
-          <div className="space-y-6">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="font-medium">Push Notifications</h4>
-                  <p className="text-sm text-gray-600">Receive notifications for important updates</p>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={profileData.notifications}
-                    onChange={(e) => setProfileData(prev => ({ ...prev, notifications: e.target.checked }))}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                </label>
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="font-medium">Email Notifications</h4>
-                  <p className="text-sm text-gray-600">Receive email updates for project changes</p>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={profileData.email_notifications}
-                    onChange={(e) => setProfileData(prev => ({ ...prev, email_notifications: e.target.checked }))}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                </label>
-              </div>
-            </div>
-          </div>
-        )
+        return <NotificationSettingsManager />
 
       case 'appearance':
         return (

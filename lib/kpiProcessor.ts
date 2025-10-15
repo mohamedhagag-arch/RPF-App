@@ -11,10 +11,13 @@ export interface ProcessedKPI {
   quantity: number
   input_type: 'Planned' | 'Actual'
   drilled_meters: number
+  // Data fields for reports
+  unit?: string
+  target_date: string
+  activity_date?: string
   // Calculated fields
   status: 'excellent' | 'good' | 'average' | 'low'
   performance_level: number
-  target_date: string
   created_at: string
   updated_at: string
 }
@@ -64,9 +67,13 @@ export function processKPIRecord(kpi: any): ProcessedKPI {
     quantity: quantity,
     input_type: inputType as 'Planned' | 'Actual',
     drilled_meters: kpi.drilled_meters || 0,
+    // Data fields for reports
+    unit: kpi.unit || '',
+    target_date: kpi.target_date || kpi.created_at || '',
+    activity_date: kpi.activity_date || kpi.target_date || kpi.actual_date || kpi.created_at || '',
+    // Calculated fields
     status: smartStatus.status,
     performance_level: smartStatus.performance_level,
-    target_date: kpi.target_date || kpi.created_at || '',
     created_at: kpi.created_at,
     updated_at: kpi.updated_at
   }

@@ -12,6 +12,7 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Alert } from '@/components/ui/Alert'
 import { SmartFilter } from '@/components/ui/SmartFilter'
 import { PrintableReport } from './PrintableReport'
+import { PrintButton } from '@/components/ui/PrintButton'
 import {
   FileText,
   Download,
@@ -280,14 +281,17 @@ export function ModernReportsManager() {
         csv += `"${p.project_code}","${p.project_name}","${p.responsible_division}","${p.project_status}","${p.contract_amount}","${new Date(p.created_at).toLocaleDateString()}"\n`
       })
     } else if (activeReport === 'activities') {
-      csv = 'Activity Name,Project,Division,Planned,Actual,Unit,Status,Created\n'
+      csv = 'Activity Name,Project,Division,Planned,Actual,Unit,Progress,Start Date,End Date,Status,Created\n'
       filteredActivities.forEach(a => {
-        csv += `"${a.activity_name}","${a.project_code}","${a.activity_division}","${a.planned_units}","${a.actual_units}","${a.unit}","${a.activity_actual_status}","${new Date(a.created_at).toLocaleDateString()}"\n`
+        const startDate = a.planned_activity_start_date || a.activity_planned_start_date || a.lookahead_start_date || ''
+        const endDate = a.deadline || a.activity_planned_completion_date || a.lookahead_activity_completion_date || ''
+        csv += `"${a.activity_name}","${a.project_code}","${a.activity_division}","${a.planned_units}","${a.actual_units}","${a.unit}","${(a.activity_progress_percentage || 0).toFixed(0)}%","${startDate ? new Date(startDate).toLocaleDateString() : ''}","${endDate ? new Date(endDate).toLocaleDateString() : ''}","${a.activity_actual_status}","${new Date(a.created_at).toLocaleDateString()}"\n`
       })
     } else if (activeReport === 'kpis') {
       csv = 'Activity,Project,Type,Quantity,Unit,Date,Created\n'
       filteredKPIs.forEach(k => {
-        csv += `"${k.activity_name}","${k.project_full_code}","${k.input_type}","${k.quantity}","${(k as any).unit}","${(k as any).date}","${new Date(k.created_at).toLocaleDateString()}"\n`
+        const dateValue = k.activity_date || k.target_date || ''
+        csv += `"${k.activity_name}","${k.project_full_code}","${k.input_type}","${k.quantity}","${k.unit || ''}","${dateValue ? new Date(dateValue).toLocaleDateString() : ''}","${new Date(k.created_at).toLocaleDateString()}"\n`
       })
     }
 
@@ -318,6 +322,21 @@ export function ModernReportsManager() {
       case 'financial': return 'Financial Performance Report'
       case 'performance': return 'Performance Analysis Report'
       default: return 'Project Report'
+    }
+  }
+
+  const getPrintSettingsForReport = (reportType: ReportType) => {
+    switch (reportType) {
+      case 'activities':
+        return {
+          fontSize: '10px',
+          compactMode: true
+        }
+      default:
+        return {
+          fontSize: '11px',
+          compactMode: true
+        }
     }
   }
 
@@ -378,10 +397,12 @@ export function ModernReportsManager() {
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
           </Button>
-          <Button onClick={printReport} variant="outline" size="sm">
-            <Printer className="h-4 w-4 mr-2" />
-              Print Report
-          </Button>
+          <PrintButton
+            label="Print Report"
+            variant="outline"
+            printTitle={getReportTitle()}
+            printSettings={getPrintSettingsForReport(activeReport)}
+          />
           <Button onClick={exportToCSV} variant="primary" size="sm">
             <Download className="h-4 w-4 mr-2" />
             Export CSV
@@ -1232,6 +1253,8 @@ function ActivitiesReport({ activities }: { activities: BOQActivity[] }) {
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Planned</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Actual</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Progress</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Start Date</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">End Date</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Status</th>
             </tr>
           </thead>
@@ -1265,6 +1288,14 @@ function ActivitiesReport({ activities }: { activities: BOQActivity[] }) {
                       {(activity.activity_progress_percentage || 0).toFixed(0)}%
                     </span>
                   </div>
+                </td>
+                <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
+                  {activity.planned_activity_start_date || activity.activity_planned_start_date || activity.lookahead_start_date ? 
+                    new Date(activity.planned_activity_start_date || activity.activity_planned_start_date || activity.lookahead_start_date).toLocaleDateString() : 'N/A'}
+                </td>
+                <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
+                  {activity.deadline || activity.activity_planned_completion_date || activity.lookahead_activity_completion_date ? 
+                    new Date(activity.deadline || activity.activity_planned_completion_date || activity.lookahead_activity_completion_date).toLocaleDateString() : 'N/A'}
                 </td>
                 <td className="px-6 py-4">
                   <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
@@ -1331,10 +1362,11 @@ function KPIsReport({ kpis }: { kpis: ProcessedKPI[] }) {
                   {parseFloat(kpi.quantity?.toString() || '0').toLocaleString()}
                 </td>
                 <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
-                  {(kpi as any).unit || 'N/A'}
+                  {kpi.unit || 'N/A'}
                 </td>
                 <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
-                  {(kpi as any).date ? new Date((kpi as any).date).toLocaleDateString() : 'N/A'}
+                  {kpi.activity_date ? new Date(kpi.activity_date).toLocaleDateString() : 
+                   kpi.target_date ? new Date(kpi.target_date).toLocaleDateString() : 'N/A'}
                 </td>
               </tr>
             ))}

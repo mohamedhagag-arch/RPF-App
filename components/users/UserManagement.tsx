@@ -37,7 +37,22 @@ import {
   Eye,
   CheckCircle,
   XCircle,
-  Key
+  Key,
+  Download,
+  Upload,
+  Copy,
+  History,
+  BarChart3,
+  Settings,
+  UserCog,
+  Globe,
+  Clock,
+  Star,
+  Target,
+  Zap,
+  MoreHorizontal,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react'
 
 interface UserManagementProps {
@@ -77,10 +92,180 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
   const [managingPermissionsUser, setManagingPermissionsUser] = useState<UserWithPermissions | null>(null)
   const [useIntegratedSystem, setUseIntegratedSystem] = useState(false) // Force use regular system
 
+  // Advanced Features States
+  const [showBulkOperations, setShowBulkOperations] = useState(false)
+  const [selectedUsers, setSelectedUsers] = useState<string[]>([])
+  const [showExportImport, setShowExportImport] = useState(false)
+  const [showAuditLog, setShowAuditLog] = useState(false)
+  const [showAnalytics, setShowAnalytics] = useState(false)
+  const [advancedFilters, setAdvancedFilters] = useState({
+    isActive: '',
+    role: '',
+    division: '',
+    createdAfter: '',
+    createdBefore: ''
+  })
+  const [sortBy, setSortBy] = useState('created_at')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+  const [viewMode, setViewMode] = useState<'table' | 'cards'>('table')
+
   const supabase = getSupabaseClient()
 
   // Check permissions for user management access
   const canManageUsers = guard.hasAccess('users.view') || guard.hasAccess('users.permissions') || userRole === 'admin'
+
+  // Advanced Features Functions
+  const getFilteredUsers = () => {
+    let filtered = users
+
+    // Basic filters
+    if (searchTerm) {
+      filtered = filtered.filter(user => 
+        user.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        user.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        user.role?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        user.division?.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    }
+
+    if (selectedRole) {
+      filtered = filtered.filter(user => user.role === selectedRole)
+    }
+
+    // Advanced filters
+    if (advancedFilters.isActive !== '') {
+      const isActive = advancedFilters.isActive === 'true'
+      filtered = filtered.filter(user => user.is_active === isActive)
+    }
+
+    if (advancedFilters.role) {
+      filtered = filtered.filter(user => user.role === advancedFilters.role)
+    }
+
+    if (advancedFilters.division) {
+      filtered = filtered.filter(user => user.division === advancedFilters.division)
+    }
+
+    if (advancedFilters.createdAfter) {
+      const date = new Date(advancedFilters.createdAfter)
+      filtered = filtered.filter(user => new Date(user.created_at) >= date)
+    }
+
+    if (advancedFilters.createdBefore) {
+      const date = new Date(advancedFilters.createdBefore)
+      filtered = filtered.filter(user => new Date(user.created_at) <= date)
+    }
+
+    // Sorting
+    filtered.sort((a, b) => {
+      const aValue = (a as any)[sortBy] ?? ''
+      const bValue = (b as any)[sortBy] ?? ''
+
+      const aStr = typeof aValue === 'string' ? aValue.toLowerCase() : String(aValue)
+      const bStr = typeof bValue === 'string' ? bValue.toLowerCase() : String(bValue)
+
+      if (sortOrder === 'asc') {
+        return aStr < bStr ? -1 : aStr > bStr ? 1 : 0
+      } else {
+        return aStr > bStr ? -1 : aStr < bStr ? 1 : 0
+      }
+    })
+
+    return filtered
+  }
+
+  const exportUsers = () => {
+    const data = getFilteredUsers().map(user => ({
+      id: user.id,
+      full_name: user.full_name,
+      email: user.email,
+      role: user.role,
+      division: user.division,
+      is_active: (user as any).is_active || true,
+      created_at: user.created_at,
+      updated_at: user.updated_at
+    }))
+    
+    const csvContent = [
+      Object.keys(data[0] || {}).join(','),
+      ...data.map(row => Object.values(row).join(','))
+    ].join('\n')
+    
+    const blob = new Blob([csvContent], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `users_${new Date().toISOString().split('T')[0]}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  const bulkUpdateUsers = async (updates: any) => {
+    if (selectedUsers.length === 0) return
+
+    try {
+      // Update users one by one to avoid type issues
+      for (const userId of selectedUsers) {
+        const { error } = await (supabase as any)
+          .from('users')
+          .update(updates)
+          .eq('id', userId)
+
+        if (error) throw error
+      }
+
+      setSelectedUsers([])
+      fetchUsers()
+    } catch (error: any) {
+      setError(error.message)
+    }
+  }
+
+  const getUserStats = () => {
+    const filtered = getFilteredUsers()
+    const total = filtered.length
+    const active = filtered.filter(u => {
+      const userAny = u as any;
+      return userAny.is_active !== false;
+    }).length
+    const inactive = total - active
+    
+    const byRole = filtered.reduce((acc, user) => {
+      acc[user.role] = (acc[user.role] || 0) + 1
+      return acc
+    }, {} as Record<string, number>)
+
+    const byDivision = filtered.reduce((acc, user) => {
+      const division = user.division || 'No Division'
+      acc[division] = (acc[division] || 0) + 1
+      return acc
+    }, {} as Record<string, number>)
+
+    return { total, active, inactive, byRole, byDivision }
+  }
+
+  const getUniqueValues = (field: keyof User) => {
+    return Array.from(new Set(users.map(u => u[field]).filter(Boolean))).sort()
+  }
+
+  const toggleUserSelection = (userId: string) => {
+    setSelectedUsers(prev => 
+      prev.includes(userId) 
+        ? prev.filter(id => id !== userId)
+        : [...prev, userId]
+    )
+  }
+
+  const selectAllUsers = () => {
+    const filtered = getFilteredUsers()
+    setSelectedUsers(filtered.map(u => u.id))
+  }
+
+  const clearSelection = () => {
+    setSelectedUsers([])
+  }
   
   console.log('🔍 UserManagement Debug:', {
     userRole: userRole,
@@ -408,13 +593,16 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
 
   return (
     <div className="space-y-6">
-      {/* System Toggle */}
-      <div className="flex justify-between items-center">
-        <div className="flex items-center space-x-4">
-          <div>
+      {/* Header Section */}
+      <div className="space-y-6">
+        {/* Title and Description */}
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+          <div className="flex-1">
             <h2 className="text-3xl font-bold text-gray-900 dark:text-white">User Management</h2>
             <p className="text-gray-600 dark:text-gray-400 mt-2">Manage system users and their permissions</p>
           </div>
+          
+          {/* System Toggle */}
           <div className="flex items-center space-x-2 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
             <button
               onClick={() => setUseIntegratedSystem(true)}
@@ -440,10 +628,149 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
             </button>
           </div>
         </div>
-        <Button onClick={() => setShowForm(true)} className="flex items-center space-x-2">
-          <Plus className="h-4 w-4" />
-          <span>Add New User</span>
-        </Button>
+
+        {/* Advanced Features Toolbar */}
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          {/* Left Side - Advanced Actions */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowBulkOperations(!showBulkOperations)}
+              className="flex items-center gap-2"
+              disabled={selectedUsers.length === 0}
+            >
+              <Settings className="h-4 w-4" />
+              Bulk Operations ({selectedUsers.length})
+            </Button>
+            
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={exportUsers}
+              className="flex items-center gap-2"
+            >
+              <Download className="h-4 w-4" />
+              Export Users
+            </Button>
+            
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowAnalytics(!showAnalytics)}
+              className="flex items-center gap-2"
+            >
+              <BarChart3 className="h-4 w-4" />
+              Analytics
+            </Button>
+            
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowAuditLog(!showAuditLog)}
+              className="flex items-center gap-2"
+            >
+              <History className="h-4 w-4" />
+              Audit Log
+            </Button>
+          </div>
+
+          {/* Right Side - View Mode and Add User */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+              <button
+                onClick={() => setViewMode('table')}
+                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                  viewMode === 'table'
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                }`}
+              >
+                <Users className="h-3 w-3 inline mr-1" />
+                Table
+              </button>
+              <button
+                onClick={() => setViewMode('cards')}
+                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                  viewMode === 'cards'
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                }`}
+              >
+                <Building className="h-3 w-3 inline mr-1" />
+                Cards
+              </button>
+            </div>
+            
+            <Button onClick={() => setShowForm(true)} className="flex items-center space-x-2">
+              <Plus className="h-4 w-4" />
+              <span>Add New User</span>
+            </Button>
+          </div>
+        </div>
+
+        {/* Bulk Operations Panel */}
+        {showBulkOperations && (
+          <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                Selected {selectedUsers.length} users
+              </span>
+              
+              <Button
+                size="sm"
+                onClick={() => bulkUpdateUsers({ is_active: true } as any)}
+                className="flex items-center gap-2"
+              >
+                <UserCheck className="h-4 w-4" />
+                Activate
+              </Button>
+              
+              <Button
+                size="sm"
+                onClick={() => bulkUpdateUsers({ is_active: false } as any)}
+                className="flex items-center gap-2"
+              >
+                <UserX className="h-4 w-4" />
+                Deactivate
+              </Button>
+              
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={clearSelection}
+              >
+                Clear Selection
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Analytics Panel */}
+        {showAnalytics && (
+          <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-blue-600">{getUserStats().total}</div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">Total Users</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-green-600">{getUserStats().active}</div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">Active</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-red-600">{getUserStats().inactive}</div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">Inactive</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-purple-600">
+                  {Math.round((getUserStats().active / getUserStats().total) * 100)}%
+                </div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">Active Rate</div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {error && (
@@ -626,6 +953,14 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                           <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => window.open(`/profile/${user.id}`, '_blank')}
+                              title="View Profile"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
                             <Button
                               variant="outline"
                               size="sm"

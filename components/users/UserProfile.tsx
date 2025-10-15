@@ -33,7 +33,9 @@ import {
   Activity,
   BarChart3,
   FileText,
-  Settings
+  Settings,
+  Briefcase,
+  Phone
 } from 'lucide-react'
 
 export function UserProfile() {
@@ -46,6 +48,10 @@ export function UserProfile() {
   const [editMode, setEditMode] = useState(false)
   const [userData, setUserData] = useState<any>(null)
   const [activityStats, setActivityStats] = useState<any>(null)
+  
+  // Departments and Job Titles
+  const [departments, setDepartments] = useState<any[]>([])
+  const [jobTitles, setJobTitles] = useState<any[]>([])
   
   // Password change
   const [showPasswordChange, setShowPasswordChange] = useState(false)
@@ -61,15 +67,19 @@ export function UserProfile() {
     first_name: '',
     last_name: '',
     full_name: '',
-    division: '',
-    phone: '',
-    position: ''
+    department_id: '',
+    job_title_id: '',
+    phone_1: '',
+    phone_2: '',
+    about: '',
+    profile_picture_url: ''
   })
 
   const supabase = getSupabaseClient()
 
   useEffect(() => {
     loadUserProfile()
+    loadDepartmentsAndJobTitles()
   }, [authUser])
 
   // Add refresh capability
@@ -83,6 +93,32 @@ export function UserProfile() {
     return () => window.removeEventListener('focus', handleFocus)
   }, [])
 
+  const loadDepartmentsAndJobTitles = async () => {
+    try {
+      // Load departments
+      const { data: deptData, error: deptError } = await (supabase as any)
+        .from('departments')
+        .select('*')
+        .eq('is_active', true)
+        .order('display_order')
+
+      if (deptError) throw deptError
+      setDepartments(deptData || [])
+
+      // Load job titles
+      const { data: jobData, error: jobError } = await (supabase as any)
+        .from('job_titles')
+        .select('*')
+        .eq('is_active', true)
+        .order('display_order')
+
+      if (jobError) throw jobError
+      setJobTitles(jobData || [])
+    } catch (error: any) {
+      console.error('Error loading departments and job titles:', error)
+    }
+  }
+
   const loadUserProfile = async () => {
     try {
       setLoading(true)
@@ -93,9 +129,9 @@ export function UserProfile() {
         return
       }
 
-      // Load user data
+      // Load user data with department and job title info
       const { data: user, error: userError } = await supabase
-        .from('users')
+        .from('user_profiles_complete')
         .select('*')
         .eq('id', authUser.id)
         .single()
@@ -113,9 +149,12 @@ export function UserProfile() {
         first_name: (user as any).first_name || '',
         last_name: (user as any).last_name || '',
         full_name: (user as any).full_name || '',
-        division: (user as any).division || '',
-        phone: (user as any).phone || '',
-        position: (user as any).position || ''
+        department_id: (user as any).department_id || '',
+        job_title_id: (user as any).job_title_id || '',
+        phone_1: (user as any).phone_1 || '',
+        phone_2: (user as any).phone_2 || '',
+        about: (user as any).about || '',
+        profile_picture_url: (user as any).profile_picture_url || ''
       })
 
       // Load activity statistics
@@ -168,16 +207,19 @@ export function UserProfile() {
       setError('')
       setSuccess('')
 
+      // Use the RPC function for updating profile
       const { error: updateError } = await (supabase as any)
-        .from('users')
-        .update({
-          full_name: formData.full_name,
-          division: formData.division,
-          phone: formData.phone,
-          position: formData.position,
-          updated_at: new Date().toISOString()
+        .rpc('update_user_profile', {
+          user_id: authUser?.id,
+          p_first_name: formData.first_name,
+          p_last_name: formData.last_name,
+          p_department_id: formData.department_id || null,
+          p_job_title_id: formData.job_title_id || null,
+          p_phone_1: formData.phone_1 || null,
+          p_phone_2: formData.phone_2 || null,
+          p_about: formData.about || null,
+          p_profile_picture_url: formData.profile_picture_url || null
         })
-        .eq('id', authUser?.id)
 
       if (updateError) throw updateError
 
@@ -281,9 +323,12 @@ export function UserProfile() {
                         first_name: (userData as any).first_name || '',
                         last_name: (userData as any).last_name || '',
                         full_name: userData.full_name || '',
-                        division: userData.division || '',
-                        phone: (userData as any).phone || '',
-                        position: (userData as any).position || ''
+                        department_id: (userData as any).department_id || '',
+                        job_title_id: (userData as any).job_title_id || '',
+                        phone_1: (userData as any).phone_1 || '',
+                        phone_2: (userData as any).phone_2 || '',
+                        about: (userData as any).about || '',
+                        profile_picture_url: (userData as any).profile_picture_url || ''
                       })
                     }}>
                       <X className="h-4 w-4 mr-2" />
@@ -351,54 +396,103 @@ export function UserProfile() {
                   </div>
                 </div>
 
-                {/* Division */}
+                {/* Department */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Division
+                    Department
                   </label>
                   {editMode ? (
-                    <Input
-                      value={formData.division}
-                      onChange={(e) => setFormData(prev => ({ ...prev, division: e.target.value }))}
-                      placeholder="Enter your division"
-                    />
+                    <select
+                      value={formData.department_id}
+                      onChange={(e) => setFormData(prev => ({ ...prev, department_id: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                    >
+                      <option value="">Select Department</option>
+                      {departments.map((dept) => (
+                        <option key={dept.id} value={dept.id}>
+                          {dept.name_en} / {dept.name_ar}
+                        </option>
+                      ))}
+                    </select>
                   ) : (
                     <div className="flex items-center gap-2">
                       <Building className="h-4 w-4 text-gray-400" />
-                      <span className="text-gray-900 dark:text-white">{userData.division || 'Not specified'}</span>
+                      <span className="text-gray-900 dark:text-white">
+                        {userData.department_name_en || 'Not specified'}
+                        {userData.department_name_ar && (
+                          <span className="text-gray-500"> / {userData.department_name_ar}</span>
+                        )}
+                      </span>
                     </div>
                   )}
                 </div>
 
-                {/* Position */}
+                {/* Job Title */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Position/Title
+                    Job Title
                   </label>
                   {editMode ? (
-                    <Input
-                      value={formData.position}
-                      onChange={(e) => setFormData(prev => ({ ...prev, position: e.target.value }))}
-                      placeholder="e.g., Senior Engineer, Project Manager"
-                    />
+                    <select
+                      value={formData.job_title_id}
+                      onChange={(e) => setFormData(prev => ({ ...prev, job_title_id: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                    >
+                      <option value="">Select Job Title</option>
+                      {jobTitles.map((title) => (
+                        <option key={title.id} value={title.id}>
+                          {title.title_en} / {title.title_ar}
+                        </option>
+                      ))}
+                    </select>
                   ) : (
-                    <p className="text-gray-900 dark:text-white">{(userData as any).position || 'Not specified'}</p>
+                    <div className="flex items-center gap-2">
+                      <Briefcase className="h-4 w-4 text-gray-400" />
+                      <span className="text-gray-900 dark:text-white">
+                        {userData.job_title_en || 'Not specified'}
+                        {userData.job_title_ar && (
+                          <span className="text-gray-500"> / {userData.job_title_ar}</span>
+                        )}
+                      </span>
+                    </div>
                   )}
                 </div>
 
-                {/* Phone */}
+                {/* Primary Phone */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Phone Number
+                    Primary Phone
                   </label>
                   {editMode ? (
                     <Input
-                      value={formData.phone}
-                      onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
-                      placeholder="+971 50 xxx xxxx"
+                      value={formData.phone_1}
+                      onChange={(e) => setFormData(prev => ({ ...prev, phone_1: e.target.value }))}
+                      placeholder="+966 XXX XXX XXXX"
                     />
                   ) : (
-                    <p className="text-gray-900 dark:text-white">{(userData as any).phone || 'Not specified'}</p>
+                    <div className="flex items-center gap-2">
+                      <Phone className="h-4 w-4 text-gray-400" />
+                      <span className="text-gray-900 dark:text-white">{userData.phone_1 || 'Not specified'}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Secondary Phone */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Secondary Phone (Optional)
+                  </label>
+                  {editMode ? (
+                    <Input
+                      value={formData.phone_2}
+                      onChange={(e) => setFormData(prev => ({ ...prev, phone_2: e.target.value }))}
+                      placeholder="+966 XXX XXX XXXX"
+                    />
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Phone className="h-4 w-4 text-gray-400" />
+                      <span className="text-gray-900 dark:text-white">{userData.phone_2 || 'Not specified'}</span>
+                    </div>
                   )}
                 </div>
 
@@ -430,6 +524,26 @@ export function UserProfile() {
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                     {getRoleDescription(userData.role)}
                   </p>
+                </div>
+
+                {/* About */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    About Me
+                  </label>
+                  {editMode ? (
+                    <textarea
+                      value={formData.about}
+                      onChange={(e) => setFormData(prev => ({ ...prev, about: e.target.value }))}
+                      placeholder="Tell us about yourself, your experience, and your role..."
+                      rows={4}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white resize-none"
+                    />
+                  ) : (
+                    <p className="text-gray-900 dark:text-white whitespace-pre-wrap">
+                      {userData.about || 'Not specified'}
+                    </p>
+                  )}
                 </div>
               </div>
             </CardContent>

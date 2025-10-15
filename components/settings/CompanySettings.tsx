@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -40,6 +40,14 @@ export function CompanySettings({ onClose }: CompanySettingsProps) {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [canEdit, setCanEdit] = useState(false)
+  
+  // Auto-save states
+  const [isAutoSaving, setIsAutoSaving] = useState(false)
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [lastSaved, setLastSaved] = useState<Date | null>(null)
+  
+  // Auto-save timeout ref
+  const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // تحميل الإعدادات الحالية من قاعدة البيانات
   useEffect(() => {
@@ -83,6 +91,64 @@ export function CompanySettings({ onClose }: CompanySettingsProps) {
     loadSettings()
   }, [guard])
 
+  // Auto-save function
+  const autoSave = useCallback(async () => {
+    if (!canEdit || isAutoSaving) return
+
+    setIsAutoSaving(true)
+    setAutoSaveStatus('saving')
+
+    try {
+      console.log('💾 Auto-saving company settings...')
+      
+      const result = await updateCompanySettings(companyName, companySlogan, logoUrl)
+      
+      if (result.success) {
+        clearCompanySettingsCache()
+        setAutoSaveStatus('saved')
+        setLastSaved(new Date())
+        setError('') // Clear any previous errors
+        
+        // ✅ No reload - just update the state and show success
+        // Hide "saved" status after 3 seconds
+        setTimeout(() => {
+          setAutoSaveStatus('idle')
+        }, 3000)
+      } else {
+        setAutoSaveStatus('error')
+        setError('Auto-save failed: ' + (result.error || 'Unknown error'))
+      }
+    } catch (error: any) {
+      console.error('❌ Auto-save error:', error)
+      setAutoSaveStatus('error')
+      setError('Auto-save failed: ' + error.message)
+    } finally {
+      setIsAutoSaving(false)
+    }
+  }, [companyName, companySlogan, logoUrl, canEdit, isAutoSaving])
+
+  // Trigger auto-save when any field changes
+  useEffect(() => {
+    if (!canEdit) return
+
+    // Clear existing timeout
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current)
+    }
+
+    // Set new timeout for auto-save (500ms delay)
+    autoSaveTimeoutRef.current = setTimeout(() => {
+      autoSave()
+    }, 500)
+
+    // Cleanup timeout on unmount
+    return () => {
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current)
+      }
+    }
+  }, [companyName, companySlogan, logoUrl, autoSave, canEdit])
+
   const handleSave = async () => {
     if (!canEdit) {
       setError('You do not have permission to edit company settings')
@@ -105,10 +171,7 @@ export function CompanySettings({ onClose }: CompanySettingsProps) {
         
         setSuccess('Company settings saved successfully to database!')
         
-        // تحديث الصفحة بعد ثانيتين لتطبيق التغييرات
-        setTimeout(() => {
-          window.location.reload()
-        }, 2000)
+        // ✅ No reload - changes are already applied
       } else {
         setError('Error saving settings: ' + (result.error || 'Unknown error'))
       }
@@ -151,10 +214,7 @@ export function CompanySettings({ onClose }: CompanySettingsProps) {
         
         setSuccess('Company settings reset to default values successfully!')
         
-        // تحديث الصفحة بعد ثانيتين
-        setTimeout(() => {
-          window.location.reload()
-        }, 2000)
+        // ✅ No reload - state is already updated
       } else {
         setError('Error resetting settings: ' + (result.error || 'Unknown error'))
       }
@@ -216,6 +276,37 @@ export function CompanySettings({ onClose }: CompanySettingsProps) {
           <div className="flex items-center gap-2 text-red-600">
             <Shield className="w-4 h-4" />
             <span className="text-sm font-medium">No Edit Permission</span>
+          </div>
+        )}
+        
+        {/* Auto-save indicator */}
+        {canEdit && (
+          <div className="flex items-center gap-2 ml-auto">
+            {autoSaveStatus === 'saving' && (
+              <div className="flex items-center gap-2 text-blue-600">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                <span className="text-sm font-medium">Auto-saving...</span>
+              </div>
+            )}
+            {autoSaveStatus === 'saved' && (
+              <div className="flex items-center gap-2 text-green-600">
+                <Save className="w-4 h-4" />
+                <span className="text-sm font-medium">Auto-saved</span>
+              </div>
+            )}
+            {autoSaveStatus === 'error' && (
+              <div className="flex items-center gap-2 text-red-600">
+                <Database className="w-4 h-4" />
+                <span className="text-sm font-medium">Auto-save failed</span>
+              </div>
+            )}
+            {lastSaved && autoSaveStatus === 'idle' && (
+              <div className="flex items-center gap-2 text-gray-500">
+                <span className="text-xs">
+                  Last saved: {lastSaved.toLocaleTimeString()}
+                </span>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -377,12 +468,17 @@ export function CompanySettings({ onClose }: CompanySettingsProps) {
               <Database className="w-5 h-5 text-blue-600 mt-0.5" />
               <div>
                 <h4 className="font-medium text-blue-900 dark:text-blue-100 mb-1">
-                  Save to Database
+                  Auto-Save Enabled
                 </h4>
                 <p className="text-sm text-blue-700 dark:text-blue-300">
-                  All company settings are saved in the main database and can be accessed from anywhere in the application.
-                  {!canEdit && ' Only administrators can modify these settings.'}
+                  All changes are automatically saved to the database after 500ms of inactivity.
+                  {canEdit ? ' No need to click Save manually!' : ' Only administrators can modify these settings.'}
                 </p>
+                {canEdit && (
+                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                    💡 Auto-save triggers when you stop typing for 0.5 seconds
+                  </p>
+                )}
               </div>
             </div>
           </div>

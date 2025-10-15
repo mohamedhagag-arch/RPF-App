@@ -16,6 +16,9 @@ import { UnifiedFilter, FilterState } from '@/components/ui/UnifiedFilter'
 import { Pagination } from '@/components/ui/Pagination'
 import { SmartFilter } from '@/components/ui/SmartFilter'
 import { Plus, ClipboardList, CheckCircle, Clock, AlertCircle } from 'lucide-react'
+import { ExportButton } from '@/components/ui/ExportButton'
+import { ImportButton } from '@/components/ui/ImportButton'
+import { PrintButton } from '@/components/ui/PrintButton'
 
 interface BOQManagementProps {
   globalSearchTerm?: string
@@ -497,6 +500,102 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     return true
   })
   
+  // Handle import BOQ data
+  const handleImportBOQ = async (importedData: any[]) => {
+    try {
+      console.log(`📥 Importing ${importedData.length} BOQ activities...`)
+      
+      // Map imported data to database format
+      const activitiesToInsert = importedData.map(row => ({
+        'Project Code': row['Project Code'] || row['project_code'] || '',
+        'Project Sub Code': row['Project Sub Code'] || row['project_sub_code'] || '',
+        'Project Full Code': row['Project Full Code'] || row['project_full_code'] || row['Project Code'] || '',
+        'Activity': row['Activity'] || row['activity'] || '',
+        'Activity Division': row['Activity Division'] || row['activity_division'] || '',
+        'Unit': row['Unit'] || row['unit'] || '',
+        'Zone Ref': row['Zone Ref'] || row['zone_ref'] || '',
+        'Activity Name': row['Activity Name'] || row['activity_name'] || row['Activity'] || '',
+        'Total Units': row['Total Units'] || row['total_units'] || '0',
+        'Planned Units': row['Planned Units'] || row['planned_units'] || '0',
+        'Actual Units': row['Actual Units'] || row['actual_units'] || '0',
+        'Rate': row['Rate'] || row['rate'] || '0',
+        'Total Value': row['Total Value'] || row['total_value'] || '0',
+        'Planned Activity Start Date': row['Planned Activity Start Date'] || row['planned_activity_start_date'] || '',
+        'Deadline': row['Deadline'] || row['deadline'] || '',
+        'Calendar Duration': row['Calendar Duration'] || row['calendar_duration'] || '0'
+      }))
+      
+      // Insert into database
+      const { data, error } = await supabase
+        .from(TABLES.BOQ_ACTIVITIES)
+        .insert(activitiesToInsert as any)
+        .select()
+      
+      if (error) {
+        console.error('❌ Error importing BOQ activities:', error)
+        throw error
+      }
+      
+      console.log(`✅ Successfully imported ${data?.length || 0} BOQ activities`)
+      
+      // Refresh activities list
+      await fetchData(1)
+    } catch (error: any) {
+      console.error('❌ Import failed:', error)
+      throw new Error(`Import failed: ${error.message}`)
+    }
+  }
+
+  // Prepare data for export
+  const getExportData = () => {
+    return filteredActivities.map(activity => ({
+      'Project Code': activity.project_code,
+      'Project Sub Code': activity.project_sub_code,
+      'Project Full Code': activity.project_full_code,
+      'Activity': activity.activity,
+      'Activity Name': activity.activity_name,
+      'Activity Division': activity.activity_division,
+      'Unit': activity.unit,
+      'Zone Ref': activity.zone_ref,
+      'Total Units': activity.total_units,
+      'Planned Units': activity.planned_units,
+      'Actual Units': activity.actual_units,
+      'Difference': activity.difference,
+      'Rate': activity.rate,
+      'Total Value': activity.total_value,
+      'Planned Value': activity.planned_value,
+      'Earned Value': activity.earned_value,
+      'Activity Progress %': activity.activity_progress_percentage,
+      'Planned Activity Start Date': activity.planned_activity_start_date,
+      'Deadline': activity.deadline,
+      'Calendar Duration': activity.calendar_duration,
+      'Activity Status': activity.activity_actual_status,
+      'Completed': activity.activity_completed ? 'YES' : 'NO',
+      'Delayed': activity.activity_delayed ? 'YES' : 'NO',
+      'On Track': activity.activity_on_track ? 'YES' : 'NO'
+    }))
+  }
+
+  // Template columns for import
+  const importTemplateColumns = [
+    'Project Code',
+    'Project Sub Code',
+    'Project Full Code',
+    'Activity',
+    'Activity Name',
+    'Activity Division',
+    'Unit',
+    'Zone Ref',
+    'Total Units',
+    'Planned Units',
+    'Actual Units',
+    'Rate',
+    'Total Value',
+    'Planned Activity Start Date',
+    'Deadline',
+    'Calendar Duration'
+  ]
+
   // Calculate statistics
   const totalActivities = activities.length
   const completedActivities = activities.filter(a => a.activity_completed).length
@@ -507,26 +606,70 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   const isInitialLoad = loading && activities.length === 0
 
   return (
-    <div className="space-y-6 max-w-full overflow-hidden">
-      <div className="flex justify-between items-center">
-        <div>
-          <div className="flex items-center gap-3">
-            <h2 className="text-3xl font-bold text-gray-900 dark:text-white">Bill of Quantities (BOQ)</h2>
-            {loading && (
-              <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-full animate-pulse">
-                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
-                <span className="text-xs text-blue-600 dark:text-blue-400">Syncing...</span>
-              </div>
-            )}
+    <div className="space-y-6 max-w-full overflow-hidden boq-container">
+      {/* Header Section */}
+      <div className="space-y-6">
+        {/* Title and Description */}
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+          <div className="flex-1">
+            <div className="flex items-center gap-3">
+              <h2 className="text-3xl font-bold text-gray-900 dark:text-white">Bill of Quantities (BOQ)</h2>
+              {loading && (
+                <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-full animate-pulse">
+                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
+                  <span className="text-xs text-blue-600 dark:text-blue-400">Syncing...</span>
+                </div>
+              )}
+            </div>
+            <p className="text-gray-600 dark:text-gray-300 mt-2">Manage and track project activities and quantities</p>
           </div>
-          <p className="text-gray-600 dark:text-gray-300 mt-2">Manage and track project activities and quantities</p>
+          
+          {/* Add New Activity Button */}
+          {guard.hasAccess('boq.create') && (
+            <Button 
+              onClick={() => setShowForm(true)} 
+              className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Add New Activity</span>
+            </Button>
+          )}
         </div>
-        {guard.hasAccess('boq.create') && (
-          <Button onClick={() => setShowForm(true)} className="flex items-center space-x-2 ">
-            <Plus className="h-4 w-4" />
-            <span>Add New Activity</span>
-          </Button>
-        )}
+        
+        {/* Action Buttons */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300 mr-2">Data Actions:</span>
+          {guard.hasAccess('boq.export') && (
+            <ExportButton
+              data={getExportData()}
+              filename="BOQ_Activities"
+              formats={['csv', 'excel']}
+              label="Export"
+              variant="outline"
+            />
+          )}
+          
+          <PrintButton
+            label="Print"
+            variant="outline"
+            printTitle="BOQ Activities Report"
+            printSettings={{
+              fontSize: '10px',
+              compactMode: true
+            }}
+          />
+          
+          {guard.hasAccess('boq.create') && (
+            <ImportButton
+              onImport={handleImportBOQ}
+              requiredColumns={['Project Code', 'Activity Name', 'Unit']}
+              templateName="BOQ_Activities"
+              templateColumns={importTemplateColumns}
+              label="Import"
+              variant="outline"
+            />
+          )}
+        </div>
       </div>
 
       {error && (

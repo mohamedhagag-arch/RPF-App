@@ -37,6 +37,8 @@ npm run dev
 - 📈 **Key Performance Indicators (KPI) Tracking** - Monitor performance with timestamps
 - 📅 **Advanced Reporting** - Daily, Weekly, Monthly reports with Lookahead planning
 - 🎯 **Auto Progress Calculation** - Progress % = (Actual / Planned) × 100
+- 📤 **Export Data** - Export to CSV, Excel, or JSON formats
+- 📥 **Import Data** - Import from Excel/CSV with preview and validation
 - 🎨 **English User Interface** with responsive design
 - 📱 **Responsive Design** that works on all devices
 

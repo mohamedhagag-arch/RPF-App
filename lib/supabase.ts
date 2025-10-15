@@ -139,6 +139,7 @@ export interface User {
   division?: string
   permissions?: string[] // TEXT[] array of permission IDs
   custom_permissions_enabled?: boolean
+  is_active?: boolean
   created_at: string
   updated_at: string
 }

@@ -10,6 +10,7 @@ import { UserDropdown } from '@/components/ui/UserDropdown'
 import { LogOut, User } from 'lucide-react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { ConnectionMonitor } from '@/components/common/ConnectionMonitor'
+import { ProfileCompletionWrapper } from '@/components/auth/ProfileCompletionWrapper'
 // Simple connection management - no complex systems needed
 // Import simple connection test for development
 import '@/lib/simpleConnectionTest'
@@ -44,6 +45,8 @@ export default function AuthenticatedLayout({
     if (pathname === '/settings') return 'settings'
     if (pathname === '/reports') return 'reports'
     if (pathname === '/profile') return 'profile'
+    if (pathname.startsWith('/profile/')) return 'profile'
+    if (pathname === '/directory') return 'directory'
     return 'dashboard'
   }
 
@@ -51,6 +54,8 @@ export default function AuthenticatedLayout({
   const handleTabChange = (tab: string) => {
     if (tab === 'users') {
       router.push('/settings?tab=users')
+    } else if (tab === 'directory') {
+      router.push('/directory')
     } else {
       router.push(`/${tab}`)
     }
@@ -125,7 +130,9 @@ export default function AuthenticatedLayout({
 
         {/* Page Content */}
         <main className="min-h-[calc(100vh-73px)]">
-          {children}
+          <ProfileCompletionWrapper>
+            {children}
+          </ProfileCompletionWrapper>
         </main>
       </div>
       

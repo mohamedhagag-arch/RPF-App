@@ -26,6 +26,9 @@ import { Pagination } from '@/components/ui/Pagination'
 import { Plus, Search, Building, Calendar, DollarSign, Percent, Hash, CheckCircle, Clock, AlertCircle, Folder, BarChart3, Grid } from 'lucide-react'
 import { Input } from '@/components/ui/Input'
 import { SmartFilter } from '@/components/ui/SmartFilter'
+import { ExportButton } from '@/components/ui/ExportButton'
+import { ImportButton } from '@/components/ui/ImportButton'
+import { PrintButton } from '@/components/ui/PrintButton'
 
 interface ProjectsListProps {
   globalSearchTerm?: string
@@ -550,57 +553,179 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
     }
   }
 
+  // Handle import data
+  const handleImportProjects = async (importedData: any[]) => {
+    try {
+      console.log(`📥 Importing ${importedData.length} projects...`)
+      
+      // Map imported data to database format
+      const projectsToInsert = importedData.map(row => ({
+        'Project Code': row['Project Code'] || row['project_code'] || '',
+        'Project Sub-Code': row['Project Sub-Code'] || row['project_sub_code'] || '',
+        'Project Name': row['Project Name'] || row['project_name'] || '',
+        'Project Type': row['Project Type'] || row['project_type'] || '',
+        'Responsible Division': row['Responsible Division'] || row['responsible_division'] || '',
+        'Plot Number': row['Plot Number'] || row['plot_number'] || '',
+        'KPI Completed': row['KPI Completed'] || row['kpi_completed'] || 'FALSE',
+        'Project Status': row['Project Status'] || row['project_status'] || 'active',
+        'Contract Amount': row['Contract Amount'] || row['contract_amount'] || '0',
+        'Currency': row['Currency'] || row['currency'] || 'AED'
+      }))
+      
+      // Insert into database
+      const { data, error } = await supabase
+        .from(TABLES.PROJECTS)
+        .insert(projectsToInsert as any)
+        .select()
+      
+      if (error) {
+        console.error('❌ Error importing projects:', error)
+        throw error
+      }
+      
+      console.log(`✅ Successfully imported ${data?.length || 0} projects`)
+      
+      // Refresh projects list
+      await fetchProjects(currentPage)
+    } catch (error: any) {
+      console.error('❌ Import failed:', error)
+      throw new Error(`Import failed: ${error.message}`)
+    }
+  }
+
+  // Prepare data for export
+  const getExportData = () => {
+    const filtered = getFilteredAndSortedProjects()
+    const paginated = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+    
+    // Map to user-friendly format
+    return paginated.map(project => ({
+      'Project Code': project.project_code,
+      'Project Sub-Code': project.project_sub_code,
+      'Project Name': project.project_name,
+      'Project Type': project.project_type,
+      'Responsible Division': project.responsible_division,
+      'Plot Number': project.plot_number,
+      'KPI Completed': project.kpi_completed ? 'YES' : 'NO',
+      'Project Status': project.project_status,
+      'Contract Amount': project.contract_amount,
+      'Currency': 'AED',
+      'Created At': project.created_at,
+      'Updated At': project.updated_at
+    }))
+  }
+
+  // Template columns for import
+  const importTemplateColumns = [
+    'Project Code',
+    'Project Sub-Code',
+    'Project Name',
+    'Project Type',
+    'Responsible Division',
+    'Plot Number',
+    'KPI Completed',
+    'Project Status',
+    'Contract Amount',
+    'Currency'
+  ]
+
   // Don't show full-page loading - show inline indicator instead
   const isInitialLoad = loading && projects.length === 0
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <div className="flex items-center gap-3">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Project Management</h2>
-            {loading && (
-              <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-full animate-pulse">
-                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
-                <span className="text-xs text-blue-600 dark:text-blue-400">Syncing...</span>
-              </div>
-            )}
-          </div>
-          <p className="text-gray-600 dark:text-gray-400 mt-2">Masters of Foundation Construction - Manage and track all projects with smart analytics</p>
-        </div>
-        <div className="flex gap-2">
-          {/* View Mode Toggle */}
-          <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
-            <Button
-              variant={viewMode === 'cards' ? 'primary' : 'ghost'}
-              size="sm"
-              onClick={() => setViewMode('cards')}
-              className="flex items-center space-x-1 transition-all duration-200"
-              title={`${getCardViewName('cards')} - ${getCardViewDescription('cards')}`}
-            >
-              <BarChart3 className="h-4 w-4" />
-              <span className="hidden sm:inline">Enhanced</span>
-            </Button>
-            <Button
-              variant={viewMode === 'simple' ? 'primary' : 'ghost'}
-              size="sm"
-              onClick={() => setViewMode('simple')}
-              className="flex items-center space-x-1 transition-all duration-200"
-              title={`${getCardViewName('simple')} - ${getCardViewDescription('simple')}`}
-            >
-              <Folder className="h-4 w-4" />
-              <span className="hidden sm:inline">Simple</span>
-            </Button>
+    <div className="space-y-6 projects-container">
+      {/* Header Section */}
+      <div className="space-y-6">
+        {/* Title and Description */}
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+          <div className="flex-1">
+            <div className="flex items-center gap-3">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Project Management</h2>
+              {loading && (
+                <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-full animate-pulse">
+                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
+                  <span className="text-xs text-blue-600 dark:text-blue-400">Syncing...</span>
+                </div>
+              )}
+            </div>
+            <p className="text-gray-600 dark:text-gray-400 mt-2">Masters of Foundation Construction - Manage and track all projects with smart analytics</p>
           </div>
           
-          
+          {/* Add New Project Button */}
           {guard.hasAccess('projects.create') && (
-            <button onClick={() => setShowForm(true)} className="btn-primary flex items-center space-x-2">
+            <button 
+              onClick={() => setShowForm(true)} 
+              className="btn-primary flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
+            >
               <Plus className="h-4 w-4" />
-              <span className="hidden sm:inline">Add New Project</span>
-              <span className="sm:hidden">Add</span>
+              <span>Add New Project</span>
             </button>
           )}
+        </div>
+        
+        {/* Action Buttons and Controls */}
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          {/* Data Actions Group */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300 mr-2">Data Actions:</span>
+            {guard.hasAccess('projects.export') && (
+              <ExportButton
+                data={getExportData()}
+                filename="Projects"
+                formats={['csv', 'excel']}
+                label="Export"
+                variant="outline"
+              />
+            )}
+            
+            <PrintButton
+              label="Print"
+              variant="outline"
+              printTitle="Projects Report"
+              printSettings={{
+                fontSize: '11px',
+                compactMode: true
+              }}
+            />
+            
+            {guard.hasAccess('projects.create') && (
+              <ImportButton
+                onImport={handleImportProjects}
+                requiredColumns={['Project Code', 'Project Name']}
+                templateName="Projects"
+                templateColumns={importTemplateColumns}
+                label="Import"
+                variant="outline"
+              />
+            )}
+          </div>
+          
+          {/* View Mode Toggle */}
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">View Mode:</span>
+            <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+              <Button
+                variant={viewMode === 'cards' ? 'primary' : 'ghost'}
+                size="sm"
+                onClick={() => setViewMode('cards')}
+                className="flex items-center space-x-1 transition-all duration-200"
+                title={`${getCardViewName('cards')} - ${getCardViewDescription('cards')}`}
+              >
+                <BarChart3 className="h-4 w-4" />
+                <span>Enhanced</span>
+              </Button>
+              <Button
+                variant={viewMode === 'simple' ? 'primary' : 'ghost'}
+                size="sm"
+                onClick={() => setViewMode('simple')}
+                className="flex items-center space-x-1 transition-all duration-200"
+                title={`${getCardViewName('simple')} - ${getCardViewDescription('simple')}`}
+              >
+                <Folder className="h-4 w-4" />
+                <span>Simple</span>
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
       

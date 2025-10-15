@@ -35,7 +35,19 @@ import {
   UserCog,
   Mail,
   Building,
-  UserCheck
+  UserCheck,
+  Download,
+  Upload,
+  Copy,
+  History,
+  Filter,
+  Search,
+  BarChart3,
+  Clock,
+  Globe,
+  Star,
+  Target,
+  Zap
 } from 'lucide-react'
 
 interface AdvancedPermissionsManagerProps {
@@ -77,6 +89,16 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
   })
   const [editingUser, setEditingUser] = useState(false)
 
+  // Advanced Features States
+  const [showExportImport, setShowExportImport] = useState(false)
+  const [showAuditLog, setShowAuditLog] = useState(false)
+  const [showPermissionAnalytics, setShowPermissionAnalytics] = useState(false)
+  const [searchPermissions, setSearchPermissions] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState('')
+  const [permissionHistory, setPermissionHistory] = useState<any[]>([])
+  const [showRoleTemplates, setShowRoleTemplates] = useState(false)
+  const [bulkOperationMode, setBulkOperationMode] = useState(false)
+
   const getCategoryIcon = (category: string) => {
     switch (category) {
       case 'projects': return FileText
@@ -103,6 +125,91 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
       case 'database': return 'cyan'
       default: return 'gray'
     }
+  }
+
+  // Advanced Features Functions
+  const exportPermissions = () => {
+    const data = {
+      user: {
+        id: user.id,
+        full_name: user.full_name,
+        email: user.email,
+        role: user.role,
+        division: user.division,
+        is_active: user.is_active
+      },
+      permissions: selectedPermissions,
+      customMode: customMode,
+      exportDate: new Date().toISOString(),
+      exportedBy: 'system'
+    }
+    
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `permissions_${user.full_name.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  const importPermissions = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target?.result as string)
+        if (data.permissions && Array.isArray(data.permissions)) {
+          setSelectedPermissions(data.permissions)
+          setCustomMode(data.customMode || false)
+        }
+      } catch (error) {
+        setError('Invalid permissions file format')
+      }
+    }
+    reader.readAsText(file)
+  }
+
+  const copyPermissions = () => {
+    const permissionsText = selectedPermissions.join('\n')
+    navigator.clipboard.writeText(permissionsText)
+  }
+
+  const getFilteredPermissions = () => {
+    let filtered = ALL_PERMISSIONS
+
+    if (searchPermissions) {
+      filtered = filtered.filter(permission => 
+        permission.name.toLowerCase().includes(searchPermissions.toLowerCase()) ||
+        permission.description.toLowerCase().includes(searchPermissions.toLowerCase()) ||
+        permission.id.toLowerCase().includes(searchPermissions.toLowerCase())
+      )
+    }
+
+    if (selectedCategory) {
+      filtered = filtered.filter(permission => permission.category === selectedCategory)
+    }
+
+    return filtered
+  }
+
+  const getPermissionStats = () => {
+    const total = ALL_PERMISSIONS.length
+    const selected = selectedPermissions.length
+    const byCategory = ALL_PERMISSIONS.reduce((acc, permission) => {
+      acc[permission.category] = (acc[permission.category] || 0) + 1
+      return acc
+    }, {} as Record<string, number>)
+
+    return { total, selected, byCategory }
+  }
+
+  const getUniqueCategories = () => {
+    return Array.from(new Set(ALL_PERMISSIONS.map(p => p.category))).sort()
   }
 
   const togglePermission = (permissionId: string) => {
@@ -399,6 +506,136 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
           </div>
         </div>
 
+        {/* Advanced Features Toolbar */}
+        <div className="sticky top-0 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 p-4 z-10">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {/* Left Side - Advanced Actions */}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowExportImport(!showExportImport)}
+                className="flex items-center gap-2"
+              >
+                <Download className="h-4 w-4" />
+                Export/Import
+              </Button>
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={copyPermissions}
+                className="flex items-center gap-2"
+              >
+                <Copy className="h-4 w-4" />
+                Copy
+              </Button>
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowAuditLog(!showAuditLog)}
+                className="flex items-center gap-2"
+              >
+                <History className="h-4 w-4" />
+                Audit Log
+              </Button>
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowPermissionAnalytics(!showPermissionAnalytics)}
+                className="flex items-center gap-2"
+              >
+                <BarChart3 className="h-4 w-4" />
+                Analytics
+              </Button>
+            </div>
+
+            {/* Right Side - Search and Filters */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search permissions..."
+                  value={searchPermissions}
+                  onChange={(e) => setSearchPermissions(e.target.value)}
+                  className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              
+              <select
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="">All Categories</option>
+                {getUniqueCategories().map(category => (
+                  <option key={category} value={category}>
+                    {category.charAt(0).toUpperCase() + category.slice(1)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Export/Import Panel */}
+          {showExportImport && (
+            <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  onClick={exportPermissions}
+                  className="flex items-center gap-2"
+                >
+                  <Download className="h-4 w-4" />
+                  Export Permissions
+                </Button>
+                
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Upload className="h-4 w-4" />
+                  Import Permissions
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={importPermissions}
+                    className="hidden"
+                  />
+                </label>
+                
+                <Button
+                  variant="outline"
+                  onClick={() => setShowExportImport(false)}
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Analytics Panel */}
+          {showPermissionAnalytics && (
+            <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-blue-600">{getPermissionStats().selected}</div>
+                  <div className="text-sm text-gray-600 dark:text-gray-400">Selected</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-green-600">{getPermissionStats().total}</div>
+                  <div className="text-sm text-gray-600 dark:text-gray-400">Total Available</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-purple-600">
+                    {Math.round((getPermissionStats().selected / getPermissionStats().total) * 100)}%
+                  </div>
+                  <div className="text-sm text-gray-600 dark:text-gray-400">Coverage</div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Content */}
         <div className="flex-1 p-6 bg-gray-50 dark:bg-gray-800/50 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 scrollbar-track-gray-100 dark:scrollbar-track-gray-800">
           {error && (
@@ -474,11 +711,25 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
           {/* Permissions by Category */}
           <div className="space-y-4">
             {Object.entries(permissionsByCategory).map(([category, permissions]) => {
+              // Apply filters
+              const filteredPermissions = permissions.filter(permission => {
+                const matchesSearch = !searchPermissions || 
+                  permission.name.toLowerCase().includes(searchPermissions.toLowerCase()) ||
+                  permission.description.toLowerCase().includes(searchPermissions.toLowerCase()) ||
+                  permission.id.toLowerCase().includes(searchPermissions.toLowerCase())
+                
+                const matchesCategory = !selectedCategory || permission.category === selectedCategory
+                
+                return matchesSearch && matchesCategory
+              })
+
+              // Skip category if no permissions match filters
+              if (filteredPermissions.length === 0) return null
               const Icon = getCategoryIcon(category)
               const color = getCategoryColor(category)
-              const categoryPerms = permissions.map(p => p.id)
+              const categoryPerms = filteredPermissions.map(p => p.id)
               const selectedInCategory = selectedPermissions.filter(p => categoryPerms.includes(p)).length
-              const totalInCategory = permissions.length
+              const totalInCategory = filteredPermissions.length
               const allSelected = selectedInCategory === totalInCategory
               const someSelected = selectedInCategory > 0 && selectedInCategory < totalInCategory
 
@@ -558,7 +809,7 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
                   {/* Permissions Grid */}
                   <div className="p-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {permissions.map(permission => {
+                      {filteredPermissions.map(permission => {
                         const isSelected = selectedPermissions.includes(permission.id)
                         const isInRoleDefaults = roleDefaults.includes(permission.id)
                         

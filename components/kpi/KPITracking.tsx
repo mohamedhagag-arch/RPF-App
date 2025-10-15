@@ -17,6 +17,9 @@ import { UnifiedFilter, FilterState } from '@/components/ui/UnifiedFilter'
 import { Pagination } from '@/components/ui/Pagination'
 import { SmartFilter } from '@/components/ui/SmartFilter'
 import { Plus, BarChart3, CheckCircle, Clock, AlertCircle, Target, Info, Filter } from 'lucide-react'
+import { ExportButton } from '@/components/ui/ExportButton'
+import { ImportButton } from '@/components/ui/ImportButton'
+import { PrintButton } from '@/components/ui/PrintButton'
 
 interface KPITrackingProps {
   globalSearchTerm?: string
@@ -569,30 +572,171 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   const excellentKPIs = filteredKPIs.filter(k => k.status === 'excellent').length
   const goodKPIs = filteredKPIs.filter(k => k.status === 'good').length
 
+  // Handle import KPI data
+  const handleImportKPI = async (importedData: any[]) => {
+    try {
+      console.log(`📥 Importing ${importedData.length} KPI records...`)
+      
+      // Map imported data to database format
+      const kpisToInsert = importedData.map(row => ({
+        'Project Full Code': row['Project Full Code'] || row['project_full_code'] || row['Project Code'] || '',
+        'Project Code': row['Project Code'] || row['project_code'] || '',
+        'Project Sub Code': row['Project Sub Code'] || row['project_sub_code'] || '',
+        'Activity Name': row['Activity Name'] || row['activity_name'] || '',
+        'Activity': row['Activity'] || row['activity'] || '',
+        'Quantity': row['Quantity'] || row['quantity'] || '0',
+        'Input Type': row['Input Type'] || row['input_type'] || 'Planned',
+        'Unit': row['Unit'] || row['unit'] || '',
+        'Section': row['Section'] || row['section'] || '',
+        'Zone': row['Zone'] || row['zone'] || '',
+        'Drilled Meters': row['Drilled Meters'] || row['drilled_meters'] || '0',
+        'Value': row['Value'] || row['value'] || '0',
+        'Target Date': row['Target Date'] || row['target_date'] || '',
+        'Actual Date': row['Actual Date'] || row['actual_date'] || '',
+        'Activity Date': row['Activity Date'] || row['activity_date'] || '',
+        'Day': row['Day'] || row['day'] || '',
+        'Recorded By': row['Recorded By'] || row['recorded_by'] || '',
+        'Notes': row['Notes'] || row['notes'] || ''
+      }))
+      
+      // Insert into database
+      const { data, error } = await supabase
+        .from(TABLES.KPI)
+        .insert(kpisToInsert as any)
+        .select()
+      
+      if (error) {
+        console.error('❌ Error importing KPI records:', error)
+        throw error
+      }
+      
+      console.log(`✅ Successfully imported ${data?.length || 0} KPI records`)
+      
+      // Refresh KPI list
+      if (selectedProjects.length > 0) {
+        await fetchData(selectedProjects)
+      }
+    } catch (error: any) {
+      console.error('❌ Import failed:', error)
+      throw new Error(`Import failed: ${error.message}`)
+    }
+  }
+
+  // Prepare data for export
+  const getExportData = () => {
+    const paginated = filteredKPIs.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+    
+    return paginated.map(kpi => ({
+      'Project Full Code': kpi.project_full_code,
+      'Project Code': (kpi as any).project_code || '',
+      'Activity Name': kpi.activity_name,
+      'Input Type': kpi.input_type,
+      'Quantity': kpi.quantity,
+      'Unit': kpi.unit,
+      'Target Date': kpi.target_date,
+      'Actual Date': (kpi as any).actual_date || '',
+      'Activity Date': kpi.activity_date || '',
+      'Day': (kpi as any).day || '',
+      'Section': kpi.section,
+      'Zone': (kpi as any).zone || '',
+      'Drilled Meters': kpi.drilled_meters,
+      'Value': (kpi as any).value || 0,
+      'Recorded By': (kpi as any).recorded_by || '',
+      'Notes': (kpi as any).notes || '',
+      'Status': kpi.status
+    }))
+  }
+
+  // Template columns for import
+  const importTemplateColumns = [
+    'Project Full Code',
+    'Project Code',
+    'Project Sub Code',
+    'Activity Name',
+    'Activity',
+    'Quantity',
+    'Input Type',
+    'Unit',
+    'Section',
+    'Zone',
+    'Drilled Meters',
+    'Value',
+    'Target Date',
+    'Actual Date',
+    'Activity Date',
+    'Day',
+    'Recorded By',
+    'Notes'
+  ]
+
   // Don't show full-page loading spinner - show skeleton instead
   const isInitialLoad = loading && kpis.length === 0
 
   return (
-    <div className="space-y-6 max-w-full overflow-hidden">
-      <div className="flex justify-between items-center flex-wrap gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h2 className="text-3xl font-bold text-gray-900 dark:text-white">KPI Tracking</h2>
-            {loading && (
-              <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-full animate-pulse">
-                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
-                <span className="text-xs text-blue-600 dark:text-blue-400">Syncing...</span>
-              </div>
-            )}
+    <div className="space-y-6 max-w-full overflow-hidden kpi-container">
+      {/* Header Section */}
+      <div className="space-y-6">
+        {/* Title and Description */}
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+          <div className="flex-1">
+            <div className="flex items-center gap-3">
+              <h2 className="text-3xl font-bold text-gray-900 dark:text-white">KPI Tracking</h2>
+              {loading && (
+                <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-full animate-pulse">
+                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
+                  <span className="text-xs text-blue-600 dark:text-blue-400">Syncing...</span>
+                </div>
+              )}
+            </div>
+            <p className="text-gray-600 dark:text-gray-300 mt-2">Monitor and track KPIs for projects and activities</p>
           </div>
-          <p className="text-gray-600 dark:text-gray-300 mt-2">Monitor and track KPIs for projects and activities</p>
+          
+          {/* Add New KPI Button */}
+          {guard.hasAccess('kpi.create') && (
+            <Button 
+              onClick={() => setShowForm(true)} 
+              className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Add New KPI</span>
+            </Button>
+          )}
         </div>
-        {guard.hasAccess('kpi.create') && (
-          <Button onClick={() => setShowForm(true)} className="flex items-center space-x-2 ">
-            <Plus className="h-4 w-4" />
-            <span>Add New KPI</span>
-          </Button>
-        )}
+        
+        {/* Action Buttons */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300 mr-2">Data Actions:</span>
+          {guard.hasAccess('kpi.export') && filteredKPIs.length > 0 && (
+            <ExportButton
+              data={getExportData()}
+              filename="KPI_Records"
+              formats={['csv', 'excel']}
+              label="Export"
+              variant="outline"
+            />
+          )}
+          
+          <PrintButton
+            label="Print"
+            variant="outline"
+            printTitle="KPI Records Report"
+            printSettings={{
+              fontSize: '11px',
+              compactMode: true
+            }}
+          />
+          
+          {guard.hasAccess('kpi.create') && (
+            <ImportButton
+              onImport={handleImportKPI}
+              requiredColumns={['Project Code', 'Activity Name', 'Quantity', 'Input Type']}
+              templateName="KPI_Records"
+              templateColumns={importTemplateColumns}
+              label="Import"
+              variant="outline"
+            />
+          )}
+        </div>
       </div>
       
       {/* Smart Filter */}
