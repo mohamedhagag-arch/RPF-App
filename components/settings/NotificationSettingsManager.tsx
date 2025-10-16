@@ -344,8 +344,8 @@ export function NotificationSettingsManager({ onClose }: NotificationSettingsMan
                   <div className="space-y-4">
                     {notificationCategories.map((category) => {
                       const CategoryIcon = category.icon
-                      const isEnabled = getSettingValue(type.id, category.id, 'is_enabled') ?? true
-                      const frequency = getSettingValue(type.id, category.id, 'frequency') ?? 'immediate'
+                      const isEnabled = (getSettingValue(type.id, category.id, 'is_enabled') as boolean | undefined) ?? true
+                      const frequency = (getSettingValue(type.id, category.id, 'frequency') as string | undefined) ?? 'immediate'
                       
                       return (
                         <div key={category.id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
