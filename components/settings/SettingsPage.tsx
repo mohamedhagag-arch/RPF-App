@@ -36,6 +36,7 @@ import { UserPreferencesManager } from './UserPreferencesManager'
 import { NotificationSettingsManager } from './NotificationSettingsManager'
 import { ProfileManager } from './ProfileManager'
 import { DepartmentsJobTitlesManager } from './DepartmentsJobTitlesManager'
+import { ProjectTypeActivitiesManager } from './ProjectTypeActivitiesManager'
 
 interface SettingsPageProps {
   userRole?: string
@@ -266,6 +267,7 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
     { id: 'departments-titles', label: 'Departments & Titles', icon: Building2, roles: ['admin', 'manager'], permission: 'settings.divisions' },
     { id: 'divisions', label: 'Divisions', icon: Building2, roles: ['admin', 'manager'], permission: 'settings.divisions' },
     { id: 'project-types', label: 'Project Types', icon: Briefcase, roles: ['admin', 'manager'], permission: 'settings.project_types' },
+    { id: 'project-activities', label: 'Project Activities', icon: Briefcase, roles: ['admin', 'manager'], permission: 'settings.activities' },
     { id: 'currencies', label: 'Currencies', icon: DollarSign, roles: ['admin', 'manager'], permission: 'settings.currencies' },
     { id: 'data', label: 'Data Management', icon: Database, roles: ['admin', 'manager'], permission: 'system.export' },
     { id: 'security', label: 'Security', icon: Shield, roles: ['admin', 'manager'], permission: 'users.manage' }
@@ -362,6 +364,18 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
           )
         }
         return <ProjectTypesManager />
+
+      case 'project-activities':
+        if (!guard.hasAccess('settings.activities')) {
+          return (
+            <div className="text-center py-12">
+              <Shield className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Access Denied</h3>
+              <p className="text-gray-600 dark:text-gray-400">You don't have permission to access project activities management.</p>
+            </div>
+          )
+        }
+        return <ProjectTypeActivitiesManager />
 
       case 'currencies':
         if (!guard.hasAccess('settings.currencies')) {

@@ -77,7 +77,7 @@ export function SmartAlerts({ projects, activities, kpis }: SmartAlertsProps) {
 
     // Projects with no progress
     const stalledProjects = projects.filter(project => {
-      if (project.project_status !== 'active') return false
+      if (project.project_status !== 'on-going') return false
       
       const projectActivities = activities.filter(activity => 
         activity.project_code === project.project_code
@@ -106,7 +106,7 @@ export function SmartAlerts({ projects, activities, kpis }: SmartAlertsProps) {
     const recentProjects = projects.filter(project => {
       const createdDate = new Date(project.created_at)
       const daysSinceCreation = (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
-      return daysSinceCreation > 30 && project.project_status === 'active'
+      return daysSinceCreation > 30 && project.project_status === 'on-going'
     })
 
     recentProjects.slice(0, 3).forEach(project => {
@@ -137,7 +137,7 @@ export function SmartAlerts({ projects, activities, kpis }: SmartAlertsProps) {
       
       const progressRate = totalValue > 0 ? (completedValue / totalValue) * 100 : 0
       
-      return totalValue > 1000000 && progressRate < 20 && project.project_status === 'active'
+      return totalValue > 1000000 && progressRate < 20 && project.project_status === 'on-going'
     })
 
     highValueProjects.forEach(project => {

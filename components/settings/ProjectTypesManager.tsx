@@ -10,6 +10,7 @@ import {
   initializeProjectTypesTable,
   ProjectType
 } from '@/lib/projectTypesManager'
+import { getActivityStats } from '@/lib/projectTypeActivitiesManager'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -35,6 +36,7 @@ export function ProjectTypesManager() {
   const [success, setSuccess] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editingType, setEditingType] = useState<ProjectType | null>(null)
+  const [activityStats, setActivityStats] = useState<Record<string, number>>({})
   
   // Form fields
   const [formData, setFormData] = useState({
@@ -52,17 +54,30 @@ export function ProjectTypesManager() {
       setLoading(true)
       setError('')
       
-      // تهيئة الجدول إذا لزم الأمر
+      // Initialize table if needed
       await initializeProjectTypesTable()
       
-      // جلب أنواع المشاريع
+      // Fetch project types
       const data = await getAllProjectTypes()
       setProjectTypes(data)
+      
+      // Fetch activity statistics
+      await fetchActivityStats()
     } catch (error: any) {
       setError('Failed to load project types')
       console.error('Error fetching project types:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchActivityStats = async () => {
+    try {
+      const stats = await getActivityStats()
+      setActivityStats(stats.activitiesByProjectType || {})
+    } catch (statsError) {
+      console.warn('Could not fetch activity stats:', statsError)
+      setActivityStats({})
     }
   }
 
@@ -90,6 +105,7 @@ export function ProjectTypesManager() {
         if (result.success) {
           setSuccess('Project type updated successfully')
           await fetchProjectTypes()
+          await fetchActivityStats()
           resetForm()
         } else {
           setError(result.error || 'Failed to update project type')
@@ -106,6 +122,7 @@ export function ProjectTypesManager() {
         if (result.success) {
           setSuccess('Project type added successfully')
           await fetchProjectTypes()
+          await fetchActivityStats()
           resetForm()
         } else {
           setError(result.error || 'Failed to add project type')
@@ -145,6 +162,7 @@ export function ProjectTypesManager() {
       if (result.success) {
         setSuccess('Project type deleted successfully')
         await fetchProjectTypes()
+        await fetchActivityStats()
       } else {
         setError(result.error || 'Failed to delete project type')
       }
@@ -331,11 +349,18 @@ export function ProjectTypesManager() {
                           {projectType.description}
                         </p>
                       )}
-                      {projectType.usage_count !== undefined && projectType.usage_count > 0 && (
-                        <p className="text-xs text-gray-500 dark:text-gray-500 mt-2">
-                          Used in {projectType.usage_count} project{projectType.usage_count !== 1 ? 's' : ''}
-                        </p>
-                      )}
+                      <div className="flex items-center gap-4 mt-2">
+                        {projectType.usage_count !== undefined && projectType.usage_count > 0 && (
+                          <p className="text-xs text-gray-500 dark:text-gray-500">
+                            Used in {projectType.usage_count} project{projectType.usage_count !== 1 ? 's' : ''}
+                          </p>
+                        )}
+                        {activityStats[projectType.name] !== undefined && (
+                          <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">
+                            {activityStats[projectType.name]} activities
+                          </p>
+                        )}
+                      </div>
                     </div>
                     <div className="flex gap-1 ml-2">
                       {guard.hasAccess('settings.project_types') && (

@@ -95,9 +95,9 @@ export function ReportsManager({ userRole = 'viewer' }: ReportsManagerProps) {
       // Fetch all data with timeout protection
       const [projectsResult, activitiesResult, kpisResult] = await Promise.race([
         Promise.all([
-          (supabase as any).from('projects').select('*').limit(100), // تقليل البيانات
-          (supabase as any).from('boq_activities').select('*').limit(200),
-          (supabase as any).from('kpi_records').select('*').limit(300)
+          (supabase as any).from('projects').select('*'), // Load all projects
+          (supabase as any).from('boq_activities').select('*'), // Load all activities
+          (supabase as any).from('kpi_records').select('*') // Load all KPIs
         ]),
         timeoutPromise
       ]) as any
@@ -132,8 +132,8 @@ export function ReportsManager({ userRole = 'viewer' }: ReportsManagerProps) {
       // Calculate summary
       const summary = {
         totalProjects: filteredProjects.length,
-        activeProjects: filteredProjects.filter((p: any) => p.project_status === 'active').length,
-        completedProjects: filteredProjects.filter((p: any) => p.project_status === 'completed').length,
+        activeProjects: filteredProjects.filter((p: any) => p.project_status === 'on-going').length,
+        completedProjects: filteredProjects.filter((p: any) => p.project_status === 'completed' || p.project_status === 'completed-duration' || p.project_status === 'contract-duration').length,
         totalActivities: filteredActivities.length,
         completedActivities: filteredActivities.filter((a: any) => a.activity_completed).length,
         totalKPIs: filteredKPIs.length,
@@ -395,8 +395,8 @@ export function ReportsManager({ userRole = 'viewer' }: ReportsManagerProps) {
                     </div>
                     <div className="text-right">
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        project.project_status === 'active' ? 'bg-green-100 text-green-800' :
-                        project.project_status === 'completed' ? 'bg-blue-100 text-blue-800' :
+                        project.project_status === 'on-going' ? 'bg-green-100 text-green-800' :
+                        project.project_status === 'completed' || project.project_status === 'completed-duration' || project.project_status === 'contract-duration' ? 'bg-blue-100 text-blue-800' :
                         'bg-gray-100 text-gray-800'
                       }`}>
                         {project.project_status}

@@ -26,7 +26,7 @@ export interface Project {
   responsible_division: string
   plot_number: string
   kpi_completed: boolean
-  project_status: 'active' | 'completed' | 'on_hold' | 'cancelled'
+  project_status: 'upcoming' | 'site-preparation' | 'on-going' | 'completed' | 'completed-duration' | 'contract-duration' | 'on-hold' | 'cancelled'
   contract_amount: number
   created_at: string
   updated_at: string

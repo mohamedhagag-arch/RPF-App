@@ -126,7 +126,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       const activitiesResult = await supabase
         .from(TABLES.BOQ_ACTIVITIES)
         .select('*')
-        .limit(100) // تقليل البيانات المحملة
+        // Removed limit to load all activities
       
       if (activitiesResult.data) {
         setActivities(activitiesResult.data.map(mapBOQFromDB))

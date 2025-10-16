@@ -96,7 +96,7 @@ export function DataInsights({ expanded = false }: DataInsightsProps) {
         const kpis = (kpisResult.data || []).map(mapKPIFromDB)
 
         // Calculate project distribution
-        const projectStatuses = ['active', 'completed', 'on_hold', 'cancelled']
+        const projectStatuses = ['upcoming', 'site-preparation', 'on-going', 'completed', 'completed-duration', 'contract-duration', 'on-hold', 'cancelled']
         const projectDistribution = projectStatuses.map(status => {
           const count = projects.filter(p => p.project_status === status).length
           return {

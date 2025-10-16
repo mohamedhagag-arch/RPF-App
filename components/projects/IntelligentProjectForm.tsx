@@ -76,7 +76,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
   const [responsibleDivisions, setResponsibleDivisions] = useState<string[]>([])
   const [plotNumber, setPlotNumber] = useState('')
   const [contractAmount, setContractAmount] = useState('')
-  const [projectStatus, setProjectStatus] = useState<'active' | 'completed' | 'on_hold' | 'cancelled' | 'planning'>('active')
+  const [projectStatus, setProjectStatus] = useState<'upcoming' | 'site-preparation' | 'on-going' | 'completed' | 'completed-duration' | 'contract-duration' | 'on-hold' | 'cancelled'>('upcoming')
   const [kpiCompleted, setKpiCompleted] = useState(false)
   
   // Currency Management
@@ -396,7 +396,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
         responsible_division: responsibleDivisions.join(', ') || undefined,
         plot_number: plotNumber.trim() || undefined,
         contract_amount: parseFloat(contractAmount) || 0,
-        project_status: projectStatus as 'active' | 'completed' | 'on_hold' | 'cancelled',
+        project_status: projectStatus as 'upcoming' | 'site-preparation' | 'on-going' | 'completed' | 'completed-duration' | 'contract-duration' | 'on-hold' | 'cancelled',
         kpi_completed: kpiCompleted
       }
       

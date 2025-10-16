@@ -96,8 +96,8 @@ export function DashboardOverview() {
         }
 
         const totalProjects = projects?.length || 0
-        const activeProjects = projects?.filter(p => p.project_status === 'active').length || 0
-        const completedProjects = projects?.filter(p => p.project_status === 'completed').length || 0
+        const activeProjects = projects?.filter(p => p.project_status === 'on-going').length || 0
+        const completedProjects = projects?.filter(p => p.project_status === 'completed' || p.project_status === 'completed-duration' || p.project_status === 'contract-duration').length || 0
         
         const totalActivities = activities?.length || 0
         const completedActivities = activities?.filter(a => a.activity_completed).length || 0

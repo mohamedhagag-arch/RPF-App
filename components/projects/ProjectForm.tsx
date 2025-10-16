@@ -24,7 +24,7 @@ export function ProjectForm({ project, onSubmit, onCancel }: ProjectFormProps) {
     responsible_division: '',
     plot_number: '',
     kpi_completed: false,
-    project_status: 'active' as 'active' | 'completed' | 'on_hold' | 'cancelled',
+    project_status: 'upcoming' as 'upcoming' | 'site-preparation' | 'on-going' | 'completed' | 'completed-duration' | 'contract-duration' | 'on-hold' | 'cancelled',
     contract_amount: 0,
   })
   const [error, setError] = useState('')
@@ -176,9 +176,13 @@ export function ProjectForm({ project, onSubmit, onCancel }: ProjectFormProps) {
                   onChange={(e) => handleChange('project_status', e.target.value)}
                   className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
                 >
-                  <option value="active">Active</option>
+                  <option value="upcoming">Upcoming</option>
+                  <option value="site-preparation">Site Preparation</option>
+                  <option value="on-going">On Going</option>
                   <option value="completed">Completed</option>
-                  <option value="on_hold">On Hold</option>
+                  <option value="completed-duration">Completed Duration</option>
+                  <option value="contract-duration">Contract Duration</option>
+                  <option value="on-hold">On Hold</option>
                   <option value="cancelled">Cancelled</option>
                 </select>
               </div>

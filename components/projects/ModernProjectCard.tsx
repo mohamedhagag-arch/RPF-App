@@ -8,6 +8,7 @@ import { useAuth } from '@/app/providers'
 import { hasPermission } from '@/lib/permissionsSystem'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { mapBOQFromDB, mapKPIFromDB } from '@/lib/dataMappers'
+import { getProjectStatusIcon } from '@/lib/projectStatusManager'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -165,11 +166,17 @@ export function ModernProjectCard({
   }
 
   const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'active': return <CheckCircle className="w-4 h-4" />
-      case 'completed': return <CheckCircle className="w-4 h-4" />
-      case 'on_hold': return <Clock className="w-4 h-4" />
-      case 'cancelled': return <AlertTriangle className="w-4 h-4" />
+    const icon = getProjectStatusIcon(status)
+    // Convert icon string to JSX element
+    switch (icon) {
+      case '⏳': return <Clock className="w-4 h-4" />
+      case '🏗️': return <CheckCircle className="w-4 h-4" />
+      case '🚀': return <CheckCircle className="w-4 h-4" />
+      case '✅': return <CheckCircle className="w-4 h-4" />
+      case '⏰': return <Clock className="w-4 h-4" />
+      case '📋': return <CheckCircle className="w-4 h-4" />
+      case '⏸️': return <Clock className="w-4 h-4" />
+      case '❌': return <AlertTriangle className="w-4 h-4" />
       default: return <Clock className="w-4 h-4" />
     }
   }

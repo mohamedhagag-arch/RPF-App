@@ -87,7 +87,7 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
         'Total Drilling Meters': data.total_drilling_meters?.toString() || '0',
         'Calendar Duration': data.calendar_duration?.toString() || '0',
         'Project Full Name': data.project_full_name || '',
-        'Project Status': data.project_status || 'active'
+        'Project Status': data.project_status || 'upcoming'
       }
       
       console.log('📦 Database format:', dbData)

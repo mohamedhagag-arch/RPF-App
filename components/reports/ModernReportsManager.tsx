@@ -103,7 +103,7 @@ export function ModernReportsManager() {
           .from(TABLES.PROJECTS)
           .select('*')
               .order('created_at', { ascending: false })
-              .limit(100) // Limit to 100 projects for summary
+              // Removed limit to load all projects
           ),
           executeQuery(async () =>
         supabase
@@ -245,9 +245,9 @@ export function ModernReportsManager() {
   // Calculate summary statistics
   const summary = {
     totalProjects: filteredProjects.length,
-    activeProjects: filteredProjects.filter(p => p.project_status === 'active').length,
-    completedProjects: filteredProjects.filter(p => p.project_status === 'completed').length,
-    onHoldProjects: filteredProjects.filter(p => p.project_status === 'on_hold').length,
+    activeProjects: filteredProjects.filter(p => p.project_status === 'on-going').length,
+    completedProjects: filteredProjects.filter(p => p.project_status === 'completed' || p.project_status === 'completed-duration' || p.project_status === 'contract-duration').length,
+    onHoldProjects: filteredProjects.filter(p => p.project_status === 'on-hold').length,
     
     totalActivities: filteredActivities.length,
     completedActivities: filteredActivities.filter(a => a.activity_completed).length,
@@ -1195,9 +1195,9 @@ function ProjectsReport({ projects, activities, kpis }: { projects: Project[], a
                   </td>
                   <td className="px-6 py-4">
                     <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      project.project_status === 'active' ? 'bg-green-100 text-green-800' :
-                      project.project_status === 'completed' ? 'bg-blue-100 text-blue-800' :
-                      project.project_status === 'on_hold' ? 'bg-yellow-100 text-yellow-800' :
+                      project.project_status === 'on-going' ? 'bg-green-100 text-green-800' :
+                      project.project_status === 'completed' || project.project_status === 'completed-duration' || project.project_status === 'contract-duration' ? 'bg-blue-100 text-blue-800' :
+                      project.project_status === 'on-hold' ? 'bg-yellow-100 text-yellow-800' :
                       'bg-red-100 text-red-800'
                     }`}>
                       {project.project_status}

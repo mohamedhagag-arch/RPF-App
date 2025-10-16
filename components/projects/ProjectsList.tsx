@@ -12,6 +12,8 @@ import { getCardGridClasses, shouldLoadCardAnalytics, getCardViewName, getCardVi
 import { Project, TABLES } from '@/lib/supabase'
 import { mapProjectFromDB, mapProjectToDB, mapBOQFromDB, mapKPIFromDB } from '@/lib/dataMappers'
 import { calculateProjectAnalytics } from '@/lib/projectAnalytics'
+import { getProjectStatusColor, getProjectStatusText } from '@/lib/projectStatusManager'
+import { loadAllDataWithProgress } from '@/lib/lazyLoadingManager'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
@@ -365,46 +367,91 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
         console.log('🟡 Projects: Fetching all data in parallel...')
         
         // Fetch LIMITED data in parallel for better performance
-        console.log('📊 Loading limited data (100 projects, 200 activities, 300 KPIs)...')
-        const [projectsResult, activitiesResult, kpisResult] = await Promise.all([
-          supabase
-            .from(TABLES.PROJECTS)
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(100), // ← تحديد 100 مشروع فقط
-          supabase
-            .from(TABLES.BOQ_ACTIVITIES)
-            .select('*')
-            .limit(200), // ← تحديد 200 نشاط فقط
-          supabase
-            .from(TABLES.KPI)
-            .select('*')
-            .limit(300) // ← تحديد 300 KPI فقط
-        ])
+        console.log('📊 Loading all data with enhanced lazy loading...')
         
-        if (projectsResult.error) {
+        let projectsResult: any, activitiesResult: any, kpisResult: any;
+        
+        try {
+          // Try new lazy loading system first
+          const { projects, activities, kpis } = await loadAllDataWithProgress((progress, stage) => {
+            console.log(`📈 ${stage} (${Math.round(progress)}%)`)
+          })
+          
+          // Create mock results to maintain compatibility
+          projectsResult = { data: projects, error: null }
+          activitiesResult = { data: activities, error: null }
+          kpisResult = { data: kpis, error: null }
+          
+          console.log('✅ Lazy loading successful:', { 
+            projects: projects.length, 
+            activities: activities.length, 
+            kpis: kpis.length 
+          })
+        } catch (lazyError) {
+          console.warn('⚠️ Lazy loading failed, falling back to direct queries:', lazyError)
+          
+          // Fallback to direct queries
+          const fallbackResults = await Promise.all([
+            supabase
+              .from(TABLES.PROJECTS)
+              .select('*')
+              .order('created_at', { ascending: false }),
+            supabase
+              .from(TABLES.BOQ_ACTIVITIES)
+              .select('*'),
+            supabase
+              .from(TABLES.KPI)
+              .select('*')
+          ])
+          
+          projectsResult = fallbackResults[0]
+          activitiesResult = fallbackResults[1]
+          kpisResult = fallbackResults[2]
+          
+          console.log('✅ Fallback loading successful:', { 
+            projects: projectsResult.data?.length || 0, 
+            activities: activitiesResult.data?.length || 0, 
+            kpis: kpisResult.data?.length || 0 
+          })
+        }
+        
+        // Check for errors in any result
+        if (projectsResult?.error) {
           console.error('❌ Projects Error:', projectsResult.error)
-          setError(`Failed to load projects: ${projectsResult.error.message}`)
+          setError(`Failed to load projects: ${(projectsResult.error as any)?.message || 'Unknown error'}`)
           return
         }
         
-        if (activitiesResult.error) {
-          console.error('❌ Activities Error:', activitiesResult.error)
+        if (activitiesResult?.error) {
+          console.warn('⚠️ Activities Error:', activitiesResult.error)
         }
         
-        if (kpisResult.error) {
-          console.error('❌ KPIs Error:', kpisResult.error)
+        if (kpisResult?.error) {
+          console.warn('⚠️ KPIs Error:', kpisResult.error)
         }
         
         // Map all data
-        const mappedProjects = (projectsResult.data || []).map(mapProjectFromDB)
-        const mappedActivities = (activitiesResult.data || []).map(mapBOQFromDB)
-        const mappedKPIs = (kpisResult.data || []).map(mapKPIFromDB)
+        const mappedProjects = (projectsResult?.data || []).map(mapProjectFromDB)
+        const mappedActivities = (activitiesResult?.data || []).map(mapBOQFromDB)
+        const mappedKPIs = (kpisResult?.data || []).map(mapKPIFromDB)
+        
+        console.log('📊 Data mapping results:', {
+          projects: mappedProjects.length,
+          activities: mappedActivities.length,
+          kpis: mappedKPIs.length
+        })
         
         setProjects(mappedProjects)
         setAllActivities(mappedActivities)
         setAllKPIs(mappedKPIs)
         setTotalCount(mappedProjects.length)
+        
+        console.log('🎯 Final state update:', {
+          projectsSet: mappedProjects.length,
+          activitiesSet: mappedActivities.length,
+          kpisSet: mappedKPIs.length,
+          totalCount: mappedProjects.length
+        })
         
         console.log('✅ Projects: Loaded', mappedProjects.length, 'projects')
         console.log('✅ Activities: Loaded', mappedActivities.length, 'activities')
@@ -533,25 +580,8 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
   // ✅ Update total count based on filtered results
   const filteredTotalCount = allFilteredProjects.length
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'active': return 'bg-green-100 text-green-800'
-      case 'completed': return 'bg-blue-100 text-blue-800'
-      case 'on_hold': return 'bg-yellow-100 text-yellow-800'
-      case 'cancelled': return 'bg-red-100 text-red-800'
-      default: return 'bg-gray-100 text-gray-800'
-    }
-  }
-
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'active': return 'Active'
-      case 'completed': return 'Completed'
-      case 'on_hold': return 'On Hold'
-      case 'cancelled': return 'Cancelled'
-      default: return status
-    }
-  }
+  const getStatusColor = getProjectStatusColor
+  const getStatusText = getProjectStatusText
 
   // Handle import data
   const handleImportProjects = async (importedData: any[]) => {
@@ -567,7 +597,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
         'Responsible Division': row['Responsible Division'] || row['responsible_division'] || '',
         'Plot Number': row['Plot Number'] || row['plot_number'] || '',
         'KPI Completed': row['KPI Completed'] || row['kpi_completed'] || 'FALSE',
-        'Project Status': row['Project Status'] || row['project_status'] || 'active',
+        'Project Status': row['Project Status'] || row['project_status'] || 'upcoming',
         'Contract Amount': row['Contract Amount'] || row['contract_amount'] || '0',
         'Currency': row['Currency'] || row['currency'] || 'AED'
       }))

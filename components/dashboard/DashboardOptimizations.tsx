@@ -20,7 +20,7 @@ export function DashboardOptimizations({ projects, activities, kpis }: Dashboard
     const projectsWithManyIncomplete = projects.filter(project => {
       const projectActivities = activities.filter(a => a.project_code === project.project_code)
       const incompleteActivities = projectActivities.filter(a => !a.activity_completed)
-      return incompleteActivities.length > 5 && project.project_status === 'active'
+      return incompleteActivities.length > 5 && project.project_status === 'on-going'
     })
 
     if (projectsWithManyIncomplete.length > 0) {
@@ -71,7 +71,7 @@ export function DashboardOptimizations({ projects, activities, kpis }: Dashboard
     const staleProjects = projects.filter(project => {
       const lastUpdate = new Date(project.updated_at)
       const daysSinceUpdate = (now.getTime() - lastUpdate.getTime()) / (1000 * 60 * 60 * 24)
-      return daysSinceUpdate > 7 && project.project_status === 'active'
+      return daysSinceUpdate > 7 && project.project_status === 'on-going'
     })
 
     if (staleProjects.length > 0) {

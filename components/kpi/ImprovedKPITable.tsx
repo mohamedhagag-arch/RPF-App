@@ -143,7 +143,7 @@ export function ImprovedKPITable({ kpis, projects, onEdit, onDelete, onBulkDelet
                 Quantity
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">
-                Drilled Meters
+                Target Date
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">
                 Status
@@ -221,20 +221,34 @@ export function ImprovedKPITable({ kpis, projects, onEdit, onDelete, onBulkDelet
                     </div>
                   </td>
                   
-                  {/* Drilled Meters */}
+                  {/* Target Date */}
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    {kpi.drilled_meters > 0 ? (
-                      <div>
-                        <div className="font-semibold text-gray-900 dark:text-gray-100">
-                          {kpi.drilled_meters.toFixed(1)}m
+                    {(() => {
+                      const dateValue = kpi.target_date || kpi.activity_date
+                      if (!dateValue) {
+                        return <span className="text-gray-400 dark:text-gray-600">Not set</span>
+                      }
+                      
+                      const date = new Date(dateValue)
+                      if (isNaN(date.getTime())) {
+                        return <span className="text-gray-400 dark:text-gray-600">Invalid date</span>
+                      }
+                      
+                      return (
+                        <div>
+                          <div className="font-semibold text-gray-900 dark:text-gray-100">
+                            {date.toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric'
+                            })}
+                          </div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
+                            {kpi.input_type === 'Planned' ? '🎯 Target' : '📅 Actual'}
+                          </div>
                         </div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400">
-                          Drilling
-                        </div>
-                      </div>
-                    ) : (
-                      <span className="text-gray-400 dark:text-gray-600">-</span>
-                    )}
+                      )
+                    })()}
                   </td>
                   
                   {/* Status */}

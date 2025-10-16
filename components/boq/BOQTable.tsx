@@ -181,6 +181,18 @@ export function BOQTable({ activities, projects, allKPIs, onEdit, onDelete, onBu
               Progress %
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Start Date
+            </th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              End Date
+            </th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Days
+            </th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Timing
+            </th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
               Total Value
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -229,6 +241,48 @@ export function BOQTable({ activities, projects, allKPIs, onEdit, onDelete, onBu
               </td>
               <td className="px-6 py-4 whitespace-nowrap">
                 <BOQProgressCell activity={activity} allKPIs={allKPIs} />
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                {formatDate(activity.planned_activity_start_date || activity.activity_planned_start_date)}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                {formatDate(activity.deadline || activity.activity_planned_completion_date)}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                {(() => {
+                  const startDate = activity.planned_activity_start_date || activity.activity_planned_start_date
+                  const endDate = activity.deadline || activity.activity_planned_completion_date
+                  
+                  if (!startDate || !endDate) return 'N/A'
+                  
+                  const start = new Date(startDate)
+                  const end = new Date(endDate)
+                  
+                  if (isNaN(start.getTime()) || isNaN(end.getTime())) return 'Invalid'
+                  
+                  const diffTime = Math.abs(end.getTime() - start.getTime())
+                  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+                  
+                  return `${diffDays} days`
+                })()}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm">
+                {activity.activity_timing ? (
+                  <div className="flex items-center gap-2">
+                    <span className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full ${
+                      activity.activity_timing === 'pre-commencement' 
+                        ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-300' 
+                        : 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300'
+                    }`}>
+                      {activity.activity_timing === 'pre-commencement' ? '⏰ Pre' : '🚀 Post'}
+                    </span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {activity.activity_timing === 'pre-commencement' ? 'Before Start' : 'With Start'}
+                    </span>
+                  </div>
+                ) : (
+                  <span className="text-gray-400 dark:text-gray-600">Not set</span>
+                )}
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                 {formatCurrency(activity.total_value)}

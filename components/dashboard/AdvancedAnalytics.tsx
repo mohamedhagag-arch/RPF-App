@@ -30,8 +30,8 @@ export function AdvancedAnalytics({ projects, activities, kpis }: AdvancedAnalyt
   // Performance Metrics
   const performanceMetrics = useMemo(() => {
     const totalProjects = projects.length
-    const activeProjects = projects.filter(p => p.project_status === 'active').length
-    const completedProjects = projects.filter(p => p.project_status === 'completed').length
+    const activeProjects = projects.filter(p => p.project_status === 'on-going').length
+    const completedProjects = projects.filter(p => p.project_status === 'completed' || p.project_status === 'completed-duration' || p.project_status === 'contract-duration').length
     
     const totalActivities = activities.length
     const completedActivities = activities.filter(a => a.activity_completed).length
@@ -182,7 +182,7 @@ export function AdvancedAnalytics({ projects, activities, kpis }: AdvancedAnalyt
     
     // Projects with no progress
     const stalledProjects = projects.filter(project => {
-      if (project.project_status !== 'active') return false
+      if (project.project_status !== 'on-going') return false
       const projectActivities = activities.filter(a => a.project_code === project.project_code)
       return projectActivities.length > 0 && projectActivities.every(a => !a.activity_completed)
     }).length

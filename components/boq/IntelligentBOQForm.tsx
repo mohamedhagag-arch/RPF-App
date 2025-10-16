@@ -32,6 +32,10 @@ import {
   saveCustomActivity,
   getAllActivitiesByDivision
 } from '@/lib/customActivities'
+import {
+  getActivitiesByProjectType,
+  ProjectTypeActivity
+} from '@/lib/projectTypeActivitiesManager'
 import { 
   generateKPIsFromBOQ, 
   saveGeneratedKPIs,
@@ -60,7 +64,9 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   const [project, setProject] = useState<Project | null>(null)
   const [activityName, setActivityName] = useState(activity?.activity_name || '')
   const [activitySuggestions, setActivitySuggestions] = useState<Activity[]>([])
+  const [projectTypeActivities, setProjectTypeActivities] = useState<ProjectTypeActivity[]>([])
   const [showActivityDropdown, setShowActivityDropdown] = useState(false)
+  const [activitySelected, setActivitySelected] = useState(false)
   const [unit, setUnit] = useState(activity?.unit || '')
   const [unitSuggestions] = useState<string[]>(getAllUnits())
   const [showUnitDropdown, setShowUnitDropdown] = useState(false)
@@ -71,6 +77,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   const [duration, setDuration] = useState(0)
   const [includeWeekends, setIncludeWeekends] = useState(false)
   const [customHolidays, setCustomHolidays] = useState<string[]>([])
+  const [activityTiming, setActivityTiming] = useState<'pre-commencement' | 'post-commencement'>(activity?.activity_timing || 'post-commencement')
   
   // KPI Generation
   const [autoGenerateKPIs, setAutoGenerateKPIs] = useState(true)
@@ -81,12 +88,12 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   const supabase = getSupabaseClient()
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('boq-form')
 
-  // إغلاق القوائم المنسدلة عند النقر خارجها أو الضغط على Escape
+  // Close dropdowns when clicking outside or pressing Escape
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement
       
-      // تحقق من أن النقر ليس داخل أي من الحاويات
+      // Check if click is not inside any container
       const activityContainer = target.closest('.activity-dropdown-container')
       const unitContainer = target.closest('.unit-dropdown-container')
       
@@ -105,11 +112,11 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       }
     }
 
-    // إضافة event listeners
+    // Add event listeners
     document.addEventListener('mousedown', handleClickOutside, true)
     document.addEventListener('keydown', handleKeyDown)
     
-    // تنظيف event listeners
+    // Cleanup event listeners
     return () => {
       document.removeEventListener('mousedown', handleClickOutside, true)
       document.removeEventListener('keydown', handleKeyDown)
@@ -132,18 +139,120 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
     }
   }, [projects])
 
-  // Load initial activities from database
+  // Load ALL activities from project_type_activities table
   useEffect(() => {
-    const loadInitialActivities = async () => {
+    const loadAllProjectTypeActivities = async () => {
       try {
-        console.log('🔄 Loading activities from database...')
-        const activities = await getAllActivities()
-        console.log(`✅ Loaded ${activities.length} activities from database`)
+        console.log('🔄 Loading ALL activities from project_type_activities table...')
+        const supabase = getSupabaseClient()
+        const { data, error } = await executeQuery(async () =>
+          supabase
+            .from('project_type_activities')
+            .select('*')
+            .eq('is_active', true)
+            .order('activity_name', { ascending: true })
+        )
+        
+        if (error) throw error
+        
+        // Convert to Activity format
+        const activities = (data || []).map((pta: any) => ({
+          id: pta.id,
+          name: pta.activity_name,
+          division: pta.project_type,
+          unit: pta.default_unit || '',
+          category: pta.category || 'General',
+          is_active: pta.is_active,
+          usage_count: 0,
+          created_at: pta.created_at,
+          updated_at: pta.updated_at
+        }))
+        
+        console.log(`✅ Loaded ${activities.length} activities from project_type_activities table`)
         setActivitySuggestions(activities)
+        console.log('💡 All project type activities loaded - user can select any activity')
       } catch (error) {
-        console.error('❌ Error loading activities from database:', error)
-        // Fallback to templates
-        console.log('📋 Using fallback activity templates')
+        console.error('❌ Error loading project type activities:', error)
+        // Fallback to regular activities
+        console.log('📋 Using fallback to regular activities')
+        try {
+          const activities = await getAllActivities()
+          setActivitySuggestions(activities)
+        } catch (fallbackError) {
+          console.error('❌ Fallback also failed:', fallbackError)
+          // Final fallback to templates
+          setActivitySuggestions(ACTIVITY_TEMPLATES.map(template => ({
+            id: template.name,
+            name: template.name,
+            division: template.division,
+            unit: template.defaultUnit,
+            category: template.category,
+            is_active: true,
+            usage_count: 0,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })))
+        }
+      }
+    }
+    loadAllProjectTypeActivities()
+  }, [])
+  
+  // Auto-load project data when project code changes
+  useEffect(() => {
+    if (projectCode && allProjects.length > 0) {
+      const selectedProject = allProjects.find(p => p.project_code === projectCode)
+      if (selectedProject) {
+        setProject(selectedProject)
+        console.log('✅ Project loaded:', selectedProject.project_name)
+        
+        // ✅ Don't reload activities - keep all activities visible
+        console.log('💡 Keeping all activities visible - no filtering by project type')
+      }
+    }
+  }, [projectCode, allProjects])
+
+  // Function to load activities based on project type
+  const loadActivitiesForProjectType = async (projectType?: string) => {
+    // ✅ Always use ALL activities from project_type_activities table
+    console.log('🔄 Loading ALL activities from project_type_activities table (not filtering by project type)')
+    try {
+      const supabase = getSupabaseClient()
+      const { data, error } = await executeQuery(async () =>
+        supabase
+          .from('project_type_activities')
+          .select('*')
+          .eq('is_active', true)
+          .order('activity_name', { ascending: true })
+      )
+      
+      if (error) throw error
+      
+      // Convert to Activity format
+      const activities = (data || []).map((pta: any) => ({
+        id: pta.id,
+        name: pta.activity_name,
+        division: pta.project_type,
+        unit: pta.default_unit || '',
+        category: pta.category || 'General',
+        is_active: pta.is_active,
+        usage_count: 0,
+        created_at: pta.created_at,
+        updated_at: pta.updated_at
+      }))
+      
+      console.log(`✅ Loaded ${activities.length} activities from project_type_activities table`)
+      setActivitySuggestions(activities)
+      console.log('💡 All project type activities available - user can select any activity')
+    } catch (error) {
+      console.error('❌ Error loading project type activities:', error)
+      // Fallback to regular activities
+      try {
+        const allActivities = await getAllActivities()
+        setActivitySuggestions(allActivities)
+      } catch (fallbackError) {
+        console.error('❌ Fallback also failed:', fallbackError)
+        // Final fallback to templates
         setActivitySuggestions(ACTIVITY_TEMPLATES.map(template => ({
           id: template.name,
           name: template.name,
@@ -157,70 +266,18 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         })))
       }
     }
-    loadInitialActivities()
-  }, [])
-  
-  // Auto-load project data when project code changes
-  useEffect(() => {
-    if (projectCode && allProjects.length > 0) {
-      const selectedProject = allProjects.find(p => p.project_code === projectCode)
-      if (selectedProject) {
-        setProject(selectedProject)
-        console.log('✅ Project loaded:', selectedProject.project_name)
-        
-        // تحديد الأنشطة المناسبة حسب نوع المشروع
-        loadActivitiesForProjectType(selectedProject.project_type)
-      }
-    }
-  }, [projectCode, allProjects])
-
-  // دالة لتحميل الأنشطة حسب نوع المشروع
-  const loadActivitiesForProjectType = async (projectType?: string) => {
-    if (!projectType) {
-      console.log('⚠️ No project type specified, using all activities')
-      const allActivities = await getAllActivities()
-      setActivitySuggestions(allActivities)
-      return
-    }
-
-    try {
-      console.log('🔍 Loading activities for project type:', projectType)
-      
-      // استخدام النظام الجديد للأنشطة المقترحة
-      const suggestedActivities = await getSuggestedActivities(projectType)
-      
-      console.log(`✅ Found ${suggestedActivities.length} activities for ${projectType}`)
-      setActivitySuggestions(suggestedActivities)
-      
-    } catch (error) {
-      console.error('❌ Error loading activities for project type:', error)
-      // Fallback to all activities
-      const allActivities = await getAllActivities()
-      setActivitySuggestions(allActivities)
-    }
   }
   
-  // Load activity suggestions based on division (fallback)
-  useEffect(() => {
-    if (project?.responsible_division && activitySuggestions.length === 0) {
-      console.log('🔄 Loading activities by division as fallback:', project.responsible_division)
-      const suggestions = getAllActivitiesByDivision(project.responsible_division, ACTIVITY_TEMPLATES)
-      // Convert ActivityTemplate to Activity format
-      const convertedSuggestions = suggestions.map(template => ({
-        id: template.name,
-        name: template.name,
-        division: template.division,
-        unit: template.defaultUnit,
-        category: template.category,
-        is_active: true,
-        usage_count: 0,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }))
-      setActivitySuggestions(convertedSuggestions)
-      console.log(`✅ Loaded ${convertedSuggestions.length} activities by division`)
-    }
-  }, [project?.responsible_division, activitySuggestions.length])
+  // ✅ DISABLED - Don't filter activities by division
+  // We want to show ALL activities regardless of project type or division
+  // useEffect(() => {
+  //   if (project?.responsible_division && activitySuggestions.length === 0) {
+  //     console.log('🔄 Loading activities by division as fallback:', project.responsible_division)
+  //     const suggestions = getAllActivitiesByDivision(project.responsible_division, ACTIVITY_TEMPLATES)
+  //     setActivitySuggestions(convertedSuggestions)
+  //     console.log(`✅ Loaded ${convertedSuggestions.length} activities by division`)
+  //   }
+  // }, [project?.responsible_division, activitySuggestions.length])
   
   // Auto-suggest unit when activity name changes
   useEffect(() => {
@@ -360,6 +417,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   async function handleActivitySelect(selectedActivity: Activity) {
     console.log('✅ Activity selected:', selectedActivity.name)
     setActivityName(selectedActivity.name)
+    setActivitySelected(true) // ✅ Mark activity as selected
     
     // ملء الوحدة تلقائياً
     const suggestedUnit = getSuggestedUnit(selectedActivity.name)
@@ -368,6 +426,35 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
     setShowActivityDropdown(false)
     console.log('🔒 Activity dropdown closed after selection')
     console.log('🔧 Auto-filled unit:', suggestedUnit || selectedActivity.unit)
+    
+    // ✅ Auto-load project data based on activity
+    try {
+      console.log('🔄 Auto-loading project data for activity:', selectedActivity.name)
+      
+      // Find projects that use this activity
+      const projectsWithActivity = allProjects.filter(p => 
+        p.project_type === selectedActivity.division || 
+        p.responsible_division === selectedActivity.division
+      )
+      
+      if (projectsWithActivity.length > 0) {
+        // Auto-select the first matching project
+        const autoProject = projectsWithActivity[0]
+        setProjectCode(autoProject.project_code)
+        setProject(autoProject)
+        console.log('✅ Auto-selected project:', autoProject.project_name)
+        console.log('📊 Project details:', {
+          code: autoProject.project_code,
+          name: autoProject.project_name,
+          type: autoProject.project_type,
+          division: autoProject.responsible_division
+        })
+      } else {
+        console.log('⚠️ No matching projects found for activity division:', selectedActivity.division)
+      }
+    } catch (error) {
+      console.error('❌ Error auto-loading project data:', error)
+    }
     
     // زيادة عداد الاستخدام
     try {
@@ -414,8 +501,9 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         planned_activity_start_date: startDate,
         deadline: endDate,
         calendar_duration: duration,
+        activity_timing: activityTiming,
         project_full_name: project?.project_name || '',
-        project_status: project?.project_status || 'active',
+        project_status: project?.project_status || 'upcoming',
         total_units: 0,
         actual_units: 0,
         total_drilling_meters: 0
@@ -580,8 +668,8 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                 ))}
               </select>
               
-              {/* Project Info Card */}
-              {project && (
+              {/* Project Info Card - Only show after activity is selected */}
+              {project && activitySelected && (
                 <ModernCard className="mt-3 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border-blue-200 dark:border-blue-800">
                   <div className="flex items-start gap-3">
                     <CheckCircle2 className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
@@ -598,7 +686,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                         </ModernBadge>
                         {project.project_status && (
                           <ModernBadge 
-                            variant={project.project_status === 'active' ? 'success' : 'gray'} 
+                            variant={(project.project_status as string) === 'on-going' ? 'success' : 'gray'} 
                             size="sm"
                           >
                             {project.project_status}
@@ -618,24 +706,27 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                   Activity Name <span className="text-red-500">*</span>
                 </label>
                 <div className="flex items-center gap-2">
-                  {project?.project_type && (
+                  {/* Only show project info and buttons after activity is selected */}
+                  {activitySelected && project?.project_type && (
                     <span className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded">
                       📁 {project.project_type}
                     </span>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      console.log('🔘 Manual dropdown trigger clicked')
-                      const newState = !showActivityDropdown
-                      setShowActivityDropdown(newState)
-                      console.log(newState ? '🔓 Activity dropdown opened manually' : '🔒 Activity dropdown closed manually')
-                    }}
-                    className="text-xs px-2 py-1 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 rounded hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
-                    disabled={loading}
-                  >
-                    {showActivityDropdown ? '🔼 Hide' : '🔽 Show'} Activities ({activitySuggestions.length})
-                  </button>
+                  {activitySelected && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        console.log('🔘 Manual dropdown trigger clicked')
+                        const newState = !showActivityDropdown
+                        setShowActivityDropdown(newState)
+                        console.log(newState ? '🔓 Activity dropdown opened manually' : '🔒 Activity dropdown closed manually')
+                      }}
+                      className="text-xs px-2 py-1 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 rounded hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
+                      disabled={loading}
+                    >
+                      {showActivityDropdown ? '🔼 Hide' : '🔽 Show'} All System Activities ({activitySuggestions.length})
+                    </button>
+                  )}
                 </div>
               </div>
               <Input 
@@ -666,7 +757,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                 <div className="absolute z-20 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                   <div className="p-2 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
                     <p className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                      💡 Activities for {project?.project_type || project?.responsible_division || 'this project'} ({activitySuggestions.length} activities)
+                      💡 All activities in the system ({activitySuggestions.length} activities) - Select any activity to auto-load project data
                     </p>
                   </div>
                   {activitySuggestions
@@ -783,6 +874,85 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                       </button>
                     ))
                   }
+                </div>
+              )}
+            </div>
+            
+            {/* Activity Timing */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Activity Timing <span className="text-red-500">*</span>
+              </label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div 
+                  className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                    activityTiming === 'pre-commencement' 
+                      ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20' 
+                      : 'border-gray-300 dark:border-gray-600 hover:border-orange-300'
+                  }`}
+                  onClick={() => setActivityTiming('pre-commencement')}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`w-4 h-4 rounded-full border-2 ${
+                      activityTiming === 'pre-commencement' 
+                        ? 'border-orange-500 bg-orange-500' 
+                        : 'border-gray-300'
+                    }`}>
+                      {activityTiming === 'pre-commencement' && (
+                        <div className="w-2 h-2 bg-white rounded-full m-0.5"></div>
+                      )}
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-gray-900 dark:text-white">Pre-commencement</h3>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        Activities that must be completed before project start
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                
+                <div 
+                  className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                    activityTiming === 'post-commencement' 
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
+                      : 'border-gray-300 dark:border-gray-600 hover:border-blue-300'
+                  }`}
+                  onClick={() => setActivityTiming('post-commencement')}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`w-4 h-4 rounded-full border-2 ${
+                      activityTiming === 'post-commencement' 
+                        ? 'border-blue-500 bg-blue-500' 
+                        : 'border-gray-300'
+                    }`}>
+                      {activityTiming === 'post-commencement' && (
+                        <div className="w-2 h-2 bg-white rounded-full m-0.5"></div>
+                      )}
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-gray-900 dark:text-white">Post-commencement</h3>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        Activities that start with or after project start
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              {activityTiming === 'pre-commencement' && (
+                <div className="mt-3 p-3 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="h-5 w-5 text-orange-600 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-orange-800 dark:text-orange-200">
+                        ⚠️ Pre-commencement Activity
+                      </p>
+                      <p className="text-xs text-orange-700 dark:text-orange-300 mt-1">
+                        This activity must be completed before the project start date. 
+                        Make sure the end date is before the project commencement date.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -1147,10 +1317,25 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                 </thead>
                 <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                   {kpiPreview.kpis.map((kpi: any, index: number) => {
-                    const date = new Date(kpi['Target Date'])
-                    const dayName = date.toLocaleDateString('en-US', { weekday: 'long' })
-                    const isWeekend = date.getDay() === 0
-                    const isToday = date.toDateString() === new Date().toDateString()
+                    // Debug: Log KPI data structure
+                    if (index === 0) {
+                      console.log('🔍 KPI Data Structure:', kpi)
+                      console.log('🔍 Available date fields:', {
+                        target_date: kpi.target_date,
+                        activity_date: kpi.activity_date,
+                        'Target Date': kpi['Target Date'],
+                        date: kpi.date
+                      })
+                    }
+                    
+                    // Fix date parsing - try multiple possible date fields
+                    const dateValue = kpi.target_date || kpi.activity_date || kpi['Target Date'] || kpi.date
+                    const date = new Date(dateValue)
+                    const isValidDate = !isNaN(date.getTime())
+                    
+                    const dayName = isValidDate ? date.toLocaleDateString('en-US', { weekday: 'long' }) : 'Invalid Date'
+                    const isWeekend = isValidDate ? date.getDay() === 0 : false
+                    const isToday = isValidDate ? date.toDateString() === new Date().toDateString() : false
                     
                     return (
                       <tr 
@@ -1165,11 +1350,11 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                           {index + 1}
                         </td>
                         <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
-                          {date.toLocaleDateString('en-US', { 
+                          {isValidDate ? date.toLocaleDateString('en-US', { 
                             month: 'short', 
                             day: 'numeric', 
                             year: 'numeric' 
-                          })}
+                          }) : 'Invalid Date'}
                         </td>
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-300">
                           {dayName}

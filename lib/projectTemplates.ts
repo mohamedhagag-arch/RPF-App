@@ -52,13 +52,16 @@ export const DIVISIONS = [
   'Quality Control',
 ]
 
-// Project Status Options
+// Project Status Options - Updated to use unified system
 export const PROJECT_STATUSES = [
-  { value: 'active', label: 'Active', color: 'success' },
-  { value: 'planning', label: 'Planning', color: 'info' },
-  { value: 'on_hold', label: 'On Hold', color: 'warning' },
-  { value: 'completed', label: 'Completed', color: 'success' },
-  { value: 'cancelled', label: 'Cancelled', color: 'error' },
+  { value: 'upcoming', label: 'Upcoming', color: 'gray' },
+  { value: 'site-preparation', label: 'Site Preparation', color: 'orange' },
+  { value: 'on-going', label: 'On Going', color: 'blue' },
+  { value: 'completed', label: 'Completed', color: 'green' },
+  { value: 'completed-duration', label: 'Completed Duration', color: 'purple' },
+  { value: 'contract-duration', label: 'Contract Duration', color: 'emerald' },
+  { value: 'on-hold', label: 'On Hold', color: 'yellow' },
+  { value: 'cancelled', label: 'Cancelled', color: 'red' },
 ] as const
 
 // Generate Project Sub-Code from Project Code

@@ -205,8 +205,8 @@ export function DepartmentsJobTitlesManager() {
   }
 
   const handleAddJobTitle = async () => {
-    if (!newTitle.title_en || !newTitle.title_ar) {
-      setError('Please fill in both English and Arabic titles')
+    if (!newTitle.title_en) {
+      setError('Please fill in the English title')
       return
     }
 
@@ -400,7 +400,7 @@ export function DepartmentsJobTitlesManager() {
                       onChange={(e) => setNewDept(prev => ({ ...prev, name_en: e.target.value }))}
                     />
                     <Input
-                      placeholder="اسم القسم (عربي)"
+                      placeholder="اسم القسم (عربي) - اختياري"
                       value={newDept.name_ar}
                       onChange={(e) => setNewDept(prev => ({ ...prev, name_ar: e.target.value }))}
                       dir="rtl"
@@ -565,7 +565,7 @@ export function DepartmentsJobTitlesManager() {
                       onChange={(e) => setNewTitle(prev => ({ ...prev, title_en: e.target.value }))}
                     />
                     <Input
-                      placeholder="المسمى الوظيفي (عربي)"
+                      placeholder="المسمى الوظيفي (عربي) - اختياري"
                       value={newTitle.title_ar}
                       onChange={(e) => setNewTitle(prev => ({ ...prev, title_ar: e.target.value }))}
                       dir="rtl"

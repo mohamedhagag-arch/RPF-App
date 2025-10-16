@@ -194,9 +194,9 @@ export function IntegratedDashboard() {
 
       // Calculate overall stats
       const totalProjects = projectsWithProgress.length
-      const activeProjects = projectsWithProgress.filter(p => p.project_status === 'active').length
-      const completedProjects = projectsWithProgress.filter(p => p.project_status === 'completed').length
-      const onHoldProjects = projectsWithProgress.filter(p => p.project_status === 'on_hold').length
+      const activeProjects = projectsWithProgress.filter(p => (p.project_status as string) === 'on-going').length
+      const completedProjects = projectsWithProgress.filter(p => (p.project_status as string) === 'completed' || (p.project_status as string) === 'completed-duration' || (p.project_status as string) === 'contract-duration').length
+      const onHoldProjects = projectsWithProgress.filter(p => (p.project_status as string) === 'on-hold').length
       
       const totalActivities = mappedActivities.length
       const completedActivities = mappedActivities.filter(a => a.activity_completed).length
@@ -252,8 +252,8 @@ export function IntegratedDashboard() {
           title: `Project ${project.project_name}`,
           description: `Status: ${project.project_status} | Progress: ${project.progress.toFixed(1)}%`,
           timestamp: project.updated_at,
-          status: project.project_status === 'completed' ? 'success' : 
-                  project.project_status === 'active' ? 'info' : 'warning',
+          status: (project.project_status as string) === 'completed' || (project.project_status as string) === 'completed-duration' || (project.project_status as string) === 'contract-duration' ? 'success' : 
+                  (project.project_status as string) === 'on-going' ? 'info' : 'warning',
           projectCode: project.project_code
         })
       })
@@ -774,9 +774,11 @@ export function IntegratedDashboard() {
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-3">
                         <div className={`h-3 w-3 rounded-full ${
-                          project.project_status === 'completed' ? 'bg-green-500' :
-                          project.project_status === 'active' ? 'bg-blue-500' :
-                          project.project_status === 'on_hold' ? 'bg-orange-500' : 'bg-gray-500'
+                          (project.project_status as string) === 'completed' || (project.project_status as string) === 'completed-duration' || (project.project_status as string) === 'contract-duration' ? 'bg-green-500' :
+                          (project.project_status as string) === 'on-going' ? 'bg-blue-500' :
+                          (project.project_status as string) === 'site-preparation' ? 'bg-orange-500' :
+                          (project.project_status as string) === 'on-hold' ? 'bg-yellow-500' :
+                          (project.project_status as string) === 'cancelled' ? 'bg-red-500' : 'bg-gray-500'
                         }`}></div>
                         <h4 className="font-semibold text-gray-900 dark:text-white">{project.project_name}</h4>
                       </div>

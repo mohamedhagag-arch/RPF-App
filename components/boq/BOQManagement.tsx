@@ -264,7 +264,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         'Total Drilling Meters': activityData.total_drilling_meters?.toString() || '0',
         'Calendar Duration': activityData.calendar_duration?.toString() || '0',
         'Project Full Name': activityData.project_full_name || '',
-        'Project Status': activityData.project_status || 'active'
+        'Project Status': activityData.project_status || 'upcoming'
       }
 
       console.log('📦 Database Format:', JSON.stringify(dbData, null, 2))
@@ -328,7 +328,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         'Total Drilling Meters': activityData.total_drilling_meters?.toString() || '0',
         'Calendar Duration': activityData.calendar_duration?.toString() || '0',
         'Project Full Name': activityData.project_full_name || '',
-        'Project Status': activityData.project_status || 'active'
+        'Project Status': activityData.project_status || 'upcoming'
       }
 
       console.log('📦 Database Format:', JSON.stringify(dbData, null, 2))
