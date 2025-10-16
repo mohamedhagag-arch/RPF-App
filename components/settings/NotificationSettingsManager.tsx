@@ -178,8 +178,8 @@ export function NotificationSettingsManager({ onClose }: NotificationSettingsMan
             settingsManager.updateNotificationSetting(type.id, category.id, {
               is_enabled: true,
               frequency: 'immediate',
-              quiet_hours_start: null,
-              quiet_hours_end: null,
+              quiet_hours_start: undefined,
+              quiet_hours_end: undefined,
               quiet_days: []
             })
           )
