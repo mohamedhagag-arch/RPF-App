@@ -401,7 +401,7 @@ export function NotificationSettingsManager({ onClose }: NotificationSettingsMan
                                     </label>
                                     <input
                                       type="time"
-                                      value={getSettingValue(type.id, category.id, 'quiet_hours_start') || ''}
+                                      value={(getSettingValue(type.id, category.id, 'quiet_hours_start') as string | undefined) || ''}
                                       onChange={(e) => handleSettingChange(type.id, category.id, 'quiet_hours_start', e.target.value)}
                                       className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     />
@@ -412,7 +412,7 @@ export function NotificationSettingsManager({ onClose }: NotificationSettingsMan
                                     </label>
                                     <input
                                       type="time"
-                                      value={getSettingValue(type.id, category.id, 'quiet_hours_end') || ''}
+                                      value={(getSettingValue(type.id, category.id, 'quiet_hours_end') as string | undefined) || ''}
                                       onChange={(e) => handleSettingChange(type.id, category.id, 'quiet_hours_end', e.target.value)}
                                       className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     />
