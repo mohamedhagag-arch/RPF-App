@@ -89,7 +89,8 @@ export function CompanySettings({ onClose }: CompanySettingsProps) {
     }
     
     loadSettings()
-  }, [guard])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Auto-save function
   const autoSave = useCallback(async () => {
@@ -147,7 +148,8 @@ export function CompanySettings({ onClose }: CompanySettingsProps) {
         clearTimeout(autoSaveTimeoutRef.current)
       }
     }
-  }, [companyName, companySlogan, logoUrl, autoSave, canEdit])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyName, companySlogan, logoUrl, canEdit])
 
   const handleSave = async () => {
     if (!canEdit) {
