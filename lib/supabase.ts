@@ -79,6 +79,7 @@ export interface BOQActivity {
   variance_works_value: number
   lookahead_start_date: string
   lookahead_activity_completion_date: string
+  activity_timing?: 'pre-commencement' | 'post-commencement'
   remaining_lookahead_duration_for_activity_completion: number
   created_at: string
   updated_at: string
