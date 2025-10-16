@@ -1,0 +1,5 @@
+[33m14aab1d[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m Major Feature Update: Auto-Save, QR Codes, User Profiles, Export/Import, Enhanced Settings & More - Added Auto-Save system for Company Settings - Added QR Code generation for users with vCard data - Added User Profile system with directory - Added Export/Import functionality for Projects, BOQ, KPI - Added Print functionality for reports - Enhanced Settings system with Departments and Job Titles - Removed periodic refresh to avoid user disturbance - Fixed KPI Reports columns and Activities Report dates
+[33m04cb55b[m[33m ([m[1;31mmain-repo/main[m[33m)[m Fix TypeScript error in ProjectDetailsPanel BOQ insert
+[33m498011b[m Fix: Add Activity BOQ from Project Card now saves to BOQ table
+[33m87c0d38[m Add comprehensive permissions fix documentation
+[33m4157c6b[m Fix: Custom Permissions Auto-Enable + New User Auto-Creation
