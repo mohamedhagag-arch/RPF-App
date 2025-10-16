@@ -122,7 +122,8 @@ export function NotificationSettingsManager({ onClose }: NotificationSettingsMan
       let hasChanges = false
       const promises = []
 
-      for (const [key, changes] of editedSettings.entries()) {
+      // Convert Map entries to Array to avoid iteration error
+      for (const [key, changes] of Array.from(editedSettings.entries())) {
         const [type, category] = key.split('_')
         const originalSetting = notificationSettings.find(
           s => s.notification_type === type && s.notification_category === category
@@ -216,7 +217,8 @@ export function NotificationSettingsManager({ onClose }: NotificationSettingsMan
   }
 
   const hasChanges = () => {
-    for (const [key, changes] of editedSettings.entries()) {
+    // Convert Map entries to Array to avoid iteration error
+    for (const [key, changes] of Array.from(editedSettings.entries())) {
       const [type, category] = key.split('_')
       const originalSetting = notificationSettings.find(
         s => s.notification_type === type && s.notification_category === category
