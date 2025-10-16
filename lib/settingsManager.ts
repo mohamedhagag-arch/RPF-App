@@ -110,7 +110,7 @@ class SettingsManager {
 
       if (error && error.code !== 'PGRST116') throw error
 
-      const value = data?.setting_value
+      const value = (data as any)?.setting_value
       this.cache.set(cacheKey, { data: value, timestamp: Date.now() })
       return value
     } catch (error) {
@@ -128,8 +128,8 @@ class SettingsManager {
     isPublic: boolean = false
   ): Promise<boolean> {
     try {
-      const { error } = await this.supabase
-        .from('system_settings')
+      const { error } = await (this.supabase
+        .from('system_settings') as any)
         .upsert({
           setting_key: key,
           setting_value: value,
@@ -184,7 +184,7 @@ class SettingsManager {
 
     try {
       // First ensure user settings are initialized
-      await this.supabase.rpc('ensure_user_settings_initialized', { user_id: uid })
+      await (this.supabase as any).rpc('ensure_user_settings_initialized', { user_id: uid })
 
       const { data, error } = await this.supabase
         .from('user_preferences')
@@ -195,7 +195,7 @@ class SettingsManager {
 
       if (error && error.code !== 'PGRST116') throw error
 
-      const value = data?.preference_value
+      const value = (data as any)?.preference_value
       this.cache.set(cacheKey, { data: value, timestamp: Date.now() })
       return value
     } catch (error) {
@@ -216,8 +216,8 @@ class SettingsManager {
     if (!uid) return false
 
     try {
-      const { error } = await this.supabase
-        .from('user_preferences')
+      const { error } = await (this.supabase
+        .from('user_preferences') as any)
         .upsert({
           user_id: uid,
           preference_key: key,
@@ -265,7 +265,7 @@ class SettingsManager {
 
     try {
       // First ensure user settings are initialized
-      await this.supabase.rpc('ensure_user_settings_initialized', { user_id: uid })
+      await (this.supabase as any).rpc('ensure_user_settings_initialized', { user_id: uid })
 
       const { data, error } = await this.supabase
         .from('notification_settings')
@@ -292,8 +292,8 @@ class SettingsManager {
     if (!uid) return false
 
     try {
-      const { error } = await this.supabase
-        .from('notification_settings')
+      const { error } = await (this.supabase
+        .from('notification_settings') as any)
         .upsert({
           user_id: uid,
           notification_type: notificationType,
@@ -333,8 +333,8 @@ class SettingsManager {
     requiresAdmin: boolean = false
   ): Promise<boolean> {
     try {
-      const { error } = await this.supabase
-        .from('security_settings')
+      const { error } = await (this.supabase
+        .from('security_settings') as any)
         .upsert({
           setting_key: key,
           setting_value: value,
@@ -371,8 +371,8 @@ class SettingsManager {
 
   async createBackupSetting(setting: Partial<BackupSetting>): Promise<boolean> {
     try {
-      const { error } = await this.supabase
-        .from('backup_settings')
+      const { error } = await (this.supabase
+        .from('backup_settings') as any)
         .insert({
           ...setting,
           created_by: (await this.supabase.auth.getUser()).data.user?.id
@@ -388,8 +388,8 @@ class SettingsManager {
 
   async updateBackupSetting(id: string, updates: Partial<BackupSetting>): Promise<boolean> {
     try {
-      const { error } = await this.supabase
-        .from('backup_settings')
+      const { error} = await (this.supabase
+        .from('backup_settings') as any)
         .update({
           ...updates,
           updated_by: (await this.supabase.auth.getUser()).data.user?.id
@@ -453,7 +453,7 @@ class SettingsManager {
   // Initialize default settings for new user
   async initializeUserSettings(userId: string): Promise<boolean> {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await (this.supabase as any)
         .rpc('initialize_user_default_settings', { target_user_id: userId })
 
       if (error) throw error
