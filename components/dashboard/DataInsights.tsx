@@ -168,7 +168,7 @@ export function DataInsights({ expanded = false }: DataInsightsProps) {
           // This would need actual deadline data to be accurate
           return true // Placeholder
         }).length
-        const delayedProjects = projects.filter(p => p.project_status === 'on_hold').length
+        const delayedProjects = projects.filter(p => p.project_status === 'on-hold').length
         const criticalProjects = activities.filter(a => a.activity_delayed).length
 
         setInsights({
