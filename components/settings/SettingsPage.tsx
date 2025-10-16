@@ -81,7 +81,8 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
     console.log('🔍 SettingsPage: User permissions changed, recalculating tabs')
     console.log('🔍 Current user role:', userRole)
     console.log('🔍 Available tabs:', filteredTabs.map(t => t.id))
-  }, [userRole, guard])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userRole])
 
   const fetchUserProfile = async () => {
     try {

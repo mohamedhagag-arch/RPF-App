@@ -78,7 +78,8 @@ export function ProfileManager() {
     loadProfileData()
     loadDepartments()
     loadJobTitles()
-  }, [appUser])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const loadProfileData = async () => {
     if (!appUser?.id) return
