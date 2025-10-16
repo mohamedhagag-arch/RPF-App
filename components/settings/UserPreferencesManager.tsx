@@ -91,7 +91,8 @@ export function UserPreferencesManager({ onClose }: UserPreferencesManagerProps)
       let hasChanges = false
       const promises = []
 
-      for (const [key, value] of editedPreferences.entries()) {
+      // Convert Map entries to Array to avoid iteration error
+      for (const [key, value] of Array.from(editedPreferences.entries())) {
         const originalPreference = preferences.find(p => p.preference_key === key)
         if (originalPreference && originalPreference.preference_value !== value) {
           promises.push(
@@ -183,7 +184,8 @@ export function UserPreferencesManager({ onClose }: UserPreferencesManagerProps)
   }
 
   const hasChanges = () => {
-    for (const [key, value] of editedPreferences.entries()) {
+    // Convert Map entries to Array to avoid iteration error
+    for (const [key, value] of Array.from(editedPreferences.entries())) {
       const originalPreference = preferences.find(p => p.preference_key === key)
       if (originalPreference && originalPreference.preference_value !== value) {
         return true

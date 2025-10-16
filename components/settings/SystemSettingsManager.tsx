@@ -95,7 +95,8 @@ export function SystemSettingsManager({ onClose }: SystemSettingsManagerProps) {
       let hasChanges = false
       const promises = []
 
-      for (const [key, value] of editedSettings.entries()) {
+      // Convert Map entries to Array to avoid iteration error
+      for (const [key, value] of Array.from(editedSettings.entries())) {
         const originalSetting = settings.find(s => s.setting_key === key)
         if (originalSetting && originalSetting.setting_value !== value) {
           promises.push(
@@ -197,7 +198,8 @@ export function SystemSettingsManager({ onClose }: SystemSettingsManagerProps) {
   }
 
   const hasChanges = () => {
-    for (const [key, value] of editedSettings.entries()) {
+    // Convert Map entries to Array to avoid iteration error
+    for (const [key, value] of Array.from(editedSettings.entries())) {
       const originalSetting = settings.find(s => s.setting_key === key)
       if (originalSetting && originalSetting.setting_value !== value) {
         return true
