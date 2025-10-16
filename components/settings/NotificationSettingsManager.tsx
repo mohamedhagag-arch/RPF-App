@@ -428,14 +428,14 @@ export function NotificationSettingsManager({ onClose }: NotificationSettingsMan
                                   </label>
                                   <div className="flex flex-wrap gap-1">
                                     {daysOfWeek.map((day) => {
-                                      const quietDays = getSettingValue(type.id, category.id, 'quiet_days') || []
+                                      const quietDays = (getSettingValue(type.id, category.id, 'quiet_days') as number[] | undefined) || []
                                       const isSelected = quietDays.includes(day.id)
                                       
                                       return (
                                         <button
                                           key={day.id}
                                           onClick={() => {
-                                            const current = getSettingValue(type.id, category.id, 'quiet_days') || []
+                                            const current = (getSettingValue(type.id, category.id, 'quiet_days') as number[] | undefined) || []
                                             const newDays = isSelected
                                               ? current.filter((d: number) => d !== day.id)
                                               : [...current, day.id]
