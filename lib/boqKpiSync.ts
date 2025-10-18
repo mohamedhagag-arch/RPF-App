@@ -7,6 +7,7 @@
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { TABLES } from './supabase'
 import { mapBOQFromDB, mapKPIFromDB } from './dataMappers'
+import { kpiCache, generateKPICacheKey } from './kpiCache'
 
 /**
  * Sync BOQ Actual Units from KPI Actual records
@@ -184,6 +185,72 @@ export async function getKPIContext(
         variance: 0
       }
     }
+  }
+}
+
+/**
+ * Calculate Actual Units from KPI Actual records
+ * 
+ * This function calculates the total actual units from KPI Actual records
+ * for a specific project and activity
+ */
+export async function calculateActualFromKPI(
+  projectCode: string,
+  activityName: string
+): Promise<number> {
+  // Check cache first
+  const cacheKey = generateKPICacheKey(projectCode, activityName)
+  const cached = kpiCache.get<number>(cacheKey)
+  if (cached !== null) {
+    return cached
+  }
+  
+  const supabase = createClientComponentClient()
+  
+  try {
+    // Get all KPI Actual records for this activity
+    // Try exact match first
+    let { data: kpiActual, error } = await supabase
+      .from(TABLES.KPI)
+      .select('Quantity, "Activity Name"')
+      .eq('Input Type', 'Actual')
+      .eq('Project Full Code', projectCode)
+      .eq('Activity Name', activityName)
+    
+    // If no exact match, try flexible match
+    if (!kpiActual || kpiActual.length === 0) {
+      const { data: allProjectKPIs } = await supabase
+        .from(TABLES.KPI)
+        .select('Quantity, "Activity Name"')
+        .eq('Input Type', 'Actual')
+        .eq('Project Full Code', projectCode)
+      
+      if (allProjectKPIs && allProjectKPIs.length > 0) {
+        const activityNameLower = (activityName || '').toLowerCase().trim()
+        kpiActual = allProjectKPIs.filter(kpi => {
+          const kpiActivityName = (kpi['Activity Name'] as string || '').toLowerCase().trim()
+          return kpiActivityName.includes(activityNameLower) || 
+                 activityNameLower.includes(kpiActivityName)
+        })
+      }
+    }
+    
+    if (error) {
+      return 0
+    }
+    
+    // Sum all actual quantities
+    const totalActual = (kpiActual || []).reduce((sum, record) => {
+      const qty = parseFloat(record.Quantity?.toString() || '0') || 0
+      return sum + qty
+    }, 0)
+    
+    // Cache the result
+    kpiCache.set(cacheKey, totalActual)
+    
+    return totalActual
+  } catch (error: any) {
+    return 0
   }
 }
 

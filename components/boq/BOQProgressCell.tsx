@@ -79,6 +79,7 @@ export function BOQProgressCell({ activity, allKPIs }: BOQProgressCellProps) {
           const totalPlanned = planned.reduce((sum, k) => sum + (parseFloat(k.quantity?.toString() || '0') || 0), 0)
           const totalActual = actual.reduce((sum, k) => sum + (parseFloat(k.quantity?.toString() || '0') || 0), 0)
 
+          // ✅ Use correct business logic: (Actual Units / Planned Units) × 100
           const progress = totalPlanned > 0 ? (totalActual / totalPlanned) * 100 : 0
           
           console.log(`📊 Progress for ${activity.activity_name}:`, {

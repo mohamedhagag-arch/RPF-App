@@ -168,8 +168,9 @@ export async function deleteActivity(id: string): Promise<{ success: boolean; er
 export async function incrementActivityUsage(activityName: string): Promise<{ success: boolean; error?: string }> {
   try {
     const supabase = getSupabaseClient()
+    // ✅ Use the correct unified function name
     const { error } = await executeQuery(async () =>
-      supabase.rpc('increment_activity_usage', { activity_name: activityName } as any)
+      supabase.rpc('increment_activity_usage_unified', { activity_name: activityName } as any)
     )
 
     if (error) throw error

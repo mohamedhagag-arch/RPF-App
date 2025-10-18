@@ -98,15 +98,76 @@ export async function generateKPIsFromBOQ(
 }
 
 /**
+ * Delete existing Planned KPIs for an activity (cleanup before creating new ones)
+ */
+async function deleteExistingPlannedKPIs(
+  projectCode: string,
+  activityName: string
+): Promise<{ success: boolean; deletedCount: number }> {
+  try {
+    const supabase = getSupabaseClient()
+    
+    console.log('🧹 Checking for existing Planned KPIs to clean up...')
+    console.log('   Project:', projectCode)
+    console.log('   Activity:', activityName)
+    
+    // Check if there are existing Planned KPIs
+    const { data: existingKPIs, error: checkError } = await supabase
+      .from(TABLES.KPI)
+      .select('id')
+      .eq('Project Full Code', projectCode)
+      .eq('Activity Name', activityName)
+      .eq('Input Type', 'Planned')
+    
+    if (checkError) throw checkError
+    
+    if (existingKPIs && existingKPIs.length > 0) {
+      console.log(`⚠️ Found ${existingKPIs.length} existing Planned KPIs - will delete them first`)
+      
+      // Delete existing Planned KPIs
+      const { error: deleteError } = await supabase
+        .from(TABLES.KPI)
+        .delete()
+        .eq('Project Full Code', projectCode)
+        .eq('Activity Name', activityName)
+        .eq('Input Type', 'Planned')
+      
+      if (deleteError) throw deleteError
+      
+      console.log(`✅ Deleted ${existingKPIs.length} existing Planned KPIs`)
+      return { success: true, deletedCount: existingKPIs.length }
+    } else {
+      console.log('✅ No existing Planned KPIs found - proceeding with creation')
+      return { success: true, deletedCount: 0 }
+    }
+    
+  } catch (error: any) {
+    console.error('❌ Error deleting existing KPIs:', error)
+    return { success: false, deletedCount: 0 }
+  }
+}
+
+/**
  * Save generated KPIs to database
  */
-export async function saveGeneratedKPIs(kpis: GeneratedKPI[]): Promise<{ success: boolean; message: string; savedCount: number }> {
+export async function saveGeneratedKPIs(kpis: GeneratedKPI[], cleanupFirst: boolean = true): Promise<{ success: boolean; message: string; savedCount: number; deletedCount?: number }> {
   if (kpis.length === 0) {
     return { success: true, message: 'No KPIs to save', savedCount: 0 }
   }
   
   try {
     const supabase = getSupabaseClient()
+    
+    let deletedCount = 0
+    
+    // ✅ CLEANUP: Delete existing Planned KPIs before creating new ones (prevents duplicates!)
+    if (cleanupFirst && kpis.length > 0) {
+      const projectCode = kpis[0].project_full_code
+      const activityName = kpis[0].activity_name
+      
+      const cleanupResult = await deleteExistingPlannedKPIs(projectCode, activityName)
+      deletedCount = cleanupResult.deletedCount
+    }
     
     // Convert to database format
     const dbKPIs = kpis.map(kpi => ({
@@ -142,11 +203,17 @@ export async function saveGeneratedKPIs(kpis: GeneratedKPI[]): Promise<{ success
     }
     
     console.log(`✅ Successfully saved ${data?.length || 0} KPIs to database`)
+    if (deletedCount > 0) {
+      console.log(`🧹 Cleaned up ${deletedCount} old Planned KPIs before creating new ones`)
+    }
     
     return {
       success: true,
-      message: `Successfully generated and saved ${data?.length || 0} KPI records`,
-      savedCount: data?.length || 0
+      message: deletedCount > 0 
+        ? `Successfully replaced ${deletedCount} old KPIs with ${data?.length || 0} new KPI records`
+        : `Successfully generated and saved ${data?.length || 0} KPI records`,
+      savedCount: data?.length || 0,
+      deletedCount
     }
     
   } catch (error: any) {

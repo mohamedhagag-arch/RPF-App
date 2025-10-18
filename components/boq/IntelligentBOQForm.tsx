@@ -67,6 +67,12 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   const [projectTypeActivities, setProjectTypeActivities] = useState<ProjectTypeActivity[]>([])
   const [showActivityDropdown, setShowActivityDropdown] = useState(false)
   const [activitySelected, setActivitySelected] = useState(false)
+  
+  // ✅ Activity Filter States
+  const [activityFilter, setActivityFilter] = useState<string>('all') // 'all', 'project_type', 'division', 'category'
+  const [availableCategories, setAvailableCategories] = useState<string[]>([])
+  const [selectedCategory, setSelectedCategory] = useState<string>('all')
+  const [categoryCounts, setCategoryCounts] = useState<Record<string, number>>({})
   const [unit, setUnit] = useState(activity?.unit || '')
   const [unitSuggestions] = useState<string[]>(getAllUnits())
   const [showUnitDropdown, setShowUnitDropdown] = useState(false)
@@ -198,6 +204,67 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
     loadAllProjectTypeActivities()
   }, [])
   
+  // ✅ Handle project selection and load project details
+  const handleProjectChange = async (projectCodeValue: string) => {
+    console.log('🎯 Project selected:', projectCodeValue)
+    
+    setProjectCode(projectCodeValue)
+    
+    if (projectCodeValue && allProjects.length > 0) {
+      const selectedProject = allProjects.find(p => p.project_code === projectCodeValue)
+      if (selectedProject) {
+        setProject(selectedProject)
+        console.log('✅ Project loaded:', selectedProject.project_name)
+        
+        // ✅ Load project activities from database
+        try {
+          console.log('🔄 Loading project activities for:', selectedProject.project_name)
+          
+          const supabase = getSupabaseClient()
+          const { data: activities, error: activitiesError } = await supabase
+            .from('boq_activities')
+            .select('*')
+            .eq('project_code', selectedProject.project_code)
+            .order('activity_name')
+          
+          if (activitiesError) {
+            console.error('❌ Error loading activities:', activitiesError)
+          } else {
+            console.log('📊 Loaded activities:', activities?.length || 0)
+            
+            // ✅ Update activity suggestions with project activities ONLY
+            if (activities && activities.length > 0) {
+              const projectActivities = activities.map((act: any) => ({
+                id: act.id,
+                name: act.activity_name,
+                division: act.activity_division || 'General',
+                unit: act.unit || '',
+                category: 'Project Activity',
+                is_active: true,
+                usage_count: 0,
+                created_at: act.created_at,
+                updated_at: act.updated_at
+              }))
+              
+              // ✅ Set ONLY project activities (not combine)
+              setActivitySuggestions(projectActivities)
+              console.log('✅ Set project activities as suggestions only')
+            } else {
+              // ✅ If no project activities, clear suggestions
+              setActivitySuggestions([])
+              console.log('✅ No project activities found, cleared suggestions')
+            }
+          }
+        } catch (error) {
+          console.error('❌ Error loading project activities:', error)
+        }
+        
+        // ✅ Load activities based on project type ONLY (not combine)
+        await loadActivitiesForProjectType(selectedProject.project_type)
+      }
+    }
+  }
+
   // Auto-load project data when project code changes
   useEffect(() => {
     if (projectCode && allProjects.length > 0) {
@@ -214,70 +281,117 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
 
   // Function to load activities based on project type
   const loadActivitiesForProjectType = async (projectType?: string) => {
-    // ✅ Always use ALL activities from project_type_activities table
-    console.log('🔄 Loading ALL activities from project_type_activities table (not filtering by project type)')
+    if (!projectType) {
+      console.log('⚠️ No project type specified, using all activities')
+      const allActivities = await getAllActivities()
+      setActivitySuggestions(allActivities)
+      return
+    }
+
     try {
-      const supabase = getSupabaseClient()
-      const { data, error } = await executeQuery(async () =>
-        supabase
-          .from('project_type_activities')
-          .select('*')
-          .eq('is_active', true)
-          .order('activity_name', { ascending: true })
-      )
+      console.log('🔍 Loading activities for project type:', projectType)
       
-      if (error) throw error
+      // ✅ استخدام النظام الجديد للأنشطة المقترحة
+      const suggestedActivities = await getSuggestedActivities(projectType)
       
-      // Convert to Activity format
-      const activities = (data || []).map((pta: any) => ({
-        id: pta.id,
-        name: pta.activity_name,
-        division: pta.project_type,
-        unit: pta.default_unit || '',
-        category: pta.category || 'General',
-        is_active: pta.is_active,
-        usage_count: 0,
-        created_at: pta.created_at,
-        updated_at: pta.updated_at
-      }))
+      console.log(`✅ Found ${suggestedActivities.length} activities for ${projectType}`)
+      setActivitySuggestions(suggestedActivities)
       
-      console.log(`✅ Loaded ${activities.length} activities from project_type_activities table`)
-      setActivitySuggestions(activities)
-      console.log('💡 All project type activities available - user can select any activity')
     } catch (error) {
-      console.error('❌ Error loading project type activities:', error)
-      // Fallback to regular activities
-      try {
-        const allActivities = await getAllActivities()
-        setActivitySuggestions(allActivities)
-      } catch (fallbackError) {
-        console.error('❌ Fallback also failed:', fallbackError)
-        // Final fallback to templates
-        setActivitySuggestions(ACTIVITY_TEMPLATES.map(template => ({
-          id: template.name,
-          name: template.name,
-          division: template.division,
-          unit: template.defaultUnit,
-          category: template.category,
-          is_active: true,
-          usage_count: 0,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })))
-      }
+      console.error('❌ Error loading activities for project type:', error)
+      // Fallback to all activities
+      const allActivities = await getAllActivities()
+      setActivitySuggestions(allActivities)
     }
   }
   
-  // ✅ DISABLED - Don't filter activities by division
-  // We want to show ALL activities regardless of project type or division
-  // useEffect(() => {
-  //   if (project?.responsible_division && activitySuggestions.length === 0) {
-  //     console.log('🔄 Loading activities by division as fallback:', project.responsible_division)
-  //     const suggestions = getAllActivitiesByDivision(project.responsible_division, ACTIVITY_TEMPLATES)
-  //     setActivitySuggestions(convertedSuggestions)
-  //     console.log(`✅ Loaded ${convertedSuggestions.length} activities by division`)
-  //   }
-  // }, [project?.responsible_division, activitySuggestions.length])
+  // Load activity suggestions based on division (fallback)
+  useEffect(() => {
+    if (project?.responsible_division && activitySuggestions.length === 0) {
+      console.log('🔄 Loading activities by division as fallback:', project.responsible_division)
+      const suggestions = getAllActivitiesByDivision(project.responsible_division, ACTIVITY_TEMPLATES)
+      // Convert ActivityTemplate to Activity format
+      const convertedSuggestions = suggestions.map(template => ({
+        id: template.name,
+        name: template.name,
+        division: template.division,
+        unit: template.defaultUnit,
+        category: template.category,
+        is_active: true,
+        usage_count: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }))
+      setActivitySuggestions(convertedSuggestions)
+      console.log(`✅ Loaded ${convertedSuggestions.length} activities by division`)
+    }
+  }, [project?.responsible_division, activitySuggestions.length])
+
+  // ✅ Load categories from project_type_activities table
+  useEffect(() => {
+    const loadCategories = async () => {
+      if (!project?.project_type) return
+      
+      try {
+        const supabase = getSupabaseClient()
+        
+        // Get unique categories for this project type from project_type_activities
+        const { data, error } = await executeQuery(async () =>
+          supabase
+            .from('project_type_activities')
+            .select('category, activity_name')
+            .eq('project_type', project.project_type)
+            .eq('is_active', true)
+        )
+        
+        if (error) {
+          console.error('❌ Error loading categories:', error)
+          return
+        }
+        
+        if (data && data.length > 0) {
+          const categorySet = new Set<string>()
+          const counts: Record<string, number> = {}
+          
+          data.forEach((item: any) => {
+            if (item.category) {
+              categorySet.add(item.category)
+              counts[item.category] = (counts[item.category] || 0) + 1
+            }
+          })
+          
+          const categories = Array.from(categorySet).sort()
+          setAvailableCategories(categories)
+          setCategoryCounts(counts)
+          console.log('📊 Available categories from project_type_activities:', categories)
+          console.log('📊 Category counts:', counts)
+        }
+      } catch (error) {
+        console.error('❌ Error loading categories:', error)
+      }
+    }
+    
+    loadCategories()
+  }, [project?.project_type])
+
+  // ✅ Filter activities based on selected filter and category
+  const getFilteredActivities = () => {
+    let filtered = activitySuggestions
+
+    // Filter by category if selected
+    if (selectedCategory !== 'all') {
+      filtered = filtered.filter(act => act.category === selectedCategory)
+    }
+
+    // Filter by search term
+    if (activityName) {
+      filtered = filtered.filter(act => 
+        act.name.toLowerCase().includes(activityName.toLowerCase())
+      )
+    }
+
+    return filtered
+  }
   
   // Auto-suggest unit when activity name changes
   useEffect(() => {
@@ -307,6 +421,14 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
     
     calculateDuration()
   }, [startDate, endDate, includeWeekends, plannedUnits, autoGenerateKPIs])
+
+  // ✅ Auto-generate KPI preview when activity is selected from suggestions
+  useEffect(() => {
+    if (activityName && startDate && endDate && plannedUnits && parseFloat(plannedUnits) > 0 && autoGenerateKPIs) {
+      console.log('🔄 Activity selected, auto-generating KPI preview...')
+      generateKPIPreview()
+    }
+  }, [activityName, startDate, endDate, plannedUnits, autoGenerateKPIs])
   
   // Load custom holidays from localStorage
   useEffect(() => {
@@ -360,7 +482,16 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   }
   
   async function generateKPIPreview() {
+    console.log('🔍 generateKPIPreview called with:', {
+      startDate,
+      endDate,
+      plannedUnits,
+      activityName,
+      autoGenerateKPIs
+    })
+    
     if (!startDate || !endDate || !plannedUnits || parseFloat(plannedUnits) <= 0 || !activityName) {
+      console.log('⚠️ generateKPIPreview skipped - missing required data')
       setKpiPreview(null)
       setKpiGenerationStatus('idle')
       return
@@ -427,30 +558,44 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
     console.log('🔒 Activity dropdown closed after selection')
     console.log('🔧 Auto-filled unit:', suggestedUnit || selectedActivity.unit)
     
-    // ✅ Auto-load project data based on activity
+    // ✅ Auto-load project data based on activity (ONLY if no project is already selected)
     try {
       console.log('🔄 Auto-loading project data for activity:', selectedActivity.name)
+      console.log('🔍 Current project selection:', { projectCode, projectName: project?.project_name })
       
-      // Find projects that use this activity
-      const projectsWithActivity = allProjects.filter(p => 
-        p.project_type === selectedActivity.division || 
-        p.responsible_division === selectedActivity.division
-      )
-      
-      if (projectsWithActivity.length > 0) {
-        // Auto-select the first matching project
-        const autoProject = projectsWithActivity[0]
-        setProjectCode(autoProject.project_code)
-        setProject(autoProject)
-        console.log('✅ Auto-selected project:', autoProject.project_name)
-        console.log('📊 Project details:', {
-          code: autoProject.project_code,
-          name: autoProject.project_name,
-          type: autoProject.project_type,
-          division: autoProject.responsible_division
-        })
+      // ✅ ONLY auto-select project if no project is currently selected
+      if (!projectCode || !project) {
+        console.log('📋 No project selected, auto-selecting based on activity...')
+        
+        // Find projects that use this activity
+        const projectsWithActivity = allProjects.filter(p => 
+          p.project_type === selectedActivity.division || 
+          p.responsible_division === selectedActivity.division
+        )
+        
+        if (projectsWithActivity.length > 0) {
+          // Auto-select the first matching project
+          const autoProject = projectsWithActivity[0]
+          setProjectCode(autoProject.project_code)
+          setProject(autoProject)
+          console.log('✅ Auto-selected project:', autoProject.project_name)
+          console.log('📊 Project details:', {
+            code: autoProject.project_code,
+            name: autoProject.project_name,
+            type: autoProject.project_type,
+            division: autoProject.responsible_division
+          })
+        } else {
+          console.log('⚠️ No matching projects found for activity division:', selectedActivity.division)
+        }
       } else {
-        console.log('⚠️ No matching projects found for activity division:', selectedActivity.division)
+        console.log('✅ Project already selected, keeping current selection:', project.project_name)
+        console.log('📊 Current project details:', {
+          code: project.project_code,
+          name: project.project_name,
+          type: project.project_type,
+          division: project.responsible_division
+        })
       }
     } catch (error) {
       console.error('❌ Error auto-loading project data:', error)
@@ -466,6 +611,14 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
     
     // إظهار رسالة نجاح
     setSuccess(`Activity "${selectedActivity.name}" selected with unit "${suggestedUnit || selectedActivity.unit}"`)
+    
+    // ✅ Auto-generate KPI preview if all required data is available
+    if (startDate && endDate && plannedUnits && parseFloat(plannedUnits) > 0 && autoGenerateKPIs) {
+      console.log('🔄 Auto-generating KPI preview after activity selection...')
+      setTimeout(() => {
+        generateKPIPreview()
+      }, 100) // Small delay to ensure state is updated
+    }
   }
   
   function handleUnitSelect(selectedUnit: string) {
@@ -480,12 +633,38 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
     setSuccess('')
     
     try {
+      console.log('🔍 Form validation - checking required fields:', {
+        projectCode,
+        projectName: project?.project_name,
+        activityName,
+        unit,
+        startDate,
+        endDate,
+        plannedUnits,
+        autoGenerateKPIs,
+        kpiPreview: kpiPreview ? `${kpiPreview.kpis?.length || 0} KPIs` : 'null'
+      })
+      
+      // ✅ CRITICAL: Verify project selection is correct
+      console.log('🎯 FINAL PROJECT VERIFICATION:', {
+        selectedProjectCode: projectCode,
+        selectedProjectName: project?.project_name,
+        selectedProjectType: project?.project_type,
+        selectedProjectDivision: project?.responsible_division,
+        activityName: activityName
+      })
+      
       // Validate required fields
       if (!projectCode) throw new Error('Please select a project')
       if (!activityName) throw new Error('Please enter activity name')
       if (!unit) throw new Error('Please enter unit')
       if (!startDate) throw new Error('Please enter start date')
       if (!endDate) throw new Error('Please enter end date')
+      
+      // ✅ Additional validation for KPI generation
+      if (autoGenerateKPIs && (!plannedUnits || parseFloat(plannedUnits) <= 0)) {
+        throw new Error('Planned Units is required for KPI auto-generation. Please enter a value greater than 0.')
+      }
       
       const activityData = {
         ...(activity?.id && { id: activity.id }), // Include ID if editing
@@ -536,6 +715,13 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       console.log('========================================')
       
       // Handle KPIs based on mode (Create vs Update)
+      console.log('🔍 KPI Generation Check:', {
+        autoGenerateKPIs,
+        hasKpiPreview: !!kpiPreview,
+        kpiCount: kpiPreview?.kpis?.length || 0,
+        kpiPreviewData: kpiPreview ? 'Available' : 'Missing'
+      })
+      
       if (autoGenerateKPIs && kpiPreview?.kpis && kpiPreview.kpis.length > 0) {
         if (activity) {
           // ✅ EDIT MODE: Update existing KPIs (not delete and recreate!)
@@ -579,7 +765,51 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         if (!autoGenerateKPIs) console.warn('  - Auto-generate KPIs is DISABLED')
         if (!kpiPreview) console.warn('  - No KPI preview available')
         if (!kpiPreview?.kpis || kpiPreview.kpis.length === 0) console.warn('  - KPI preview is empty')
-        setSuccess(activity ? '✅ Activity updated successfully!' : '✅ Activity created successfully!')
+        
+        // ✅ Fallback: Try to generate KPIs on the fly if preview is missing
+        if (autoGenerateKPIs && (!kpiPreview || !kpiPreview.kpis || kpiPreview.kpis.length === 0)) {
+          console.log('🔄 Fallback: Generating KPIs on the fly...')
+          try {
+            const tempActivity = {
+              id: activity?.id || 'temp',
+              project_code: projectCode,
+              project_full_code: project?.project_code || projectCode,
+              project_sub_code: project?.project_sub_code || '',
+              activity_name: activityName,
+              unit: unit || 'No.',
+              planned_units: parseFloat(plannedUnits),
+              planned_value: parseFloat(plannedValue) || 0,
+              planned_activity_start_date: startDate,
+              deadline: endDate,
+              zone_ref: project?.responsible_division || '',
+              project_full_name: project?.project_name || ''
+            }
+            
+            const { generateKPIsFromBOQ, saveGeneratedKPIs } = await import('@/lib/autoKPIGenerator')
+            const kpis = await generateKPIsFromBOQ(tempActivity as any, workdaysConfig)
+            
+            if (kpis && kpis.length > 0) {
+              console.log(`✅ Fallback: Generated ${kpis.length} KPIs on the fly`)
+              const result = await saveGeneratedKPIs(kpis)
+              
+              if (result.success) {
+                setSuccess(`✅ Activity created with ${result.savedCount} KPI records (generated on the fly)!`)
+                console.log('✅ Fallback KPI generation successful')
+              } else {
+                console.error('❌ Fallback KPI generation failed:', result.message)
+                setSuccess('⚠️ Activity created but KPI generation failed: ' + result.message)
+              }
+            } else {
+              console.warn('⚠️ Fallback: No KPIs generated')
+              setSuccess(activity ? '✅ Activity updated successfully!' : '✅ Activity created successfully!')
+            }
+          } catch (fallbackError) {
+            console.error('❌ Fallback KPI generation error:', fallbackError)
+            setSuccess(activity ? '✅ Activity updated successfully!' : '✅ Activity created successfully!')
+          }
+        } else {
+          setSuccess(activity ? '✅ Activity updated successfully!' : '✅ Activity created successfully!')
+        }
       }
       
       // Close form after short delay to show success message
@@ -653,7 +883,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
               </label>
               <select 
                 value={projectCode} 
-                onChange={(e) => setProjectCode(e.target.value)}
+                onChange={(e) => handleProjectChange(e.target.value)}
                 className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                 required
                 disabled={loading || projectLoading}
@@ -668,8 +898,8 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                 ))}
               </select>
               
-              {/* Project Info Card - Only show after activity is selected */}
-              {project && activitySelected && (
+              {/* ✅ Project Info Card - Show immediately after project selection */}
+              {project && (
                 <ModernCard className="mt-3 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border-blue-200 dark:border-blue-800">
                   <div className="flex items-start gap-3">
                     <CheckCircle2 className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
@@ -692,6 +922,9 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                             {project.project_status}
                           </ModernBadge>
                         )}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-2">
+                        📊 Project activities will be loaded automatically
                       </div>
                     </div>
                   </div>
@@ -756,15 +989,38 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                 activitySuggestions.length > 0 ? (
                 <div className="absolute z-20 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                   <div className="p-2 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
-                    <p className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                      💡 All activities in the system ({activitySuggestions.length} activities) - Select any activity to auto-load project data
+                    <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
+                      💡 Activities for {project?.project_type || project?.responsible_division || 'this project'} ({activitySuggestions.length} activities)
                     </p>
+                    
+                    {/* ✅ Activity Filter */}
+                    {availableCategories.length > 1 && (
+                      <div className="flex flex-col gap-2 mb-2">
+                        <div className="flex items-center gap-2">
+                          <label className="text-xs text-gray-600 dark:text-gray-400">Filter by Category:</label>
+                          <select
+                            value={selectedCategory}
+                            onChange={(e) => setSelectedCategory(e.target.value)}
+                            className="text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                          >
+                            <option value="all">All Categories ({activitySuggestions.length})</option>
+                            {availableCategories.map(category => (
+                              <option key={category} value={category}>
+                                {category} ({categoryCounts[category] || 0})
+                              </option>
+                            ))}
+                          </select>
+                          <span className="text-xs text-gray-500">
+                            ({getFilteredActivities().length} shown)
+                          </span>
+                        </div>
+                        <div className="text-xs text-blue-600 dark:text-blue-400">
+                          📊 Categories from Project Types Management
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  {activitySuggestions
-                    .filter(act => 
-                      activityName === '' || 
-                      act.name.toLowerCase().includes(activityName.toLowerCase())
-                    )
+                  {getFilteredActivities()
                     .map((act, idx) => (
                       <button
                         key={idx}

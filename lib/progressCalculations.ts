@@ -6,6 +6,7 @@
  */
 
 import { BOQActivity, Project } from './supabase'
+import { calculateProjectProgressFromValues } from './boqValueCalculator'
 
 /**
  * Calculate activity progress percentage
@@ -16,24 +17,22 @@ export function calculateActivityProgress(
   actualUnits: number
 ): number {
   if (plannedUnits <= 0) return 0
+  // ✅ Use correct business logic: (Actual Units / Planned Units) × 100
   return (actualUnits / plannedUnits) * 100
 }
 
 /**
- * Calculate project progress based on its activities
- * Formula: Average of all activities progress percentages
+ * Calculate project progress based on earned values of activities
+ * Formula: (Total Earned Value / Total Project Value) × 100
  */
 export function calculateProjectProgress(
   activities: BOQActivity[]
 ): number {
   if (!activities || activities.length === 0) return 0
   
-  const totalProgress = activities.reduce(
-    (sum, activity) => sum + (activity.activity_progress_percentage || 0),
-    0
-  )
-  
-  return totalProgress / activities.length
+  // ✅ Use earned values calculation
+  const projectProgress = calculateProjectProgressFromValues(activities)
+  return projectProgress.progress
 }
 
 /**
@@ -45,23 +44,9 @@ export function calculateWeightedProjectProgress(
 ): number {
   if (!activities || activities.length === 0) return 0
   
-  const totalValue = activities.reduce(
-    (sum, activity) => sum + (activity.total_value || 0),
-    0
-  )
-  
-  if (totalValue === 0) {
-    // If no values, use simple average
-    return calculateProjectProgress(activities)
-  }
-  
-  const weightedProgress = activities.reduce((sum, activity) => {
-    const weight = (activity.total_value || 0) / totalValue
-    const progress = activity.activity_progress_percentage || 0
-    return sum + (progress * weight)
-  }, 0)
-  
-  return weightedProgress
+  // ✅ Use earned values calculation for weighted progress
+  const projectProgress = calculateProjectProgressFromValues(activities)
+  return projectProgress.progress
 }
 
 /**
@@ -97,19 +82,9 @@ export function calculateProjectProgressByValue(
 ): number {
   if (!activities || activities.length === 0) return 0
   
-  const totalPlannedValue = activities.reduce(
-    (sum, activity) => sum + (activity.planned_value || 0),
-    0
-  )
-  
-  const totalEarnedValue = activities.reduce(
-    (sum, activity) => sum + (activity.earned_value || 0),
-    0
-  )
-  
-  if (totalPlannedValue === 0) return 0
-  
-  return (totalEarnedValue / totalPlannedValue) * 100
+  // ✅ Use earned values calculation
+  const projectProgress = calculateProjectProgressFromValues(activities)
+  return projectProgress.progress
 }
 
 /**

@@ -7,7 +7,9 @@ import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { BOQActivity } from '@/lib/supabase'
 import { TABLES } from '@/lib/supabase'
 import { mapKPIFromDB } from '@/lib/dataMappers'
-import { Target, TrendingUp, CheckCircle2, AlertCircle, Link2, Eye, Clock, BarChart3 } from 'lucide-react'
+import { calculateActualFromKPI } from '@/lib/boqKpiSync'
+import { calculateBOQValues, formatCurrency, formatPercentage, calculateProjectProgressFromValues } from '@/lib/boqValueCalculator'
+import { Target, TrendingUp, CheckCircle2, AlertCircle, Link2, Eye, Clock, BarChart3, DollarSign } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 
 interface BOQWithKPIStatusProps {
@@ -35,25 +37,17 @@ export function BOQWithKPIStatus({ activity, allKPIs }: BOQWithKPIStatusProps) {
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('boq-kpi-status')
 
   useEffect(() => {
+    let isCancelled = false
+
     // If allKPIs is provided, use it (no fetching!)
     if (allKPIs && allKPIs.length > 0) {
       processKPIData(allKPIs)
       return
     }
     
-    // Otherwise, fetch (backward compatibility)
-    let isCancelled = false
-
+    // Otherwise, fetch once (backward compatibility)
     const fetchKPIData = async () => {
       try {
-        // تقليل التسجيل لتجنب البطء
-        if (Math.random() < 0.1) {
-          console.log('🔍 Fetching KPI for:', {
-            project_code: activity.project_code,
-            activity_name: activity.activity_name
-          })
-        }
-
         // Try exact match first from MAIN TABLE
         let { data: kpiRecords } = await supabase
           .from(TABLES.KPI)
@@ -63,19 +57,14 @@ export function BOQWithKPIStatus({ activity, allKPIs }: BOQWithKPIStatusProps) {
 
         if (isCancelled) return
 
-        console.log('📊 Exact match results:', kpiRecords?.length || 0)
-
         // If no exact match, try flexible match
         if (!kpiRecords || kpiRecords.length === 0) {
-          console.log('🔄 Trying flexible match...')
           const { data: allProjectKPIs } = await supabase
             .from(TABLES.KPI)
             .select('*')
             .eq('Project Full Code', activity.project_code)
           
           if (isCancelled) return
-          
-          console.log('📋 All KPIs for project:', allProjectKPIs?.length || 0)
           
           // Try to match by activity name (case insensitive, partial match)
           if (allProjectKPIs && allProjectKPIs.length > 0) {
@@ -85,7 +74,6 @@ export function BOQWithKPIStatus({ activity, allKPIs }: BOQWithKPIStatusProps) {
               return kpiActivityName.includes(activityNameLower) || 
                      activityNameLower.includes(kpiActivityName)
             })
-            console.log('🎯 Flexible match results:', kpiRecords.length)
           }
         }
 
@@ -100,13 +88,6 @@ export function BOQWithKPIStatus({ activity, allKPIs }: BOQWithKPIStatusProps) {
           const totalPlanned = planned.reduce((sum, k) => sum + (k.quantity || 0), 0)
           const totalActual = actual.reduce((sum, k) => sum + (k.quantity || 0), 0)
 
-          console.log('✅ KPI Data found:', {
-            planned: totalPlanned,
-            actual: totalActual,
-            plannedCount: planned.length,
-            actualCount: actual.length
-          })
-
           if (!isCancelled) {
             setKpiData({
               plannedCount: planned.length,
@@ -117,12 +98,37 @@ export function BOQWithKPIStatus({ activity, allKPIs }: BOQWithKPIStatusProps) {
             })
           }
         } else {
-          console.log('⚠️ No KPI data found')
+          // ✅ No KPI records found, try to calculate from KPI database
+          try {
+            const actualFromKPI = await calculateActualFromKPI(
+              activity.project_code || '',
+              activity.activity_name || ''
+            )
+            
+            if (!isCancelled) {
+              setKpiData({
+                plannedCount: 0,
+                actualCount: actualFromKPI > 0 ? 1 : 0,
+                totalPlanned: 0,
+                totalActual: actualFromKPI,
+                hasData: actualFromKPI > 0
+              })
+            }
+          } catch (error) {
+            // Silently fail
+            if (!isCancelled) {
+              setKpiData({
+                plannedCount: 0,
+                actualCount: 0,
+                totalPlanned: 0,
+                totalActual: 0,
+                hasData: false
+              })
+            }
+          }
         }
       } catch (error) {
-        if (!isCancelled) {
-          console.error('❌ Error fetching KPI data:', error)
-        }
+        // Silently fail
       }
     }
 
@@ -169,38 +175,60 @@ export function BOQWithKPIStatus({ activity, allKPIs }: BOQWithKPIStatusProps) {
     }
   }
 
-  // Calculate KPI-based progress
+  // ✅ Calculate progress using KPI Actual (more accurate)
   const kpiProgress = kpiData.totalPlanned > 0 
     ? (kpiData.totalActual / kpiData.totalPlanned) * 100 
     : 0
 
+  // ✅ Use KPI Actual for BOQ progress calculation (more accurate)
+  // If no KPI data, fallback to BOQ actual_units
+  const actualUnits = kpiData.totalActual > 0 ? kpiData.totalActual : (activity.actual_units || 0)
   const boqProgress = (activity.planned_units || 0) > 0
-    ? ((activity.actual_units || 0) / (activity.planned_units || 0)) * 100
+    ? (actualUnits / (activity.planned_units || 0)) * 100
     : 0
 
-  // Determine status based on KPI progress
+  // ✅ Calculate values using correct business logic
+  const values = calculateBOQValues(
+    activity.total_units || 0,
+    activity.planned_units || 0,
+    actualUnits,
+    activity.total_value || 0
+  )
+
+  console.log('🔍 BOQWithKPIStatus Progress Calculation:', {
+    activityName: activity.activity_name,
+    plannedUnits: activity.planned_units,
+    actualUnits: activity.actual_units,
+    kpiTotalActual: kpiData.totalActual,
+    kpiTotalPlanned: kpiData.totalPlanned,
+    kpiProgress,
+    boqProgress,
+    finalActualUnits: actualUnits,
+    calculatedValues: values
+  })
+
+  // ✅ Determine status based on the higher of KPI or BOQ progress
+  const finalProgress = Math.max(kpiProgress, boqProgress)
   let status: 'excellent' | 'good' | 'warning' | 'critical'
   let statusText: string
   let statusColor: string
 
-  if (kpiData.hasData && kpiData.actualCount > 0) {
-    if (kpiProgress >= 100) {
-      status = 'excellent'
-      statusText = 'Completed'
-      statusColor = 'text-green-600 bg-green-50 border-green-200'
-    } else if (kpiProgress >= 80) {
-      status = 'good'
-      statusText = 'On Track'
-      statusColor = 'text-blue-600 bg-blue-50 border-blue-200'
-    } else if (kpiProgress >= 50) {
-      status = 'warning'
-      statusText = 'In Progress'
-      statusColor = 'text-yellow-600 bg-yellow-50 border-yellow-200'
-    } else {
-      status = 'critical'
-      statusText = 'Behind Schedule'
-      statusColor = 'text-red-600 bg-red-50 border-red-200'
-    }
+  if (finalProgress >= 100) {
+    status = 'excellent'
+    statusText = 'Completed'
+    statusColor = 'text-green-600 bg-green-50 border-green-200'
+  } else if (finalProgress >= 80) {
+    status = 'good'
+    statusText = 'On Track'
+    statusColor = 'text-blue-600 bg-blue-50 border-blue-200'
+  } else if (finalProgress >= 50) {
+    status = 'warning'
+    statusText = 'In Progress'
+    statusColor = 'text-yellow-600 bg-yellow-50 border-yellow-200'
+  } else if (finalProgress > 0) {
+    status = 'critical'
+    statusText = 'Behind Schedule'
+    statusColor = 'text-red-600 bg-red-50 border-red-200'
   } else {
     status = 'warning'
     statusText = 'Not Started'
@@ -209,16 +237,29 @@ export function BOQWithKPIStatus({ activity, allKPIs }: BOQWithKPIStatusProps) {
 
   const isInSync = Math.abs(kpiData.totalActual - (activity.actual_units || 0)) < 0.01
 
-  if (!kpiData.hasData) {
+  // ✅ Show data even if no KPI data, but use BOQ data
+  if (!kpiData.hasData && finalProgress === 0) {
     return (
       <div className="space-y-2">
         <div className="flex items-center gap-2 text-xs text-gray-400">
           <AlertCircle className="w-3 h-3" />
-          <span>No KPI data yet</span>
+          <span>No KPI data yet - Using BOQ data</span>
         </div>
         <div className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium border ${statusColor}`}>
           <Clock className="w-3 h-3" />
           <span>{statusText}</span>
+        </div>
+        {/* Show BOQ progress even without KPI */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-bold border ${
+            finalProgress >= 100 ? 'bg-green-50 text-green-700 border-green-300' :
+            finalProgress >= 80 ? 'bg-blue-50 text-blue-700 border-blue-300' :
+            finalProgress >= 50 ? 'bg-yellow-50 text-yellow-700 border-yellow-300' :
+            'bg-red-50 text-red-700 border-red-300'
+          }`}>
+            <BarChart3 className="w-3 h-3" />
+            <span>{finalProgress.toFixed(1)}%</span>
+          </div>
         </div>
       </div>
     )
@@ -228,15 +269,15 @@ export function BOQWithKPIStatus({ activity, allKPIs }: BOQWithKPIStatusProps) {
     <div className="space-y-2">
       {/* Progress and Status from KPI */}
       <div className="flex items-center gap-2 flex-wrap">
-        {/* Progress Badge */}
+        {/* Progress Badge - Use the higher of KPI or BOQ progress */}
         <div className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-bold border ${
-          kpiProgress >= 100 ? 'bg-green-50 text-green-700 border-green-300' :
-          kpiProgress >= 80 ? 'bg-blue-50 text-blue-700 border-blue-300' :
-          kpiProgress >= 50 ? 'bg-yellow-50 text-yellow-700 border-yellow-300' :
+          Math.max(kpiProgress, boqProgress) >= 100 ? 'bg-green-50 text-green-700 border-green-300' :
+          Math.max(kpiProgress, boqProgress) >= 80 ? 'bg-blue-50 text-blue-700 border-blue-300' :
+          Math.max(kpiProgress, boqProgress) >= 50 ? 'bg-yellow-50 text-yellow-700 border-yellow-300' :
           'bg-red-50 text-red-700 border-red-300'
         }`}>
           <BarChart3 className="w-3 h-3" />
-          <span>{kpiProgress.toFixed(1)}%</span>
+          <span>{Math.max(kpiProgress, boqProgress).toFixed(1)}%</span>
         </div>
 
         {/* Status Badge */}
@@ -323,13 +364,43 @@ export function BOQWithKPIStatus({ activity, allKPIs }: BOQWithKPIStatusProps) {
                 <span>BOQ Actual</span>
               </div>
               <div className="font-bold text-green-600">
-                {(activity.actual_units || 0).toLocaleString()}
+                {actualUnits.toLocaleString()}
               </div>
-              {isInSync ? (
+              {actualUnits !== (activity.actual_units || 0) ? (
+                <div className="text-blue-600 text-xs">✅ Updated from KPI</div>
+              ) : isInSync ? (
                 <div className="text-green-600 text-xs">✓ Synced</div>
               ) : (
                 <div className="text-yellow-600 text-xs">⚠ Out of sync</div>
               )}
+            </div>
+
+            {/* ✅ Rate */}
+            <div className="bg-white dark:bg-gray-800 rounded p-2">
+              <div className="flex items-center gap-1 text-gray-500 mb-1">
+                <DollarSign className="w-3 h-3 text-yellow-500" />
+                <span>Rate</span>
+              </div>
+              <div className="font-bold text-yellow-600">
+                {formatCurrency(values.rate)} / {activity.unit || 'unit'}
+              </div>
+              <div className="text-xs text-gray-500">
+                Total Value ÷ Total Units
+              </div>
+            </div>
+
+            {/* ✅ Value (قيمة ما تم تنفيذه) */}
+            <div className="bg-white dark:bg-gray-800 rounded p-2">
+              <div className="flex items-center gap-1 text-gray-500 mb-1">
+                <TrendingUp className="w-3 h-3 text-green-500" />
+                <span>Value</span>
+              </div>
+              <div className="font-bold text-green-600">
+                {formatCurrency(values.value)}
+              </div>
+              <div className="text-xs text-gray-500">
+                Rate × Actual Units
+              </div>
             </div>
           </div>
 

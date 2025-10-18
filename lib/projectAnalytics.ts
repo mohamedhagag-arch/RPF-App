@@ -5,6 +5,7 @@
  */
 
 import { Project, BOQActivity, KPIRecord } from './supabase'
+import { calculateProjectProgressFromValues, calculateProjectProgressFromKPI } from './boqValueCalculator'
 
 export interface ProjectAnalytics {
   project: Project
@@ -171,15 +172,52 @@ export function calculateProjectAnalytics(
     !a.activity_completed && !a.activity_on_track && !a.activity_delayed
   ).length
   
-  // Financial Metrics
-  const totalPlannedValue = projectActivities.reduce((sum, a) => sum + (a.planned_value || 0), 0)
-  const totalEarnedValue = projectActivities.reduce((sum, a) => {
-    // Calculate earned value = planned_value * (progress / 100)
-    const plannedValue = a.planned_value || 0
-    const progress = a.activity_progress_percentage || 0
-    const earnedValue = a.earned_value || (plannedValue * progress / 100)
-    return sum + earnedValue
-  }, 0)
+  // ✅ Financial Metrics - Using correct business logic with KPI data
+  // Calculate using Rate × Units logic with KPI actuals
+  let totalPlannedValue = 0
+  let totalEarnedValue = 0
+  
+  // Prepare KPI data for more accurate calculation
+  const kpiData: { [key: string]: { totalActual: number; totalPlanned: number } } = {}
+  
+  // Group KPI data by activity
+  for (const kpi of projectKPIs) {
+    const key = `${kpi.project_code}-${kpi.activity_name}`
+    if (!kpiData[key]) {
+      kpiData[key] = { totalActual: 0, totalPlanned: 0 }
+    }
+    
+    if (kpi.input_type === 'Actual') {
+      kpiData[key].totalActual += parseFloat(kpi.quantity?.toString() || '0') || 0
+    } else if (kpi.input_type === 'Planned') {
+      kpiData[key].totalPlanned += parseFloat(kpi.quantity?.toString() || '0') || 0
+    }
+  }
+  
+  for (const activity of projectActivities) {
+    // Get KPI data for this activity
+    const kpiKey = `${activity.project_code}-${activity.activity_name}`
+    const kpiInfo = kpiData[kpiKey] || { totalActual: 0, totalPlanned: 0 }
+    
+    // Use KPI actual if available, otherwise use BOQ actual
+    const actualUnits = kpiInfo.totalActual > 0 ? kpiInfo.totalActual : (activity.actual_units || 0)
+    const plannedUnits = kpiInfo.totalPlanned > 0 ? kpiInfo.totalPlanned : (activity.planned_units || 0)
+    
+    // Calculate rate for this activity
+    const rate = (activity.total_units || 0) > 0 
+      ? (activity.total_value || 0) / (activity.total_units || 0) 
+      : 0
+    
+    // Calculate planned value (Planned Units × Rate)
+    const plannedValue = plannedUnits * rate
+    
+    // Calculate earned value (Actual Units × Rate)
+    const earnedValue = actualUnits * rate
+    
+    totalPlannedValue += plannedValue
+    totalEarnedValue += earnedValue
+  }
+  
   const totalRemainingValue = totalPlannedValue - totalEarnedValue
   const financialProgress = totalPlannedValue > 0 ? (totalEarnedValue / totalPlannedValue) * 100 : 0
   
@@ -193,56 +231,36 @@ export function calculateProjectAnalytics(
     })
   }
   
-  // ✅ Progress Metrics - Based on KPIs (Actual vs Planned)
-  // Calculate progress from KPI quantities, not BOQ directly
-  const plannedKPIsData = projectKPIs.filter(k => k.input_type === 'Planned')
-  const actualKPIsData = projectKPIs.filter(k => k.input_type === 'Actual')
+  // ✅ Progress Metrics - Based on Earned Values (قيم الأنشطة المنجزة)
+  // Calculate progress from earned values of activities
+  // (kpiData already prepared above)
   
-  // Sum of all planned quantities from KPIs
-  const totalPlannedQuantity = plannedKPIsData.reduce((sum, k) => {
-    const qty = parseFloat(k.quantity?.toString() || '0') || 0
-    return sum + qty
-  }, 0)
+  // Calculate project progress using earned values
+  const projectProgress = calculateProjectProgressFromKPI(projectActivities, kpiData)
   
-  // Sum of all actual quantities from KPIs
-  const totalActualQuantity = actualKPIsData.reduce((sum, k) => {
-    const qty = parseFloat(k.quantity?.toString() || '0') || 0
-    return sum + qty
-  }, 0)
+  // Use the calculated progress
+  const averageActivityProgress = projectProgress.progress
+  const weightedProgress = projectProgress.progress
+  const overallProgress = projectProgress.progress
   
-  // Progress from KPIs
-  const averageActivityProgress = totalPlannedQuantity > 0
-    ? (totalActualQuantity / totalPlannedQuantity) * 100
-    : 0
-  
-  // Weighted progress (by value) - also based on actual vs planned
-  const weightedProgress = totalPlannedValue > 0
-    ? (totalEarnedValue / totalPlannedValue) * 100
-    : 0
-  
-  // Overall progress = average of KPI-based and value-based progress
-  const overallProgress = totalPlannedQuantity > 0 || totalPlannedValue > 0
-    ? ((averageActivityProgress + financialProgress + weightedProgress) / 3)
-    : 0
+  // KPI Metrics
+  const totalKPIs = projectKPIs.length
+  const plannedKPIs = projectKPIs.filter(k => k.input_type === 'Planned').length
+  const actualKPIs = projectKPIs.filter(k => k.input_type === 'Actual').length
   
   // تقليل التسجيل لتجنب البطء
   if (Math.random() < 0.02) { // تسجيل 2% فقط من المشاريع
     console.log('📊 Progress Calculation (from KPIs):', {
-      plannedKPIs: plannedKPIsData.length,
-      actualKPIs: actualKPIsData.length,
-      totalPlannedQuantity,
-      totalActualQuantity,
+      plannedKPIs: plannedKPIs,
+      actualKPIs: actualKPIs,
+      totalPlannedQuantity: projectProgress.totalProjectValue,
+      totalActualQuantity: projectProgress.totalEarnedValue,
       kpiProgress: averageActivityProgress.toFixed(1) + '%',
       financialProgress: financialProgress.toFixed(1) + '%',
       weightedProgress: weightedProgress.toFixed(1) + '%',
       overallProgress: overallProgress.toFixed(1) + '%'
     })
   }
-  
-  // KPI Metrics
-  const totalKPIs = projectKPIs.length
-  const plannedKPIs = projectKPIs.filter(k => k.input_type === 'Planned').length
-  const actualKPIs = projectKPIs.filter(k => k.input_type === 'Actual').length
   const completedKPIs = projectKPIs.filter(k => k.status === 'completed').length
   const onTrackKPIs = projectKPIs.filter(k => k.status === 'on_track').length
   const delayedKPIs = projectKPIs.filter(k => k.status === 'delayed').length

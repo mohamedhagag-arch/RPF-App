@@ -49,9 +49,10 @@ export function ProjectProgressDashboard() {
 
       const projects = (projectsData || []).map(mapProjectFromDB)
 
-      // Calculate overall stats
+      // ✅ Calculate overall stats using correct business logic
       const totalPlanned = activities.reduce((sum, a) => sum + (a.planned_units || 0), 0)
       const totalActual = activities.reduce((sum, a) => sum + (a.actual_units || 0), 0)
+      // ✅ Progress = (Total Actual / Total Planned) × 100
       const progress = totalPlanned > 0 ? (totalActual / totalPlanned) * 100 : 0
       const variance = totalActual - totalPlanned
       const variancePercentage = totalPlanned > 0 ? (variance / totalPlanned) * 100 : 0

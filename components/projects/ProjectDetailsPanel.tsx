@@ -7,6 +7,8 @@ import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { Project, BOQActivity, TABLES } from '@/lib/supabase'
 import { mapBOQFromDB, mapKPIFromDB } from '@/lib/dataMappers'
 import { calculateProjectAnalytics, ProjectAnalytics } from '@/lib/projectAnalytics'
+import { calculateActualFromKPI } from '@/lib/boqKpiSync'
+import { calculateBOQValues, formatCurrency, formatPercentage, calculateProjectProgressFromValues } from '@/lib/boqValueCalculator'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
@@ -42,9 +44,88 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
   const [showActivityDetails, setShowActivityDetails] = useState<{[key: string]: boolean}>({})
   const [showKpiDetails, setShowKpiDetails] = useState<{[key: string]: boolean}>({})
   const [showBOQModal, setShowBOQModal] = useState(false)
+  const [activityActuals, setActivityActuals] = useState<{[key: string]: number}>({})
   
   const supabase = getSupabaseClient()
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('project-details')
+
+  // ✅ Calculate Actual from KPI for each activity
+  useEffect(() => {
+    if (!analytics?.activities) return
+
+    const calculateActuals = async () => {
+      const actuals: {[key: string]: number} = {}
+      
+      for (const activity of analytics.activities) {
+        try {
+          const actual = await calculateActualFromKPI(
+            activity.project_code || '',
+            activity.activity_name || ''
+          )
+          actuals[activity.id] = actual
+        } catch (error) {
+          // Silently fail
+          actuals[activity.id] = activity.actual_units || 0
+        }
+      }
+      
+      setActivityActuals(actuals)
+    }
+
+    calculateActuals()
+  }, [analytics?.activities])
+
+  // ✅ Calculate Duration from KPI Planned data
+  const calculateActivityDuration = (activity: any) => {
+    if (!analytics?.kpis) return activity.calendar_duration || 0
+    
+    // Find KPI records for this activity
+    const activityKPIs = analytics.kpis.filter((kpi: any) => 
+      kpi.project_code === activity.project_code && 
+      kpi.activity_name === activity.activity_name &&
+      kpi.input_type === 'Planned'
+    )
+    
+    if (activityKPIs.length > 0) {
+      // ✅ Duration = Number of KPI Planned records (not sum of quantities)
+      return activityKPIs.length || activity.calendar_duration || 0
+    }
+    
+    return activity.calendar_duration || 0
+  }
+
+  // ✅ Calculate Start Date from KPI data or project start date
+  const calculateActivityStartDate = (activity: any) => {
+    // If activity has start date, use it
+    if (activity.planned_activity_start_date) {
+      return activity.planned_activity_start_date
+    }
+    
+    // If no KPI data, return null
+    if (!analytics?.kpis) return null
+    
+    // Find KPI records for this activity
+    const activityKPIs = analytics.kpis.filter((kpi: any) => 
+      kpi.project_code === activity.project_code && 
+      kpi.activity_name === activity.activity_name
+    )
+    
+    if (activityKPIs.length > 0) {
+      // Try to find start date from KPI records
+      const kpiWithStartDate = activityKPIs.find((kpi: any) => kpi.start_date)
+      if (kpiWithStartDate?.start_date) {
+        return kpiWithStartDate.start_date
+      }
+      
+      // If no start date in KPI, use project start date as fallback
+      const projectData = analytics.project as any
+      if (projectData?.project_start_date) {
+        return projectData.project_start_date
+      }
+    }
+    
+    return null
+  }
 
   // Toggle activity details
   const toggleActivityDetails = (activityId: string) => {
@@ -622,30 +703,70 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                               <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                                 <div 
                                   className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                                  style={{ width: `${Math.min(activity.activity_progress_percentage || 0, 100)}%` }}
+                                  style={{ 
+                                    width: `${Math.min(
+                                      activityActuals[activity.id] !== undefined 
+                                        ? (activityActuals[activity.id] / activity.planned_units) * 100
+                                        : activity.activity_progress_percentage || 0, 
+                                      100
+                                    )}%` 
+                                  }}
                                 />
                               </div>
                               <span className="font-bold text-sm text-blue-600 dark:text-blue-400">
-                                {formatPercent(activity.activity_progress_percentage || 0)}
+                                {formatPercent(
+                                  activityActuals[activity.id] !== undefined 
+                                    ? (activityActuals[activity.id] / activity.planned_units) * 100
+                                    : activity.activity_progress_percentage || 0
+                                )}
                               </span>
                             </div>
                           </div>
                           <div>
                             <p className="text-gray-500 dark:text-gray-400">Planned / Actual</p>
                             <p className="font-medium text-gray-900 dark:text-white">
-                              {activity.planned_units} / {activity.actual_units} {activity.unit}
+                              {activity.planned_units} / {activityActuals[activity.id] || activity.actual_units} {activity.unit}
                             </p>
+                            {activityActuals[activity.id] !== undefined && activityActuals[activity.id] !== activity.actual_units && (
+                              <p className="text-xs text-blue-600 dark:text-blue-400">
+                                ✅ Updated from KPI
+                              </p>
+                            )}
                           </div>
                           <div>
                             <p className="text-gray-500 dark:text-gray-400">Value</p>
                             <p className="font-medium text-green-600 dark:text-green-400">
-                              {formatCurrency(activity.earned_value || 0)}
+                              {(() => {
+                                const actualUnits = activityActuals[activity.id] || activity.actual_units || 0
+                                const values = calculateBOQValues(
+                                  activity.total_units || 0,
+                                  activity.planned_units || 0,
+                                  actualUnits,
+                                  activity.total_value || 0
+                                )
+                                return formatCurrency(values.value)
+                              })()}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              Rate × Actual Units
                             </p>
                           </div>
                           <div>
                             <p className="text-gray-500 dark:text-gray-400">Rate</p>
                             <p className="font-medium text-gray-900 dark:text-white">
-                              {formatCurrency(activity.rate || 0)} / {activity.unit}
+                              {(() => {
+                                const actualUnits = activityActuals[activity.id] || activity.actual_units || 0
+                                const values = calculateBOQValues(
+                                  activity.total_units || 0,
+                                  activity.planned_units || 0,
+                                  actualUnits,
+                                  activity.total_value || 0
+                                )
+                                return `${formatCurrency(values.rate)} / ${activity.unit}`
+                              })()}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              Total Value ÷ Total Units
                             </p>
                           </div>
                         </div>
@@ -654,15 +775,56 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
                           <div className="flex items-center gap-2">
                             <Calendar className="h-4 w-4 text-blue-500" />
-                            <div>
-                              <p className="text-xs text-gray-500 dark:text-gray-400">Start Date</p>
-                              <p className="text-sm font-medium text-gray-900 dark:text-white">
-                                {activity.planned_activity_start_date 
-                                  ? new Date(activity.planned_activity_start_date).toLocaleDateString()
+                          <div>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">Start Date</p>
+                            <p className="text-sm font-medium text-gray-900 dark:text-white">
+                              {(() => {
+                                const startDate = calculateActivityStartDate(activity)
+                                return startDate 
+                                  ? new Date(startDate).toLocaleDateString('en-US', {
+                                      year: 'numeric',
+                                      month: 'short',
+                                      day: 'numeric'
+                                    })
                                   : 'Not set'
-                                }
-                              </p>
-                            </div>
+                              })()}
+                            </p>
+                            {(() => {
+                              const startDate = calculateActivityStartDate(activity)
+                              const originalStartDate = activity.planned_activity_start_date
+                              
+                              if (startDate) {
+                                return (
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    {(() => {
+                                      const startDateObj = new Date(startDate)
+                                      const today = new Date()
+                                      const diffTime = startDateObj.getTime() - today.getTime()
+                                      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+                                      
+                                      if (diffDays > 0) {
+                                        return `${diffDays} days from now`
+                                      } else if (diffDays === 0) {
+                                        return 'Today'
+                                      } else {
+                                        return `${Math.abs(diffDays)} days ago`
+                                      }
+                                    })()}
+                                  </p>
+                                )
+                              }
+                              
+                              if (startDate && startDate !== originalStartDate) {
+                                return (
+                                  <p className="text-xs text-blue-600 dark:text-blue-400">
+                                    Updated from KPI
+                                  </p>
+                                )
+                              }
+                              
+                              return null
+                            })()}
+                          </div>
                           </div>
                           <div className="flex items-center gap-2">
                             <Clock className="h-4 w-4 text-red-500" />
@@ -683,8 +845,23 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                           <div>
                             <p className="text-xs text-gray-500 dark:text-gray-400">Duration</p>
                             <p className="text-sm font-medium text-gray-900 dark:text-white">
-                              {activity.calendar_duration ? `${activity.calendar_duration} days` : 'Not set'}
+                              {(() => {
+                                const duration = calculateActivityDuration(activity)
+                                return duration > 0 ? `${duration} days` : 'Not set'
+                              })()}
                             </p>
+                            {(() => {
+                              const duration = calculateActivityDuration(activity)
+                              const originalDuration = activity.calendar_duration
+                              if (duration !== originalDuration && duration > 0) {
+                                return (
+                                  <p className="text-xs text-blue-600 dark:text-blue-400">
+                                    Updated from KPI
+                                  </p>
+                                )
+                              }
+                              return null
+                            })()}
                           </div>
                           <div>
                             <p className="text-xs text-gray-500 dark:text-gray-400">Zone</p>

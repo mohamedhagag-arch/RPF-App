@@ -33,7 +33,8 @@ import {
   getTableTemplate,
   downloadCSVTemplate,
   readJSONFile,
-  readCSVFile
+  readCSVFile,
+  createCorrectTemplate
 } from '@/lib/databaseManager'
 import { createTableBackup, downloadBackup } from '@/lib/backupManager'
 
@@ -108,15 +109,13 @@ export function TableManager({ table, onUpdate }: TableManagerProps) {
     }
   }
 
-  // تنزيل قالب فارغ
+  // تنزيل قالب فارغ مع أسماء الأعمدة الصحيحة
   const handleDownloadTemplate = async () => {
     setLoading(true)
     try {
-      const result = await getTableTemplate(table.name)
-      if (result.success && result.data) {
-        // استخدام الدالة الجديدة لتحميل template
-        downloadCSVTemplate(result.data, `${table.name}_template`)
-        showMessage('success', '✅ Template downloaded with proper column names')
+      const result = await createCorrectTemplate(table.name)
+      if (result.success) {
+        showMessage('success', '✅ Template downloaded with correct column names')
       } else {
         showMessage('error', `❌ ${result.message}`)
       }

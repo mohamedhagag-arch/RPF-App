@@ -324,7 +324,454 @@ export async function exportTableData(tableName: string): Promise<OperationResul
 }
 
 /**
- * استيراد بيانات إلى جدول
+ * 🔗 التحقق من الترابط بين البيانات (Foreign Key Validation)
+ */
+async function validateDataRelationships(tableName: string, data: any[]): Promise<{
+  valid: boolean
+  errors: string[]
+  warnings: string[]
+}> {
+  const errors: string[] = []
+  const warnings: string[] = []
+  const supabase = getSupabaseClient()
+  
+  try {
+    console.log(`🔍 Validating relationships for ${tableName}...`)
+    
+    // ✅ التحقق من BOQ Activities → يجب أن يكون Project Code موجود
+    if (tableName === TABLES.BOQ_ACTIVITIES) {
+      const projectCodesSet = new Set(data.map(row => row['Project Code'] || row['project_code']).filter(Boolean))
+      const projectCodes = Array.from(projectCodesSet) as string[]
+      
+      if (projectCodes.length > 0) {
+        const { data: existingProjects } = await supabase
+          .from(TABLES.PROJECTS)
+          .select('"Project Code"')
+          .in('"Project Code"', projectCodes)
+        
+        const existingCodes = new Set((existingProjects || []).map((p: any) => p['Project Code']))
+        const missingCodes = projectCodes.filter((code: string) => !existingCodes.has(code))
+        
+        if (missingCodes.length > 0) {
+          warnings.push(`⚠️ Warning: ${missingCodes.length} BOQ activities reference non-existent projects: ${missingCodes.slice(0, 3).join(', ')}${missingCodes.length > 3 ? '...' : ''}`)
+          console.warn(`⚠️ Missing project codes:`, missingCodes)
+        } else {
+          console.log(`✅ All ${projectCodes.length} project codes exist`)
+        }
+      }
+    }
+    
+    // ✅ التحقق من KPI → يجب أن يكون Project Code و Activity Name موجودين
+    if (tableName === TABLES.KPI) {
+      const projectCodesSet = new Set(data.map(row => 
+        row['Project Full Code'] || row['Project Code'] || row['project_code']
+      ).filter(Boolean))
+      const projectCodes = Array.from(projectCodesSet) as string[]
+      
+      if (projectCodes.length > 0) {
+        const { data: existingProjects } = await supabase
+          .from(TABLES.PROJECTS)
+          .select('"Project Code"')
+          .in('"Project Code"', projectCodes)
+        
+        const existingCodes = new Set((existingProjects || []).map((p: any) => p['Project Code']))
+        const missingCodes = projectCodes.filter((code: string) => !existingCodes.has(code))
+        
+        if (missingCodes.length > 0) {
+          warnings.push(`⚠️ Warning: ${missingCodes.length} KPI records reference non-existent projects`)
+          console.warn(`⚠️ Missing project codes in KPI:`, missingCodes)
+        } else {
+          console.log(`✅ All ${projectCodes.length} project codes exist`)
+        }
+      }
+      
+      // التحقق من Activity Names
+      const activityNamesSet = new Set(data.map(row => 
+        row['Activity Name'] || row['activity_name']
+      ).filter((x): x is string => Boolean(x)))
+      const activityNames = Array.from(activityNamesSet)
+      
+      if (activityNames.length > 0) {
+        const { data: existingActivities } = await supabase
+          .from(TABLES.BOQ_ACTIVITIES)
+          .select('"Activity Name"')
+        
+        const existingNames = new Set((existingActivities || []).map((a: any) => a['Activity Name'] as string))
+        const missingNames = activityNames.filter(name => !existingNames.has(name))
+        
+        if (missingNames.length > 0) {
+          warnings.push(`⚠️ Warning: ${missingNames.length} KPI records reference non-existent activities`)
+          console.warn(`⚠️ Missing activity names:`, missingNames.slice(0, 5))
+        } else {
+          console.log(`✅ All ${activityNames.length} activity names exist`)
+        }
+      }
+    }
+    
+    return {
+      valid: errors.length === 0,
+      errors,
+      warnings
+    }
+    
+  } catch (error: any) {
+    console.error('❌ Error validating relationships:', error)
+    return {
+      valid: true, // Don't block import on validation errors
+      errors: [],
+      warnings: [`⚠️ Could not validate relationships: ${error.message}`]
+    }
+  }
+}
+
+/**
+ * 🔄 إعادة تحميل البيانات في جميع الصفحات (Trigger Refresh)
+ */
+function triggerGlobalRefresh(tableName: string): void {
+  console.log(`🔄 Triggering global refresh for ${tableName}...`)
+  
+  // إرسال custom event للصفحات الأخرى
+  const event = new CustomEvent('database-updated', {
+    detail: { tableName, timestamp: Date.now() }
+  })
+  window.dispatchEvent(event)
+  
+  console.log(`✅ Global refresh event dispatched for ${tableName}`)
+}
+
+/**
+ * 📋 الحصول على أسماء الأعمدة الصحيحة للجدول (موحدة مع الصفحات الأخرى)
+ */
+function getCorrectColumnNames(tableName: string): string[] {
+  const columnMappings: Record<string, string[]> = {
+    [TABLES.PROJECTS]: [
+      'Project Code',
+      'Project Sub-Code', 
+      'Project Name',
+      'Project Type',
+      'Responsible Division',
+      'Plot Number',
+      'KPI Completed',
+      'Project Status',
+      'Contract Amount',
+      'Contract Status',
+      'Work Programme',
+      'Latitude',
+      'Longitude',
+      'Project Manager Email',
+      'Area Manager Email',
+      'Date Project Awarded',
+      'Workmanship only?',
+      'Advnace Payment Required',
+      'Client Name',
+      'Consultant Name',
+      'First Party name',
+      'Virtual Material Value'
+    ],
+    [TABLES.BOQ_ACTIVITIES]: [
+      // ✅ Basic Information (Required for Import)
+      'Project Code',
+      'Project Sub Code',
+      'Project Full Code',
+      'Activity',
+      'Activity Name',
+      'Activity Division',
+      'Unit',
+      'Zone Ref',
+      'Zone Number',
+      
+      // ✅ Quantities (User Input)
+      'Total Units',
+      'Planned Units',
+      'Rate',
+      'Total Value',
+      
+      // ✅ Dates (User Input)
+      'Planned Activity Start Date',
+      'Deadline',
+      'Calendar Duration',
+      
+      // ✅ Project Info (User Input)
+      'Project Full Name',
+      'Project Status',
+      
+      // ❌ Calculated Fields (Auto-Generated - NOT in Template)
+      // 'Actual Units', // Calculated from KPI Actual entries
+      // 'Difference', // Calculated: Actual - Planned
+      // 'Variance Units', // Calculated: Total - Actual
+      // 'Activity Progress %', // Calculated: (Actual/Planned) * 100
+      // 'Productivity Daily Rate', // Calculated: Planned Units / Duration
+      // 'Total Drilling Meters', // Calculated from KPI
+      // 'Drilled Meters Planned Progress', // Calculated from KPI
+      // 'Drilled Meters Actual Progress', // Calculated from KPI
+      // 'Remaining Meters', // Calculated: Total - Actual
+      // 'Activity Planned Status', // Calculated based on dates
+      // 'Activity Actual Status', // Calculated from KPI
+      // 'Reported on Data Date', // Calculated from KPI
+      // 'Planned Value', // Calculated: Planned Units * Rate
+      // 'Earned Value', // Calculated from KPI
+      // 'Delay %', // Calculated from dates
+      // 'Planned Progress %', // Calculated from dates
+      // 'Activity Planned Start Date', // Calculated from Planned Activity Start Date
+      // 'Activity Planned Completion Date', // Calculated from Deadline
+      // 'Activity Delayed?', // Calculated from dates
+      // 'Activity On Track?', // Calculated from progress
+      // 'Activity Completed?', // Calculated from progress
+      // 'Remaining Work Value', // Calculated: Total Value - Earned Value
+      // 'Variance Works Value', // Calculated: Planned Value - Earned Value
+      // 'Lookahead Start Date', // Calculated from dates
+      // 'Lookahead Activity Completion Date', // Calculated from dates
+      // 'Remaining Lookahead Duration for Activity Completion' // Calculated from dates
+    ],
+    [TABLES.KPI]: [
+      // ✅ Basic Information (Required for Import)
+      'Project Full Code',
+      'Project Code',
+      'Project Sub Code',
+      'Activity Name',
+      'Activity',
+      'Input Type',
+      
+      // ✅ Quantities (User Input)
+      'Quantity',
+      'Unit',
+      'Section',
+      'Zone',
+      'Drilled Meters',
+      'Value',
+      
+      // ✅ Dates (User Input)
+      'Target Date',
+      'Actual Date',
+      'Activity Date',
+      'Day',
+      
+      // ✅ Metadata (User Input)
+      'Recorded By',
+      'Notes'
+      
+      // ❌ Calculated Fields (Auto-Generated - NOT in Template)
+      // These are calculated automatically by the system
+    ]
+  }
+  
+  return columnMappings[tableName] || []
+}
+
+/**
+ * 🔄 تحويل البيانات إلى CSV
+ */
+function convertToCSV(data: any[]): string {
+  if (!data || data.length === 0) return ''
+  
+  const headers = Object.keys(data[0])
+  const csvRows = []
+  
+  // إضافة العناوين
+  csvRows.push(headers.map(header => `"${header}"`).join(','))
+  
+  // إضافة البيانات
+  data.forEach(row => {
+    const values = headers.map(header => {
+      const value = row[header] || ''
+      return `"${value}"`
+    })
+    csvRows.push(values.join(','))
+  })
+  
+  return csvRows.join('\n')
+}
+
+/**
+ * 📥 إنشاء قالب CSV صحيح للجدول
+ */
+export async function createCorrectTemplate(tableName: string): Promise<OperationResult> {
+  try {
+    const correctColumns = getCorrectColumnNames(tableName)
+    
+    if (correctColumns.length === 0) {
+      return {
+        success: false,
+        message: `No column mapping found for table: ${tableName}`,
+        error: 'Unknown table'
+      }
+    }
+    
+    // إنشاء صف فارغ مع أسماء الأعمدة الصحيحة
+    const templateData = [correctColumns.reduce((acc, col) => {
+      acc[col] = ''
+      return acc
+    }, {} as any)]
+    
+    // تحويل إلى CSV
+    const csvContent = convertToCSV(templateData)
+    
+    // تحميل الملف
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    link.setAttribute('href', url)
+    link.setAttribute('download', `${tableName}_template.csv`)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    
+    console.log(`✅ Template created for ${tableName} with ${correctColumns.length} columns`)
+    
+    return {
+      success: true,
+      message: `Template created successfully with correct column names`,
+      data: { columns: correctColumns }
+    }
+    
+  } catch (error: any) {
+    console.error('❌ Error creating template:', error)
+    return {
+      success: false,
+      message: `Failed to create template: ${error.message}`,
+      error: error.message
+    }
+  }
+}
+
+/**
+ * 🔄 تحويل أسماء الأعمدة من CSV إلى أسماء قاعدة البيانات
+ */
+function normalizeColumnNames(data: any[], tableName: string): any[] {
+  console.log(`🔄 Normalizing column names for table: ${tableName}`)
+  
+  // خريطة تحويل أسماء الأعمدة (موحدة مع الصفحات الأخرى)
+  const columnMappings: Record<string, Record<string, string>> = {
+    [TABLES.PROJECTS]: {
+      'contract_amount': 'Contract Amount',
+      'project_code': 'Project Code',
+      'project_name': 'Project Name',
+      'project_type': 'Project Type',
+      'project_status': 'Project Status',
+      'client_name': 'Client Name',
+      'consultant_name': 'Consultant Name',
+      'project_manager_email': 'Project Manager Email',
+      'area_manager_email': 'Area Manager Email',
+      'date_project_awarded': 'Date Project Awarded',
+      'workmanship_only': 'Workmanship only?',
+      'advance_payment_required': 'Advnace Payment Required',
+      'first_party_name': 'First Party name',
+      'virtual_material_value': 'Virtual Material Value',
+      'responsible_division': 'Responsible Division',
+      'plot_number': 'Plot Number',
+      'kpi_completed': 'KPI Completed',
+      'contract_status': 'Contract Status',
+      'work_programme': 'Work Programme',
+      'latitude': 'Latitude',
+      'longitude': 'Longitude'
+    },
+    [TABLES.BOQ_ACTIVITIES]: {
+      'project_code': 'Project Code',
+      'project_sub_code': 'Project Sub Code',
+      'project_full_code': 'Project Full Code',
+      'activity': 'Activity',
+      'activity_name': 'Activity Name',
+      'activity_division': 'Activity Division',
+      'unit': 'Unit',
+      'zone_ref': 'Zone Ref',
+      'zone_number': 'Zone Number',
+      'total_units': 'Total Units',
+      'planned_units': 'Planned Units',
+      'actual_units': 'Actual Units',
+      'difference': 'Difference',
+      'variance_units': 'Variance Units',
+      'rate': 'Rate',
+      'total_value': 'Total Value',
+      'planned_value': 'Planned Value',
+      'planned_activity_start_date': 'Planned Activity Start Date',
+      'deadline': 'Deadline',
+      'calendar_duration': 'Calendar Duration',
+      'activity_progress_percentage': 'Activity Progress %',
+      'productivity_daily_rate': 'Productivity Daily Rate',
+      'total_drilling_meters': 'Total Drilling Meters',
+      'drilled_meters_planned_progress': 'Drilled Meters Planned Progress',
+      'drilled_meters_actual_progress': 'Drilled Meters Actual Progress',
+      'remaining_meters': 'Remaining Meters',
+      'activity_planned_status': 'Activity Planned Status',
+      'activity_actual_status': 'Activity Actual Status',
+      'reported_on_data_date': 'Reported on Data Date',
+      'earned_value': 'Earned Value',
+      'delay_percentage': 'Delay %',
+      'planned_progress_percentage': 'Planned Progress %',
+      'activity_planned_start_date': 'Activity Planned Start Date',
+      'activity_planned_completion_date': 'Activity Planned Completion Date',
+      'activity_delayed': 'Activity Delayed?',
+      'activity_on_track': 'Activity On Track?',
+      'activity_completed': 'Activity Completed?',
+      'project_full_name': 'Project Full Name',
+      'project_status': 'Project Status',
+      'remaining_work_value': 'Remaining Work Value',
+      'variance_works_value': 'Variance Works Value',
+      'lookahead_start_date': 'Lookahead Start Date',
+      'lookahead_activity_completion_date': 'Lookahead Activity Completion Date',
+      'remaining_lookahead_duration_for_activity_completion': 'Remaining Lookahead Duration for Activity Completion'
+    },
+    [TABLES.KPI]: {
+      'project_full_code': 'Project Full Code',
+      'project_code': 'Project Code',
+      'project_sub_code': 'Project Sub Code',
+      'activity_name': 'Activity Name',
+      'activity': 'Activity',
+      'input_type': 'Input Type',
+      'quantity': 'Quantity',
+      'unit': 'Unit',
+      'section': 'Section',
+      'zone': 'Zone',
+      'drilled_meters': 'Drilled Meters',
+      'value': 'Value',
+      'target_date': 'Target Date',
+      'actual_date': 'Actual Date',
+      'activity_date': 'Activity Date',
+      'day': 'Day',
+      'recorded_by': 'Recorded By',
+      'notes': 'Notes'
+    }
+  }
+  
+  const mappings = columnMappings[tableName] || {}
+  
+  return data.map((row, index) => {
+    const normalizedRow: any = {}
+    
+    Object.keys(row).forEach(originalKey => {
+      let value = row[originalKey]
+      
+      // تحويل اسم العمود إذا كان موجود في الخريطة
+      const normalizedKey = mappings[originalKey.toLowerCase()] || originalKey
+      
+      // Handle different data types
+      if (typeof value === 'string') {
+        // Try to convert date strings
+        if (normalizedKey.toLowerCase().includes('date') || normalizedKey.toLowerCase().includes('time')) {
+          // Skip if it's clearly not a date (contains letters that shouldn't be in dates)
+          if (/[a-zA-Z]{3,}/.test(value) && !value.match(/^\d{4}-\d{2}-\d{2}/)) {
+            console.warn(`⚠️ Skipping invalid date value in row ${index + 1}, column ${normalizedKey}: "${value}"`)
+            normalizedRow[normalizedKey] = null
+            return
+          }
+        }
+      }
+      
+      normalizedRow[normalizedKey] = value
+    })
+    
+    // Log first few normalized rows for debugging
+    if (index < 3) {
+      console.log(`📋 Normalized Row ${index + 1}:`, normalizedRow)
+    }
+    
+    return normalizedRow
+  })
+}
+
+/**
+ * استيراد بيانات إلى جدول - محسّن مع validation والترابط
  */
 export async function importTableData(
   tableName: string, 
@@ -335,8 +782,30 @@ export async function importTableData(
     const supabase = getSupabaseClient()
     
     console.log(`📥 Importing ${data.length} rows to table: ${tableName} (mode: ${mode})`)
+    console.log(`🔗 Enhanced import with relationship validation`)
     
-    // إذا كان الوضع "replace"، نحذف البيانات القديمة أولاً
+    // ✅ الخطوة 1: تحويل أسماء الأعمدة أولاً
+    const normalizedData = normalizeColumnNames(data, tableName)
+    console.log(`✅ Column names normalized for ${tableName}`)
+    
+    // ✅ الخطوة 2: التحقق من الترابط قبل الاستيراد
+    const validation = await validateDataRelationships(tableName, normalizedData)
+    
+    if (!validation.valid) {
+      console.error('❌ Validation failed:', validation.errors)
+      return {
+        success: false,
+        message: `Validation failed: ${validation.errors.join(', ')}`,
+        error: validation.errors.join(', ')
+      }
+    }
+    
+    // عرض التحذيرات (لكن لا نمنع الاستيراد)
+    if (validation.warnings.length > 0) {
+      console.warn('⚠️ Import warnings:', validation.warnings)
+    }
+    
+    // ✅ الخطوة 2: إذا كان الوضع "replace"، نحذف البيانات القديمة أولاً
     if (mode === 'replace') {
       console.log('🗑️ Clearing existing data first...')
       const clearResult = await clearTableData(tableName)
@@ -345,16 +814,29 @@ export async function importTableData(
       }
     }
     
-    // Clean and validate data before importing
-    const cleanedData = data.map((row, index) => {
+    // ✅ الخطوة 3: تنظيف البيانات مع الحفاظ على الترابط
+    const cleanedData = normalizedData.map((row, index) => {
       const cleanedRow: any = {}
       
       Object.keys(row).forEach(key => {
         let value = row[key]
         
-        // Skip empty or null values
-        if (value === '' || value === 'null' || value === 'NULL' || value === null || value === undefined) {
+        // ⚠️ لا نحذف Project Code أو Activity Name حتى لو كانت فارغة
+        // هذه حقول مهمة للترابط
+        const isImportantField = 
+          key === 'Project Code' || 
+          key === 'Project Full Code' ||
+          key === 'Activity Name' ||
+          key === 'Activity'
+        
+        if (!isImportantField && (value === '' || value === 'null' || value === 'NULL' || value === null || value === undefined)) {
           cleanedRow[key] = null
+          return
+        }
+        
+        // ✅ الحفاظ على Project Code و Activity Name حتى لو كانت strings فارغة
+        if (isImportantField && (value === null || value === undefined)) {
+          cleanedRow[key] = ''
           return
         }
         
@@ -384,7 +866,7 @@ export async function importTableData(
     
     console.log(`📋 Data cleaned, importing ${cleanedData.length} rows...`)
     
-    // إدراج البيانات الجديدة
+    // ✅ الخطوة 4: إدراج البيانات الجديدة
     const { error } = await supabase
       .from(tableName)
       .insert(cleanedData as any)
@@ -406,10 +888,22 @@ export async function importTableData(
     }
     
     console.log(`✅ Successfully imported ${cleanedData.length} rows to ${tableName}`)
+    
+    // ✅ الخطوة 5: إرسال إشارة لتحديث جميع الصفحات
+    triggerGlobalRefresh(tableName)
+    console.log(`🔄 Triggered global refresh for all pages`)
+    
+    // إنشاء رسالة النجاح مع التحذيرات
+    let successMessage = `Successfully imported ${cleanedData.length} rows`
+    if (validation.warnings.length > 0) {
+      successMessage += `\n\nWarnings:\n${validation.warnings.join('\n')}`
+    }
+    
     return {
       success: true,
-      message: `Successfully imported ${cleanedData.length} rows`,
-      affectedRows: cleanedData.length
+      message: successMessage,
+      affectedRows: cleanedData.length,
+      data: validation.warnings.length > 0 ? { warnings: validation.warnings } : undefined
     }
     
   } catch (error: any) {

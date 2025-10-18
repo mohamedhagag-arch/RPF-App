@@ -12,10 +12,8 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Alert } from '@/components/ui/Alert'
 import { IntelligentBOQForm } from './IntelligentBOQForm'
 import { BOQTable } from './BOQTable'
-import { UnifiedFilter, FilterState } from '@/components/ui/UnifiedFilter'
 import { Pagination } from '@/components/ui/Pagination'
-import { SmartFilter } from '@/components/ui/SmartFilter'
-import { Plus, ClipboardList, CheckCircle, Clock, AlertCircle } from 'lucide-react'
+import { Plus, ClipboardList, CheckCircle, Clock, AlertCircle, Filter, X, Search } from 'lucide-react'
 import { ExportButton } from '@/components/ui/ExportButton'
 import { ImportButton } from '@/components/ui/ImportButton'
 import { PrintButton } from '@/components/ui/PrintButton'
@@ -40,98 +38,286 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editingActivity, setEditingActivity] = useState<BOQActivity | null>(null)
-  const [filters, setFilters] = useState<FilterState>({})
   
-  // Smart Filter State
-  const [selectedProjects, setSelectedProjects] = useState<string[]>([])
-  const [selectedActivities, setSelectedActivities] = useState<string[]>([])
-  const [selectedTypes, setSelectedTypes] = useState<string[]>([])
-  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([])
+  // ✅ Simple Filter State
+  const [showFilters, setShowFilters] = useState(false)
+  const [filters, setFilters] = useState({
+    search: '',
+    project: '',
+    division: '',
+    status: ''
+  })
+  const [filteredActivities, setFilteredActivities] = useState<BOQActivity[]>([])
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
-  const [itemsPerPage] = useState(2) // 2 items per page for better performance
+  const [itemsPerPage] = useState(50) // 50 items per page for better performance
   
   const supabase = getSupabaseClient()
   const isMountedRef = useRef(true) // ✅ Track if component is mounted
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('boq') // ✅ Smart loading
 
-  // Handle unified filter changes  
-  const handleFilterChange = (newFilters: FilterState) => {
-    setFilters(newFilters)
-  }
-  
-  // Custom filters for BOQ
-  const customBOQFilters = [
-    {
-      key: 'division',
-      label: 'Division',
-      type: 'select' as const,
-      options: Array.from(new Set(activities.map(a => a.activity_division).filter(Boolean))).map(div => ({
-        value: div,
-        label: div
-      }))
-    },
-    {
-      key: 'completion',
-      label: 'Completion',
-      type: 'select' as const,
-      options: [
-        { value: 'completed', label: 'Completed' },
-        { value: 'in_progress', label: 'In Progress' },
-        { value: 'not_started', label: 'Not Started' }
-      ]
+  // ✅ Apply filters to activities
+  const applyFilters = (activitiesList: BOQActivity[]) => {
+    let filtered = [...activitiesList]
+    
+    // Search filter
+    if (filters.search) {
+      const searchTerm = filters.search.toLowerCase()
+      filtered = filtered.filter(activity => 
+        activity.activity_name?.toLowerCase().includes(searchTerm) ||
+        activity.project_code?.toLowerCase().includes(searchTerm) ||
+        activity.project_full_name?.toLowerCase().includes(searchTerm)
+      )
     }
-  ]
+    
+    // Project filter
+    if (filters.project) {
+      filtered = filtered.filter(activity => 
+        activity.project_code === filters.project
+      )
+    }
+    
+    // Division filter
+    if (filters.division) {
+      filtered = filtered.filter(activity => 
+        activity.activity_division === filters.division
+      )
+    }
+    
+    // Status filter (based on progress)
+    if (filters.status) {
+      filtered = filtered.filter(activity => {
+        const progress = activity.activity_progress_percentage || 0
+        switch (filters.status) {
+          case 'completed':
+            return progress >= 100
+          case 'in_progress':
+            return progress > 0 && progress < 100
+          case 'not_started':
+            return progress === 0
+          default:
+            return true
+        }
+      })
+    }
+    
+    console.log('🔍 Filter applied:', {
+      original: activitiesList.length,
+      filtered: filtered.length,
+      filters,
+      searchTerm: filters.search,
+      projectFilter: filters.project,
+      divisionFilter: filters.division,
+      statusFilter: filters.status
+    })
+    
+    // ✅ Debug: Show sample of filtered results
+    if (filtered.length > 0) {
+      console.log('📋 Sample filtered activities:', filtered.slice(0, 3).map((a: BOQActivity) => ({
+        name: a.activity_name,
+        project: a.project_code,
+        division: a.activity_division,
+        progress: a.activity_progress_percentage
+      })))
+    }
+    
+    return filtered
+  }
 
-  const fetchData = async (page: number = 1) => {
+  // ✅ Handle filter changes
+  const handleFilterChange = (key: string, value: string) => {
+    const newFilters = { ...filters, [key]: value }
+    setFilters(newFilters)
+    
+    // ✅ Apply filters immediately to database
+    console.log('🔄 Filter changed:', { key, value, newFilters })
+    
+    // Reset to first page
+    setCurrentPage(1)
+    
+    // ✅ Apply filters immediately with new values
+    applyFiltersToDatabase(newFilters)
+  }
+
+  // ✅ Clear all filters
+  const clearFilters = () => {
+    setFilters({
+      search: '',
+      project: '',
+      division: '',
+      status: ''
+    })
+    setFilteredActivities([])
+    setActivities([])
+    setTotalCount(0)
+    setCurrentPage(1)
+    console.log('🧹 All filters cleared - showing empty state')
+  }
+
+  // ✅ Get unique divisions from activities
+  const getUniqueDivisions = () => {
+    const divisionSet = new Set<string>()
+    activities.forEach(a => {
+      if (a.activity_division) {
+        divisionSet.add(a.activity_division)
+      }
+    })
+    return Array.from(divisionSet).sort()
+  }
+
+  // ✅ Apply filters to database immediately
+  const applyFiltersToDatabase = async (filtersToApply: any) => {
     if (!isMountedRef.current) return
     
     try {
       startSmartLoading(setLoading)
-      console.log(`📄 BOQManagement: Fetching activities (page ${page})...`)
+      console.log('🔄 Applying filters to database:', filtersToApply)
       
-      // Calculate range for pagination
-      const from = (page - 1) * itemsPerPage
-      const to = from + itemsPerPage - 1
+      // ✅ Check if any filters are applied
+      if (!filtersToApply.search && !filtersToApply.project && !filtersToApply.division && !filtersToApply.status) {
+        console.log('💡 No filters applied - showing empty state')
+        setActivities([])
+        setFilteredActivities([])
+        setTotalCount(0)
+        stopSmartLoading(setLoading)
+        return
+      }
+      
+      // ✅ Build query with filters
+      let activitiesQuery = supabase
+        .from(TABLES.BOQ_ACTIVITIES)
+        .select('*', { count: 'exact' })
+        .order('created_at', { ascending: false })
+      
+      // ✅ Apply database-level filters
+      if (filtersToApply.project) {
+        activitiesQuery = activitiesQuery.eq('Project Code', filtersToApply.project)
+        console.log('🔍 Applied project filter:', filtersToApply.project)
+      }
+      
+      if (filtersToApply.division) {
+        activitiesQuery = activitiesQuery.eq('Activity Division', filtersToApply.division)
+        console.log('🔍 Applied division filter:', filtersToApply.division)
+      }
+      
+      // ✅ Note: Status filter not available in BOQ Rates table
+      if (filtersToApply.status) {
+        console.log('⚠️ Status filter not available in BOQ Rates table - skipping')
+      }
+      
+      console.log('🔍 Final query filters:', {
+        project: filtersToApply.project || 'none',
+        division: filtersToApply.division || 'none', 
+        status: filtersToApply.status || 'none',
+        search: filtersToApply.search || 'none'
+      })
+      
+      const { data: activitiesData, error: activitiesError, count } = await activitiesQuery
+      
+      if (activitiesError) throw activitiesError
+      
+      console.log(`✅ Fetched ${activitiesData?.length || 0} activities from database`)
+      console.log(`📊 Database count: ${count || 0}`)
+      
+      let mappedActivities = (activitiesData || []).map(mapBOQFromDB)
+      
+      // ✅ Apply client-side search filter if needed
+      let filtered = mappedActivities
+      if (filtersToApply.search) {
+        const searchTerm = filtersToApply.search.toLowerCase()
+        filtered = mappedActivities.filter((activity: BOQActivity) => 
+          activity.activity_name?.toLowerCase().includes(searchTerm) ||
+          activity.project_code?.toLowerCase().includes(searchTerm) ||
+          activity.project_full_name?.toLowerCase().includes(searchTerm)
+        )
+        console.log('🔍 Applied search filter:', { searchTerm, results: filtered.length })
+      }
+      
+      setActivities(mappedActivities)
+      setFilteredActivities(filtered)
+      setTotalCount(count || 0)
+      
+      console.log('🎯 Final result:', {
+        totalActivities: mappedActivities.length,
+        filteredActivities: filtered.length,
+        shouldShow: `${filtered.length} activities`
+      })
+      
+    } catch (error: any) {
+      console.error('❌ Error applying filters:', error)
+      setError(error.message || 'Failed to apply filters')
+    } finally {
+      stopSmartLoading(setLoading)
+    }
+  }
+
+  const fetchData = async (page: number = 1, applyFilters: boolean = false) => {
+    if (!isMountedRef.current) return
+    
+    try {
+      startSmartLoading(setLoading)
+      console.log(`📄 BOQManagement: Fetching activities (page ${page}, applyFilters: ${applyFilters})...`)
+      
+      // ✅ Smart loading: Only load data when filters are applied
+      if (!applyFilters && !filters.search && !filters.project && !filters.division && !filters.status) {
+        console.log('💡 No filters applied - showing empty state')
+        setActivities([])
+        setFilteredActivities([])
+        setTotalCount(0)
+        stopSmartLoading(setLoading)
+        return
+      }
+      
+      // ✅ Load activities with filters applied
+      console.log('📄 BOQManagement: Loading activities with filters...')
       
       // ✅ تحميل متوازي مع timeout أطول
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('BOQ fetch timeout')), 60000)
       )
       
-      // ✅ Simple query - fetch all fields to avoid column name issues
+      // ✅ Build query with filters
       let activitiesQuery = supabase
         .from(TABLES.BOQ_ACTIVITIES)
         .select('*', { count: 'exact' })
         .order('created_at', { ascending: false })
-        .range(from, to)
+        // ✅ NO LIMIT - Let database filters handle the limiting
       
-      // ✅ تحسين: تطبيق جميع الفلاتر
-      if (selectedProjects.length > 0) {
-        activitiesQuery = activitiesQuery.in('"Project Code"', selectedProjects)
+      // ✅ Apply database-level filters
+      console.log('🔍 Current filters:', filters)
+      
+      if (filters.project) {
+        activitiesQuery = activitiesQuery.eq('Project Code', filters.project)
+        console.log('🔍 Applied project filter:', filters.project)
       }
       
-      // ✅ إضافة فلترة على Activities
-      if (selectedActivities.length > 0) {
-        activitiesQuery = activitiesQuery.in('"Activity"', selectedActivities)
+      if (filters.division) {
+        activitiesQuery = activitiesQuery.eq('Activity Division', filters.division)
+        console.log('🔍 Applied division filter:', filters.division)
       }
       
-      // ✅ إضافة فلترة على Types (Activity Division)
-      if (selectedTypes.length > 0) {
-        activitiesQuery = activitiesQuery.in('"Activity Division"', selectedTypes)
+      // ✅ Note: Status filter not available in BOQ Rates table
+      if (filters.status) {
+        console.log('⚠️ Status filter not available in BOQ Rates table - skipping')
       }
       
-      // ✅ إضافة فلترة على Status (إذا كان هناك حقل مناسب)
-      if (selectedStatuses.length > 0) {
-        // يمكن إضافة فلترة على حقل Status إذا كان موجوداً
-        // activitiesQuery = activitiesQuery.in('"Status"', selectedStatuses)
-      }
+      // ✅ Debug: Show final query
+      console.log('🔍 Final query filters:', {
+        project: filters.project || 'none',
+        division: filters.division || 'none', 
+        status: filters.status || 'none',
+        search: filters.search || 'none'
+      })
       
-      // ✅ إذا لم يتم اختيار أي فلتر، اعرض سجلات محدودة
-      if (selectedProjects.length === 0 && selectedActivities.length === 0 && selectedTypes.length === 0) {
-        activitiesQuery = activitiesQuery.limit(50) // زيادة من 10 إلى 50
-      }
+      // ✅ Debug: Show what will be queried
+      console.log('🔍 Database query will filter by:', {
+        project_code: filters.project || 'ALL',
+        activity_division: filters.division || 'ALL',
+        activity_progress_percentage: filters.status || 'ALL'
+      })
+      
+      console.log('🔍 BOQ: Loading activities with database filters')
       
       const { data: activitiesData, error: activitiesError, count } = await Promise.race([
         activitiesQuery,
@@ -142,11 +328,65 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
 
       if (activitiesError) throw activitiesError
 
-      console.log(`✅ BOQManagement: Fetched ${activitiesData?.length || 0} activities (page ${page})`)
+      console.log(`✅ BOQManagement: Fetched ${activitiesData?.length || 0} activities from database`)
+      console.log(`📊 Database count: ${count || 0}`)
       
-      const mappedActivities = (activitiesData || []).map(mapBOQFromDB)
+      let mappedActivities = (activitiesData || []).map(mapBOQFromDB)
+      
+      // ✅ Load activities with database filters applied
+      console.log(`✅ BOQ: Loaded ${mappedActivities.length} activities with database filters`)
+      console.log(`📊 Expected: Only activities matching filters`)
+      
       setActivities(mappedActivities)
       setTotalCount(count || 0)
+      
+      // ✅ Apply client-side search filter if needed
+      let filtered = mappedActivities
+      if (filters.search) {
+        const searchTerm = filters.search.toLowerCase()
+        filtered = mappedActivities.filter((activity: BOQActivity) => 
+          activity.activity_name?.toLowerCase().includes(searchTerm) ||
+          activity.project_code?.toLowerCase().includes(searchTerm) ||
+          activity.project_full_name?.toLowerCase().includes(searchTerm)
+        )
+        console.log('🔍 Applied search filter:', { searchTerm, results: filtered.length })
+      }
+      
+      setFilteredActivities(filtered)
+      
+      console.log('🎯 Final BOQ state:', {
+        activitiesSet: mappedActivities.length,
+        totalCount: count || 0,
+        filteredCount: filtered.length,
+        hasData: mappedActivities.length > 0,
+        currentPage: currentPage,
+        itemsPerPage: itemsPerPage,
+        appliedFilters: filters
+      })
+      
+      // ✅ Debug: Show what should be displayed
+      console.log('📋 What should be displayed:', {
+        totalActivities: mappedActivities.length,
+        filteredActivities: filtered.length,
+        shouldShow: filtered.length > 0 ? `${filtered.length} activities` : 'No activities'
+      })
+      
+      // ✅ Debug: Show first few activities
+      if (mappedActivities.length > 0) {
+        console.log('📋 First few activities:', mappedActivities.slice(0, 3).map((a: BOQActivity) => ({
+          name: a.activity_name,
+          project: a.project_code,
+          division: a.activity_division
+        })))
+      }
+      
+      // ✅ رسالة واضحة عند عدم وجود بيانات
+      if (mappedActivities.length === 0) {
+        console.log('💡 No activities found in database')
+        console.log('💡 Check if BOQ activities exist in the database')
+      } else {
+        console.log(`✅ Successfully loaded ${mappedActivities.length} activities`)
+      }
       
       // Skip KPI loading for now to improve performance
       console.log('⏭️ Skipping KPI loading for better performance')
@@ -180,6 +420,22 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     isMountedRef.current = true
     console.log('🟡 BOQ: Component mounted')
     
+    // ✅ الاستماع للتحديثات من Database Management
+    const handleDatabaseUpdate = (event: CustomEvent) => {
+      const { tableName } = event.detail
+      console.log(`🔔 BOQ: Database updated event received for ${tableName}`)
+      
+      // ✅ Don't auto-reload - let user apply filters
+      if (tableName === TABLES.BOQ_ACTIVITIES) {
+        console.log(`🔄 BOQ: Database updated - apply filters to see new data`)
+      } else if (tableName === TABLES.PROJECTS) {
+        console.log(`🔄 BOQ: Projects updated - apply filters to see new data`)
+      }
+    }
+    
+    window.addEventListener('database-updated', handleDatabaseUpdate as EventListener)
+    console.log('👂 BOQ: Listening for database updates')
+    
     // Connection monitoring is handled by simpleConnectionManager
     
     // ✅ Initial load: Only fetch projects list (lightweight)
@@ -192,7 +448,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
           supabase
             .from(TABLES.PROJECTS)
             .select('*')
-            .limit(10) // Limit initial projects load
+            .order('created_at', { ascending: false })
         )
         
         // ✅ ALWAYS update state (React handles unmounted safely)
@@ -207,7 +463,10 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
           const mappedProjects = projectsData.map(mapProjectFromDB)
           setProjects(mappedProjects)
           console.log('✅ BOQ: Projects list loaded -', mappedProjects.length, 'projects')
-          console.log('💡 Use Smart Filter to load BOQ activities')
+          
+          // ✅ Projects loaded - ready for filtering
+          console.log('✅ Projects loaded - ready for filtering')
+          // ✅ Don't auto-fetch BOQ activities - wait for filters to be applied
         }
       } catch (error: any) {
         console.error('❌ Exception in BOQ initial load:', error)
@@ -224,14 +483,44 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     return () => {
       console.log('🔴 BOQ: Cleanup - component unmounting')
       isMountedRef.current = false
+      window.removeEventListener('database-updated', handleDatabaseUpdate as EventListener)
+      console.log('👋 BOQ: Stopped listening for database updates')
       // Connection monitoring is handled globally
     }
   }, []) // Run ONCE only!
+  
+  // ✅ Fetch data when page changes
+  useEffect(() => {
+    if (projects.length > 0) {
+      console.log('🔄 Projects loaded, ready for filtering...')
+      // ✅ Don't auto-fetch data - wait for filters to be applied
+    }
+  }, [projects.length])
+
+  // ✅ Removed auto-apply filters - now filters are applied at database level
   
   // Handle page change
   const handlePageChange = (page: number) => {
     setCurrentPage(page)
     window.scrollTo({ top: 0, behavior: 'smooth' })
+    
+    // ✅ Only fetch data if filters are applied
+    if (filters.search || filters.project || filters.division || filters.status) {
+      console.log('🔄 Page changed with filters applied - fetching data...')
+      fetchData(page, true)
+    }
+  }
+
+  // ✅ Get current page data (filtered)
+  const getCurrentPageData = () => {
+    const startIndex = (currentPage - 1) * itemsPerPage
+    const endIndex = startIndex + itemsPerPage
+    return filteredActivities.slice(startIndex, endIndex)
+  }
+
+  // ✅ Get total pages for filtered data
+  const getTotalPages = () => {
+    return Math.ceil(filteredActivities.length / itemsPerPage)
   }
 
   const handleCreateActivity = async (activityData: any) => {
@@ -287,7 +576,8 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       
       // Close form and refresh
       setShowForm(false)
-      await fetchData()
+      // ✅ Don't auto-refresh - let user apply filters
+      console.log('✅ Activity created - apply filters to see new data')
       
       console.log('✅ DATA REFRESHED')
       
@@ -351,9 +641,8 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       
       // Close form and refresh
       setEditingActivity(null)
-      await fetchData()
-      
-      console.log('✅ DATA REFRESHED')
+      // ✅ Don't auto-refresh - let user apply filters
+      console.log('✅ Activity updated - apply filters to see updated data')
       
     } catch (error: any) {
       console.error('❌ UPDATE FAILED:', error)
@@ -472,8 +761,8 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       console.log(`  - Deleted ${totalKPIsDeleted} associated KPIs`)
       console.log('========================================')
       
-      // Refresh data
-      await fetchData()
+      // ✅ Don't auto-refresh - let user apply filters
+      console.log('✅ Activities deleted - apply filters to see updated data')
       
       // Show success message
       alert(`✅ Successfully deleted ${ids.length} activity(ies) and ${totalKPIsDeleted} associated KPIs!`)
@@ -485,20 +774,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     }
   }
 
-  // ✅ تحسين: إضافة فلترة محلية إضافية
-  const filteredActivities = activities.filter(activity => {
-    // فلترة محلية إضافية للتأكد من دقة النتائج
-    if (selectedProjects.length > 0 && !selectedProjects.includes(activity.project_code)) {
-      return false
-    }
-    if (selectedActivities.length > 0 && !selectedActivities.includes(activity.activity_name)) {
-      return false
-    }
-    if (selectedTypes.length > 0 && !selectedTypes.includes(activity.activity_division)) {
-      return false
-    }
-    return true
-  })
+  // ✅ Removed duplicate filteredActivities declaration
   
   // Handle import BOQ data
   const handleImportBOQ = async (importedData: any[]) => {
@@ -538,8 +814,8 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       
       console.log(`✅ Successfully imported ${data?.length || 0} BOQ activities`)
       
-      // Refresh activities list
-      await fetchData(1)
+      // ✅ Don't auto-refresh - let user apply filters
+      console.log('✅ Activities imported - apply filters to see new data')
     } catch (error: any) {
       console.error('❌ Import failed:', error)
       throw new Error(`Import failed: ${error.message}`)
@@ -636,6 +912,117 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
           )}
         </div>
         
+        {/* ✅ Simple Filter Section */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Filter className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Filters</h3>
+              <span className="text-sm text-gray-500 dark:text-gray-400">
+                ({filteredActivities.length} of {activities.length} activities)
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowFilters(!showFilters)}
+                className="flex items-center gap-2"
+              >
+                <Filter className="h-4 w-4" />
+                {showFilters ? 'Hide Filters' : 'Show Filters'}
+              </Button>
+              {(filters.search || filters.project || filters.division || filters.status) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={clearFilters}
+                  className="flex items-center gap-2 text-red-600 hover:text-red-700"
+                >
+                  <X className="h-4 w-4" />
+                  Clear All
+                </Button>
+              )}
+            </div>
+          </div>
+          
+          {showFilters && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Search Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Search
+                </label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={filters.search}
+                    onChange={(e) => handleFilterChange('search', e.target.value)}
+                    placeholder="Search activities..."
+                    className="w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+              </div>
+              
+              {/* Project Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Project
+                </label>
+                <select
+                  value={filters.project}
+                  onChange={(e) => handleFilterChange('project', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                >
+                  <option value="">All Projects</option>
+                  {projects.map(project => (
+                    <option key={project.id} value={project.project_code}>
+                      {project.project_code} - {project.project_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              {/* Division Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Division
+                </label>
+                <select
+                  value={filters.division}
+                  onChange={(e) => handleFilterChange('division', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                >
+                  <option value="">All Divisions</option>
+                  {getUniqueDivisions().map(division => (
+                    <option key={division} value={division}>
+                      {division}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              {/* Status Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Status
+                </label>
+                <select
+                  value={filters.status}
+                  onChange={(e) => handleFilterChange('status', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                >
+                  <option value="">All Status</option>
+                  <option value="not_started">Not Started (0%)</option>
+                  <option value="in_progress">In Progress (1-99%)</option>
+                  <option value="completed">Completed (100%)</option>
+                </select>
+              </div>
+            </div>
+          )}
+        </div>
+        
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300 mr-2">Data Actions:</span>
@@ -678,77 +1065,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         </Alert>
       )}
 
-      {/* Smart Filter */}
-      <SmartFilter
-        projects={projects.map(p => ({ 
-          project_code: p.project_code, 
-          project_name: p.project_name 
-        }))}
-        activities={activities.map(a => ({
-          activity_name: a.activity_name,
-          project_code: a.project_code
-        }))}
-        selectedProjects={selectedProjects}
-        selectedActivities={selectedActivities}
-        selectedTypes={selectedTypes}
-        selectedStatuses={selectedStatuses}
-        onProjectsChange={(projectCodes) => {
-          setSelectedProjects(projectCodes)
-          setCurrentPage(1)
-          
-          // Load activities when projects selected
-          if (projectCodes.length > 0) {
-            console.log(`🔄 Loading activities for ${projectCodes.length} project(s)...`)
-            // Add delay to prevent rapid successive calls
-            setTimeout(() => {
-              if (isMountedRef.current) {
-                fetchData(1) // This will load BOQ activities
-              }
-            }, 100)
-          } else {
-            console.log('🔄 No projects selected, clearing activities...')
-            setActivities([])
-            setAllKPIs([])
-          }
-        }}
-        onActivitiesChange={(activities) => {
-          setSelectedActivities(activities)
-          setCurrentPage(1)
-          setTimeout(() => {
-            if (isMountedRef.current) {
-              fetchData(1)
-            }
-          }, 100)
-        }}
-        onTypesChange={(types) => {
-          setSelectedTypes(types)
-          setCurrentPage(1)
-          setTimeout(() => {
-            if (isMountedRef.current) {
-              fetchData(1)
-            }
-          }, 100)
-        }}
-        onStatusesChange={(statuses) => {
-          setSelectedStatuses(statuses)
-          setCurrentPage(1)
-          setTimeout(() => {
-            if (isMountedRef.current) {
-              fetchData(1)
-            }
-          }, 100)
-        }}
-        onClearAll={() => {
-          console.log('🔄 Clearing all BOQ filters...')
-          setSelectedProjects([])
-          setSelectedActivities([])
-          setSelectedTypes([])
-          setSelectedStatuses([])
-          setActivities([])
-          setAllKPIs([])
-          setCurrentPage(1)
-        }}
-      />
+      {/* ✅ Removed all filters - Simple BOQ without filtering */}
 
       <Card>
         <CardHeader>
@@ -772,22 +1089,22 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
                   </div>
                   <div>
                     <h3 className="text-2xl font-bold text-blue-900 dark:text-blue-100 mb-2">
-                      🎯 Select Projects to View BOQ Activities
+                      🔍 Apply Filters to View BOQ Activities
                     </h3>
                     <p className="text-blue-700 dark:text-blue-300 max-w-md mx-auto">
-                      Use the Smart Filters above to select projects and view their BOQ activities.
+                      Use the filters above to search and view BOQ activities. 
                       This ensures fast loading by only fetching relevant data.
                     </p>
                   </div>
                   <div className="mt-4 px-4 py-2 bg-blue-100 dark:bg-blue-800/30 rounded-lg text-sm text-blue-800 dark:text-blue-200">
-                    💡 Tip: You can select multiple projects to view all their activities!
+                    💡 Tip: Apply any filter (Search, Project, Division, or Status) to load activities!
                   </div>
                 </div>
               </div>
             </div>
           ) : (
             <BOQTable
-              activities={filteredActivities}
+              activities={getCurrentPageData()}
               projects={projects}
               allKPIs={allKPIs}
               onEdit={setEditingActivity}
@@ -798,11 +1115,11 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         </CardContent>
         
         {/* Pagination */}
-        {totalCount > itemsPerPage && (
+        {filteredActivities.length > itemsPerPage && (
           <Pagination
             currentPage={currentPage}
-            totalPages={Math.ceil(totalCount / itemsPerPage)}
-            totalItems={totalCount}
+            totalPages={getTotalPages()}
+            totalItems={filteredActivities.length}
             itemsPerPage={itemsPerPage}
             onPageChange={handlePageChange}
             loading={loading}

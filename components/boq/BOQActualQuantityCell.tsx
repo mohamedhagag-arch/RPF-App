@@ -3,6 +3,8 @@
 import { useEffect, useState, useRef } from 'react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { BOQActivity } from '@/lib/supabase'
+import { calculateActualFromKPI } from '@/lib/boqKpiSync'
+import { calculateBOQValues, formatCurrency, calculateProjectProgressFromValues } from '@/lib/boqValueCalculator'
 
 interface BOQActualQuantityCellProps {
   activity: BOQActivity
@@ -17,17 +19,12 @@ export function BOQActualQuantityCell({ activity, allKPIs }: BOQActualQuantityCe
   useEffect(() => {
     mountedRef.current = true
     
-    // ✅ If allKPIs is provided, use it (no fetching!)
+    // If allKPIs is provided, use it (no fetching!)
     if (allKPIs && allKPIs.length > 0) {
-      console.log(`🔍 BOQActualQuantityCell: Using pre-loaded KPIs for ${activity.activity_name}`, {
-        totalKPIs: allKPIs.length,
-        activityProjectCode: activity.project_code
-      })
       calculateActualFromKPIs(allKPIs)
     } else {
-      // If no allKPIs provided, show 0
-      console.log(`⚠️ BOQActualQuantityCell: No pre-loaded KPIs for ${activity.activity_name}`)
-      setActualQuantity(0)
+      // Calculate from KPI database if no pre-loaded KPIs
+      calculateActualFromDatabase()
     }
 
     return () => {
@@ -39,11 +36,6 @@ export function BOQActualQuantityCell({ activity, allKPIs }: BOQActualQuantityCe
     // Filter for this activity
     const activityNameLower = (activity.activity_name || '').toLowerCase().trim()
     
-    console.log(`🔎 Calculating actual for "${activity.activity_name}"`, {
-      totalKPIs: kpis.length,
-      activityProject: activity.project_code
-    })
-    
     const activityKPIs = kpis.filter(kpi => {
       const matchesProject = kpi.project_full_code === activity.project_code ||
                             kpi.project_full_code?.startsWith(activity.project_code) ||
@@ -51,36 +43,45 @@ export function BOQActualQuantityCell({ activity, allKPIs }: BOQActualQuantityCe
       if (!matchesProject) return false
       
       const kpiActivityName = (kpi.activity_name || '').toLowerCase().trim()
-      const matches = kpiActivityName.includes(activityNameLower) || 
-                      activityNameLower.includes(kpiActivityName)
-      
-      if (matches) {
-        console.log(`  ✅ Matched KPI:`, {
-          kpiActivity: kpi.activity_name,
-          inputType: kpi.input_type,
-          quantity: kpi.quantity
-        })
-      }
-      
-      return matches
+      return kpiActivityName.includes(activityNameLower) || 
+             activityNameLower.includes(kpiActivityName)
     })
     
-    // ✅ Sum only ACTUAL KPIs
+    // Sum only ACTUAL KPIs
     const actual = activityKPIs.filter(k => k.input_type === 'Actual')
     const totalActual = actual.reduce((sum, k) => {
       const qty = parseFloat(k.quantity?.toString() || '0') || 0
       return sum + qty
     }, 0)
     
-    console.log(`📊 Final Actual Quantity for "${activity.activity_name}":`, {
-      matchedKPIs: activityKPIs.length,
-      actualKPIs: actual.length,
-      totalActual,
-      unit: activity.unit
-    })
-    
     setActualQuantity(totalActual)
   }
+
+  // Calculate Actual from KPI database
+  const calculateActualFromDatabase = async () => {
+    try {
+      const actual = await calculateActualFromKPI(
+        activity.project_code || '',
+        activity.activity_name || ''
+      )
+      
+      if (mountedRef.current) {
+        setActualQuantity(actual)
+      }
+    } catch (error) {
+      if (mountedRef.current) {
+        setActualQuantity(0)
+      }
+    }
+  }
+
+  // ✅ Calculate values using correct business logic
+  const values = calculateBOQValues(
+    activity.total_units || 0,
+    activity.planned_units || 0,
+    actualQuantity,
+    activity.total_value || 0
+  )
 
   return (
     <div>
@@ -99,6 +100,18 @@ export function BOQActualQuantityCell({ activity, allKPIs }: BOQActualQuantityCe
         <div className="flex items-center gap-1 mt-1 text-xs text-green-600">
           <span className="inline-block w-2 h-2 bg-green-500 rounded-full"></span>
           <span>Auto-synced from KPI</span>
+        </div>
+      )}
+      
+      {/* ✅ Show calculated value */}
+      {actualQuantity > 0 && (
+        <div className="mt-2 text-xs">
+          <div className="text-gray-600 dark:text-gray-400">
+            Value: <span className="font-semibold text-green-600">{formatCurrency(values.value)}</span>
+          </div>
+          <div className="text-gray-600 dark:text-gray-400">
+            Rate: <span className="font-semibold text-yellow-600">{formatCurrency(values.rate)}</span>
+          </div>
         </div>
       )}
     </div>

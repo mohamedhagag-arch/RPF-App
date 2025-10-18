@@ -358,6 +358,21 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
     isMountedRef.current = true
     console.log('🟡 Projects: Component mounted')
     
+    // ✅ الاستماع للتحديثات من Database Management
+    const handleDatabaseUpdate = (event: CustomEvent) => {
+      const { tableName } = event.detail
+      console.log(`🔔 Projects: Database updated event received for ${tableName}`)
+      
+      // إعادة تحميل البيانات إذا كان الجدول ذو صلة
+      if (tableName === TABLES.PROJECTS || tableName === TABLES.BOQ_ACTIVITIES || tableName === TABLES.KPI) {
+        console.log(`🔄 Projects: Reloading data due to ${tableName} update...`)
+        fetchAllData()
+      }
+    }
+    
+    window.addEventListener('database-updated', handleDatabaseUpdate as EventListener)
+    console.log('👂 Projects: Listening for database updates')
+    
     // Connection monitoring is handled by simpleConnectionManager
     
     // ✅ Initial load: Fetch projects, activities, and KPIs in parallel
@@ -371,49 +386,31 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
         
         let projectsResult: any, activitiesResult: any, kpisResult: any;
         
-        try {
-          // Try new lazy loading system first
-          const { projects, activities, kpis } = await loadAllDataWithProgress((progress, stage) => {
-            console.log(`📈 ${stage} (${Math.round(progress)}%)`)
-          })
-          
-          // Create mock results to maintain compatibility
-          projectsResult = { data: projects, error: null }
-          activitiesResult = { data: activities, error: null }
-          kpisResult = { data: kpis, error: null }
-          
-          console.log('✅ Lazy loading successful:', { 
-            projects: projects.length, 
-            activities: activities.length, 
-            kpis: kpis.length 
-          })
-        } catch (lazyError) {
-          console.warn('⚠️ Lazy loading failed, falling back to direct queries:', lazyError)
-          
-          // Fallback to direct queries
-          const fallbackResults = await Promise.all([
-            supabase
-              .from(TABLES.PROJECTS)
-              .select('*')
-              .order('created_at', { ascending: false }),
-            supabase
-              .from(TABLES.BOQ_ACTIVITIES)
-              .select('*'),
-            supabase
-              .from(TABLES.KPI)
-              .select('*')
-          ])
-          
-          projectsResult = fallbackResults[0]
-          activitiesResult = fallbackResults[1]
-          kpisResult = fallbackResults[2]
-          
-          console.log('✅ Fallback loading successful:', { 
-            projects: projectsResult.data?.length || 0, 
-            activities: activitiesResult.data?.length || 0, 
-            kpis: kpisResult.data?.length || 0 
-          })
-        }
+        // ✅ استخدام الاستعلامات المباشرة بدلاً من lazy loading
+        console.log('📊 Loading data with direct queries...')
+        
+        const fallbackResults = await Promise.all([
+          supabase
+            .from(TABLES.PROJECTS)
+            .select('*')
+            .order('created_at', { ascending: false }),
+          supabase
+            .from(TABLES.BOQ_ACTIVITIES)
+            .select('*'),
+          supabase
+            .from(TABLES.KPI)
+            .select('*')
+        ])
+        
+        projectsResult = fallbackResults[0]
+        activitiesResult = fallbackResults[1]
+        kpisResult = fallbackResults[2]
+        
+        console.log('✅ Direct queries successful:', { 
+          projects: projectsResult.data?.length || 0, 
+          activities: activitiesResult.data?.length || 0, 
+          kpis: kpisResult.data?.length || 0 
+        })
         
         // Check for errors in any result
         if (projectsResult?.error) {
@@ -430,10 +427,23 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
           console.warn('⚠️ KPIs Error:', kpisResult.error)
         }
         
+        // ✅ تحسين: التحقق من البيانات قبل المعالجة
+        const rawProjects = projectsResult?.data || []
+        const rawActivities = activitiesResult?.data || []
+        const rawKPIs = kpisResult?.data || []
+        
+        console.log('🔍 Raw data check:', {
+          rawProjects: rawProjects.length,
+          rawActivities: rawActivities.length,
+          rawKPIs: rawKPIs.length,
+          firstProject: rawProjects[0] ? 'exists' : 'null',
+          projectsError: projectsResult?.error ? 'yes' : 'no'
+        })
+        
         // Map all data
-        const mappedProjects = (projectsResult?.data || []).map(mapProjectFromDB)
-        const mappedActivities = (activitiesResult?.data || []).map(mapBOQFromDB)
-        const mappedKPIs = (kpisResult?.data || []).map(mapKPIFromDB)
+        const mappedProjects = rawProjects.map(mapProjectFromDB)
+        const mappedActivities = rawActivities.map(mapBOQFromDB)
+        const mappedKPIs = rawKPIs.map(mapKPIFromDB)
         
         console.log('📊 Data mapping results:', {
           projects: mappedProjects.length,
@@ -441,6 +451,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
           kpis: mappedKPIs.length
         })
         
+        // ✅ تحسين: التأكد من تحديث الحالة حتى لو كانت فارغة
         setProjects(mappedProjects)
         setAllActivities(mappedActivities)
         setAllKPIs(mappedKPIs)
@@ -453,7 +464,11 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
           totalCount: mappedProjects.length
         })
         
-        console.log('✅ Projects: Loaded', mappedProjects.length, 'projects')
+        if (mappedProjects.length === 0) {
+          console.log('⚠️ No projects found in database')
+        } else {
+          console.log('✅ Projects: Loaded', mappedProjects.length, 'projects')
+        }
         console.log('✅ Activities: Loaded', mappedActivities.length, 'activities')
         console.log('✅ KPIs: Loaded', mappedKPIs.length, 'KPIs')
         console.log('💡 All data loaded - analytics ready!')
@@ -472,6 +487,8 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
     return () => {
       console.log('🔴 Projects: Cleanup - component unmounting')
       isMountedRef.current = false
+      window.removeEventListener('database-updated', handleDatabaseUpdate as EventListener)
+      console.log('👋 Projects: Stopped listening for database updates')
       // Connection monitoring is handled globally
     }
   }, []) // Empty dependency - run ONCE only!
@@ -845,8 +862,17 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
           {filteredProjects.length === 0 ? (
             <div className="text-center py-12">
               <div>
-                <p className="text-gray-500 dark:text-gray-400">No projects match your filters</p>
-                <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Try adjusting your filters or search terms</p>
+                {projects.length === 0 ? (
+                  <>
+                    <p className="text-gray-500 dark:text-gray-400">No projects found</p>
+                    <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Create your first project to get started</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-gray-500 dark:text-gray-400">No projects match your filters</p>
+                    <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Try adjusting your filters or search terms</p>
+                  </>
+                )}
               </div>
             </div>
           ) : (

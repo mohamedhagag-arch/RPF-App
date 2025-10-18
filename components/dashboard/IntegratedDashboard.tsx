@@ -5,6 +5,7 @@ import { usePermissionGuard } from '@/lib/permissionGuard'
 import { getSupabaseClient, executeQuery, checkConnection } from '@/lib/simpleConnectionManager'
 import { TABLES, Project, BOQActivity, KPIRecord, User } from '@/lib/supabase'
 import { calculateProjectProgress, calculateActivityProgress } from '@/lib/progressCalculations'
+import { calculateProjectProgressFromValues } from '@/lib/boqValueCalculator'
 import { mapProjectFromDB, mapBOQFromDB, mapKPIFromDB } from '@/lib/dataMappers'
 import { processKPIRecord, ProcessedKPI } from '@/lib/kpiProcessor'
 import { useAuth } from '@/app/providers'
@@ -180,11 +181,13 @@ export function IntegratedDashboard() {
         const totalValue = projectActivities.reduce((sum: number, activity) => sum + (activity.total_value || 0), 0)
         const completedValue = completedActivities.reduce((sum: number, activity) => sum + (activity.total_value || 0), 0)
         
+        // ✅ Calculate progress using earned values (قيم الأنشطة المنجزة)
+        const projectProgress = calculateProjectProgressFromValues(projectActivities)
+        const progress = projectProgress.progress
+        
         return {
           ...project,
-          progress: projectActivities.length > 0 
-            ? (completedActivities.length / projectActivities.length) * 100 
-            : 0,
+          progress,
           activitiesCount: projectActivities.length,
           completedActivities: completedActivities.length,
           totalValue,

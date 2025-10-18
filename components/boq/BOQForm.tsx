@@ -18,98 +18,70 @@ interface BOQFormProps {
 export function BOQForm({ activity, projects, onSubmit, onCancel }: BOQFormProps) {
   const guard = usePermissionGuard()
   const [formData, setFormData] = useState({
+    // ✅ Basic Information (User Input)
     project_id: '',
     project_code: '',
     project_sub_code: '',
     project_full_code: '',
     activity: '',
+    activity_name: '',
     activity_division: '',
     unit: '',
     zone_ref: '',
     zone_number: '',
-    activity_name: '',
+    
+    // ✅ Quantities (User Input)
     total_units: 0,
     planned_units: 0,
-    actual_units: 0,
     rate: 0,
     total_value: 0,
+    
+    // ✅ Dates (User Input)
     planned_activity_start_date: '',
     deadline: '',
     calendar_duration: 0,
-    activity_progress_percentage: 0,
-    productivity_daily_rate: 0,
-    total_drilling_meters: 0,
-    drilled_meters_planned_progress: 0,
-    drilled_meters_actual_progress: 0,
-    remaining_meters: 0,
-    activity_planned_status: '',
-    activity_actual_status: '',
-    reported_on_data_date: false,
-    planned_value: 0,
-    earned_value: 0,
-    delay_percentage: 0,
-    planned_progress_percentage: 0,
-    activity_planned_start_date: '',
-    activity_planned_completion_date: '',
-    activity_delayed: false,
-    activity_on_track: true,
-    activity_completed: false,
+    
+    // ✅ Project Info (User Input)
     project_full_name: '',
     project_status: '',
-    remaining_work_value: 0,
-    variance_works_value: 0,
-    lookahead_start_date: '',
-    lookahead_activity_completion_date: '',
-    remaining_lookahead_duration_for_activity_completion: 0,
+    
+    // ❌ Calculated Fields (Auto-Generated - Hidden from Form)
+    // These will be calculated on submit
   })
   const [error, setError] = useState('')
+  const [projectActivities, setProjectActivities] = useState<any[]>([])
+  const [showActivitySuggestions, setShowActivitySuggestions] = useState(false)
+  const [selectedProjectDetails, setSelectedProjectDetails] = useState<any>(null)
 
   useEffect(() => {
     if (activity) {
       setFormData({
+        // ✅ Basic Information
         project_id: activity.project_id,
         project_code: activity.project_code,
         project_sub_code: activity.project_sub_code || '',
         project_full_code: activity.project_full_code || '',
         activity: activity.activity,
+        activity_name: activity.activity_name,
         activity_division: activity.activity_division || '',
         unit: activity.unit || '',
         zone_ref: activity.zone_ref || '',
         zone_number: activity.zone_number || '',
-        activity_name: activity.activity_name,
+        
+        // ✅ Quantities
         total_units: activity.total_units,
         planned_units: activity.planned_units,
-        actual_units: activity.actual_units,
         rate: activity.rate,
         total_value: activity.total_value,
+        
+        // ✅ Dates
         planned_activity_start_date: activity.planned_activity_start_date || '',
         deadline: activity.deadline || '',
         calendar_duration: activity.calendar_duration,
-        activity_progress_percentage: activity.activity_progress_percentage,
-        productivity_daily_rate: activity.productivity_daily_rate,
-        total_drilling_meters: activity.total_drilling_meters,
-        drilled_meters_planned_progress: activity.drilled_meters_planned_progress,
-        drilled_meters_actual_progress: activity.drilled_meters_actual_progress,
-        remaining_meters: activity.remaining_meters,
-        activity_planned_status: activity.activity_planned_status || '',
-        activity_actual_status: activity.activity_actual_status || '',
-        reported_on_data_date: activity.reported_on_data_date,
-        planned_value: activity.planned_value,
-        earned_value: activity.earned_value,
-        delay_percentage: activity.delay_percentage,
-        planned_progress_percentage: activity.planned_progress_percentage,
-        activity_planned_start_date: activity.activity_planned_start_date || '',
-        activity_planned_completion_date: activity.activity_planned_completion_date || '',
-        activity_delayed: activity.activity_delayed,
-        activity_on_track: activity.activity_on_track,
-        activity_completed: activity.activity_completed,
+        
+        // ✅ Project Info
         project_full_name: activity.project_full_name || '',
-        project_status: activity.project_status || '',
-        remaining_work_value: activity.remaining_work_value,
-        variance_works_value: activity.variance_works_value,
-        lookahead_start_date: activity.lookahead_start_date || '',
-        lookahead_activity_completion_date: activity.lookahead_activity_completion_date || '',
-        remaining_lookahead_duration_for_activity_completion: activity.remaining_lookahead_duration_for_activity_completion,
+        project_status: activity.project_status || ''
       })
     }
   }, [activity])
@@ -194,7 +166,7 @@ export function BOQForm({ activity, projects, onSubmit, onCancel }: BOQFormProps
     })
   }
 
-  const handleProjectChange = (projectId: string) => {
+  const handleProjectChange = async (projectId: string) => {
     const project = projects.find(p => p.id === projectId)
     if (project) {
       setFormData(prev => ({
@@ -206,8 +178,82 @@ export function BOQForm({ activity, projects, onSubmit, onCancel }: BOQFormProps
         project_full_name: project.project_name,
         project_status: project.project_status,
       }))
+
+      // ✅ Load project details and activities automatically
+      try {
+        console.log('🔄 Loading project details and activities for:', project.project_name)
+        
+        // Load project activities from database
+        const { getSupabaseClient } = await import('@/lib/simpleConnectionManager')
+        const supabase = getSupabaseClient()
+        
+        // Get project activities
+        const { data: activities, error: activitiesError } = await supabase
+          .from('boq_activities')
+          .select('*')
+          .eq('project_code', project.project_code)
+          .order('activity_name')
+        
+        if (activitiesError) {
+          console.error('❌ Error loading activities:', activitiesError)
+          return
+        }
+        
+        console.log('📊 Loaded activities:', activities?.length || 0)
+        
+        // Store activities for suggestions
+        setProjectActivities(activities || [])
+        
+        // ✅ Store project details for display
+        setSelectedProjectDetails({
+          project_name: project.project_name,
+          project_code: project.project_code,
+          project_status: project.project_status,
+          project_type: project.project_type || 'General',
+          divisions: project.divisions || [],
+          activities_count: activities?.length || 0
+        })
+        
+        // Auto-fill common project details
+        if (activities && activities.length > 0) {
+          // Get common activity division from existing activities
+          const commonDivision = activities.find(a => a.activity_division)?.activity_division || ''
+          
+          // Get common unit from existing activities
+          const commonUnit = activities.find(a => a.unit)?.unit || ''
+          
+          // Update form with common project details
+          setFormData(prev => ({
+            ...prev,
+            activity_division: commonDivision,
+            unit: commonUnit,
+          }))
+          
+          console.log('✅ Auto-filled project details:', {
+            commonDivision,
+            commonUnit,
+            activitiesCount: activities.length
+          })
+        }
+        
+      } catch (error) {
+        console.error('❌ Error loading project details:', error)
+      }
     }
   }
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      if (!target.closest('.activity-suggestions-container')) {
+        setShowActivitySuggestions(false)
+      }
+    }
+    
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
@@ -259,18 +305,98 @@ export function BOQForm({ activity, projects, onSubmit, onCancel }: BOQFormProps
               </div>
             </div>
 
+            {/* ✅ Project Details Display */}
+            {selectedProjectDetails && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                <div className="flex items-center space-x-3">
+                  <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
+                    <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-gray-900">{selectedProjectDetails.project_name}</h3>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {selectedProjectDetails.divisions.map((division: string, index: number) => (
+                        <span
+                          key={index}
+                          className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-full"
+                        >
+                          {division}
+                        </span>
+                      ))}
+                      <span className="px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full">
+                        {selectedProjectDetails.project_type}
+                      </span>
+                      <span className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-800 rounded-full">
+                        {selectedProjectDetails.project_status}
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      📊 {selectedProjectDetails.activities_count} activities available
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Activity Details */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
+              <div className="relative">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Activity Name *
                 </label>
                 <Input
                   value={formData.activity_name}
-                  onChange={(e) => handleChange('activity_name', e.target.value)}
-                  placeholder="Enter activity name"
+                  onChange={(e) => {
+                    handleChange('activity_name', e.target.value)
+                    setShowActivitySuggestions(e.target.value.length > 0)
+                  }}
+                  onFocus={() => setShowActivitySuggestions(true)}
+                  placeholder="Type activity name or select from suggestions..."
                   required
                 />
+                
+                {/* ✅ Activity Suggestions Dropdown */}
+                {showActivitySuggestions && projectActivities.length > 0 && (
+                  <div className="activity-suggestions-container absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                    <div className="p-2 text-xs text-gray-500 border-b">
+                      📋 Available activities for {selectedProjectDetails?.project_name} ({projectActivities.length})
+                    </div>
+                    {projectActivities
+                      .filter(act => 
+                        act.activity_name?.toLowerCase().includes(formData.activity_name.toLowerCase()) ||
+                        act.activity?.toLowerCase().includes(formData.activity_name.toLowerCase())
+                      )
+                      .slice(0, 10) // Limit to 10 suggestions
+                      .map((act, index) => (
+                        <div
+                          key={index}
+                          className="p-2 hover:bg-gray-100 cursor-pointer border-b last:border-b-0"
+                          onClick={() => {
+                            handleChange('activity_name', act.activity_name || '')
+                            handleChange('activity', act.activity || '')
+                            handleChange('activity_division', act.activity_division || '')
+                            handleChange('unit', act.unit || '')
+                            setShowActivitySuggestions(false)
+                          }}
+                        >
+                          <div className="font-medium text-sm">{act.activity_name}</div>
+                          <div className="text-xs text-gray-500">
+                            Code: {act.activity} | Division: {act.activity_division} | Unit: {act.unit}
+                          </div>
+                        </div>
+                      ))}
+                    {projectActivities.filter(act => 
+                      act.activity_name?.toLowerCase().includes(formData.activity_name.toLowerCase()) ||
+                      act.activity?.toLowerCase().includes(formData.activity_name.toLowerCase())
+                    ).length === 0 && (
+                      <div className="p-2 text-sm text-gray-500">
+                        No matching activities found
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div>

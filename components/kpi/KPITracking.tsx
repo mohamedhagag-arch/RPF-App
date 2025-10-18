@@ -222,6 +222,28 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     isMountedRef.current = true
     console.log('🟡 KPITracking: Component mounted')
     
+    // ✅ الاستماع للتحديثات من Database Management
+    const handleDatabaseUpdate = (event: CustomEvent) => {
+      const { tableName } = event.detail
+      console.log(`🔔 KPI: Database updated event received for ${tableName}`)
+      
+      // إعادة تحميل البيانات إذا كان الجدول ذو صلة
+      if (tableName === TABLES.KPI) {
+        console.log(`🔄 KPI: Reloading KPIs due to ${tableName} update...`)
+        if (selectedProjects.length > 0) {
+          fetchData(selectedProjects)
+        } else {
+          getTotalCount()
+        }
+      } else if (tableName === TABLES.PROJECTS || tableName === TABLES.BOQ_ACTIVITIES) {
+        console.log(`🔄 KPI: Reloading related data due to ${tableName} update...`)
+        fetchData(filters.project)
+      }
+    }
+    
+    window.addEventListener('database-updated', handleDatabaseUpdate as EventListener)
+    console.log('👂 KPI: Listening for database updates')
+    
     // Connection monitoring is handled globally by ConnectionMonitor
     
     // Get total KPI count for info display (without loading all data)
@@ -257,6 +279,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     return () => {
       console.log('🔴 KPITracking: Component unmounting - cleanup')
       isMountedRef.current = false
+      window.removeEventListener('database-updated', handleDatabaseUpdate as EventListener)
+      console.log('👋 KPI: Stopped listening for database updates')
       // Connection monitoring is handled globally
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

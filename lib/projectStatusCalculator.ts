@@ -208,8 +208,8 @@ function calculatePhaseProgress(activities: any[], kpis: any[]): number {
       }
     }
     
-    // Use the higher of activity progress or KPI progress
-    const finalProgress = Math.max(activityProgress, kpiProgress)
+    // ✅ Use KPI progress if available (more accurate), otherwise use activity progress
+    const finalProgress = kpiProgress > 0 ? kpiProgress : activityProgress
     totalProgress += finalProgress
     validActivities++
   }
