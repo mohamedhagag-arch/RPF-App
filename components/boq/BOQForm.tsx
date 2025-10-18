@@ -33,6 +33,7 @@ export function BOQForm({ activity, projects, onSubmit, onCancel }: BOQFormProps
     // ✅ Quantities (User Input)
     total_units: 0,
     planned_units: 0,
+    actual_units: 0,
     rate: 0,
     total_value: 0,
     
@@ -40,10 +41,20 @@ export function BOQForm({ activity, projects, onSubmit, onCancel }: BOQFormProps
     planned_activity_start_date: '',
     deadline: '',
     calendar_duration: 0,
+    activity_planned_start_date: '',
+    activity_planned_completion_date: '',
+    lookahead_start_date: '',
+    lookahead_activity_completion_date: '',
     
     // ✅ Project Info (User Input)
     project_full_name: '',
     project_status: '',
+    
+    // ✅ Calculated Fields (Auto-Generated)
+    activity_progress_percentage: 0,
+    activity_actual_status: '',
+    activity_completed: false,
+    activity_delayed: false,
     
     // ❌ Calculated Fields (Auto-Generated - Hidden from Form)
     // These will be calculated on submit
@@ -71,6 +82,7 @@ export function BOQForm({ activity, projects, onSubmit, onCancel }: BOQFormProps
         // ✅ Quantities
         total_units: activity.total_units,
         planned_units: activity.planned_units,
+        actual_units: activity.actual_units || 0,
         rate: activity.rate,
         total_value: activity.total_value,
         
@@ -78,10 +90,20 @@ export function BOQForm({ activity, projects, onSubmit, onCancel }: BOQFormProps
         planned_activity_start_date: activity.planned_activity_start_date || '',
         deadline: activity.deadline || '',
         calendar_duration: activity.calendar_duration,
+        activity_planned_start_date: activity.activity_planned_start_date || '',
+        activity_planned_completion_date: activity.activity_planned_completion_date || '',
+        lookahead_start_date: activity.lookahead_start_date || '',
+        lookahead_activity_completion_date: activity.lookahead_activity_completion_date || '',
         
         // ✅ Project Info
         project_full_name: activity.project_full_name || '',
-        project_status: activity.project_status || ''
+        project_status: activity.project_status || '',
+        
+        // ✅ Calculated Fields
+        activity_progress_percentage: activity.activity_progress_percentage || 0,
+        activity_actual_status: activity.activity_actual_status || '',
+        activity_completed: activity.activity_completed || false,
+        activity_delayed: activity.activity_delayed || false
       })
     }
   }, [activity])
@@ -210,17 +232,16 @@ export function BOQForm({ activity, projects, onSubmit, onCancel }: BOQFormProps
           project_code: project.project_code,
           project_status: project.project_status,
           project_type: project.project_type || 'General',
-          divisions: project.divisions || [],
           activities_count: activities?.length || 0
         })
         
         // Auto-fill common project details
         if (activities && activities.length > 0) {
           // Get common activity division from existing activities
-          const commonDivision = activities.find(a => a.activity_division)?.activity_division || ''
+          const commonDivision = (activities as any[]).find((a: any) => a.activity_division)?.activity_division || ''
           
           // Get common unit from existing activities
-          const commonUnit = activities.find(a => a.unit)?.unit || ''
+          const commonUnit = (activities as any[]).find((a: any) => a.unit)?.unit || ''
           
           // Update form with common project details
           setFormData(prev => ({
