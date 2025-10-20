@@ -10,5 +10,5 @@ export default function AuthenticatedPage() {
     router.replace('/dashboard')
   }, [router])
 
-  return null
+  return <div />
 }
