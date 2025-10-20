@@ -7,7 +7,7 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { useEffect, useState } from 'react'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { UserDropdown } from '@/components/ui/UserDropdown'
-import { LogOut, User } from 'lucide-react'
+import { LogOut, User, Users } from 'lucide-react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { ConnectionMonitor } from '@/components/common/ConnectionMonitor'
 import { ProfileCompletionWrapper } from '@/components/auth/ProfileCompletionWrapper'
@@ -29,11 +29,41 @@ export default function AuthenticatedLayout({
 
   useEffect(() => {
     setMounted(true)
+    
+    // Set reload flag if this is a page reload
+    if (typeof window !== 'undefined') {
+      const isReload = window.performance?.navigation?.type === 1
+      if (isReload) {
+        sessionStorage.setItem('auth_reload_check', 'true')
+      }
+    }
   }, [])
 
   useEffect(() => {
+    // ✅ FIX: Don't redirect immediately on reload - give time for session recovery
     if (mounted && !loading && !user) {
-      router.push('/')
+      // Check if this is a reload scenario
+      const isReload = typeof window !== 'undefined' && (
+        window.performance?.navigation?.type === 1 || 
+        sessionStorage.getItem('auth_reload_check') === 'true' ||
+        document.referrer === window.location.href ||
+        window.location.href.includes('localhost:3000') ||
+        window.location.href.includes('127.0.0.1')
+      )
+      
+      if (isReload) {
+        console.log('🔄 Layout: Detected reload, waiting for session recovery...')
+        // Wait a bit longer for session to recover
+        setTimeout(() => {
+          if (!user) {
+            console.log('⚠️ Layout: No session found after reload, redirecting to login')
+            router.push('/')
+          }
+        }, 15000) // Increased timeout for reload scenarios
+      } else {
+        // For new tabs or navigation, redirect immediately
+        router.push('/')
+      }
     }
   }, [user, loading, mounted, router])
 
@@ -72,6 +102,10 @@ export default function AuthenticatedLayout({
 
   const handleSettingsClick = () => {
     router.push('/settings')
+  }
+
+  const handleDirectoryClick = () => {
+    router.push('/directory')
   }
 
   if (!mounted || loading) {
@@ -113,6 +147,16 @@ export default function AuthenticatedLayout({
 
             <div className="flex items-center gap-3">
               <ThemeToggle />
+              
+              {/* Directory Button */}
+              <button
+                onClick={handleDirectoryClick}
+                className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                title="Directory"
+              >
+                <Users className="h-4 w-4" />
+                <span className="hidden sm:inline">Directory</span>
+              </button>
               
               <UserDropdown
                 userName={appUser?.first_name && appUser?.last_name 

@@ -56,9 +56,10 @@ export async function syncBOQFromKPI(
     
     if (!boqActivities || boqActivities.length === 0) {
       console.log('⚠️ No matching BOQ activity found')
+      console.log('🔍 This means the BOQ activity was already deleted or never existed')
       return {
         success: false,
-        message: 'No matching BOQ activity found',
+        message: 'No matching BOQ activity found - activity may have been deleted',
         updatedBOQActual: 0
       }
     }
@@ -66,7 +67,10 @@ export async function syncBOQFromKPI(
     const boqActivity = boqActivities[0]
     console.log('🎯 Found BOQ Activity:', boqActivity.id)
     
-    // 4. Update BOQ Actual Units
+    // 4. Update BOQ Actual Units (DO NOT DELETE THE ACTIVITY)
+    console.log('🔄 Updating BOQ Activity Actual Units to:', totalActual)
+    console.log('⚠️ IMPORTANT: This will NOT delete the BOQ activity, only update Actual Units')
+    
     const { data: updatedBOQ, error: updateError } = await supabase
       .from(TABLES.BOQ_ACTIVITIES)
       .update({
@@ -76,14 +80,23 @@ export async function syncBOQFromKPI(
       .select()
       .single()
     
-    if (updateError) throw updateError
+    if (updateError) {
+      console.error('❌ Failed to update BOQ Activity:', updateError)
+      throw updateError
+    }
+    
+    console.log('✅ BOQ Activity updated successfully:', updatedBOQ.id)
+    console.log('🔍 BOQ Activity still exists with ID:', updatedBOQ.id)
+    console.log('📊 BOQ Activity Name:', updatedBOQ['Activity Name'])
+    console.log('📊 BOQ Project Code:', updatedBOQ['Project Code'])
     
     console.log('✅ BOQ Updated Successfully!')
     console.log('New BOQ Actual Units:', totalActual)
+    console.log('⚠️ IMPORTANT: BOQ Activity should still be visible in the activities list')
     
     return {
       success: true,
-      message: `BOQ updated: Actual = ${totalActual}`,
+      message: `BOQ updated: Actual = ${totalActual} - Activity preserved`,
       updatedBOQActual: totalActual
     }
     

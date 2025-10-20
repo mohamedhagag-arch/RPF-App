@@ -50,21 +50,176 @@ export function IntelligentKPIForm({
   // Available activities for selected project
   const [availableActivities, setAvailableActivities] = useState<BOQActivity[]>([])
   
+  // Smart form state (like SmartActualKPIForm)
+  const [selectedActivity, setSelectedActivity] = useState<BOQActivity | null>(null)
+  const [dailyRate, setDailyRate] = useState<number>(0)
+  const [isAutoCalculated, setIsAutoCalculated] = useState(false)
+  
   // Load data when editing
   useEffect(() => {
     if (kpi) {
-      setProjectCode(kpi.project_full_code || '')
-      setActivityName(kpi.activity_name || '')
-      setInputType(kpi.input_type || 'Planned')
-      setQuantity(kpi.quantity?.toString() || '')
-      setUnit(kpi.unit || '')
-      setTargetDate(kpi.target_date || kpi['Target Date'] || '')
-      setActualDate(kpi.actual_date || kpi['Actual Date'] || '')
-      setSection(kpi.section || '')
-      setDay(kpi.day || '')
-      setDrilledMeters(kpi.drilled_meters?.toString() || kpi['Drilled Meters']?.toString() || '')
+      console.log('📝 Loading KPI data for editing:', kpi)
+      
+      // Handle both old and new column names
+      const editingProjectCode = kpi['Project Full Code'] || kpi.project_full_code || ''
+      setProjectCode(editingProjectCode)
+      setActivityName(kpi['Activity Name'] || kpi.activity_name || '')
+      setInputType(kpi['Input Type'] || kpi.input_type || 'Planned')
+      setQuantity(kpi['Quantity']?.toString() || kpi.quantity?.toString() || '')
+      setUnit(kpi['Unit'] || kpi.unit || '')
+      
+      // Load project data if available
+      if (editingProjectCode && projects.length > 0) {
+        const selectedProject = projects.find(p => p.project_code === editingProjectCode)
+        if (selectedProject) {
+          setProject(selectedProject)
+          console.log('✅ Project loaded for editing:', selectedProject.project_name)
+        }
+      }
+      // Handle date formatting - Support all possible date field names
+      const targetDateValue = kpi['Target Date'] || kpi.target_date || kpi['target_date'] || ''
+      const actualDateValue = kpi['Actual Date'] || kpi.actual_date || kpi['actual_date'] || ''
+      
+      // Convert date to YYYY-MM-DD format for input[type="date"]
+      const formatDateForInput = (dateStr: string) => {
+        if (!dateStr) return ''
+        try {
+          // Handle different date formats
+          let date: Date
+          
+          // If it's already in YYYY-MM-DD format
+          if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+            date = new Date(dateStr)
+          }
+          // If it's in DD/MM/YYYY or MM/DD/YYYY format
+          else if (/\d{1,2}\/\d{1,2}\/\d{4}/.test(dateStr)) {
+            const parts = dateStr.split('/')
+            // Try DD/MM/YYYY first, then MM/DD/YYYY
+            if (parts[0].length === 2) {
+              const year = parseInt(parts[2])
+              const month = parseInt(parts[1]) - 1
+              const day = parseInt(parts[0])
+              date = new Date(year, month, day)
+            } else {
+              const year = parseInt(parts[2])
+              const month = parseInt(parts[0]) - 1
+              const day = parseInt(parts[1])
+              date = new Date(year, month, day)
+            }
+          }
+          // Default parsing
+          else {
+            date = new Date(dateStr)
+          }
+          
+          if (isNaN(date.getTime())) {
+            console.log('⚠️ Invalid date format:', dateStr)
+            return ''
+          }
+          
+          const formatted = date.toISOString().split('T')[0]
+          console.log('📅 Date formatted:', dateStr, '->', formatted)
+          return formatted
+        } catch (error) {
+          console.log('❌ Date formatting error:', error, 'for date:', dateStr)
+          return ''
+        }
+      }
+      
+      setTargetDate(formatDateForInput(targetDateValue))
+      setActualDate(formatDateForInput(actualDateValue))
+      
+      console.log('📅 Date fields loaded:', {
+        targetDate: targetDateValue,
+        actualDate: actualDateValue,
+        formattedTargetDate: formatDateForInput(targetDateValue),
+        formattedActualDate: formatDateForInput(actualDateValue),
+        rawKpiData: {
+          'Target Date': kpi['Target Date'],
+          'Actual Date': kpi['Actual Date'],
+          target_date: kpi.target_date,
+          actual_date: kpi.actual_date
+        },
+        allKpiKeys: Object.keys(kpi)
+      })
+      
+      // Debug: Check all possible date fields
+      const allDateFields = Object.keys(kpi).filter(key => 
+        key.toLowerCase().includes('date') || 
+        key.toLowerCase().includes('actual') ||
+        key.toLowerCase().includes('target')
+      )
+      console.log('🔍 All date-related fields:', allDateFields)
+      
+      // Try to find the actual date in any possible field
+      const possibleActualDateFields = [
+        'Actual Date', 'actual_date', 'actualDate', 'Actual_Date',
+        'Date', 'date', 'Activity Date', 'activity_date'
+      ]
+      
+      let foundActualDate = ''
+      for (const field of possibleActualDateFields) {
+        if (kpi[field]) {
+          foundActualDate = kpi[field]
+          console.log(`✅ Found actual date in field '${field}':`, foundActualDate)
+          break
+        }
+      }
+      
+      if (foundActualDate && foundActualDate !== actualDateValue) {
+        console.log('🔄 Using found actual date:', foundActualDate)
+        setActualDate(formatDateForInput(foundActualDate))
+      }
+      setSection(kpi['Section'] || kpi.section || '')
+      setDay(kpi['Day'] || kpi.day || '')
+      setDrilledMeters(kpi['Drilled Meters']?.toString() || kpi.drilled_meters?.toString() || '')
+      
+      console.log('✅ KPI data loaded:', {
+        projectCode: kpi['Project Full Code'] || kpi.project_full_code,
+        activityName: kpi['Activity Name'] || kpi.activity_name,
+        inputType: kpi['Input Type'] || kpi.input_type,
+        quantity: kpi['Quantity'] || kpi.quantity,
+        unit: kpi['Unit'] || kpi.unit,
+        targetDate: formatDateForInput(targetDateValue),
+        actualDate: formatDateForInput(actualDateValue),
+        section: kpi['Section'] || kpi.section,
+        day: kpi['Day'] || kpi.day,
+        drilledMeters: kpi['Drilled Meters'] || kpi.drilled_meters
+      })
+      
+      // Load project and activities for the loaded project
+      const loadedProjectCode = kpi['Project Full Code'] || kpi.project_full_code
+      if (loadedProjectCode && projects.length > 0) {
+        const selectedProject = projects.find(p => p.project_code === loadedProjectCode)
+        if (selectedProject) {
+          setProject(selectedProject)
+          console.log('✅ Project loaded for editing:', selectedProject.project_name)
+        }
+        
+        // Load activities for this project
+        const projectActivities = activities.filter(a => a.project_code === loadedProjectCode)
+        setAvailableActivities(projectActivities)
+        console.log('✅ Activities loaded for editing:', projectActivities.length)
+        
+        // Smart auto-fill: Find and set the selected activity
+        const loadedActivityName = kpi['Activity Name'] || kpi.activity_name
+        if (loadedActivityName && projectActivities.length > 0) {
+          const foundActivity = projectActivities.find(a => a.activity_name === loadedActivityName)
+          if (foundActivity) {
+            setSelectedActivity(foundActivity)
+            console.log('🧠 Smart Form: Activity found for auto-fill:', foundActivity.activity_name)
+            
+            // Auto-fill smart data if it's an Actual KPI
+            if (inputType === 'Actual' && foundActivity.productivity_daily_rate && foundActivity.productivity_daily_rate > 0) {
+              setDailyRate(foundActivity.productivity_daily_rate)
+              setIsAutoCalculated(true)
+              console.log('✅ Smart Form: Daily rate auto-filled:', foundActivity.productivity_daily_rate)
+            }
+          }
+        }
+      }
     }
-  }, [kpi])
+  }, [kpi, projects, activities])
   
   // Auto-load project data when project code changes
   useEffect(() => {
@@ -91,33 +246,73 @@ export function IntelligentKPIForm({
     }
   }, [projectCode, projects, activities])
   
-  // Auto-fill unit when activity is selected
+  // Smart auto-fill when activity is selected
   useEffect(() => {
     if (activityName && availableActivities.length > 0) {
-      const selectedActivity = availableActivities.find(
-        a => a.activity_name === activityName
-      )
+      const foundActivity = availableActivities.find(a => a.activity_name === activityName)
       
-      if (selectedActivity && selectedActivity.unit) {
-        setUnit(selectedActivity.unit)
-        console.log('✅ Unit auto-filled:', selectedActivity.unit)
+      if (foundActivity) {
+        setSelectedActivity(foundActivity)
+        console.log('🧠 Smart Form: Activity selected:', foundActivity.activity_name)
+        
+        // Auto-fill unit
+        if (foundActivity.unit) {
+          setUnit(foundActivity.unit)
+          console.log('✅ Smart Form: Unit auto-filled:', foundActivity.unit)
+        }
+        
+        // Auto-fill section
+        if (foundActivity.activity_division) {
+          setSection(foundActivity.activity_division)
+          console.log('✅ Smart Form: Section auto-filled:', foundActivity.activity_division)
+        }
+        
+        // Auto-fill daily rate and calculate quantity for Actual KPIs
+        if (inputType === 'Actual' && foundActivity.productivity_daily_rate && foundActivity.productivity_daily_rate > 0) {
+          setDailyRate(foundActivity.productivity_daily_rate)
+          setQuantity(foundActivity.productivity_daily_rate.toString())
+          setIsAutoCalculated(true)
+          console.log('✅ Smart Form: Daily rate auto-filled:', foundActivity.productivity_daily_rate)
+          console.log('🧮 Smart Form: Quantity auto-calculated for one day:', foundActivity.productivity_daily_rate)
+        } else {
+          console.log('⚠️ Smart Form: No daily rate found for activity')
+          setDailyRate(0)
+          setIsAutoCalculated(false)
+        }
       }
     }
-  }, [activityName, availableActivities])
+  }, [activityName, availableActivities, inputType])
   
-  function handleProjectSelect(selectedCode: string) {
-    setProjectCode(selectedCode)
+  function handleProjectSelect(selectedProject: Project) {
+    setProjectCode(selectedProject.project_code)
+    setProject(selectedProject)
     setShowProjectDropdown(false)
-    // Reset activity when project changes
-    if (selectedCode !== projectCode) {
-      setActivityName('')
-      setUnit('')
-    }
+    
+    // Load activities for this project
+    const projectActivities = activities.filter(a => a.project_code === selectedProject.project_code)
+    setAvailableActivities(projectActivities)
+    console.log('✅ Activities loaded for project:', projectActivities.length)
+    
+    // Reset activity related fields when project changes
+    setActivityName('')
+    setSelectedActivity(null)
+    setUnit('')
+    setSection('')
+    setQuantity('')
+    setDailyRate(0)
+    setIsAutoCalculated(false)
   }
   
-  function handleActivitySelect(selectedActivity: string) {
-    setActivityName(selectedActivity)
+  function handleActivitySelect(activityName: string) {
+    setActivityName(activityName)
     setShowActivityDropdown(false)
+    
+    // Find and set the selected activity for smart auto-fill
+    const activity = availableActivities.find(a => a.activity_name === activityName)
+    if (activity) {
+      setSelectedActivity(activity)
+      console.log('🧠 Smart Form: Activity selected for auto-fill:', activity.activity_name)
+    }
   }
   
   async function handleSubmit(e: React.FormEvent) {
@@ -131,30 +326,71 @@ export function IntelligentKPIForm({
       if (!projectCode) throw new Error('Please select a project')
       if (!activityName) throw new Error('Please enter activity name')
       if (!quantity || parseFloat(quantity) <= 0) throw new Error('Please enter a valid quantity')
+      
+      // Ensure quantity is a valid number
+      const quantityValue = parseFloat(quantity)
+      if (isNaN(quantityValue)) throw new Error('Please enter a valid number for quantity')
       if (!unit) throw new Error('Please enter a unit')
       if (inputType === 'Planned' && !targetDate) throw new Error('Please enter target date for Planned KPI')
       if (inputType === 'Actual' && !actualDate) throw new Error('Please enter actual date for Actual KPI')
       
+      // Debug logging
+      console.log('🔍 Debug - Project object:', project)
+      console.log('🔍 Debug - Project Code:', projectCode)
+      console.log('🔍 Debug - Project.project_code:', project?.project_code)
+      console.log('🔍 Debug - Final Project Full Code:', project?.project_code || projectCode || '')
+      
+      // Ensure we have a valid project code
+      if (!projectCode && !project?.project_code) {
+        console.error('❌ No project code available!')
+        console.error('Project Code:', projectCode)
+        console.error('Project object:', project)
+        throw new Error('Please select a project')
+      }
+      
+      // Use projectCode as the primary source for Project Full Code
+      const finalProjectCode = projectCode || project?.project_code || ''
+      
+      console.log('🔍 Final Project Code:', finalProjectCode)
+      console.log('🔍 Project Code from state:', projectCode)
+      console.log('🔍 Project Code from object:', project?.project_code)
+      
       const kpiData = {
-        project_full_code: project?.project_code || projectCode,
-        project_code: projectCode,
-        project_sub_code: project?.project_sub_code || '',
-        activity_name: activityName,
-        quantity: parseFloat(quantity),
-        unit,
-        input_type: inputType,
-        target_date: targetDate,
-        actual_date: actualDate,
-        activity_date: inputType === 'Actual' ? actualDate : targetDate,
-        section,
-        day,
-        drilled_meters: parseFloat(drilledMeters) || 0,
-        'Target Date': targetDate,
-        'Actual Date': actualDate,
+        'Project Full Code': finalProjectCode,
+        'Project Code': finalProjectCode,
+        'Project Sub Code': project?.project_sub_code || '',
+        'Activity Name': activityName || '',
+        'Quantity': Math.round(quantityValue * 100) / 100, // Round to 2 decimal places
+        'Unit': unit || '',
+        'Input Type': inputType || 'Planned',
+        'Target Date': targetDate || '',
+        'Actual Date': actualDate || '',
+        'Section': section || '',
+        'Day': day || '',
         'Drilled Meters': parseFloat(drilledMeters) || 0
       }
       
+      // Validate essential fields
+      if (!kpiData['Project Full Code']) {
+        console.error('❌ Project Full Code is missing!')
+        console.error('Project object:', project)
+        console.error('Project Code:', projectCode)
+        console.error('Project.project_code:', project?.project_code)
+        throw new Error('Project Full Code is required')
+      }
+      if (!kpiData['Activity Name']) {
+        throw new Error('Activity Name is required')
+      }
+      if (!kpiData['Quantity']) {
+        throw new Error('Quantity is required')
+      }
+      
       console.log('📦 Submitting KPI:', kpiData)
+      console.log('🔍 Project object:', project)
+      console.log('🔍 Project Code:', projectCode)
+      console.log('🔍 Project Full Code:', kpiData['Project Full Code'])
+      console.log('🔍 Activity Name:', kpiData['Activity Name'])
+      console.log('🔍 Quantity:', kpiData['Quantity'])
       
       // Submit
       await onSubmit(kpiData)
@@ -213,6 +449,28 @@ export function IntelligentKPIForm({
           <Alert variant="success" className="mb-4">
             {success}
           </Alert>
+        )}
+
+        {/* Smart Form Info */}
+        {inputType === 'Actual' && (
+          <div className="mb-4 p-4 bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-900/20 dark:to-blue-900/20 border border-green-200 dark:border-green-700 rounded-lg">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0">
+                <div className="w-8 h-8 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center">
+                  <Target className="w-4 h-4 text-green-600" />
+                </div>
+              </div>
+              <div className="flex-1">
+                <h3 className="font-medium text-gray-900 dark:text-white mb-1">
+                  Smart KPI Form
+                </h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  This form automatically fills data based on your project and activity selection. 
+                  For Actual KPIs, quantities are calculated using the daily rate from your activity data.
+                </p>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Project Info Banner */}
@@ -306,7 +564,7 @@ export function IntelligentKPIForm({
                     .map(p => (
                       <div
                         key={p.id}
-                        onClick={() => handleProjectSelect(p.project_code)}
+                        onClick={() => handleProjectSelect(p)}
                         className="px-4 py-3 hover:bg-blue-50 dark:hover:bg-blue-900/30 cursor-pointer border-b border-gray-100 dark:border-gray-700 last:border-b-0"
                       >
                         <div className="font-semibold text-gray-900 dark:text-gray-100">
@@ -385,28 +643,75 @@ export function IntelligentKPIForm({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Quantity <span className="text-red-500">*</span>
+                <span className="flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4" />
+                  Quantity <span className="text-red-500">*</span>
+                  {isAutoCalculated && inputType === 'Actual' && (
+                    <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">
+                      Auto-calculated
+                    </span>
+                  )}
+                </span>
               </label>
-              <input
-                type="number"
-                step="0.01"
-                value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
-                placeholder="Enter quantity..."
-                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
+              <div className="relative">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={quantity}
+                  onChange={(e) => {
+                    setQuantity(e.target.value)
+                    setIsAutoCalculated(false) // User is manually editing
+                  }}
+                  placeholder="Enter quantity..."
+                  className={`w-full px-4 py-2.5 border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                    isAutoCalculated && inputType === 'Actual' ? 'bg-green-50 border-green-300' : 'border-gray-300 dark:border-gray-600'
+                  }`}
+                  required
+                />
+                {isAutoCalculated && inputType === 'Actual' && (
+                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                    <CheckCircle2 className="w-4 h-4 text-green-600" />
+                  </div>
+                )}
+              </div>
+              {dailyRate > 0 && inputType === 'Actual' && (
+                <div className="flex items-center justify-between mt-2">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Daily rate: {dailyRate} {unit} per day
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQuantity(dailyRate.toString())
+                      setIsAutoCalculated(true)
+                    }}
+                    className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200 transition-colors"
+                  >
+                    Reset to daily rate
+                  </button>
+                </div>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Unit <span className="text-red-500">*</span>
+                <span className="flex items-center gap-2">
+                  <Target className="h-4 w-4" />
+                  Unit <span className="text-red-500">*</span>
+                  {unit && selectedActivity && (
+                    <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                      Auto-filled
+                    </span>
+                  )}
+                </span>
               </label>
               <input
                 type="text"
                 value={unit}
                 onChange={(e) => setUnit(e.target.value)}
                 placeholder="e.g., m³, m, ton..."
-                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={`w-full px-4 py-2.5 border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                  unit && selectedActivity ? 'bg-blue-50 border-blue-300' : 'border-gray-300 dark:border-gray-600'
+                }`}
                 required
               />
             </div>
@@ -443,10 +748,18 @@ export function IntelligentKPIForm({
                 <input
                   type="date"
                   value={actualDate}
-                  onChange={(e) => setActualDate(e.target.value)}
+                  onChange={(e) => {
+                    console.log('📅 Actual date changed:', e.target.value)
+                    setActualDate(e.target.value)
+                  }}
                   className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
                   required
                 />
+                {actualDate && (
+                  <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                    ✅ Date loaded: {actualDate}
+                  </p>
+                )}
               </div>
             )}
             

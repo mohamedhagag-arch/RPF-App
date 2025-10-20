@@ -79,6 +79,19 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
   const [projectStatus, setProjectStatus] = useState<'upcoming' | 'site-preparation' | 'on-going' | 'completed' | 'completed-duration' | 'contract-duration' | 'on-hold' | 'cancelled'>('upcoming')
   const [kpiCompleted, setKpiCompleted] = useState(false)
   
+  // Additional Project Details
+  const [clientName, setClientName] = useState('')
+  const [consultantName, setConsultantName] = useState('')
+  const [firstPartyName, setFirstPartyName] = useState('')
+  const [projectManagerEmail, setProjectManagerEmail] = useState('')
+  const [areaManagerEmail, setAreaManagerEmail] = useState('')
+  const [latitude, setLatitude] = useState('')
+  const [longitude, setLongitude] = useState('')
+  const [contractStatus, setContractStatus] = useState('')
+  const [workmanshipOnly, setWorkmanshipOnly] = useState('')
+  const [advancePaymentRequired, setAdvancePaymentRequired] = useState('')
+  const [virtualMaterialValue, setVirtualMaterialValue] = useState('')
+  
   // Currency Management
   const [selectedCurrency, setSelectedCurrency] = useState<Currency | null>(null)
   const [availableCurrencies, setAvailableCurrencies] = useState<Currency[]>([])
@@ -101,6 +114,37 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
   // Smart Features
   const [codeValidation, setCodeValidation] = useState<{ valid: boolean; message?: string }>({ valid: true })
   const [autoSubCode, setAutoSubCode] = useState(true)
+  
+  // Additional Details Visibility
+  const [showAdditionalDetails, setShowAdditionalDetails] = useState(false)
+  
+  // Copy Feedback
+  const [copyFeedback, setCopyFeedback] = useState<{ type: 'latitude' | 'longitude' | null; message: string }>({ type: null, message: '' })
+  
+  // Copy to clipboard with feedback
+  const handleCopyCoordinate = async (value: string, type: 'latitude' | 'longitude') => {
+    console.log('🔄 Copying coordinate:', { value, type })
+    
+    try {
+      await navigator.clipboard.writeText(value)
+      console.log('✅ Copy successful')
+      setCopyFeedback({ type, message: 'تم النسخ بنجاح!' })
+      
+      // Clear feedback after 3 seconds (increased from 2)
+      setTimeout(() => {
+        console.log('🧹 Clearing feedback')
+        setCopyFeedback({ type: null, message: '' })
+      }, 3000)
+    } catch (error) {
+      console.error('❌ Failed to copy:', error)
+      setCopyFeedback({ type, message: 'فشل في النسخ' })
+      
+      // Clear feedback after 3 seconds
+      setTimeout(() => {
+        setCopyFeedback({ type: null, message: '' })
+      }, 3000)
+    }
+  }
   
   // Load divisions from Supabase
   useEffect(() => {
@@ -198,6 +242,19 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
       setProjectStatus(project.project_status)
       setKpiCompleted(project.kpi_completed)
       setAutoSubCode(false)
+      
+      // Load additional project details
+      setClientName(project.client_name || '')
+      setConsultantName(project.consultant_name || '')
+      setFirstPartyName(project.first_party_name || '')
+      setProjectManagerEmail(project.project_manager_email || '')
+      setAreaManagerEmail(project.area_manager_email || '')
+      setLatitude(project.latitude || '')
+      setLongitude(project.longitude || '')
+      setContractStatus(project.contract_status || '')
+      setWorkmanshipOnly(project.workmanship_only || '')
+      setAdvancePaymentRequired(project.advance_payment_required || '')
+      setVirtualMaterialValue(project.virtual_material_value || '')
     } else {
       // Load metadata for suggestions
       const metadata = getProjectMetadata()
@@ -397,7 +454,19 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
         plot_number: plotNumber.trim() || undefined,
         contract_amount: parseFloat(contractAmount) || 0,
         project_status: projectStatus as 'upcoming' | 'site-preparation' | 'on-going' | 'completed' | 'completed-duration' | 'contract-duration' | 'on-hold' | 'cancelled',
-        kpi_completed: kpiCompleted
+        kpi_completed: kpiCompleted,
+        // Additional project details
+        client_name: clientName.trim() || undefined,
+        consultant_name: consultantName.trim() || undefined,
+        first_party_name: firstPartyName.trim() || undefined,
+        project_manager_email: projectManagerEmail.trim() || undefined,
+        area_manager_email: areaManagerEmail.trim() || undefined,
+        latitude: latitude.trim() || undefined,
+        longitude: longitude.trim() || undefined,
+        contract_status: contractStatus.trim() || undefined,
+        workmanship_only: workmanshipOnly.trim() || undefined,
+        advance_payment_required: advancePaymentRequired.trim() || undefined,
+        virtual_material_value: virtualMaterialValue.trim() || undefined
       }
       
       // إضافة العملة كخاصية إضافية (سيتم حفظها لاحقاً عند إضافة العمود)
@@ -487,6 +556,20 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
             <CheckCircle2 className="h-4 w-4" />
             {success}
           </Alert>
+        )}
+        
+        {/* Copy Feedback Toast */}
+        {copyFeedback.type && (
+          <div className="fixed top-4 right-4 z-50 animate-in slide-in-from-top-2 duration-300">
+            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg shadow-lg p-3 max-w-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-green-600 text-lg">✅</span>
+                <p className="text-sm text-green-700 dark:text-green-300 font-medium">
+                  {copyFeedback.message}
+                </p>
+              </div>
+            </div>
+          </div>
         )}
         
         {/* Form */}
@@ -950,6 +1033,299 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
             </div>
           </div>
           
+          {/* Additional Project Details Toggle */}
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-gradient-to-br from-purple-600 to-indigo-600 rounded-lg">
+                  <Users className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                    Additional Project Details
+                  </h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Stakeholders, Management Team, Location & Contract Details
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAdditionalDetails(!showAdditionalDetails)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${
+                  showAdditionalDetails
+                    ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
+                    : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600'
+                }`}
+                disabled={loading}
+              >
+                {showAdditionalDetails ? (
+                  <>
+                    <X className="h-4 w-4" />
+                    Hide Details
+                  </>
+                ) : (
+                  <>
+                    <Users className="h-4 w-4" />
+                    Show Details
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+          
+          {/* Additional Project Details */}
+          {showAdditionalDetails && (
+            <div className="space-y-6">
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                  <Users className="h-5 w-5 text-blue-600" />
+                  Stakeholder Information
+                </h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Client Name */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <Building2 className="inline h-4 w-4 mr-1" />
+                    Client Name
+                  </label>
+                  <Input
+                    value={clientName}
+                    onChange={(e) => setClientName(e.target.value)}
+                    placeholder="Enter client name..."
+                    disabled={loading}
+                  />
+                </div>
+                
+                {/* First Party Name */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <Users className="inline h-4 w-4 mr-1" />
+                    First Party
+                  </label>
+                  <Input
+                    value={firstPartyName}
+                    onChange={(e) => setFirstPartyName(e.target.value)}
+                    placeholder="Enter first party name..."
+                    disabled={loading}
+                  />
+                </div>
+                
+                {/* Consultant Name */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <Briefcase className="inline h-4 w-4 mr-1" />
+                    Consultant
+                  </label>
+                  <Input
+                    value={consultantName}
+                    onChange={(e) => setConsultantName(e.target.value)}
+                    placeholder="Enter consultant name..."
+                    disabled={loading}
+                  />
+                </div>
+              </div>
+            </div>
+            
+            {/* Management Team */}
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                <Users className="h-5 w-5 text-green-600" />
+                Management Team
+              </h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Project Manager Email */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <Users className="inline h-4 w-4 mr-1" />
+                    Project Manager Email
+                  </label>
+                  <Input
+                    type="email"
+                    value={projectManagerEmail}
+                    onChange={(e) => setProjectManagerEmail(e.target.value)}
+                    placeholder="project.manager@company.com"
+                    disabled={loading}
+                    className="focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                
+                {/* Area Manager Email */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <Users className="inline h-4 w-4 mr-1" />
+                    Area Manager Email
+                  </label>
+                  <Input
+                    type="email"
+                    value={areaManagerEmail}
+                    onChange={(e) => setAreaManagerEmail(e.target.value)}
+                    placeholder="area.manager@company.com"
+                    disabled={loading}
+                    className="focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+            
+            {/* Location Information */}
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                <MapPin className="h-5 w-5 text-purple-600" />
+                Location Information
+              </h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Latitude */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <MapPin className="inline h-4 w-4 mr-1" />
+                    Latitude
+                  </label>
+                  <div className="relative">
+                    <Input
+                      value={latitude}
+                      onChange={(e) => setLatitude(e.target.value)}
+                      placeholder="e.g., 25.2048"
+                      disabled={loading}
+                      className="focus:ring-purple-500 focus:border-purple-500 pr-10"
+                    />
+                    {latitude && (
+                      <button
+                        type="button"
+                        onClick={() => handleCopyCoordinate(latitude, 'latitude')}
+                        className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 text-gray-500 hover:text-purple-600 dark:text-gray-400 dark:hover:text-purple-400 transition-colors"
+                        title="Copy to clipboard"
+                      >
+                        📋
+                      </button>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Longitude */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <MapPin className="inline h-4 w-4 mr-1" />
+                    Longitude
+                  </label>
+                  <div className="relative">
+                    <Input
+                      value={longitude}
+                      onChange={(e) => setLongitude(e.target.value)}
+                      placeholder="e.g., 55.2708"
+                      disabled={loading}
+                      className="focus:ring-purple-500 focus:border-purple-500 pr-10"
+                    />
+                    {longitude && (
+                      <button
+                        type="button"
+                        onClick={() => handleCopyCoordinate(longitude, 'longitude')}
+                        className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 text-gray-500 hover:text-purple-600 dark:text-gray-400 dark:hover:text-purple-400 transition-colors"
+                        title="Copy to clipboard"
+                      >
+                        📋
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+              
+              {(latitude || longitude) && (
+                <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                  <p className="text-sm text-blue-700 dark:text-blue-300">
+                    📍 Coordinates: {latitude && longitude ? `${latitude}, ${longitude}` : 'Incomplete coordinates'}
+                    {latitude && longitude && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const url = `https://www.google.com/maps?q=${latitude},${longitude}`;
+                          window.open(url, '_blank');
+                        }}
+                        className="ml-2 text-xs bg-blue-100 hover:bg-blue-200 dark:bg-blue-800 dark:hover:bg-blue-700 text-blue-700 dark:text-blue-300 px-2 py-1 rounded transition-colors"
+                      >
+                        View on Map
+                      </button>
+                    )}
+                  </p>
+                </div>
+              )}
+            </div>
+            
+            {/* Contract Details */}
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                <DollarSign className="h-5 w-5 text-orange-600" />
+                Contract Details
+              </h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Contract Status */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <TrendingUp className="inline h-4 w-4 mr-1" />
+                    Contract Status
+                  </label>
+                  <Input
+                    value={contractStatus}
+                    onChange={(e) => setContractStatus(e.target.value)}
+                    placeholder="e.g., Active, Pending, Completed"
+                    disabled={loading}
+                    className="focus:ring-orange-500 focus:border-orange-500"
+                  />
+                </div>
+                
+                {/* Workmanship Only */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <Briefcase className="inline h-4 w-4 mr-1" />
+                    Workmanship Only
+                  </label>
+                  <Input
+                    value={workmanshipOnly}
+                    onChange={(e) => setWorkmanshipOnly(e.target.value)}
+                    placeholder="e.g., Yes, No, Partial"
+                    disabled={loading}
+                    className="focus:ring-orange-500 focus:border-orange-500"
+                  />
+                </div>
+                
+                {/* Advance Payment Required */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <DollarSign className="inline h-4 w-4 mr-1" />
+                    Advance Payment Required
+                  </label>
+                  <Input
+                    value={advancePaymentRequired}
+                    onChange={(e) => setAdvancePaymentRequired(e.target.value)}
+                    placeholder="e.g., Yes, No, 10%"
+                    disabled={loading}
+                    className="focus:ring-orange-500 focus:border-orange-500"
+                  />
+                </div>
+                
+                {/* Virtual Material Value */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <DollarSign className="inline h-4 w-4 mr-1" />
+                    Virtual Material Value
+                  </label>
+                  <Input
+                    value={virtualMaterialValue}
+                    onChange={(e) => setVirtualMaterialValue(e.target.value)}
+                    placeholder="Enter virtual material value..."
+                    disabled={loading}
+                    className="focus:ring-orange-500 focus:border-orange-500"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+          )}
+          
           {/* Info Card */}
           <ModernCard className="bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20 border-amber-200 dark:border-amber-800">
             <div className="flex items-start gap-3">
@@ -962,6 +1338,9 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                   <li>Provides typical duration and budget estimates</li>
                   <li>Saves custom divisions and project types for future use</li>
                   <li>Validates project code format automatically</li>
+                  <li>Email addresses are clickable for direct communication</li>
+                  <li>Location coordinates open in Google Maps</li>
+                  <li>All fields are interconnected and smart</li>
                 </ul>
               </div>
             </div>

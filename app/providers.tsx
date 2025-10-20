@@ -6,6 +6,8 @@ import { getStableSupabaseClient } from '@/lib/stableConnection'
 import { User } from '@supabase/supabase-js'
 import { User as AppUser } from '@/lib/supabase'
 import { SessionManager } from '@/components/auth/SessionManager'
+import { authPersistenceManager } from '@/lib/authPersistence'
+import { sessionPersistenceManager } from '@/lib/sessionPersistence'
 
 interface AuthContextType {
   user: User | null
@@ -91,18 +93,76 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
     const initializeAuth = async () => {
       try {
-        // First try to get session
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+        console.log('🔄 AuthProvider: Initializing authentication...')
         
-        if (sessionError) {
-          console.log('No active session found:', sessionError.message)
+        // Check if we're in a reload scenario by looking at multiple indicators
+        const isReload = typeof window !== 'undefined' && (
+          window.performance?.navigation?.type === 1 || 
+          sessionStorage.getItem('auth_reload_check') === 'true' ||
+          document.referrer === window.location.href ||
+          (window.performance?.getEntriesByType('navigation')[0] as any)?.type === 'reload' ||
+          window.location.href.includes('localhost:3000') || // Allow localhost reloads
+          window.location.href.includes('127.0.0.1') // Allow localhost reloads
+        )
+        
+        if (isReload) {
+          console.log('🔄 AuthProvider: Detected page reload, waiting for session recovery...')
+          // Set reload flag in sessionStorage to help with detection
+          if (typeof window !== 'undefined') {
+            sessionStorage.setItem('auth_reload_check', 'true')
+          }
+          // Wait longer for session to recover on reload
+          await new Promise(resolve => setTimeout(resolve, 3000))
+        } else {
+          // For new tabs, wait a bit for storage to sync
+          if (typeof window !== 'undefined') {
+            await new Promise(resolve => setTimeout(resolve, 500))
+          }
         }
+        
+        // First try to get session with retry mechanism
+        let session = null
+        let retries = isReload ? 15 : 5 // More retries for reload scenarios
+        
+        while (retries > 0) {
+          try {
+            const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession()
+            
+            if (sessionError) {
+              console.log('⚠️ AuthProvider: Session error:', sessionError.message)
+              retries--
+              if (retries > 0) {
+                await new Promise(resolve => setTimeout(resolve, isReload ? 1000 : 2000))
+                continue
+              }
+            } else {
+              session = currentSession
+              break
+            }
+          } catch (error) {
+            console.log('⚠️ AuthProvider: Session fetch error:', error)
+            retries--
+            if (retries > 0) {
+              await new Promise(resolve => setTimeout(resolve, isReload ? 1500 : 2000))
+              continue
+            }
+          }
+        }
+        
+        console.log('📊 AuthProvider: Session status:', {
+          hasSession: !!session,
+          userEmail: session?.user?.email,
+          expiresAt: session?.expires_at,
+          isExpired: session?.expires_at ? new Date(session.expires_at * 1000) < new Date() : false,
+          isReload
+        })
         
         if (mounted.current) {
           setUser(session?.user ?? null)
           
-          // Only try to fetch profile if user exists
-          if (session?.user) {
+          // Only try to fetch profile if user exists and session is valid
+          if (session?.user && session.expires_at && new Date(session.expires_at * 1000) > new Date()) {
+            console.log('✅ AuthProvider: Valid session found, fetching user profile...')
             try {
               const { data: profile, error } = await supabase
                 .from('users')
@@ -111,23 +171,30 @@ export function Providers({ children }: { children: React.ReactNode }) {
                 .single()
               
               if (error) {
-                console.log('User profile not found, will be created on first login')
+                console.log('⚠️ AuthProvider: User profile not found:', error.message)
                 setAppUser(null)
               } else {
+                console.log('✅ AuthProvider: User profile loaded successfully')
                 setAppUser(profile)
               }
             } catch (error) {
-              console.log('Error fetching user profile:', error)
+              console.log('❌ AuthProvider: Error fetching user profile:', error)
               setAppUser(null)
             }
           } else {
+            console.log('⚠️ AuthProvider: No valid session - clearing user data')
             setAppUser(null)
           }
           
           setLoading(false)
+          
+          // Clear reload flag after successful initialization
+          if (typeof window !== 'undefined' && isReload) {
+            sessionStorage.removeItem('auth_reload_check')
+          }
         }
       } catch (error) {
-        console.log('Error initializing auth:', error)
+        console.log('❌ AuthProvider: Error initializing auth:', error)
         if (mounted.current) {
           setUser(null)
           setAppUser(null)
@@ -139,6 +206,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
     // Initialize auth only once on mount
     if (!initialized.current) {
       initializeAuth()
+      // Initialize auth persistence manager
+      authPersistenceManager.initialize()
+      // Initialize session persistence manager
+      sessionPersistenceManager.initialize()
       initialized.current = true
     }
 
@@ -147,12 +218,20 @@ export function Providers({ children }: { children: React.ReactNode }) {
       async (event, session) => {
         if (!mounted.current) return
         
-        console.log('🔄 Providers: Auth state changed:', event, session?.user?.email)
+        console.log('🔄 AuthProvider: Auth state changed:', event, session?.user?.email)
+        console.log('📊 AuthProvider: Session details:', {
+          event,
+          hasSession: !!session,
+          userEmail: session?.user?.email,
+          expiresAt: session?.expires_at,
+          isExpired: session?.expires_at ? new Date(session.expires_at * 1000) < new Date() : false
+        })
         
         setUser(session?.user ?? null)
         
-        if (session?.user) {
-          console.log('✅ Providers: User session valid, fetching profile...')
+        // Only process if session is valid and not expired
+        if (session?.user && session.expires_at && new Date(session.expires_at * 1000) > new Date()) {
+          console.log('✅ AuthProvider: Valid session, fetching profile...')
           try {
             const { data: profile, error } = await supabase
               .from('users')
@@ -161,18 +240,18 @@ export function Providers({ children }: { children: React.ReactNode }) {
               .single()
             
             if (error) {
-              console.log('⚠️ Providers: User profile not found, will be created on first login')
+              console.log('⚠️ AuthProvider: User profile not found:', error.message)
               setAppUser(null)
             } else {
-              console.log('✅ Providers: User profile loaded successfully')
+              console.log('✅ AuthProvider: User profile loaded successfully')
               setAppUser(profile)
             }
           } catch (error) {
-            console.log('❌ Providers: Error fetching user profile:', error)
+            console.log('❌ AuthProvider: Error fetching user profile:', error)
             setAppUser(null)
           }
         } else {
-          console.log('❌ Providers: No user session - clearing app user')
+          console.log('⚠️ AuthProvider: No valid session - clearing app user')
           setAppUser(null)
         }
         
@@ -183,6 +262,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
     return () => {
       mounted.current = false
       subscription.unsubscribe()
+      // Clean up auth persistence manager
+      authPersistenceManager.destroy()
+      // Clean up session persistence manager
+      sessionPersistenceManager.destroy()
     }
     // ✅ FIXED: Remove supabase from dependencies to prevent infinite loop
     // eslint-disable-next-line react-hooks/exhaustive-deps

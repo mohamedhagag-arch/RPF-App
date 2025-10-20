@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { getProfileCompletionStats } from '@/lib/profileCompletionGuard'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
@@ -24,6 +25,7 @@ interface ProfileCompletionStatsData {
 }
 
 export function ProfileCompletionStats() {
+  const router = useRouter()
   const [stats, setStats] = useState<ProfileCompletionStatsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -214,7 +216,7 @@ export function ProfileCompletionStats() {
         {stats.incompleteProfiles > 0 && (
           <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
             <button
-              onClick={() => window.location.href = '/settings?tab=users'}
+              onClick={() => router.push('/settings?tab=users')}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
             >
               View User Management

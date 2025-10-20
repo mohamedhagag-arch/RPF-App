@@ -13,6 +13,8 @@ import { Project, TABLES } from '@/lib/supabase'
 import { mapProjectFromDB, mapProjectToDB, mapBOQFromDB, mapKPIFromDB } from '@/lib/dataMappers'
 import { calculateProjectAnalytics } from '@/lib/projectAnalytics'
 import { getProjectStatusColor, getProjectStatusText } from '@/lib/projectStatusManager'
+import { calculateProjectRate, ProjectRate } from '@/lib/rateCalculator'
+import { calculateProjectProgress, ProjectProgress } from '@/lib/progressCalculator'
 import { loadAllDataWithProgress } from '@/lib/lazyLoadingManager'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -50,6 +52,8 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
   const [totalCount, setTotalCount] = useState(0)
   const [allActivities, setAllActivities] = useState<any[]>([])
   const [allKPIs, setAllKPIs] = useState<any[]>([])
+  const [projectRates, setProjectRates] = useState<ProjectRate[]>([])
+  const [projectProgresses, setProjectProgresses] = useState<ProjectProgress[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(false)
@@ -258,6 +262,38 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
         const mappedProjects = (projectsData || []).map(mapProjectFromDB)
         setProjects(mappedProjects)
         setTotalCount(count || 0)
+        
+        // Calculate Rate-based metrics for projects
+        try {
+          console.log('📊 Calculating Rate-based metrics...')
+          
+          // Fetch all activities and KPIs for rate calculation
+          const [allActivitiesData, allKPIsData] = await Promise.all([
+            supabase.from(TABLES.BOQ_ACTIVITIES).select('*'),
+            supabase.from(TABLES.KPI).select('*')
+          ])
+          
+          if (allActivitiesData.data && allKPIsData.data) {
+            const activities = allActivitiesData.data.map(mapBOQFromDB)
+            const kpis = allKPIsData.data.map(mapKPIFromDB)
+            
+            // Calculate rates for all projects
+            const rates = mappedProjects.map((project: Project) => 
+              calculateProjectRate(project, activities, kpis)
+            )
+            setProjectRates(rates)
+            
+            // Calculate progress for all projects
+            const progresses = mappedProjects.map((project: Project) => 
+              calculateProjectProgress(project, activities, kpis)
+            )
+            setProjectProgresses(progresses)
+            
+            console.log('✅ Rate-based metrics calculated successfully')
+          }
+        } catch (rateError) {
+          console.log('⚠️ Rate calculation not available:', rateError)
+        }
         
         // Only load activities and KPIs if analytics are needed
         console.log('🔍 View mode:', viewMode, 'shouldLoadCardAnalytics:', shouldLoadCardAnalytics(viewMode))
@@ -680,7 +716,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
   const isInitialLoad = loading && projects.length === 0
 
   return (
-    <div className="space-y-6 projects-container">
+    <div className="space-y-6 projects-container min-h-screen">
       {/* Header Section */}
       <div className="space-y-6">
         {/* Title and Description */}
@@ -697,6 +733,48 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
             </div>
             <p className="text-gray-600 dark:text-gray-400 mt-2">Masters of Foundation Construction - Manage and track all projects with smart analytics</p>
           </div>
+          
+          {/* Rate-based Performance Summary */}
+          {projectRates.length > 0 && (
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-lg p-6 border border-blue-200 dark:border-blue-700">
+              <div className="flex items-center gap-2 mb-4">
+                <BarChart3 className="h-5 w-5 text-blue-600" />
+                <h3 className="text-lg font-semibold text-blue-900 dark:text-blue-100">Rate-Based Performance</h3>
+              </div>
+              
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-blue-900 dark:text-blue-100">
+                    ${projectRates.reduce((sum, rate) => sum + rate.totalPlannedValue, 0).toLocaleString()}
+                  </div>
+                  <div className="text-sm text-blue-700 dark:text-blue-300">Total Planned Value</div>
+                </div>
+                
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                    ${projectRates.reduce((sum, rate) => sum + rate.totalEarnedValue, 0).toLocaleString()}
+                  </div>
+                  <div className="text-sm text-blue-700 dark:text-blue-300">Total Earned Value</div>
+                </div>
+                
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+                    {projectRates.length > 0 
+                      ? (projectRates.reduce((sum, rate) => sum + rate.totalProgress, 0) / projectRates.length).toFixed(1)
+                      : 0}%
+                  </div>
+                  <div className="text-sm text-blue-700 dark:text-blue-300">Average Progress</div>
+                </div>
+                
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                    {projectRates.filter(rate => rate.performance.onSchedule).length}/{projectRates.length}
+                  </div>
+                  <div className="text-sm text-blue-700 dark:text-blue-300">On Schedule</div>
+                </div>
+              </div>
+            </div>
+          )}
           
           {/* Add New Project Button */}
           {guard.hasAccess('projects.create') && (
@@ -825,7 +903,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
         </Alert>
       )}
 
-      <Card className="card-modern">
+      <Card className="card-modern transition-opacity duration-300">
         <CardHeader>
           <div className="flex flex-col md:flex-row gap-4">
             <div className="flex-1">
@@ -877,7 +955,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
             </div>
           ) : (
             // Card View
-            <div className={`grid gap-6 ${getCardGridClasses(viewMode)}`}>
+            <div className={`grid gap-6 ${getCardGridClasses(viewMode)} transition-all duration-300 ease-in-out`}>
               {filteredProjects.map((project) => {
                 // Calculate analytics for this project (using pre-loaded data)
                 const analytics = shouldLoadCardAnalytics(viewMode) 

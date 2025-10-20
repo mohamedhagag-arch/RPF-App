@@ -75,6 +75,92 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: 'system.audit', name: 'View Audit Logs', category: 'system', description: 'Can view system audit logs', action: 'view' },
   { id: 'system.search', name: 'Search System', category: 'system', description: 'Can use global search functionality', action: 'view' },
   
+  // Directory & User Directory Permissions
+  { id: 'directory.view', name: 'View Directory', category: 'users', description: 'Can view user directory and team members', action: 'view' },
+  { id: 'directory.export', name: 'Export Directory', category: 'users', description: 'Can export user directory data', action: 'export' },
+  { id: 'directory.search', name: 'Search Directory', category: 'users', description: 'Can search in user directory', action: 'view' },
+  
+  // QR Code & Profile Permissions
+  { id: 'profile.view', name: 'View Profile', category: 'users', description: 'Can view user profiles', action: 'view' },
+  { id: 'profile.edit', name: 'Edit Profile', category: 'users', description: 'Can edit own profile', action: 'edit' },
+  { id: 'profile.qr', name: 'Generate QR Code', category: 'users', description: 'Can generate QR codes for profiles', action: 'export' },
+  { id: 'profile.photo', name: 'Manage Profile Photos', category: 'users', description: 'Can upload and manage profile photos', action: 'edit' },
+  
+  // Import/Export & Data Management
+  { id: 'data.import', name: 'Import Data', category: 'system', description: 'Can import data from files', action: 'manage' },
+  { id: 'data.export', name: 'Export Data', category: 'system', description: 'Can export system data', action: 'export' },
+  { id: 'data.templates', name: 'Download Templates', category: 'system', description: 'Can download data templates', action: 'export' },
+  { id: 'data.validation', name: 'Validate Data', category: 'system', description: 'Can validate imported data', action: 'view' },
+  
+  // Advanced Analytics & Insights
+  { id: 'analytics.view', name: 'View Analytics', category: 'system', description: 'Can view advanced analytics and insights', action: 'view' },
+  { id: 'analytics.export', name: 'Export Analytics', category: 'system', description: 'Can export analytics data', action: 'export' },
+  { id: 'analytics.dashboard', name: 'Analytics Dashboard', category: 'system', description: 'Can access analytics dashboard', action: 'view' },
+  
+  // Performance & Monitoring
+  { id: 'performance.view', name: 'View Performance', category: 'system', description: 'Can view system performance metrics', action: 'view' },
+  { id: 'performance.monitor', name: 'Monitor Performance', category: 'system', description: 'Can monitor system performance', action: 'view' },
+  { id: 'performance.optimize', name: 'Optimize Performance', category: 'system', description: 'Can optimize system performance', action: 'manage' },
+  
+  // Notifications & Alerts
+  { id: 'notifications.view', name: 'View Notifications', category: 'system', description: 'Can view system notifications', action: 'view' },
+  { id: 'notifications.manage', name: 'Manage Notifications', category: 'system', description: 'Can manage notification settings', action: 'manage' },
+  { id: 'alerts.view', name: 'View Alerts', category: 'system', description: 'Can view system alerts', action: 'view' },
+  { id: 'alerts.manage', name: 'Manage Alerts', category: 'system', description: 'Can manage alert settings', action: 'manage' },
+  
+  // Advanced Features & Integrations
+  { id: 'integrations.view', name: 'View Integrations', category: 'system', description: 'Can view system integrations', action: 'view' },
+  { id: 'integrations.manage', name: 'Manage Integrations', category: 'system', description: 'Can manage system integrations', action: 'manage' },
+  { id: 'api.access', name: 'API Access', category: 'system', description: 'Can access system APIs', action: 'view' },
+  { id: 'api.manage', name: 'Manage API', category: 'system', description: 'Can manage API settings', action: 'manage' },
+  
+  // Workflow & Automation
+  { id: 'workflow.view', name: 'View Workflows', category: 'system', description: 'Can view workflow configurations', action: 'view' },
+  { id: 'workflow.create', name: 'Create Workflows', category: 'system', description: 'Can create new workflows', action: 'create' },
+  { id: 'workflow.edit', name: 'Edit Workflows', category: 'system', description: 'Can edit workflows', action: 'edit' },
+  { id: 'workflow.delete', name: 'Delete Workflows', category: 'system', description: 'Can delete workflows', action: 'delete' },
+  { id: 'automation.view', name: 'View Automation', category: 'system', description: 'Can view automation rules', action: 'view' },
+  { id: 'automation.manage', name: 'Manage Automation', category: 'system', description: 'Can manage automation rules', action: 'manage' },
+  
+  // Security & Compliance
+  { id: 'security.view', name: 'View Security', category: 'system', description: 'Can view security settings', action: 'view' },
+  { id: 'security.manage', name: 'Manage Security', category: 'system', description: 'Can manage security settings', action: 'manage' },
+  { id: 'compliance.view', name: 'View Compliance', category: 'system', description: 'Can view compliance reports', action: 'view' },
+  { id: 'compliance.manage', name: 'Manage Compliance', category: 'system', description: 'Can manage compliance settings', action: 'manage' },
+  
+  // Advanced User Management
+  { id: 'users.roles', name: 'Manage User Roles', category: 'users', description: 'Can assign and manage user roles', action: 'manage' },
+  { id: 'users.groups', name: 'Manage User Groups', category: 'users', description: 'Can create and manage user groups', action: 'manage' },
+  { id: 'users.bulk', name: 'Bulk User Operations', category: 'users', description: 'Can perform bulk user operations', action: 'manage' },
+  { id: 'users.import', name: 'Import Users', category: 'users', description: 'Can import users from files', action: 'manage' },
+  { id: 'users.export', name: 'Export Users', category: 'users', description: 'Can export user data', action: 'export' },
+  
+  // Advanced Reports & Lookahead
+  { id: 'reports.lookahead', name: 'Lookahead Reports', category: 'reports', description: 'Can access lookahead planning reports', action: 'view' },
+  { id: 'reports.critical', name: 'Critical Path Reports', category: 'reports', description: 'Can access critical path analysis reports', action: 'view' },
+  { id: 'reports.performance', name: 'Performance Reports', category: 'reports', description: 'Can access performance analysis reports', action: 'view' },
+  { id: 'reports.custom', name: 'Custom Reports', category: 'reports', description: 'Can create custom reports', action: 'create' },
+  
+  // Project Types & Activities Management
+  { id: 'project_types.view', name: 'View Project Types', category: 'settings', description: 'Can view project types', action: 'view' },
+  { id: 'project_types.create', name: 'Create Project Types', category: 'settings', description: 'Can create new project types', action: 'create' },
+  { id: 'project_types.edit', name: 'Edit Project Types', category: 'settings', description: 'Can edit project types', action: 'edit' },
+  { id: 'project_types.delete', name: 'Delete Project Types', category: 'settings', description: 'Can delete project types', action: 'delete' },
+  { id: 'activities.view', name: 'View Activities', category: 'settings', description: 'Can view activity templates', action: 'view' },
+  { id: 'activities.create', name: 'Create Activities', category: 'settings', description: 'Can create activity templates', action: 'create' },
+  { id: 'activities.edit', name: 'Edit Activities', category: 'settings', description: 'Can edit activity templates', action: 'edit' },
+  { id: 'activities.delete', name: 'Delete Activities', category: 'settings', description: 'Can delete activity templates', action: 'delete' },
+  
+  // Departments & Job Titles
+  { id: 'departments.view', name: 'View Departments', category: 'settings', description: 'Can view departments', action: 'view' },
+  { id: 'departments.create', name: 'Create Departments', category: 'settings', description: 'Can create departments', action: 'create' },
+  { id: 'departments.edit', name: 'Edit Departments', category: 'settings', description: 'Can edit departments', action: 'edit' },
+  { id: 'departments.delete', name: 'Delete Departments', category: 'settings', description: 'Can delete departments', action: 'delete' },
+  { id: 'job_titles.view', name: 'View Job Titles', category: 'settings', description: 'Can view job titles', action: 'view' },
+  { id: 'job_titles.create', name: 'Create Job Titles', category: 'settings', description: 'Can create job titles', action: 'create' },
+  { id: 'job_titles.edit', name: 'Edit Job Titles', category: 'settings', description: 'Can edit job titles', action: 'edit' },
+  { id: 'job_titles.delete', name: 'Delete Job Titles', category: 'settings', description: 'Can delete job titles', action: 'delete' },
+  
   // Database Management Permissions (Admin Only)
   { id: 'database.view', name: 'View Database Stats', category: 'database', description: 'Can view database statistics and information', action: 'view' },
   { id: 'database.backup', name: 'Create Backups', category: 'database', description: 'Can create database backups', action: 'backup' },
@@ -105,12 +191,29 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'kpi.view', 'kpi.create', 'kpi.edit', 'kpi.delete', 'kpi.export',
     // Reports
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly', 'reports.financial', 'reports.export', 'reports.print',
+    'reports.lookahead', 'reports.critical', 'reports.performance', 'reports.custom',
     // Settings (manage most settings)
     'settings.view', 'settings.company', 'settings.divisions', 'settings.project_types', 'settings.currencies', 'settings.activities', 'settings.holidays', 'settings.holidays.view', 'settings.holidays.create', 'settings.holidays.edit', 'settings.holidays.delete',
+    'project_types.view', 'project_types.create', 'project_types.edit', 'project_types.delete',
+    'activities.view', 'activities.create', 'activities.edit', 'activities.delete',
+    'departments.view', 'departments.create', 'departments.edit', 'departments.delete',
+    'job_titles.view', 'job_titles.create', 'job_titles.edit', 'job_titles.delete',
+    // Users (limited)
+    'users.view', 'users.roles', 'users.groups', 'users.bulk', 'users.import', 'users.export',
+    'directory.view', 'directory.export', 'directory.search',
+    'profile.view', 'profile.edit', 'profile.qr', 'profile.photo',
     // System (limited)
-    'system.export', 'system.backup', 'system.search',
+    'system.export', 'system.backup', 'system.search', 'system.audit',
+    'data.import', 'data.export', 'data.templates', 'data.validation',
+    'analytics.view', 'analytics.export', 'analytics.dashboard',
+    'performance.view', 'performance.monitor',
+    'notifications.view', 'notifications.manage', 'alerts.view', 'alerts.manage',
+    'integrations.view', 'integrations.manage', 'api.access', 'api.manage',
+    'workflow.view', 'workflow.create', 'workflow.edit', 'workflow.delete',
+    'automation.view', 'automation.manage',
+    'security.view', 'security.manage', 'compliance.view', 'compliance.manage',
     // Database (view and export only - no dangerous operations)
-    'database.view', 'database.export', 'database.backup'
+    'database.view', 'database.export', 'database.backup', 'database.templates', 'database.analyze'
   ],
   
   // Engineer - إنشاء وتعديل البيانات فقط
@@ -125,12 +228,17 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'kpi.view', 'kpi.create', 'kpi.edit', 'kpi.export',
     // Reports (view and export)
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly', 'reports.export', 'reports.print',
+    'reports.lookahead', 'reports.critical', 'reports.performance',
     // Settings (view only)
-    'settings.view',
-    // System (search only)
-    'system.search',
+    'settings.view', 'project_types.view', 'activities.view', 'departments.view', 'job_titles.view',
+    // Users (limited)
+    'directory.view', 'directory.search', 'profile.view', 'profile.edit', 'profile.qr', 'profile.photo',
+    // System (limited)
+    'system.search', 'data.export', 'data.templates', 'analytics.view', 'performance.view',
+    'notifications.view', 'alerts.view', 'integrations.view', 'api.access',
+    'workflow.view', 'automation.view', 'security.view', 'compliance.view',
     // Database (view only)
-    'database.view'
+    'database.view', 'database.templates'
   ],
   
   // Viewer - عرض فقط
@@ -140,8 +248,12 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'boq.view',
     'kpi.view',
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly',
-    'settings.view',
-    'system.search',
+    'reports.lookahead', 'reports.critical', 'reports.performance',
+    'settings.view', 'project_types.view', 'activities.view', 'departments.view', 'job_titles.view',
+    'directory.view', 'directory.search', 'profile.view',
+    'system.search', 'analytics.view', 'performance.view',
+    'notifications.view', 'alerts.view', 'integrations.view',
+    'workflow.view', 'automation.view', 'security.view', 'compliance.view',
     'database.view'
   ]
 }

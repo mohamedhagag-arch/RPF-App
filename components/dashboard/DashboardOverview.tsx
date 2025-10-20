@@ -8,6 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { TABLES } from '@/lib/supabase'
 import { mapProjectFromDB, mapBOQFromDB, mapKPIFromDB } from '@/lib/dataMappers'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
+import { calculateProjectsRates, getRateSummary, ProjectRate } from '@/lib/rateCalculator'
+import { calculatePortfolioProgress } from '@/lib/progressCalculator'
 import { 
   FolderOpen, 
   CheckCircle, 
@@ -28,6 +30,18 @@ interface DashboardStats {
   delayedActivities: number
   totalKPIs: number
   onTrackKPIs: number
+  // Rate-based metrics
+  totalPlannedValue: number
+  totalEarnedValue: number
+  overallProgress: number
+  performanceCounts: {
+    excellent: number
+    good: number
+    fair: number
+    poor: number
+  }
+  onSchedulePercentage: number
+  onBudgetPercentage: number
 }
 
 export function DashboardOverview() {
@@ -35,6 +49,8 @@ export function DashboardOverview() {
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [mounted, setMounted] = useState(false)
+  const [projectRates, setProjectRates] = useState<ProjectRate[]>([])
+  const [rateSummary, setRateSummary] = useState<any>(null)
   const mountedRef = useRef(false)
   const supabase = getSupabaseClient()
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('dashboard-overview')
@@ -106,6 +122,50 @@ export function DashboardOverview() {
         const totalKPIs = kpis?.length || 0
         const onTrackKPIs = kpis?.filter(k => k.status === 'on_track').length || 0
 
+        // Calculate Rate-based metrics
+        let rateMetrics = {
+          totalPlannedValue: 0,
+          totalEarnedValue: 0,
+          overallProgress: 0,
+          performanceCounts: { excellent: 0, good: 0, fair: 0, poor: 0 },
+          onSchedulePercentage: 0,
+          onBudgetPercentage: 0
+        }
+
+        try {
+          // Fetch full data for rate calculation
+          const [projectsData, activitiesData, kpisData] = await Promise.all([
+            supabase.from(TABLES.PROJECTS).select('*'),
+            supabase.from(TABLES.BOQ_ACTIVITIES).select('*'),
+            supabase.from(TABLES.KPI).select('*')
+          ])
+
+          if (projectsData.data && activitiesData.data && kpisData.data) {
+            const projects = projectsData.data.map(mapProjectFromDB)
+            const activities = activitiesData.data.map(mapBOQFromDB)
+            const kpis = kpisData.data.map(mapKPIFromDB)
+
+            // Calculate project rates
+            const rates = calculateProjectsRates(projects, activities, kpis)
+            setProjectRates(rates)
+
+            // Get rate summary
+            const summary = getRateSummary(rates)
+            setRateSummary(summary)
+
+            rateMetrics = {
+              totalPlannedValue: summary.totalPlannedValue,
+              totalEarnedValue: summary.totalEarnedValue,
+              overallProgress: summary.overallProgress,
+              performanceCounts: summary.performanceCounts,
+              onSchedulePercentage: summary.onSchedulePercentage,
+              onBudgetPercentage: summary.onBudgetPercentage
+            }
+          }
+        } catch (rateError) {
+          console.log('Rate calculation not available yet:', rateError)
+        }
+
         setStats({
           totalProjects,
           activeProjects,
@@ -114,7 +174,8 @@ export function DashboardOverview() {
           completedActivities,
           delayedActivities,
           totalKPIs,
-          onTrackKPIs
+          onTrackKPIs,
+          ...rateMetrics
         })
       } catch (error) {
         console.error('Error fetching dashboard stats:', error)
@@ -127,7 +188,13 @@ export function DashboardOverview() {
           completedActivities: 0,
           delayedActivities: 0,
           totalKPIs: 0,
-          onTrackKPIs: 0
+          onTrackKPIs: 0,
+          totalPlannedValue: 0,
+          totalEarnedValue: 0,
+          overallProgress: 0,
+          performanceCounts: { excellent: 0, good: 0, fair: 0, poor: 0 },
+          onSchedulePercentage: 0,
+          onBudgetPercentage: 0
         })
       } finally {
         setLoading(false)
@@ -205,6 +272,45 @@ export function DashboardOverview() {
       icon: TrendingUp,
       color: 'text-green-600',
       bgColor: 'bg-green-50'
+    }
+  ]
+
+  // Rate-based metrics cards
+  const rateCards = [
+    {
+      title: 'Total Planned Value',
+      value: `$${(stats?.totalPlannedValue || 0).toLocaleString()}`,
+      icon: TrendingUp,
+      color: 'text-blue-600',
+      bgColor: 'bg-blue-50'
+    },
+    {
+      title: 'Total Earned Value',
+      value: `$${(stats?.totalEarnedValue || 0).toLocaleString()}`,
+      icon: CheckCircle,
+      color: 'text-green-600',
+      bgColor: 'bg-green-50'
+    },
+    {
+      title: 'Overall Progress',
+      value: `${(stats?.overallProgress || 0).toFixed(1)}%`,
+      icon: BarChart3,
+      color: 'text-purple-600',
+      bgColor: 'bg-purple-50'
+    },
+    {
+      title: 'On Schedule',
+      value: `${(stats?.onSchedulePercentage || 0).toFixed(1)}%`,
+      icon: Clock,
+      color: 'text-orange-600',
+      bgColor: 'bg-orange-50'
+    },
+    {
+      title: 'On Budget',
+      value: `${(stats?.onBudgetPercentage || 0).toFixed(1)}%`,
+      icon: AlertTriangle,
+      color: 'text-red-600',
+      bgColor: 'bg-red-50'
     }
   ]
 
@@ -302,6 +408,37 @@ export function DashboardOverview() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Rate-based Metrics Section */}
+      {stats && (stats.totalPlannedValue > 0 || stats.totalEarnedValue > 0) && (
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-xl font-semibold text-gray-900 dark:text-white">Rate-Based Performance</h3>
+            <p className="text-gray-600 dark:text-gray-400">Financial and progress metrics calculated using rate system</p>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+            {rateCards.map((card, index) => {
+              const Icon = card.icon
+              return (
+                <Card key={index}>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-gray-600 dark:text-gray-400">{card.title}</p>
+                        <p className="text-2xl font-bold text-gray-900 dark:text-white">{card.value}</p>
+                      </div>
+                      <div className={`p-3 rounded-full ${card.bgColor} dark:bg-opacity-20`}>
+                        <Icon className={`h-6 w-6 ${card.color}`} />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -189,7 +189,7 @@ export function BOQWithKPIStatus({ activity, allKPIs }: BOQWithKPIStatusProps) {
 
   // ✅ Calculate values using correct business logic
   const values = calculateBOQValues(
-    activity.total_units || 0,
+    activity.planned_units || 0, // Use planned_units as total_units
     activity.planned_units || 0,
     actualUnits,
     activity.total_value || 0
@@ -199,12 +199,17 @@ export function BOQWithKPIStatus({ activity, allKPIs }: BOQWithKPIStatusProps) {
     activityName: activity.activity_name,
     plannedUnits: activity.planned_units,
     actualUnits: activity.actual_units,
+    totalValue: activity.total_value,
+    plannedValue: activity.planned_value,
     kpiTotalActual: kpiData.totalActual,
     kpiTotalPlanned: kpiData.totalPlanned,
     kpiProgress,
     boqProgress,
     finalActualUnits: actualUnits,
-    calculatedValues: values
+    calculatedValues: values,
+    // ✅ Debug old data compatibility
+    isOldData: !activity.planned_value || activity.planned_value === 0,
+    usingTotalValue: activity.total_value > 0
   })
 
   // ✅ Determine status based on the higher of KPI or BOQ progress

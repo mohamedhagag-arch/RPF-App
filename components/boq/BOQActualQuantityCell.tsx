@@ -5,6 +5,7 @@ import { usePermissionGuard } from '@/lib/permissionGuard'
 import { BOQActivity } from '@/lib/supabase'
 import { calculateActualFromKPI } from '@/lib/boqKpiSync'
 import { calculateBOQValues, formatCurrency, calculateProjectProgressFromValues } from '@/lib/boqValueCalculator'
+import { calculateActivityRate } from '@/lib/rateCalculator'
 
 interface BOQActualQuantityCellProps {
   activity: BOQActivity

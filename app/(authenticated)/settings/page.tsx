@@ -13,6 +13,7 @@ import { useSearchParams } from 'next/navigation'
 import { ModernCard } from '@/components/ui/ModernCard'
 import { ModernButton } from '@/components/ui/ModernButton'
 import { PermissionPage } from '@/components/ui/PermissionPage'
+import { DynamicTitle } from '@/components/ui/DynamicTitle'
 
 export default function SettingsPage() {
   const { appUser } = useAuth()
@@ -49,6 +50,7 @@ export default function SettingsPage() {
       accessDeniedTitle="Settings Access Required"
       accessDeniedMessage="You need permission to view settings. Please contact your administrator."
     >
+      <DynamicTitle pageTitle="Settings" />
       <div className="p-6 space-y-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">

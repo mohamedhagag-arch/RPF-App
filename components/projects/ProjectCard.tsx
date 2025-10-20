@@ -65,6 +65,47 @@ export function ProjectCard({
             <p className="text-gray-500">Contract Amount</p>
             <p className="font-medium">{formatCurrency(project.contract_amount)}</p>
           </div>
+          
+          {/* Additional project details */}
+          {project.client_name && (
+            <div>
+              <p className="text-gray-500">Client</p>
+              <p className="font-medium">{project.client_name}</p>
+            </div>
+          )}
+          
+          {project.consultant_name && (
+            <div>
+              <p className="text-gray-500">Consultant</p>
+              <p className="font-medium">{project.consultant_name}</p>
+            </div>
+          )}
+          
+          {project.project_manager_email && (
+            <div>
+              <p className="text-gray-500">Project Manager</p>
+              <a 
+                href={`mailto:${project.project_manager_email}`}
+                className="font-medium text-blue-600 dark:text-blue-400 text-xs hover:text-blue-800 dark:hover:text-blue-300 hover:underline cursor-pointer"
+                title="Click to send email"
+              >
+                {project.project_manager_email}
+              </a>
+            </div>
+          )}
+          
+          {project.area_manager_email && (
+            <div>
+              <p className="text-gray-500">Area Manager</p>
+              <a 
+                href={`mailto:${project.area_manager_email}`}
+                className="font-medium text-blue-600 dark:text-blue-400 text-xs hover:text-blue-800 dark:hover:text-blue-300 hover:underline cursor-pointer"
+                title="Click to send email"
+              >
+                {project.area_manager_email}
+              </a>
+            </div>
+          )}
         </div>
 
         <div className="text-sm text-gray-500">

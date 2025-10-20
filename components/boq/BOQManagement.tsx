@@ -6,6 +6,9 @@ import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { BOQActivity, Project, TABLES } from '@/lib/supabase'
 import { mapBOQFromDB, mapProjectFromDB, mapKPIFromDB } from '@/lib/dataMappers'
+import { calculateActivityRate, ActivityRate } from '@/lib/rateCalculator'
+import { calculateActivityProgress, ActivityProgress } from '@/lib/progressCalculator'
+import { autoSaveActivityCalculations, autoSaveOnBOQUpdate } from '@/lib/autoCalculationSaver'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
@@ -34,6 +37,8 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   const [totalCount, setTotalCount] = useState(0)
   const [projects, setProjects] = useState<Project[]>([])
   const [allKPIs, setAllKPIs] = useState<any[]>([]) // Store all KPIs to pass to sub-components
+  const [activityRates, setActivityRates] = useState<ActivityRate[]>([])
+  const [activityProgresses, setActivityProgresses] = useState<ActivityProgress[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(false)
@@ -237,6 +242,27 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       setActivities(mappedActivities)
       setFilteredActivities(filtered)
       setTotalCount(count || 0)
+      
+      // Calculate Rate-based metrics for activities
+      try {
+        console.log('📊 Calculating Rate-based metrics for activities...')
+        
+        // Calculate rates for all activities
+        const rates = mappedActivities.map(activity => 
+          calculateActivityRate(activity)
+        )
+        setActivityRates(rates)
+        
+        // Calculate progress for all activities
+        const progresses = mappedActivities.map(activity => 
+          calculateActivityProgress(activity, allKPIs)
+        )
+        setActivityProgresses(progresses)
+        
+        console.log('✅ Rate-based metrics calculated successfully')
+      } catch (rateError) {
+        console.log('⚠️ Rate calculation not available:', rateError)
+      }
       
       console.log('🎯 Final result:', {
         totalActivities: mappedActivities.length,
@@ -574,6 +600,23 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       console.log('📊 Verify Planned Units:', data?.['Planned Units'])
       console.log('📊 Verify Deadline:', data?.['Deadline'])
       
+      // ✅ Auto-save calculations for the new activity
+      try {
+        const mappedActivity = mapBOQFromDB(data)
+        const autoSaveResult = await autoSaveActivityCalculations(mappedActivity)
+        
+        if (autoSaveResult.success) {
+          console.log('✅ Auto-save calculations completed:', {
+            updatedActivities: autoSaveResult.updatedActivities,
+            updatedProjects: autoSaveResult.updatedProjects
+          })
+        } else {
+          console.warn('⚠️ Auto-save calculations had errors:', autoSaveResult.errors)
+        }
+      } catch (autoSaveError) {
+        console.warn('⚠️ Auto-save calculations failed:', autoSaveError)
+      }
+      
       // Close form and refresh
       setShowForm(false)
       // ✅ Don't auto-refresh - let user apply filters
@@ -638,6 +681,23 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       console.log('✅ UPDATE SUCCESS!')
       console.log('Updated Data:', data)
       console.log('========================================')
+      
+      // ✅ Auto-save calculations for the updated activity
+      try {
+        const mappedActivity = mapBOQFromDB(data)
+        const autoSaveResult = await autoSaveOnBOQUpdate(mappedActivity)
+        
+        if (autoSaveResult.success) {
+          console.log('✅ Auto-save calculations completed:', {
+            updatedActivities: autoSaveResult.updatedActivities,
+            updatedProjects: autoSaveResult.updatedProjects
+          })
+        } else {
+          console.warn('⚠️ Auto-save calculations had errors:', autoSaveResult.errors)
+        }
+      } catch (autoSaveError) {
+        console.warn('⚠️ Auto-save calculations failed:', autoSaveError)
+      }
       
       // Close form and refresh
       setEditingActivity(null)
@@ -899,6 +959,48 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
             </div>
             <p className="text-gray-600 dark:text-gray-300 mt-2">Manage and track project activities and quantities</p>
           </div>
+          
+          {/* Rate-based Performance Summary */}
+          {activityRates.length > 0 && (
+            <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-lg p-6 border border-green-200 dark:border-green-700">
+              <div className="flex items-center gap-2 mb-4">
+                <ClipboardList className="h-5 w-5 text-green-600" />
+                <h3 className="text-lg font-semibold text-green-900 dark:text-green-100">Rate-Based Performance</h3>
+              </div>
+              
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-green-900 dark:text-green-100">
+                    ${activityRates.reduce((sum, rate) => sum + rate.plannedValue, 0).toLocaleString()}
+                  </div>
+                  <div className="text-sm text-green-700 dark:text-green-300">Total Planned Value</div>
+                </div>
+                
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                    ${activityRates.reduce((sum, rate) => sum + rate.earnedValue, 0).toLocaleString()}
+                  </div>
+                  <div className="text-sm text-green-700 dark:text-green-300">Total Earned Value</div>
+                </div>
+                
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+                    {activityRates.length > 0 
+                      ? (activityRates.reduce((sum, rate) => sum + rate.progress, 0) / activityRates.length).toFixed(1)
+                      : 0}%
+                  </div>
+                  <div className="text-sm text-green-700 dark:text-green-300">Average Progress</div>
+                </div>
+                
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                    {activityRates.filter(rate => rate.progress >= 80).length}/{activityRates.length}
+                  </div>
+                  <div className="text-sm text-green-700 dark:text-green-300">High Progress (≥80%)</div>
+                </div>
+              </div>
+            </div>
+          )}
           
           {/* Add New Activity Button */}
           {guard.hasAccess('boq.create') && (

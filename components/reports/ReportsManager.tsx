@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
+import { calculateProjectsRates, getRateSummary, ProjectRate } from '@/lib/rateCalculator'
+import { calculatePortfolioProgress } from '@/lib/progressCalculator'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -53,6 +55,8 @@ export function ReportsManager({ userRole = 'viewer' }: ReportsManagerProps) {
   const [reports, setReports] = useState<ReportData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [projectRates, setProjectRates] = useState<ProjectRate[]>([])
+  const [portfolioProgress, setPortfolioProgress] = useState<any>(null)
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('reports') // ✅ Smart loading
   const [activeReport, setActiveReport] = useState<'summary' | 'projects' | 'activities' | 'kpis' | 'financial'>('summary')
   const [dateRange, setDateRange] = useState({
@@ -147,6 +151,23 @@ export function ReportsManager({ userRole = 'viewer' }: ReportsManagerProps) {
         kpis: filteredKPIs,
         summary
       })
+      
+      // Calculate Rate-based metrics for reports
+      try {
+        console.log('📊 Calculating Rate-based metrics for reports...')
+        
+        // Calculate rates for all projects
+        const rates = calculateProjectsRates(filteredProjects, filteredActivities, filteredKPIs)
+        setProjectRates(rates)
+        
+        // Calculate portfolio progress
+        const progress = calculatePortfolioProgress(filteredProjects, filteredActivities, filteredKPIs)
+        setPortfolioProgress(progress)
+        
+        console.log('✅ Rate-based metrics calculated successfully for reports')
+      } catch (rateError) {
+        console.log('⚠️ Rate calculation not available for reports:', rateError)
+      }
     } catch (error: any) {
       setError('Failed to generate report: ' + error.message)
     } finally {
@@ -591,6 +612,46 @@ export function ReportsManager({ userRole = 'viewer' }: ReportsManagerProps) {
           <h2 className="text-3xl font-bold text-gray-900 dark:text-white">Reports</h2>
           <p className="text-gray-600 dark:text-gray-400 mt-2">Generate and export project reports</p>
         </div>
+        
+        {/* Rate-based Performance Summary */}
+        {projectRates.length > 0 && portfolioProgress && (
+          <div className="bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 rounded-lg p-6 border border-indigo-200 dark:border-indigo-700">
+            <div className="flex items-center gap-2 mb-4">
+              <BarChart3 className="h-5 w-5 text-indigo-600" />
+              <h3 className="text-lg font-semibold text-indigo-900 dark:text-indigo-100">Rate-Based Performance Summary</h3>
+            </div>
+            
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-indigo-900 dark:text-indigo-100">
+                  ${portfolioProgress.totalPlannedValue.toLocaleString()}
+                </div>
+                <div className="text-sm text-indigo-700 dark:text-indigo-300">Total Planned Value</div>
+              </div>
+              
+              <div className="text-center">
+                <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                  ${portfolioProgress.totalEarnedValue.toLocaleString()}
+                </div>
+                <div className="text-sm text-indigo-700 dark:text-indigo-300">Total Earned Value</div>
+              </div>
+              
+              <div className="text-center">
+                <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+                  {portfolioProgress.overallProgress.toFixed(1)}%
+                </div>
+                <div className="text-sm text-indigo-700 dark:text-indigo-300">Overall Progress</div>
+              </div>
+              
+              <div className="text-center">
+                <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                  {portfolioProgress.healthDistribution.excellent + portfolioProgress.healthDistribution.good}
+                </div>
+                <div className="text-sm text-indigo-700 dark:text-indigo-300">Healthy Projects</div>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="flex space-x-2">
           <Button onClick={generateReport} disabled={loading}>
             <RefreshCw className="h-4 w-4 mr-2" />

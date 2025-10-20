@@ -44,6 +44,10 @@ export const PERMISSION_PATTERNS = {
  * Permission Guard Hook
  * Hook شامل لفحص الصلاحيات
  */
+// Cache for permission checks to improve performance
+const permissionCache = new Map<string, boolean>()
+const cacheTimeout = 5000 // 5 seconds cache
+
 export function usePermissionGuard() {
   const { appUser } = useAuth()
 
@@ -52,21 +56,28 @@ export function usePermissionGuard() {
    * فحص صلاحية محددة
    */
   const hasAccess = (permission: string): boolean => {
-    console.log('🔍 Permission Guard: Checking access for:', permission)
-    console.log('👤 Current user:', {
-      email: appUser?.email,
-      role: appUser?.role,
-      savedPermissions: appUser?.permissions?.length || 0,
-      customEnabled: appUser?.custom_permissions_enabled
-    })
+    // Create cache key
+    const cacheKey = `${appUser?.id || 'anonymous'}-${permission}`
+    
+    // Check cache first
+    if (permissionCache.has(cacheKey)) {
+      return permissionCache.get(cacheKey)!
+    }
     
     if (!appUser) {
-      console.log('❌ Permission Guard: No appUser found')
       return false
     }
     
     const result = hasPermission(appUser as UserWithPermissions, permission)
-    console.log('🔍 Permission Guard: Result:', result ? '✅ Granted' : '❌ Denied')
+    
+    // Cache the result
+    permissionCache.set(cacheKey, result)
+    
+    // Clear cache after timeout
+    setTimeout(() => {
+      permissionCache.delete(cacheKey)
+    }, cacheTimeout)
+    
     return result
   }
 
@@ -75,9 +86,21 @@ export function usePermissionGuard() {
    * فحص أي صلاحية من مجموعة صلاحيات
    */
   const hasAnyAccess = (permissions: string[]): boolean => {
-    console.log('🔍 Permission Guard: Checking any access for:', permissions)
+    if (!appUser) return false
+    
+    // Check cache for each permission
+    const cacheKey = `${appUser.id || 'anonymous'}-any-${permissions.join(',')}`
+    if (permissionCache.has(cacheKey)) {
+      return permissionCache.get(cacheKey)!
+    }
+    
     const result = hasAnyPermission(appUser as UserWithPermissions, permissions)
-    console.log('🔍 Permission Guard: Result:', result ? '✅ Granted' : '❌ Denied')
+    permissionCache.set(cacheKey, result)
+    
+    setTimeout(() => {
+      permissionCache.delete(cacheKey)
+    }, cacheTimeout)
+    
     return result
   }
 
@@ -86,9 +109,20 @@ export function usePermissionGuard() {
    * فحص جميع الصلاحيات المحددة
    */
   const hasAllAccess = (permissions: string[]): boolean => {
-    console.log('🔍 Permission Guard: Checking all access for:', permissions)
+    if (!appUser) return false
+    
+    const cacheKey = `${appUser.id || 'anonymous'}-all-${permissions.join(',')}`
+    if (permissionCache.has(cacheKey)) {
+      return permissionCache.get(cacheKey)!
+    }
+    
     const result = hasAllPermissions(appUser as UserWithPermissions, permissions)
-    console.log('🔍 Permission Guard: Result:', result ? '✅ Granted' : '❌ Denied')
+    permissionCache.set(cacheKey, result)
+    
+    setTimeout(() => {
+      permissionCache.delete(cacheKey)
+    }, cacheTimeout)
+    
     return result
   }
 
@@ -97,9 +131,20 @@ export function usePermissionGuard() {
    * فحص إمكانية تنفيذ إجراء محدد على فئة
    */
   const canDo = (category: string, action: 'view' | 'create' | 'edit' | 'delete' | 'manage' | 'export'): boolean => {
-    console.log('🔍 Permission Guard: Checking action:', `${category}.${action}`)
+    if (!appUser) return false
+    
+    const cacheKey = `${appUser.id || 'anonymous'}-action-${category}.${action}`
+    if (permissionCache.has(cacheKey)) {
+      return permissionCache.get(cacheKey)!
+    }
+    
     const result = canPerformAction(appUser as UserWithPermissions, category, action)
-    console.log('🔍 Permission Guard: Result:', result ? '✅ Granted' : '❌ Denied')
+    permissionCache.set(cacheKey, result)
+    
+    setTimeout(() => {
+      permissionCache.delete(cacheKey)
+    }, cacheTimeout)
+    
     return result
   }
 
@@ -108,9 +153,8 @@ export function usePermissionGuard() {
    * الحصول على صلاحيات المستخدم الحالية
    */
   const getCurrentPermissions = (): string[] => {
-    const permissions = getUserPermissions(appUser as UserWithPermissions)
-    console.log('🔍 Permission Guard: Current permissions:', permissions)
-    return permissions
+    if (!appUser) return []
+    return getUserPermissions(appUser as UserWithPermissions)
   }
 
   /**
@@ -118,9 +162,7 @@ export function usePermissionGuard() {
    * فحص إذا كان المستخدم مدير
    */
   const isAdmin = (): boolean => {
-    const result = appUser?.role === 'admin'
-    console.log('🔍 Permission Guard: Admin check:', result ? '✅ Is Admin' : '❌ Not Admin')
-    return result
+    return appUser?.role === 'admin'
   }
 
   /**
@@ -128,9 +170,15 @@ export function usePermissionGuard() {
    * فحص دور محدد
    */
   const hasRole = (role: string): boolean => {
-    const result = appUser?.role === role
-    console.log('🔍 Permission Guard: Role check:', result ? `✅ Has role ${role}` : `❌ Doesn't have role ${role}`)
-    return result
+    return appUser?.role === role
+  }
+
+  /**
+   * Clear permission cache
+   * تنظيف ذاكرة التخزين المؤقت للصلاحيات
+   */
+  const clearCache = (): void => {
+    permissionCache.clear()
   }
 
   return {
@@ -141,6 +189,7 @@ export function usePermissionGuard() {
     getCurrentPermissions,
     isAdmin,
     hasRole,
+    clearCache,
     user: appUser
   }
 }

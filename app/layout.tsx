@@ -5,11 +5,16 @@ import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import { Providers } from './providers'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
+import { DynamicTitle } from '@/components/ui/DynamicTitle'
 
 const inter = Inter({ subsets: ['latin'] })
 
+// استخدام العنوان الديناميكي بدلاً من العنوان الثابت
 export const metadata: Metadata = {
-  title: 'AlRabat RPF - Masters of Foundation Construction System',
+  title: {
+    template: '%s | AlRabat RPF',
+    default: 'AlRabat RPF - Masters of Foundation Construction System'
+  },
   description: 'Masters of Foundation Construction - AlRabat RPF',
 }
 
@@ -28,6 +33,7 @@ export default function RootLayout({
       <body className={`${inter.className}`}>
         <ErrorBoundary>
           <Providers>
+            <DynamicTitle />
             {children}
           </Providers>
         </ErrorBoundary>

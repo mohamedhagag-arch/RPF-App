@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { useAuth } from '@/app/providers'
 import { useProfileCompletion } from '@/hooks/useProfileCompletion'
 import { ProfileCompletionModal } from './ProfileCompletionModal'
@@ -13,6 +14,7 @@ interface ProfileCompletionWrapperProps {
 }
 
 export function ProfileCompletionWrapper({ children }: ProfileCompletionWrapperProps) {
+  const router = useRouter()
   const { user: authUser } = useAuth()
   const [showModal, setShowModal] = useState(false)
   const [hasChecked, setHasChecked] = useState(false)
@@ -97,6 +99,7 @@ export function ProfileCompletionWrapper({ children }: ProfileCompletionWrapperP
  * Alternative component that shows a banner instead of blocking access
  */
 export function ProfileCompletionBanner({ children }: ProfileCompletionWrapperProps) {
+  const router = useRouter()
   const { user: authUser } = useAuth()
   const [showBanner, setShowBanner] = useState(false)
   const [hasChecked, setHasChecked] = useState(false)
@@ -131,7 +134,7 @@ export function ProfileCompletionBanner({ children }: ProfileCompletionWrapperPr
               </div>
             </div>
             <button
-              onClick={() => window.location.href = '/profile'}
+              onClick={() => router.push('/profile')}
               className="bg-white bg-opacity-20 hover:bg-opacity-30 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
             >
               Complete Now

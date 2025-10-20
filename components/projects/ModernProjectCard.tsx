@@ -298,6 +298,51 @@ export function ModernProjectCard({
               {project.responsible_division || 'Not specified'}
             </p>
           </div>
+          
+          {/* Additional project details */}
+          {project.client_name && (
+            <div className="space-y-1">
+              <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Client</p>
+              <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">
+                {project.client_name}
+              </p>
+            </div>
+          )}
+          
+          {project.consultant_name && (
+            <div className="space-y-1">
+              <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Consultant</p>
+              <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">
+                {project.consultant_name}
+              </p>
+            </div>
+          )}
+          
+          {project.project_manager_email && (
+            <div className="space-y-1">
+              <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Project Manager</p>
+              <a 
+                href={`mailto:${project.project_manager_email}`}
+                className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline cursor-pointer truncate block"
+                title="Click to send email"
+              >
+                {project.project_manager_email}
+              </a>
+            </div>
+          )}
+          
+          {project.area_manager_email && (
+            <div className="space-y-1">
+              <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Area Manager</p>
+              <a 
+                href={`mailto:${project.area_manager_email}`}
+                className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline cursor-pointer truncate block"
+                title="Click to send email"
+              >
+                {project.area_manager_email}
+              </a>
+            </div>
+          )}
         </div>
 
         {/* Contract Value */}

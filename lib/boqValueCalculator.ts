@@ -27,8 +27,8 @@ export function calculateBOQValues(
   actualUnits: number,
   totalValue: number
 ): BOQValueCalculation {
-  // ✅ Rate = Total Value / Total Units
-  const rate = totalUnits > 0 ? totalValue / totalUnits : 0
+  // ✅ Rate = Total Value / Planned Units (الكمية المخططة)
+  const rate = plannedUnits > 0 ? totalValue / plannedUnits : 0
   
   // ✅ Value = Rate × Actual Units (قيمة ما تم تنفيذه)
   const value = rate * actualUnits

@@ -7,6 +7,7 @@ import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { BOQActivity } from '@/lib/supabase'
 import { TABLES } from '@/lib/supabase'
 import { mapKPIFromDB } from '@/lib/dataMappers'
+import { calculateActivityRate } from '@/lib/rateCalculator'
 
 interface BOQProgressCellProps {
   activity: BOQActivity
@@ -79,15 +80,24 @@ export function BOQProgressCell({ activity, allKPIs }: BOQProgressCellProps) {
           const totalPlanned = planned.reduce((sum, k) => sum + (parseFloat(k.quantity?.toString() || '0') || 0), 0)
           const totalActual = actual.reduce((sum, k) => sum + (parseFloat(k.quantity?.toString() || '0') || 0), 0)
 
-          // ✅ Use correct business logic: (Actual Units / Planned Units) × 100
-          const progress = totalPlanned > 0 ? (totalActual / totalPlanned) * 100 : 0
+          // ✅ Calculate progress using Rate-based method: (Rate × Actual) / Planned Value × 100
+          const rate = calculateActivityRate(activity)
+          const earnedValue = rate.rate * totalActual
+          const progress = rate.plannedValue > 0 ? (earnedValue / rate.plannedValue) * 100 : 0
           
           console.log(`📊 Progress for ${activity.activity_name}:`, {
             plannedKPIs: planned.length,
             actualKPIs: actual.length,
             totalPlanned,
             totalActual,
-            progress: progress.toFixed(1) + '%'
+            progress: progress.toFixed(1) + '%',
+            // ✅ Debug old data compatibility
+            activityTotalValue: activity.total_value,
+            activityPlannedValue: activity.planned_value,
+            activityPlannedUnits: activity.planned_units,
+            calculatedRate: rate.rate,
+            calculatedPlannedValue: rate.plannedValue,
+            isOldData: !activity.planned_value || activity.planned_value === 0
           })
           
           // ✅ ALWAYS update state (React handles unmounted safely)
@@ -133,7 +143,11 @@ export function BOQProgressCell({ activity, allKPIs }: BOQProgressCellProps) {
       const totalPlanned = planned.reduce((sum, k) => sum + (k.quantity || 0), 0)
       const totalActual = actual.reduce((sum, k) => sum + (k.quantity || 0), 0)
 
-      const progress = totalPlanned > 0 ? (totalActual / totalPlanned) * 100 : 0
+      // ✅ Calculate progress using Rate-based method: (Rate × Actual) / Planned Value × 100
+      const rate = calculateActivityRate(activity)
+      const earnedValue = rate.rate * totalActual
+      const progress = rate.plannedValue > 0 ? (earnedValue / rate.plannedValue) * 100 : 0
+      
       setKpiProgress(progress)
     }
   }

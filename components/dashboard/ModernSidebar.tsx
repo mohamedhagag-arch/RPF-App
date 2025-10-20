@@ -34,7 +34,6 @@ const sidebarItems: SidebarItem[] = [
   { icon: ClipboardList, label: 'BOQ', tab: 'boq', badge: 12, badgeColor: 'bg-green-500' },
   { icon: Target, label: 'KPI', tab: 'kpi', badge: 8, badgeColor: 'bg-purple-500' },
   { icon: BarChart3, label: 'Reports', tab: 'reports' },
-  { icon: Users, label: 'Directory', tab: 'directory' },
   { icon: Settings, label: 'Settings', tab: 'settings' },
 ]
 

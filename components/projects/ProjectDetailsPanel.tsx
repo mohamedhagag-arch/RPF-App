@@ -46,6 +46,34 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
   const [showBOQModal, setShowBOQModal] = useState(false)
   const [activityActuals, setActivityActuals] = useState<{[key: string]: number}>({})
   
+  // Copy Feedback
+  const [copyFeedback, setCopyFeedback] = useState<{ type: 'latitude' | 'longitude' | null; message: string }>({ type: null, message: '' })
+  
+  // Copy to clipboard with feedback
+  const handleCopyCoordinate = async (value: string, type: 'latitude' | 'longitude') => {
+    console.log('🔄 Copying coordinate:', { value, type })
+    
+    try {
+      await navigator.clipboard.writeText(value)
+      console.log('✅ Copy successful')
+      setCopyFeedback({ type, message: 'Copied successfully!' })
+      
+      // Clear feedback after 3 seconds
+      setTimeout(() => {
+        console.log('🧹 Clearing feedback')
+        setCopyFeedback({ type: null, message: '' })
+      }, 3000)
+    } catch (error) {
+      console.error('❌ Failed to copy:', error)
+      setCopyFeedback({ type, message: 'Copy failed' })
+      
+      // Clear feedback after 3 seconds
+      setTimeout(() => {
+        setCopyFeedback({ type: null, message: '' })
+      }, 3000)
+    }
+  }
+  
   const supabase = getSupabaseClient()
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('project-details')
 
@@ -378,6 +406,7 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
           </div>
         </CardHeader>
         
+        
         {/* View Tabs */}
         <div className="flex gap-2 p-4 border-b dark:border-gray-700 flex-shrink-0">
           <Button
@@ -633,10 +662,197 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                         <span className="text-gray-600 dark:text-gray-400">Plot:</span>
                         <span className="font-medium">{project.plot_number || 'N/A'}</span>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600 dark:text-gray-400">Status:</span>
-                        <span className="font-medium capitalize">{project.project_status}</span>
-                      </div>
+                      
+                      {/* Additional Project Details */}
+                      {project.client_name && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600 dark:text-gray-400">Client:</span>
+                          <span className="font-medium">{project.client_name}</span>
+                        </div>
+                      )}
+                      
+                      {project.first_party_name && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600 dark:text-gray-400">First Party:</span>
+                          <span className="font-medium">{project.first_party_name}</span>
+                        </div>
+                      )}
+                      
+                      {project.consultant_name && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600 dark:text-gray-400">Consultant:</span>
+                          <span className="font-medium">{project.consultant_name}</span>
+                        </div>
+                      )}
+                      
+                      {project.project_manager_email && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600 dark:text-gray-400">Project Manager:</span>
+                          <span className="font-medium text-blue-600 dark:text-blue-400">{project.project_manager_email}</span>
+                        </div>
+                      )}
+                      
+                      {project.area_manager_email && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600 dark:text-gray-400">Area Manager:</span>
+                          <span className="font-medium text-blue-600 dark:text-blue-400">{project.area_manager_email}</span>
+                        </div>
+                      )}
+                      
+                      
+                      {project.contract_status && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600 dark:text-gray-400">Contract Status:</span>
+                          <span className="font-medium capitalize">{project.contract_status}</span>
+                        </div>
+                      )}
+                      
+                      {project.currency && project.currency !== 'AED' && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600 dark:text-gray-400">Currency:</span>
+                          <span className="font-medium">{project.currency}</span>
+                        </div>
+                      )}
+                      
+                      {/* Location Information */}
+                      {(project.latitude || project.longitude) && (
+                        <div className="border-t pt-2 mt-2">
+                          <div className="flex justify-between items-center mb-2">
+                            <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Location</p>
+                            {(project.latitude && project.longitude) && (
+                              <button
+                                onClick={() => {
+                                  const url = `https://www.google.com/maps?q=${project.latitude},${project.longitude}`;
+                                  window.open(url, '_blank');
+                                }}
+                                className="text-xs bg-blue-100 hover:bg-blue-200 dark:bg-blue-900 dark:hover:bg-blue-800 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-md transition-colors"
+                                title="Open in Google Maps"
+                              >
+                                📍 View on Map
+                              </button>
+                            )}
+                          </div>
+                          {project.latitude && (
+                            <div>
+                              {copyFeedback.type === 'latitude' && (
+                                <div className="mb-2 p-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-md">
+                                  <p className="text-sm text-green-700 dark:text-green-300 font-medium flex items-center gap-2">
+                                    <span className="text-green-600">✅</span>
+                                    {copyFeedback.message}
+                                  </p>
+                                </div>
+                              )}
+                              <div className="flex justify-between items-center">
+                                <span className="text-gray-600 dark:text-gray-400">Latitude:</span>
+                                <div className="flex items-center gap-2">
+                                  <span 
+                                    className="font-medium cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded transition-colors"
+                                    onClick={() => project.latitude && handleCopyCoordinate(project.latitude, 'latitude')}
+                                    title="Click to copy"
+                                  >
+                                    {project.latitude}
+                                  </span>
+                                  <button
+                                    onClick={() => project.latitude && handleCopyCoordinate(project.latitude, 'latitude')}
+                                    className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                                    title="Copy to clipboard"
+                                  >
+                                    📋
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                          {project.longitude && (
+                            <div>
+                              {copyFeedback.type === 'longitude' && (
+                                <div className="mb-2 p-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-md">
+                                  <p className="text-sm text-green-700 dark:text-green-300 font-medium flex items-center gap-2">
+                                    <span className="text-green-600">✅</span>
+                                    {copyFeedback.message}
+                                  </p>
+                                </div>
+                              )}
+                              <div className="flex justify-between items-center">
+                                <span className="text-gray-600 dark:text-gray-400">Longitude:</span>
+                                <div className="flex items-center gap-2">
+                                  <span 
+                                    className="font-medium cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded transition-colors"
+                                    onClick={() => project.longitude && handleCopyCoordinate(project.longitude, 'longitude')}
+                                    title="Click to copy"
+                                  >
+                                    {project.longitude}
+                                  </span>
+                                  <button
+                                    onClick={() => project.longitude && handleCopyCoordinate(project.longitude, 'longitude')}
+                                    className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                                    title="Copy to clipboard"
+                                  >
+                                    📋
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
+                      {/* Management Team */}
+                      {(project.project_manager_email || project.area_manager_email) && (
+                        <div className="border-t pt-2 mt-2">
+                          <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2">Management Team</p>
+                          {project.project_manager_email && (
+                            <div className="flex justify-between items-center">
+                              <span className="text-gray-600 dark:text-gray-400">Project Manager:</span>
+                              <a 
+                                href={`mailto:${project.project_manager_email}`}
+                                className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline cursor-pointer"
+                                title="Click to send email"
+                              >
+                                {project.project_manager_email}
+                              </a>
+                            </div>
+                          )}
+                          {project.area_manager_email && (
+                            <div className="flex justify-between items-center">
+                              <span className="text-gray-600 dark:text-gray-400">Area Manager:</span>
+                              <a 
+                                href={`mailto:${project.area_manager_email}`}
+                                className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline cursor-pointer"
+                                title="Click to send email"
+                              >
+                                {project.area_manager_email}
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
+                      
+                      {/* Contract Details */}
+                      {(project.workmanship_only || project.advance_payment_required || project.virtual_material_value) && (
+                        <div className="border-t pt-2 mt-2">
+                          <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2">Contract Details</p>
+                          {project.workmanship_only && (
+                            <div className="flex justify-between">
+                              <span className="text-gray-600 dark:text-gray-400">Workmanship Only:</span>
+                              <span className="font-medium">{project.workmanship_only}</span>
+                            </div>
+                          )}
+                          {project.advance_payment_required && (
+                            <div className="flex justify-between">
+                              <span className="text-gray-600 dark:text-gray-400">Advance Payment:</span>
+                              <span className="font-medium">{project.advance_payment_required}</span>
+                            </div>
+                          )}
+                          {project.virtual_material_value && (
+                            <div className="flex justify-between">
+                              <span className="text-gray-600 dark:text-gray-400">Virtual Material Value:</span>
+                              <span className="font-medium">{project.virtual_material_value}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>

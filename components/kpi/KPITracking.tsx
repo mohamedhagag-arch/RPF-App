@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
@@ -12,7 +13,11 @@ import { Button } from '@/components/ui/Button'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Alert } from '@/components/ui/Alert'
 import { IntelligentKPIForm } from '@/components/kpi/IntelligentKPIForm'
-import { ImprovedKPITable } from '@/components/kpi/ImprovedKPITable'
+import { OptimizedKPITable } from '@/components/kpi/OptimizedKPITable'
+import { syncBOQFromKPI } from '@/lib/boqKpiSync'
+import { calculateActivityRate, ActivityRate } from '@/lib/rateCalculator'
+import { calculateActivityProgress, ActivityProgress } from '@/lib/progressCalculator'
+import { autoSaveOnKPIUpdate } from '@/lib/autoCalculationSaver'
 import { UnifiedFilter, FilterState } from '@/components/ui/UnifiedFilter'
 import { Pagination } from '@/components/ui/Pagination'
 import { SmartFilter } from '@/components/ui/SmartFilter'
@@ -32,15 +37,18 @@ interface KPITrackingProps {
 }
 
 export function KPITracking({ globalSearchTerm = '', globalFilters = { project: '', status: '', division: '', dateRange: '' } }: KPITrackingProps = {}) {
+  const router = useRouter()
   const guard = usePermissionGuard()
   const [kpis, setKpis] = useState<ProcessedKPI[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [activities, setActivities] = useState<BOQActivity[]>([])
+  const [activityRates, setActivityRates] = useState<ActivityRate[]>([])
+  const [activityProgresses, setActivityProgresses] = useState<ActivityProgress[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const isMountedRef = useRef(true) // ✅ Track if component is mounted
   const [showForm, setShowForm] = useState(false)
-  const [editingKPI, setEditingKPI] = useState<ProcessedKPI | null>(null)
+  // editingKPI is now handled by EnhancedKPITable
   const [filters, setFilters] = useState<FilterState>({})
   
   // Smart Filter State
@@ -67,11 +75,19 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     }
   }
 
-  const fetchData = async (selectedProjectCodes?: string | string[]) => {
+  const fetchData = async (selectedProjectCodes?: string | string[], forceRefresh = false) => {
     if (!isMountedRef.current) return
     
     try {
       startSmartLoading(setLoading)
+      
+      // Force refresh by clearing state first if requested
+      if (forceRefresh) {
+        console.log('🧹 Force refresh: Clearing state...')
+        setKpis([])
+        setActivities([])
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
       
       // Handle multiple project codes
       const projectCodesArray = Array.isArray(selectedProjectCodes) 
@@ -122,15 +138,25 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         setTimeout(() => reject(new Error('KPI fetch timeout')), 60000) // زيادة إلى 60 ثانية
       )
       
-      // تحميل Activities مع تحسين
-      const activitiesResult = await supabase
+      // تحميل Activities مع فلتر المشاريع المحددة
+      let activitiesQuery = supabase
         .from(TABLES.BOQ_ACTIVITIES)
         .select('*')
-        // Removed limit to load all activities
+      
+      // تطبيق فلتر المشاريع على الأنشطة
+      if (projectCodesArray.length === 1) {
+        activitiesQuery = activitiesQuery.eq('Project Code', projectCodesArray[0])
+      } else if (projectCodesArray.length > 1) {
+        activitiesQuery = activitiesQuery.in('Project Code', projectCodesArray)
+      }
+      
+      const activitiesResult = await activitiesQuery
       
       if (activitiesResult.data) {
-        setActivities(activitiesResult.data.map(mapBOQFromDB))
-        console.log('✅ Loaded', activitiesResult.data.length, 'activities')
+        const mappedActivities = activitiesResult.data.map(mapBOQFromDB)
+        setActivities(mappedActivities)
+        console.log('✅ Loaded', mappedActivities.length, 'activities for', projectCodesArray.length, 'project(s)')
+        console.log('🔍 Activities loaded:', mappedActivities.map(a => a.activity_name))
       }
       
       // تحميل KPIs للمشاريع المحددة مع تحسين
@@ -191,7 +217,37 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       // Map and process KPI data
       const mappedKPIs = (kpisData || []).map(mapKPIFromDB)
       const processedKPIs = mappedKPIs.map(processKPIRecord)
+      
+      console.log('📊 Setting KPIs:', processedKPIs.length)
+      console.log('🔍 KPI IDs:', processedKPIs.map((k: any) => k.id))
+      
       setKpis(processedKPIs)
+      
+      // Calculate Rate-based metrics for activities
+      try {
+        console.log('📊 Calculating Rate-based metrics for activities...')
+        
+        // Calculate rates for all activities
+        const rates = activities.map(activity => 
+          calculateActivityRate(activity)
+        )
+        setActivityRates(rates)
+        
+        // Calculate progress for all activities
+        const progresses = activities.map(activity => 
+          calculateActivityProgress(activity, processedKPIs)
+        )
+        setActivityProgresses(progresses)
+        
+        console.log('✅ Rate-based metrics calculated successfully')
+      } catch (rateError) {
+        console.log('⚠️ Rate calculation not available:', rateError)
+      }
+      
+      // Verify KPIs were set
+      setTimeout(() => {
+        console.log('🔍 Verification: KPIs set successfully, count:', processedKPIs.length)
+      }, 100)
     } catch (error: any) {
       console.error('❌ KPITracking: Error:', error)
       setError(error.message)
@@ -339,7 +395,17 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       
       // Refresh data to show new record (reload with current project filter)
       setShowForm(false)
-      fetchData(filters.project)
+      
+      // Force refresh by clearing state first
+      setKpis([])
+      setActivities([])
+      
+      // Wait a bit for state to clear
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
+      // Then fetch fresh data
+      await fetchData(filters.project)
+      console.log('✅ DATA REFRESHED AFTER CREATE')
     } catch (error: any) {
       console.error('Create failed:', error)
       setError(error.message)
@@ -352,6 +418,11 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       console.log('🔄 UPDATE KPI STARTED')
       console.log('ID:', id)
       console.log('Form Data:', kpiData)
+      console.log('Form Data Keys:', Object.keys(kpiData))
+      console.log('Form Data Values:', Object.values(kpiData))
+      console.log('🔍 project_full_code:', kpiData.project_full_code)
+      console.log('🔍 activity_name:', kpiData.activity_name)
+      console.log('🔍 quantity:', kpiData.quantity)
       console.log('========================================')
       
       // 🎯 Use UNIFIED table for all KPIs (both Planned & Actual)
@@ -372,10 +443,50 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         'Section': kpiData.section || '',
         'Drilled Meters': kpiData.drilled_meters?.toString() || '0'
       }
+      
+      console.log('🔍 dbData after mapping:', dbData)
+      console.log('🔍 dbData Project Full Code:', dbData['Project Full Code'])
+      console.log('🔍 kpiData.project_full_code:', kpiData.project_full_code)
+      
+      // Validate that we have essential data
+      if (!dbData['Project Full Code']) {
+        console.error('❌ Missing Project Full Code!')
+        throw new Error('Project Full Code is required')
+      }
+      if (!dbData['Activity Name']) {
+        console.error('❌ Missing Activity Name!')
+        throw new Error('Activity Name is required')
+      }
+      if (!dbData['Quantity']) {
+        console.error('❌ Missing Quantity!')
+        throw new Error('Quantity is required')
+      }
 
       console.log('📦 Database Format:', JSON.stringify(dbData, null, 2))
+      console.log('🔍 Database Format Keys:', Object.keys(dbData))
+      console.log('🔍 Database Format Values:', Object.values(dbData))
+
+      // First, check if KPI exists
+      console.log('🔍 Checking if KPI exists before update...')
+      const { data: existingKPI, error: checkError } = await (supabase as any)
+        .from(TABLES.KPI)
+        .select('*')
+        .eq('id', id)
+        .single()
+      
+      if (checkError) {
+        console.error('❌ Error checking existing KPI:', checkError)
+        throw new Error(`KPI with ID ${id} not found`)
+      }
+      
+      console.log('✅ KPI exists:', existingKPI.id)
+      console.log('📊 Current KPI data:', existingKPI)
 
       // Perform the update
+      console.log('🔄 Executing UPDATE query...')
+      console.log('Table:', TABLES.KPI)
+      console.log('ID to update:', id)
+      
       const { data, error } = await (supabase as any)
         .from(TABLES.KPI)
         .update(dbData)
@@ -385,16 +496,60 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
 
       if (error) {
         console.error('❌ UPDATE ERROR:', error)
+        console.error('Error details:', error.message)
+        console.error('Error code:', error.code)
         throw error
       }
       
       console.log('✅ UPDATE SUCCESS!')
       console.log('Updated Data:', data)
+      console.log('Updated Data ID:', data?.id)
+      console.log('Updated Data Keys:', data ? Object.keys(data) : 'No data')
+      
+      // Verify the update was successful
+      if (!data) {
+        console.error('❌ UPDATE FAILED: No data returned from update!')
+        throw new Error('Update failed: No data returned')
+      }
+      
+      console.log('🔍 Verifying update in database...')
+      const { data: verifyData, error: verifyError } = await (supabase as any)
+        .from(TABLES.KPI)
+        .select('*')
+        .eq('id', id)
+        .single()
+      
+      if (verifyError) {
+        console.error('❌ Verification failed:', verifyError)
+        throw new Error('Verification failed: KPI not found after update')
+      }
+      
+      console.log('✅ Verification successful:', verifyData)
+      
+      // Check if the updated data matches what we sent
+      console.log('🔍 Checking if updated data matches sent data...')
+      console.log('Sent Project Full Code:', dbData['Project Full Code'])
+      console.log('Database Project Full Code:', verifyData['Project Full Code'])
+      console.log('Sent Activity Name:', dbData['Activity Name'])
+      console.log('Database Activity Name:', verifyData['Activity Name'])
+      console.log('Sent Quantity:', dbData['Quantity'])
+      console.log('Database Quantity:', verifyData['Quantity'])
+      
+      if (verifyData['Project Full Code'] !== dbData['Project Full Code']) {
+        console.error('❌ Project Full Code mismatch!')
+        console.error('Sent:', dbData['Project Full Code'])
+        console.error('Database:', verifyData['Project Full Code'])
+      }
+      
+      if (verifyData['Activity Name'] !== dbData['Activity Name']) {
+        console.error('❌ Activity Name mismatch!')
+        console.error('Sent:', dbData['Activity Name'])
+        console.error('Database:', verifyData['Activity Name'])
+      }
       
       // 🔄 AUTO-SYNC: If this is Actual, update BOQ
       if (kpiData.input_type === 'Actual') {
         console.log('🔄 Auto-syncing BOQ from KPI Actual...')
-        const { syncBOQFromKPI } = await import('@/lib/boqKpiSync')
         const syncResult = await syncBOQFromKPI(
           kpiData.project_full_code,
           kpiData.activity_name
@@ -407,13 +562,96 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       
       console.log('========================================')
       
-      // Close form and refresh
-      setEditingKPI(null)
+      // Close form and refresh (editingKPI is now handled by EnhancedKPITable)
       
       // Refresh data to ensure consistency (reload with current project filter)
-      await fetchData(filters.project)
+      console.log('🔄 Refreshing data after update...')
+      console.log('Current filters.project:', filters.project)
       
-      console.log('✅ DATA REFRESHED')
+      try {
+        // Force refresh by clearing state first
+        console.log('🧹 Clearing KPI and Activities state...')
+        setKpis([])
+        setActivities([])
+        
+        // Wait a bit for state to clear
+        await new Promise(resolve => setTimeout(resolve, 200))
+        
+        // Then fetch fresh data
+        console.log('🔄 Fetching fresh data after update...')
+        console.log('🔍 Current project filter:', filters.project)
+        
+        // Force a complete refresh - use selectedProjects if available, otherwise filters.project
+        const projectToFetch = selectedProjects.length > 0 ? selectedProjects : filters.project
+        console.log('🔍 Current selectedProjects:', selectedProjects)
+        console.log('🔍 Current filters.project:', filters.project)
+        console.log('🔍 Using project filter:', projectToFetch)
+        await fetchData(projectToFetch, true) // forceRefresh = true
+        console.log('✅ DATA REFRESHED SUCCESSFULLY')
+        
+        // Verify that the updated KPI is in the refreshed data
+        console.log('🔍 Verifying updated KPI is in refreshed data...')
+        const updatedKPI = kpis.find(k => k.id === id)
+        if (updatedKPI) {
+          console.log('✅ Updated KPI found in refreshed data:', updatedKPI)
+        } else {
+          console.error('❌ Updated KPI NOT found in refreshed data!')
+          console.log('Available KPI IDs:', kpis.map(k => k.id))
+        }
+      
+      // Double-check by fetching again after a short delay
+      setTimeout(async () => {
+        console.log('🔄 Double-checking data after update...')
+        try {
+          const projectToFetch = selectedProjects.length > 0 ? selectedProjects : filters.project
+          await fetchData(projectToFetch, true) // forceRefresh = true
+          console.log('✅ Double-check completed')
+        } catch (doubleCheckError) {
+          console.error('❌ Double-check failed:', doubleCheckError)
+        }
+      }, 1000)
+        
+        // Additional verification - check if KPIs are loaded
+        setTimeout(() => {
+          console.log('🔍 Verification: Current KPIs count:', kpis.length)
+          if (kpis.length === 0) {
+            console.log('⚠️ WARNING: No KPIs found after refresh!')
+            console.log('🔄 Attempting manual refresh...')
+            // Try one more fetch before reloading
+            fetchData(filters.project).then(() => {
+              console.log('🔄 Manual fetch completed')
+            }).catch(() => {
+              console.log('🔄 Manual fetch failed, reloading page...')
+              window.location.reload()
+            })
+          } else {
+            console.log('✅ KPIs loaded successfully after update!')
+          }
+        }, 500)
+        
+      } catch (refreshError) {
+        console.error('❌ Failed to refresh data:', refreshError)
+        // Try to reload the page as fallback
+        console.log('🔄 Falling back to page reload...')
+        window.location.reload()
+      }
+      
+      // ✅ Auto-save calculations after KPI update
+      try {
+        const mappedKPI = mapKPIFromDB(data)
+        const autoSaveResult = await autoSaveOnKPIUpdate(mappedKPI)
+        
+        if (autoSaveResult.success) {
+          console.log('✅ Auto-save calculations completed after KPI update:', {
+            updatedActivities: autoSaveResult.updatedActivities,
+            updatedProjects: autoSaveResult.updatedProjects
+          })
+        } else {
+          console.warn('⚠️ Auto-save calculations had errors after KPI update:', autoSaveResult.errors)
+        }
+      } catch (autoSaveError) {
+        console.warn('⚠️ Auto-save calculations failed after KPI update:', autoSaveError)
+      }
       
     } catch (error: any) {
       console.error('❌ UPDATE FAILED:', error)
@@ -442,16 +680,37 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
 
       if (error) throw error
       
+      // Update local state immediately
       setKpis(kpis.filter(k => k.id !== id))
       
       // 🔄 AUTO-SYNC: If this was Actual, update BOQ
       if (kpiToDelete && kpiToDelete.input_type === 'Actual') {
         console.log('🔄 Syncing BOQ after KPI deletion...')
-        const { syncBOQFromKPI } = await import('@/lib/boqKpiSync')
-        await syncBOQFromKPI(
-          kpiToDelete.project_full_code,
-          kpiToDelete.activity_name
-        )
+        console.log('⚠️ WARNING: This will update BOQ Actual Units to 0 if no other KPI Actual records exist')
+        
+        try {
+          const { syncBOQFromKPI } = await import('@/lib/boqKpiSync')
+          const syncResult = await syncBOQFromKPI(
+            kpiToDelete.project_full_code,
+            kpiToDelete.activity_name
+          )
+          console.log('✅ BOQ Sync Result:', syncResult)
+        } catch (syncError) {
+          console.error('❌ BOQ Sync failed:', syncError)
+          // Don't fail the entire delete operation if sync fails
+        }
+      }
+      
+      // Force refresh to ensure data consistency
+      console.log('🔄 Refreshing data after deletion...')
+      console.log('⚠️ IMPORTANT: This should NOT delete the BOQ activity, only refresh KPI data')
+      
+      try {
+        await fetchData(filters.project)
+        console.log('✅ DATA REFRESHED AFTER DELETE')
+        console.log('🔍 Check if BOQ activity still exists in the activities list')
+      } catch (refreshError) {
+        console.error('❌ Failed to refresh data after delete:', refreshError)
       }
     } catch (error: any) {
       setError(error.message)
@@ -715,15 +974,70 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
             <p className="text-gray-600 dark:text-gray-300 mt-2">Monitor and track KPIs for projects and activities</p>
           </div>
           
-          {/* Add New KPI Button */}
+          {/* Rate-based Performance Summary */}
+          {activityRates.length > 0 && (
+            <div className="bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 rounded-lg p-6 border border-purple-200 dark:border-purple-700">
+              <div className="flex items-center gap-2 mb-4">
+                <BarChart3 className="h-5 w-5 text-purple-600" />
+                <h3 className="text-lg font-semibold text-purple-900 dark:text-purple-100">Rate-Based Performance</h3>
+              </div>
+              
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-purple-900 dark:text-purple-100">
+                    ${activityRates.reduce((sum, rate) => sum + rate.plannedValue, 0).toLocaleString()}
+                  </div>
+                  <div className="text-sm text-purple-700 dark:text-purple-300">Total Planned Value</div>
+                </div>
+                
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                    ${activityRates.reduce((sum, rate) => sum + rate.earnedValue, 0).toLocaleString()}
+                  </div>
+                  <div className="text-sm text-purple-700 dark:text-purple-300">Total Earned Value</div>
+                </div>
+                
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                    {activityRates.length > 0 
+                      ? (activityRates.reduce((sum, rate) => sum + rate.progress, 0) / activityRates.length).toFixed(1)
+                      : 0}%
+                  </div>
+                  <div className="text-sm text-purple-700 dark:text-purple-300">Average Progress</div>
+                </div>
+                
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                    {activityRates.filter(rate => rate.progress >= 80).length}/{activityRates.length}
+                  </div>
+                  <div className="text-sm text-purple-700 dark:text-purple-300">High Progress (≥80%)</div>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* Add New KPI Buttons */}
           {guard.hasAccess('kpi.create') && (
-            <Button 
-              onClick={() => setShowForm(true)} 
-              className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Add New KPI</span>
-            </Button>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button 
+                onClick={() => setShowForm(true)} 
+                className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Add New KPI</span>
+              </Button>
+              <Button 
+                onClick={() => {
+                  // ✅ Use router.push to maintain session and avoid reload
+                  router.push('/kpi/add')
+                }}
+                variant="outline"
+                className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
+              >
+                <Target className="h-4 w-4" />
+                <span>Site KPI Form</span>
+              </Button>
+            </div>
           )}
         </div>
         
@@ -965,12 +1279,13 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          <ImprovedKPITable
+          <OptimizedKPITable
             kpis={paginatedKPIs}
             projects={projects}
-            onEdit={setEditingKPI}
+            activities={activities}
             onDelete={handleDeleteKPI}
             onBulkDelete={handleBulkDeleteKPI}
+            onUpdate={handleUpdateKPI}
           />
           
           {/* Pagination */}
@@ -1002,21 +1317,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         />
       )}
 
-      {editingKPI && (
-        <IntelligentKPIForm
-          kpi={editingKPI}
-          projects={projects}
-          activities={activities}
-          onSubmit={async (data: any) => {
-            console.log('📝 Form onSubmit called with:', data)
-            await handleUpdateKPI(editingKPI.id, data)
-          }}
-          onCancel={() => {
-            console.log('❌ Form cancelled')
-            setEditingKPI(null)
-          }}
-        />
-      )}
+      {/* Removed duplicate form - now handled by EnhancedKPITable */}
     </div>
   )
 }

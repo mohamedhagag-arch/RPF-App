@@ -1,7 +1,11 @@
 import { getStableSupabaseClient } from './stableConnection'
+import { fastQueryExecutor } from './fastConnectionManager'
 
 // ✅ Use the STABLE connection manager - حل نهائي لمشكلة فقد الاتصال
 export const supabase = getStableSupabaseClient()
+
+// ✅ Fast connection for performance-critical operations
+export const fastSupabase = fastQueryExecutor
 
 // ✅ NEW: Table names with split KPI system
 export const TABLES = {
@@ -28,6 +32,21 @@ export interface Project {
   kpi_completed: boolean
   project_status: 'upcoming' | 'site-preparation' | 'on-going' | 'completed' | 'completed-duration' | 'contract-duration' | 'on-hold' | 'cancelled'
   contract_amount: number
+  // Additional project details
+  client_name?: string
+  consultant_name?: string
+  first_party_name?: string
+  project_manager_email?: string
+  area_manager_email?: string
+  date_project_awarded?: string
+  work_programme?: string
+  latitude?: string
+  longitude?: string
+  contract_status?: string
+  currency?: string
+  workmanship_only?: string
+  advance_payment_required?: string
+  virtual_material_value?: string
   created_at: string
   updated_at: string
   created_by: string

@@ -171,6 +171,9 @@ export function CompanySettings({ onClose }: CompanySettingsProps) {
         // مسح التخزين المؤقت
         clearCompanySettingsCache()
         
+        // إرسال إشارة تحديث للعنوان الديناميكي
+        window.dispatchEvent(new CustomEvent('companySettingsUpdated'))
+        
         setSuccess('Company settings saved successfully to database!')
         
         // ✅ No reload - changes are already applied

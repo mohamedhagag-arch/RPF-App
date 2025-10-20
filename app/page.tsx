@@ -30,10 +30,18 @@ export default function Home() {
       }
       
       console.log('✅ User authenticated, redirecting to dashboard...')
-      // تأخير بسيط لتجنب إعادة التوجيه السريعة
+      
+      // Check if this is a reload scenario
+      const isReload = typeof window !== 'undefined' && 
+        (window.performance?.navigation?.type === 1 || 
+         sessionStorage.getItem('auth_reload_check') === 'true')
+      
+      // تأخير أطول في حالة reload
+      const delay = isReload ? 3000 : 2000
+      
       const timer = setTimeout(() => {
         router.push('/dashboard')
-      }, 2000) // زيادة التأخير إلى ثانيتين
+      }, delay)
       
       return () => clearTimeout(timer)
     }
