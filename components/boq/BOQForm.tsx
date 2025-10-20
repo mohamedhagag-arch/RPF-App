@@ -232,6 +232,7 @@ export function BOQForm({ activity, projects, onSubmit, onCancel }: BOQFormProps
           project_code: project.project_code,
           project_status: project.project_status,
           project_type: project.project_type || 'General',
+          divisions: (project as any).divisions || [],
           activities_count: activities?.length || 0
         })
         
