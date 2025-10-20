@@ -1,15 +1,12 @@
 'use client'
 
 import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 
 export default function AuthenticatedPage() {
-  const router = useRouter()
-  
   useEffect(() => {
     // Redirect to dashboard as the default authenticated page
-    router.push('/dashboard')
-  }, [router])
+    window.location.href = '/dashboard'
+  }, [])
   
   return (
     <div className="flex items-center justify-center min-h-screen">
