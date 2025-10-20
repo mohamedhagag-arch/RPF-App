@@ -82,6 +82,9 @@ CREATE TABLE public.boq_activities (
   lookahead_start_date DATE,
   lookahead_activity_completion_date DATE,
   remaining_lookahead_duration_for_activity_completion INTEGER DEFAULT 0,
+  activity_timing TEXT,
+  has_value BOOLEAN DEFAULT TRUE,
+  affects_timeline BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

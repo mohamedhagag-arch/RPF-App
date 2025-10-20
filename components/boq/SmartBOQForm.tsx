@@ -30,7 +30,9 @@ export function SmartBOQForm({ activity, projects, onSubmit, onCancel }: SmartBO
     planned_activity_start_date: '',
     deadline: '',
     // ✅ New fields from the image
-    activity_timing: 'post-commencement', // 'pre-commencement' or 'post-commencement'
+    activity_timing: 'post-commencement', // 'pre-commencement', 'post-commencement', or 'post-completion'
+    has_value: true,
+    affects_timeline: false,
     planned_value: 0,
     start_date: '',
     end_date: '',
@@ -61,6 +63,8 @@ export function SmartBOQForm({ activity, projects, onSubmit, onCancel }: SmartBO
         deadline: activity.deadline || '',
         // ✅ New fields with defaults
         activity_timing: 'post-commencement',
+        has_value: true,
+        affects_timeline: false,
         planned_value: 0,
         start_date: '',
         end_date: '',
@@ -83,6 +87,8 @@ export function SmartBOQForm({ activity, projects, onSubmit, onCancel }: SmartBO
         deadline: '',
         // ✅ New fields with defaults
         activity_timing: 'post-commencement',
+        has_value: true,
+        affects_timeline: false,
         planned_value: 0,
         start_date: '',
         end_date: '',
@@ -615,11 +621,11 @@ export function SmartBOQForm({ activity, projects, onSubmit, onCancel }: SmartBO
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
                 Activity Timing <span className="text-red-500">*</span>
               </label>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div 
                   className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
                     formData.activity_timing === 'pre-commencement' 
-                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-950' 
+                      ? 'border-orange-500 bg-orange-50 dark:bg-orange-950' 
                       : 'border-gray-200 dark:border-gray-600 hover:border-gray-300'
                   }`}
                   onClick={() => handleChange('activity_timing', 'pre-commencement')}
@@ -631,7 +637,7 @@ export function SmartBOQForm({ activity, projects, onSubmit, onCancel }: SmartBO
                       value="pre-commencement"
                       checked={formData.activity_timing === 'pre-commencement'}
                       onChange={() => handleChange('activity_timing', 'pre-commencement')}
-                      className="w-4 h-4 text-blue-600"
+                      className="w-4 h-4 text-orange-600"
                     />
                     <div>
                       <div className="font-medium text-gray-900 dark:text-white">Pre-commencement</div>
@@ -662,6 +668,31 @@ export function SmartBOQForm({ activity, projects, onSubmit, onCancel }: SmartBO
                       <div className="font-medium text-gray-900 dark:text-white">Post-commencement</div>
                       <div className="text-sm text-gray-500 dark:text-gray-400">
                         Activities that start with or after project start
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div 
+                  className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                    formData.activity_timing === 'post-completion' 
+                      ? 'border-red-500 bg-red-50 dark:bg-red-950' 
+                      : 'border-gray-200 dark:border-gray-600 hover:border-gray-300'
+                  }`}
+                  onClick={() => handleChange('activity_timing', 'post-completion')}
+                >
+                  <div className="flex items-center space-x-3">
+                    <input
+                      type="radio"
+                      name="activity_timing"
+                      value="post-completion"
+                      checked={formData.activity_timing === 'post-completion'}
+                      onChange={() => handleChange('activity_timing', 'post-completion')}
+                      className="w-4 h-4 text-red-600"
+                    />
+                    <div>
+                      <div className="font-medium text-gray-900 dark:text-white">Post-completion</div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400">
+                        Activities that occur after project completion
                       </div>
                     </div>
                   </div>

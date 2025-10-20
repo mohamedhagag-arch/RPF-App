@@ -27,7 +27,14 @@ import {
   Copy,
   ArrowUpDown,
   BarChart3,
-  List
+  List,
+  Download,
+  Upload,
+  FileText,
+  Archive,
+  FileSpreadsheet,
+  Table,
+  MoreVertical
 } from 'lucide-react'
 
 interface ProjectType {
@@ -60,6 +67,20 @@ interface ProjectActivity {
   updated_at?: string
 }
 
+interface ImportActivityData {
+  project_type: string
+  activity_name: string
+  activity_name_ar?: string
+  description?: string
+  default_unit: string
+  estimated_rate: number
+  category: string
+  typical_duration: number
+  division: string
+  display_order: number
+  is_active: boolean
+}
+
 export function UnifiedProjectTypesManager() {
   const guard = usePermissionGuard()
   const supabase = getSupabaseClient()
@@ -79,6 +100,8 @@ export function UnifiedProjectTypesManager() {
   const [showActivityForm, setShowActivityForm] = useState(false)
   const [editingType, setEditingType] = useState<ProjectType | null>(null)
   const [editingActivity, setEditingActivity] = useState<ProjectActivity | null>(null)
+  const [showExportMenu, setShowExportMenu] = useState(false)
+  const [showImportMenu, setShowImportMenu] = useState(false)
   
   // Form State - Project Type
   const [typeFormData, setTypeFormData] = useState({
@@ -104,6 +127,31 @@ export function UnifiedProjectTypesManager() {
   // Load Data
   useEffect(() => {
     loadData()
+  }, [])
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      if (!target.closest('.dropdown-menu')) {
+        setShowExportMenu(false)
+        setShowImportMenu(false)
+      }
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowExportMenu(false)
+        setShowImportMenu(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleEscape)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleEscape)
+    }
   }, [])
 
   const loadData = async () => {
@@ -451,6 +499,380 @@ export function UnifiedProjectTypesManager() {
     }
   }
 
+  // Template Management Functions
+  const handleExportTemplate = async () => {
+    try {
+      setLoading(true)
+      setError('')
+      
+      // Prepare template data
+      const templateData = {
+        project_types: projectTypes.map(type => ({
+          name: type.name,
+          code: type.code,
+          description: type.description,
+          is_active: type.is_active
+        })),
+        activities: Object.values(activities).flat().map(activity => ({
+          project_type: activity.project_type,
+          activity_name: activity.activity_name,
+          activity_name_ar: activity.activity_name_ar,
+          description: activity.description,
+          default_unit: activity.default_unit,
+          estimated_rate: activity.estimated_rate,
+          category: activity.category,
+          typical_duration: activity.typical_duration,
+          division: activity.division,
+          display_order: activity.display_order,
+          is_active: activity.is_active
+        })),
+        metadata: {
+          exported_at: new Date().toISOString(),
+          version: '1.0',
+          total_types: projectTypes.length,
+          total_activities: Object.values(activities).flat().length
+        }
+      }
+      
+      // Create and download file
+      const dataStr = JSON.stringify(templateData, null, 2)
+      const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr)
+      
+      const exportFileDefaultName = `project-types-template-${new Date().toISOString().split('T')[0]}.json`
+      
+      const linkElement = document.createElement('a')
+      linkElement.setAttribute('href', dataUri)
+      linkElement.setAttribute('download', exportFileDefaultName)
+      linkElement.click()
+      
+      setSuccess('Template exported successfully')
+      setTimeout(() => setSuccess(''), 3000)
+      
+    } catch (err: any) {
+      setError(err.message || 'Failed to export template')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleImportTemplate = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    try {
+      setLoading(true)
+      setError('')
+      
+      const text = await file.text()
+      const templateData = JSON.parse(text)
+
+      if (!templateData.project_types || !templateData.activities) {
+        throw new Error('Invalid template file format')
+      }
+
+      // Import project types
+      if (templateData.project_types.length > 0) {
+        const { error: typesError } = await executeQuery(async () =>
+          (supabase as any)
+            .from('project_types')
+            .upsert(templateData.project_types, { onConflict: 'name' })
+        )
+        
+        if (typesError) throw typesError
+      }
+
+      // Import activities
+      if (templateData.activities.length > 0) {
+        const { error: activitiesError } = await executeQuery(async () =>
+          (supabase as any)
+            .from('project_type_activities')
+            .upsert(templateData.activities, { onConflict: 'project_type,activity_name' })
+        )
+        
+        if (activitiesError) throw activitiesError
+      }
+
+      setSuccess(`Template imported successfully: ${templateData.project_types.length} types, ${templateData.activities.length} activities`)
+      setTimeout(() => setSuccess(''), 5000)
+      
+      // Reload data
+      await loadData()
+      
+    } catch (err: any) {
+      setError('Failed to import template: ' + err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleExportSpecificType = async (type: ProjectType) => {
+    try {
+      setLoading(true)
+      setError('')
+      
+      const typeActivities = activities[type.name] || []
+      
+      // Prepare specific type template
+      const templateData = {
+        project_type: {
+          name: type.name,
+          code: type.code,
+          description: type.description,
+          is_active: type.is_active
+        },
+        activities: typeActivities.map(activity => ({
+          project_type: activity.project_type,
+          activity_name: activity.activity_name,
+          activity_name_ar: activity.activity_name_ar,
+          description: activity.description,
+          default_unit: activity.default_unit,
+          estimated_rate: activity.estimated_rate,
+          category: activity.category,
+          typical_duration: activity.typical_duration,
+          division: activity.division,
+          display_order: activity.display_order,
+          is_active: activity.is_active
+        })),
+        metadata: {
+          exported_at: new Date().toISOString(),
+          version: '1.0',
+          type_name: type.name,
+          total_activities: typeActivities.length
+        }
+      }
+      
+      // Create and download file
+      const dataStr = JSON.stringify(templateData, null, 2)
+      const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr)
+      
+      const exportFileDefaultName = `project-type-${type.name.replace(/\s+/g, '-').toLowerCase()}-template-${new Date().toISOString().split('T')[0]}.json`
+      
+      const linkElement = document.createElement('a')
+      linkElement.setAttribute('href', dataUri)
+      linkElement.setAttribute('download', exportFileDefaultName)
+      linkElement.click()
+      
+      setSuccess(`Template for "${type.name}" exported successfully`)
+      setTimeout(() => setSuccess(''), 3000)
+      
+    } catch (err: any) {
+      setError(err.message || 'Failed to export template')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Excel/CSV Export Functions
+  const handleExportToExcel = async () => {
+    try {
+      setLoading(true)
+      setError('')
+      
+      // Prepare data for Excel
+      const allActivities = Object.values(activities).flat()
+      
+      // Create CSV content
+      const csvContent = [
+        // Headers
+        [
+          'Project Type',
+          'Project Type Code',
+          'Project Type Description',
+          'Activity Name',
+          'Activity Name (Arabic)',
+          'Activity Description',
+          'Default Unit',
+          'Estimated Rate',
+          'Category',
+          'Typical Duration (Days)',
+          'Division',
+          'Display Order',
+          'Is Active'
+        ],
+        // Data rows
+        ...allActivities.map(activity => {
+          const projectType = projectTypes.find(pt => pt.name === activity.project_type)
+          return [
+            activity.project_type,
+            projectType?.code || '',
+            projectType?.description || '',
+            activity.activity_name,
+            activity.activity_name_ar || '',
+            activity.description || '',
+            activity.default_unit || '',
+            activity.estimated_rate || '',
+            activity.category || '',
+            activity.typical_duration || '',
+            activity.division || '',
+            activity.display_order || '',
+            activity.is_active ? 'Yes' : 'No'
+          ]
+        })
+      ]
+      
+      // Convert to CSV string
+      const csvString = csvContent.map(row => 
+        row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
+      ).join('\n')
+      
+      // Add BOM for UTF-8 support
+      const BOM = '\uFEFF'
+      const csvWithBOM = BOM + csvString
+      
+      // Create and download file
+      const blob = new Blob([csvWithBOM], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      
+      const exportFileDefaultName = `project-types-activities-${new Date().toISOString().split('T')[0]}.csv`
+      
+      const linkElement = document.createElement('a')
+      linkElement.setAttribute('href', url)
+      linkElement.setAttribute('download', exportFileDefaultName)
+      linkElement.click()
+      
+      URL.revokeObjectURL(url)
+      
+      setSuccess('Excel/CSV template exported successfully')
+      setTimeout(() => setSuccess(''), 3000)
+      
+    } catch (err: any) {
+      setError(err.message || 'Failed to export Excel template')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleImportFromExcel = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    try {
+      setLoading(true)
+      setError('')
+      
+      const text = await file.text()
+      const lines = text.split('\n').filter(line => line.trim())
+      
+      if (lines.length < 2) {
+        throw new Error('CSV file must have at least a header row and one data row')
+      }
+      
+      // Parse CSV
+      const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim())
+      const dataRows = lines.slice(1).map(line => {
+        const values = line.split(',').map(v => v.replace(/"/g, '').trim())
+        const row: any = {}
+        headers.forEach((header, index) => {
+          row[header] = values[index] || ''
+        })
+        return row
+      })
+      
+      // Validate headers
+      const requiredHeaders = [
+        'Project Type',
+        'Activity Name',
+        'Default Unit',
+        'Estimated Rate',
+        'Category',
+        'Typical Duration (Days)',
+        'Division',
+        'Display Order',
+        'Is Active'
+      ]
+      
+      const missingHeaders = requiredHeaders.filter(header => !headers.includes(header))
+      if (missingHeaders.length > 0) {
+        throw new Error(`Missing required headers: ${missingHeaders.join(', ')}`)
+      }
+      
+      // Process data
+      const projectTypesMap = new Map()
+      const activitiesData: ImportActivityData[] = []
+      
+      dataRows.forEach(row => {
+        const projectTypeName = row['Project Type']
+        if (!projectTypesMap.has(projectTypeName)) {
+          projectTypesMap.set(projectTypeName, {
+            name: projectTypeName,
+            code: row['Project Type Code'] || '',
+            description: row['Project Type Description'] || '',
+            is_active: true
+          })
+        }
+        
+        activitiesData.push({
+          project_type: projectTypeName,
+          activity_name: row['Activity Name'],
+          activity_name_ar: row['Activity Name (Arabic)'] || '',
+          description: row['Activity Description'] || '',
+          default_unit: row['Default Unit'],
+          estimated_rate: parseFloat(row['Estimated Rate']) || 0,
+          category: row['Category'],
+          typical_duration: parseInt(row['Typical Duration (Days)']) || 0,
+          division: row['Division'],
+          display_order: parseInt(row['Display Order']) || 0,
+          is_active: row['Is Active']?.toLowerCase() === 'yes' || row['Is Active']?.toLowerCase() === 'true'
+        })
+      })
+      
+      // Import project types
+      const projectTypesArray = Array.from(projectTypesMap.values())
+      if (projectTypesArray.length > 0) {
+        const { error: typesError } = await executeQuery(async () =>
+          (supabase as any)
+            .from('project_types')
+            .upsert(projectTypesArray, { onConflict: 'name' })
+        )
+        
+        if (typesError) throw typesError
+      }
+      
+      // Import activities
+      if (activitiesData.length > 0) {
+        const { error: activitiesError } = await executeQuery(async () =>
+          (supabase as any)
+            .from('project_type_activities')
+            .upsert(activitiesData, { onConflict: 'project_type,activity_name' })
+        )
+        
+        if (activitiesError) throw activitiesError
+      }
+      
+      setSuccess(`Excel/CSV template imported successfully: ${projectTypesArray.length} types, ${activitiesData.length} activities`)
+      setTimeout(() => setSuccess(''), 5000)
+      
+      // Reload data
+      await loadData()
+      
+    } catch (err: any) {
+      setError('Failed to import Excel template: ' + err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Dropdown Menu Functions
+  const handleExportJSON = () => {
+    setShowExportMenu(false)
+    handleExportTemplate()
+  }
+
+  const handleExportCSV = () => {
+    setShowExportMenu(false)
+    handleExportToExcel()
+  }
+
+  const handleImportJSON = () => {
+    setShowImportMenu(false)
+    document.getElementById('import-template')?.click()
+  }
+
+  const handleImportCSV = () => {
+    setShowImportMenu(false)
+    document.getElementById('import-excel')?.click()
+  }
+
   // UI Functions
   const toggleExpanded = (typeName: string) => {
     const newExpanded = new Set(expandedTypes)
@@ -498,18 +920,20 @@ export function UnifiedProjectTypesManager() {
             Project Types & Activities Management
           </h2>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-            Unified management for project types and their activities
+            Unified management for project types and their activities with template support
           </p>
         </div>
         
-        <ModernButton
-          onClick={handleAddType}
-          variant="primary"
-          size="md"
-          icon={<Plus className="h-4 w-4" />}
-        >
-          Add Project Type
-        </ModernButton>
+        <div className="flex items-center gap-3">
+          <ModernButton
+            onClick={handleAddType}
+            variant="primary"
+            size="md"
+            icon={<Plus className="h-4 w-4" />}
+          >
+            Add Project Type
+          </ModernButton>
+        </div>
       </div>
 
       {/* Alerts */}
@@ -595,6 +1019,140 @@ export function UnifiedProjectTypesManager() {
           </div>
         </ModernCard>
       </div>
+
+      {/* Template Management Card */}
+      <ModernCard className="bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 border-indigo-200 dark:border-indigo-800">
+        <div className="flex items-center gap-4 mb-6">
+          <div className="p-3 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg">
+            <Archive className="h-6 w-6 text-indigo-600" />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+              Template Management
+            </h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Export and import project types and activities as templates
+            </p>
+          </div>
+        </div>
+        
+        {/* Template Actions */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          {/* Export Section */}
+          <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+            <div className="flex items-center gap-3 mb-3">
+              <Download className="h-5 w-5 text-blue-600" />
+              <h4 className="font-medium text-gray-900 dark:text-white">Export Templates</h4>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+              Download your project types and activities as templates
+            </p>
+            <div className="flex gap-2">
+              <ModernButton
+                onClick={handleExportJSON}
+                variant="outline"
+                size="sm"
+                icon={<FileText className="h-4 w-4" />}
+                disabled={loading}
+                className="flex-1"
+              >
+                Export JSON
+              </ModernButton>
+              <ModernButton
+                onClick={handleExportCSV}
+                variant="outline"
+                size="sm"
+                icon={<FileSpreadsheet className="h-4 w-4" />}
+                disabled={loading}
+                className="flex-1"
+              >
+                Export CSV
+              </ModernButton>
+            </div>
+          </div>
+          
+          {/* Import Section */}
+          <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+            <div className="flex items-center gap-3 mb-3">
+              <Upload className="h-5 w-5 text-green-600" />
+              <h4 className="font-medium text-gray-900 dark:text-white">Import Templates</h4>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+              Upload template files to import project types and activities
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="file"
+                accept=".json"
+                onChange={handleImportTemplate}
+                className="hidden"
+                id="import-template"
+              />
+              <label htmlFor="import-template" className="flex-1">
+                <ModernButton
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  icon={<FileText className="h-4 w-4" />}
+                  disabled={loading}
+                  className="w-full cursor-pointer"
+                >
+                  Import JSON
+                </ModernButton>
+              </label>
+              <input
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                onChange={handleImportFromExcel}
+                className="hidden"
+                id="import-excel"
+              />
+              <label htmlFor="import-excel" className="flex-1">
+                <ModernButton
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  icon={<FileSpreadsheet className="h-4 w-4" />}
+                  disabled={loading}
+                  className="w-full cursor-pointer"
+                >
+                  Import CSV
+                </ModernButton>
+              </label>
+            </div>
+          </div>
+        </div>
+        
+        {/* Statistics */}
+        <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-indigo-200 dark:border-indigo-700">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-medium text-gray-900 dark:text-white">Current Data</h4>
+            <div className="text-xs text-gray-500 dark:text-gray-400">
+              Last updated: {new Date().toLocaleDateString()}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-blue-600">{projectTypes.length}</div>
+              <div className="text-xs text-gray-600 dark:text-gray-400">Project Types</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-green-600">{Object.values(activities).flat().length}</div>
+              <div className="text-xs text-gray-600 dark:text-gray-400">Activities</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-purple-600">{new Set(Object.values(activities).flat().map(a => a.category).filter(Boolean)).size}</div>
+              <div className="text-xs text-gray-600 dark:text-gray-400">Categories</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-orange-600">
+                {projectTypes.length > 0 ? Math.round(Object.values(activities).flat().length / projectTypes.length) : 0}
+              </div>
+              <div className="text-xs text-gray-600 dark:text-gray-400">Avg per Type</div>
+            </div>
+          </div>
+        </div>
+      </ModernCard>
 
       {/* Search and Controls */}
       <div className="flex items-center gap-4">
@@ -686,6 +1244,17 @@ export function UnifiedProjectTypesManager() {
                     icon={<Plus className="h-4 w-4" />}
                   >
                     Add Activity
+                  </ModernButton>
+                  
+                  <ModernButton
+                    onClick={() => handleExportSpecificType(type)}
+                    variant="outline"
+                    size="sm"
+                    icon={<Download className="h-4 w-4" />}
+                    disabled={loading}
+                    title="Export this project type as template"
+                  >
+                    Export
                   </ModernButton>
                   
                   <ModernButton

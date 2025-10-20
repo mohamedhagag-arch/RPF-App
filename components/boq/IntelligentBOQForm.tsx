@@ -83,7 +83,9 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   const [duration, setDuration] = useState(0)
   const [includeWeekends, setIncludeWeekends] = useState(false)
   const [customHolidays, setCustomHolidays] = useState<string[]>([])
-  const [activityTiming, setActivityTiming] = useState<'pre-commencement' | 'post-commencement'>(activity?.activity_timing || 'post-commencement')
+  const [activityTiming, setActivityTiming] = useState<'pre-commencement' | 'post-commencement' | 'post-completion'>(activity?.activity_timing || 'post-commencement')
+  const [hasValue, setHasValue] = useState(activity?.has_value ?? true) // Default to true for existing activities
+  const [affectsTimeline, setAffectsTimeline] = useState(activity?.affects_timeline ?? false) // Default to false
   
   // KPI Generation
   const [autoGenerateKPIs, setAutoGenerateKPIs] = useState(true)
@@ -487,11 +489,22 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       endDate,
       plannedUnits,
       activityName,
-      autoGenerateKPIs
+      autoGenerateKPIs,
+      activityTiming,
+      hasValue,
+      affectsTimeline
     })
     
     if (!startDate || !endDate || !plannedUnits || parseFloat(plannedUnits) <= 0 || !activityName) {
       console.log('⚠️ generateKPIPreview skipped - missing required data')
+      setKpiPreview(null)
+      setKpiGenerationStatus('idle')
+      return
+    }
+
+    // ✅ Post-completion specific logic
+    if (activityTiming === 'post-completion' && !hasValue && !affectsTimeline) {
+      console.log('⚠️ Post-completion activity with no value and no timeline impact - skipping KPI preview')
       setKpiPreview(null)
       setKpiGenerationStatus('idle')
       return
@@ -512,7 +525,10 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         planned_activity_start_date: startDate,
         deadline: endDate,
         zone_ref: project?.responsible_division || '',
-        project_full_name: project?.project_name || ''
+        project_full_name: project?.project_name || '',
+        activity_timing: activityTiming,
+        has_value: hasValue,
+        affects_timeline: affectsTimeline
       }
       
       const kpis = await generateKPIsFromBOQ(tempActivity as any, workdaysConfig)
@@ -524,7 +540,10 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         numberOfDays: kpis.length,
         averagePerDay: kpis.length > 0 ? calculatedTotal / kpis.length : 0,
         startDate: kpis.length > 0 ? kpis[0].target_date : '',
-        endDate: kpis.length > 0 ? kpis[kpis.length - 1].target_date : ''
+        endDate: kpis.length > 0 ? kpis[kpis.length - 1].target_date : '',
+        activityTiming: activityTiming,
+        hasValue: hasValue,
+        affectsTimeline: affectsTimeline
       }
       
       // ✅ Verify total matches planned units
@@ -538,6 +557,16 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       setKpiGenerationStatus('ready')
       
       console.log(`✅ Generated ${summary.numberOfDays} KPI records (Total: ${summary.totalQuantity} ${unit})`)
+      
+      // ✅ Post-completion specific logging
+      if (activityTiming === 'post-completion') {
+        console.log('🔧 Post-completion activity KPI generation:', {
+          hasValue,
+          affectsTimeline,
+          kpiCount: kpis.length,
+          totalQuantity: calculatedTotal
+        })
+      }
     } catch (err) {
       console.error('❌ Error generating KPI preview:', err)
       setKpiGenerationStatus('error')
@@ -665,6 +694,11 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       if (autoGenerateKPIs && (!plannedUnits || parseFloat(plannedUnits) <= 0)) {
         throw new Error('Planned Units is required for KPI auto-generation. Please enter a value greater than 0.')
       }
+
+      // ✅ Post-completion specific validation
+      if (activityTiming === 'post-completion' && !hasValue && !affectsTimeline) {
+        console.log('⚠️ Post-completion activity with no value and no timeline impact - KPI generation may be limited')
+      }
       
       const activityData = {
         ...(activity?.id && { id: activity.id }), // Include ID if editing
@@ -681,6 +715,8 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         deadline: endDate,
         calendar_duration: duration,
         activity_timing: activityTiming,
+        has_value: hasValue,
+        affects_timeline: affectsTimeline,
         project_full_name: project?.project_name || '',
         project_status: project?.project_status || 'upcoming',
         total_units: 0,
@@ -719,10 +755,17 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         autoGenerateKPIs,
         hasKpiPreview: !!kpiPreview,
         kpiCount: kpiPreview?.kpis?.length || 0,
-        kpiPreviewData: kpiPreview ? 'Available' : 'Missing'
+        kpiPreviewData: kpiPreview ? 'Available' : 'Missing',
+        activityTiming,
+        hasValue,
+        affectsTimeline
       })
       
-      if (autoGenerateKPIs && kpiPreview?.kpis && kpiPreview.kpis.length > 0) {
+      // ✅ Post-completion KPI logic
+      if (activityTiming === 'post-completion' && !hasValue && !affectsTimeline) {
+        console.log('⚠️ Post-completion activity with no value and no timeline impact - skipping KPI generation')
+        setSuccess(activity ? '✅ Post-completion activity updated successfully!' : '✅ Post-completion activity created successfully!')
+      } else if (autoGenerateKPIs && kpiPreview?.kpis && kpiPreview.kpis.length > 0) {
         if (activity) {
           // ✅ EDIT MODE: Update existing KPIs (not delete and recreate!)
           console.log('🔄 UPDATING KPIs for existing activity...')
@@ -1139,7 +1182,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Activity Timing <span className="text-red-500">*</span>
               </label>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div 
                   className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
                     activityTiming === 'pre-commencement' 
@@ -1193,6 +1236,33 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                     </div>
                   </div>
                 </div>
+
+                <div 
+                  className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                    activityTiming === 'post-completion' 
+                      ? 'border-red-500 bg-red-50 dark:bg-red-900/20' 
+                      : 'border-gray-300 dark:border-gray-600 hover:border-red-300'
+                  }`}
+                  onClick={() => setActivityTiming('post-completion')}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`w-4 h-4 rounded-full border-2 ${
+                      activityTiming === 'post-completion' 
+                        ? 'border-red-500 bg-red-500' 
+                        : 'border-gray-300'
+                    }`}>
+                      {activityTiming === 'post-completion' && (
+                        <div className="w-2 h-2 bg-white rounded-full m-0.5"></div>
+                      )}
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-gray-900 dark:text-white">Post-completion</h3>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        Activities that occur after project completion
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
               
               {activityTiming === 'pre-commencement' && (
@@ -1208,6 +1278,77 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                         Make sure the end date is before the project commencement date.
                       </p>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {activityTiming === 'post-completion' && (
+                <div className="mt-3 space-y-3">
+                  <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="h-5 w-5 text-red-600 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-medium text-red-800 dark:text-red-200">
+                          🔧 Post-completion Activity
+                        </p>
+                        <p className="text-xs text-red-700 dark:text-red-300 mt-1">
+                          This activity occurs after project completion. Usually involves dismantling, 
+                          cleanup, or maintenance work. May not have monetary value and typically 
+                          doesn't affect project timeline.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Post-completion Options */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <ModernCard className="bg-gradient-to-br from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20 border-amber-200 dark:border-amber-800">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <input 
+                            type="checkbox" 
+                            id="has-value" 
+                            checked={hasValue}
+                            onChange={(e) => setHasValue(e.target.checked)}
+                            className="w-4 h-4 text-amber-600 bg-gray-100 border-gray-300 rounded focus:ring-amber-500 dark:focus:ring-amber-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+                            disabled={loading}
+                          />
+                          <label htmlFor="has-value" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
+                            💰 Has Monetary Value
+                          </label>
+                        </div>
+                        <ModernBadge variant={hasValue ? "success" : "warning"} size="sm">
+                          {hasValue ? "Valued" : "No Value"}
+                        </ModernBadge>
+                      </div>
+                      <p className="text-xs text-gray-600 dark:text-gray-400 mt-2 ml-7">
+                        Check if this activity has monetary value and should be included in project calculations
+                      </p>
+                    </ModernCard>
+
+                    <ModernCard className="bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 border-purple-200 dark:border-purple-800">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <input 
+                            type="checkbox" 
+                            id="affects-timeline" 
+                            checked={affectsTimeline}
+                            onChange={(e) => setAffectsTimeline(e.target.checked)}
+                            className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500 dark:focus:ring-purple-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+                            disabled={loading}
+                          />
+                          <label htmlFor="affects-timeline" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
+                            ⏰ Affects Project Timeline
+                          </label>
+                        </div>
+                        <ModernBadge variant={affectsTimeline ? "warning" : "info"} size="sm">
+                          {affectsTimeline ? "Timeline Impact" : "No Impact"}
+                        </ModernBadge>
+                      </div>
+                      <p className="text-xs text-gray-600 dark:text-gray-400 mt-2 ml-7">
+                        Check if this activity affects the overall project timeline and should be tracked
+                      </p>
+                    </ModernCard>
                   </div>
                 </div>
               )}

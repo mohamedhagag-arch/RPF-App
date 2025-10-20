@@ -1,0 +1,200 @@
+{
+  "project_types": [
+    {
+      "name": "Infrastructure",
+      "code": "INF",
+      "description": "Infrastructure and civil engineering projects",
+      "is_active": true
+    },
+    {
+      "name": "Residential",
+      "code": "RES",
+      "description": "Residential building projects",
+      "is_active": true
+    },
+    {
+      "name": "Commercial",
+      "code": "COM",
+      "description": "Commercial and office building projects",
+      "is_active": true
+    },
+    {
+      "name": "Industrial",
+      "code": "IND",
+      "description": "Industrial and manufacturing facilities",
+      "is_active": true
+    },
+    {
+      "name": "Healthcare",
+      "code": "HTH",
+      "description": "Healthcare and medical facilities",
+      "is_active": true
+    }
+  ],
+  "activities": [
+    {
+      "project_type": "Infrastructure",
+      "activity_name": "Bored Piling",
+      "activity_name_ar": "الحفر الممل",
+      "description": "Deep foundation work using bored piles",
+      "default_unit": "Meter",
+      "estimated_rate": 150.00,
+      "category": "Piling",
+      "typical_duration": 30,
+      "division": "Civil Division",
+      "display_order": 1,
+      "is_active": true
+    },
+    {
+      "project_type": "Infrastructure",
+      "activity_name": "Concrete Works",
+      "activity_name_ar": "أعمال الخرسانة",
+      "description": "Concrete casting and finishing works",
+      "default_unit": "Cubic Meter",
+      "estimated_rate": 75.00,
+      "category": "Concrete",
+      "typical_duration": 15,
+      "division": "Civil Division",
+      "display_order": 2,
+      "is_active": true
+    },
+    {
+      "project_type": "Infrastructure",
+      "activity_name": "Steel Reinforcement",
+      "activity_name_ar": "تسليح الحديد",
+      "description": "Steel reinforcement installation",
+      "default_unit": "Ton",
+      "estimated_rate": 200.00,
+      "category": "Steel",
+      "typical_duration": 10,
+      "division": "Civil Division",
+      "display_order": 3,
+      "is_active": true
+    },
+    {
+      "project_type": "Residential",
+      "activity_name": "Block Work",
+      "activity_name_ar": "أعمال البناء",
+      "description": "Masonry and block construction",
+      "default_unit": "Square Meter",
+      "estimated_rate": 25.00,
+      "category": "Masonry",
+      "typical_duration": 20,
+      "division": "Construction Division",
+      "display_order": 1,
+      "is_active": true
+    },
+    {
+      "project_type": "Residential",
+      "activity_name": "Plastering",
+      "activity_name_ar": "أعمال البياض",
+      "description": "Wall and ceiling plastering",
+      "default_unit": "Square Meter",
+      "estimated_rate": 15.00,
+      "category": "Finishing",
+      "typical_duration": 12,
+      "division": "Construction Division",
+      "display_order": 2,
+      "is_active": true
+    },
+    {
+      "project_type": "Residential",
+      "activity_name": "Tiling",
+      "activity_name_ar": "أعمال البلاط",
+      "description": "Floor and wall tiling works",
+      "default_unit": "Square Meter",
+      "estimated_rate": 35.00,
+      "category": "Finishing",
+      "typical_duration": 8,
+      "division": "Construction Division",
+      "display_order": 3,
+      "is_active": true
+    },
+    {
+      "project_type": "Commercial",
+      "activity_name": "Steel Structure",
+      "activity_name_ar": "الهيكل المعدني",
+      "description": "Steel structure fabrication and erection",
+      "default_unit": "Ton",
+      "estimated_rate": 300.00,
+      "category": "Steel",
+      "typical_duration": 45,
+      "division": "Steel Division",
+      "display_order": 1,
+      "is_active": true
+    },
+    {
+      "project_type": "Commercial",
+      "activity_name": "Glass Facade",
+      "activity_name_ar": "الواجهة الزجاجية",
+      "description": "Glass facade installation",
+      "default_unit": "Square Meter",
+      "estimated_rate": 120.00,
+      "category": "Facade",
+      "typical_duration": 25,
+      "division": "Facade Division",
+      "display_order": 2,
+      "is_active": true
+    },
+    {
+      "project_type": "Industrial",
+      "activity_name": "Heavy Machinery Installation",
+      "activity_name_ar": "تركيب المعدات الثقيلة",
+      "description": "Installation of heavy industrial machinery",
+      "default_unit": "LS",
+      "estimated_rate": 5000.00,
+      "category": "Mechanical",
+      "typical_duration": 60,
+      "division": "Mechanical Division",
+      "display_order": 1,
+      "is_active": true
+    },
+    {
+      "project_type": "Industrial",
+      "activity_name": "Electrical Systems",
+      "activity_name_ar": "النظم الكهربائية",
+      "description": "Electrical installation and wiring",
+      "default_unit": "LS",
+      "estimated_rate": 2500.00,
+      "category": "Electrical",
+      "typical_duration": 30,
+      "division": "Electrical Division",
+      "display_order": 2,
+      "is_active": true
+    },
+    {
+      "project_type": "Healthcare",
+      "activity_name": "Medical Gas Systems",
+      "activity_name_ar": "أنظمة الغازات الطبية",
+      "description": "Medical gas piping and systems",
+      "default_unit": "LS",
+      "estimated_rate": 8000.00,
+      "category": "Medical",
+      "typical_duration": 40,
+      "division": "Medical Division",
+      "display_order": 1,
+      "is_active": true
+    },
+    {
+      "project_type": "Healthcare",
+      "activity_name": "Clean Room Construction",
+      "activity_name_ar": "بناء الغرف النظيفة",
+      "description": "Clean room and sterile environment construction",
+      "default_unit": "Square Meter",
+      "estimated_rate": 500.00,
+      "category": "Specialized",
+      "typical_duration": 35,
+      "division": "Specialized Division",
+      "display_order": 2,
+      "is_active": true
+    }
+  ],
+  "metadata": {
+    "exported_at": "2025-01-20T15:30:00.000Z",
+    "version": "1.0",
+    "total_types": 5,
+    "total_activities": 12,
+    "exported_by": "admin@alrabat.com",
+    "system_version": "1.0.0"
+  }
+}

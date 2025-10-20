@@ -276,12 +276,16 @@ export function BOQTable({ activities, projects, allKPIs, onEdit, onDelete, onBu
                     <span className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full ${
                       activity.activity_timing === 'pre-commencement' 
                         ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-300' 
+                        : activity.activity_timing === 'post-completion'
+                        ? 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300'
                         : 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300'
                     }`}>
-                      {activity.activity_timing === 'pre-commencement' ? '⏰ Pre' : '🚀 Post'}
+                      {activity.activity_timing === 'pre-commencement' ? '⏰ Pre' : 
+                       activity.activity_timing === 'post-completion' ? '🔧 Post-Comp' : '🚀 Post'}
                     </span>
                     <span className="text-xs text-gray-500 dark:text-gray-400">
-                      {activity.activity_timing === 'pre-commencement' ? 'Before Start' : 'With Start'}
+                      {activity.activity_timing === 'pre-commencement' ? 'Before Start' : 
+                       activity.activity_timing === 'post-completion' ? 'After End' : 'With Start'}
                     </span>
                   </div>
                 ) : (
