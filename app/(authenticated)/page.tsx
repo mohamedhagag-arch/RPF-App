@@ -1,14 +1,5 @@
-"use client"
-
-import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import ClientRedirect from './ClientRedirect'
 
 export default function AuthenticatedPage() {
-  const router = useRouter()
-
-  useEffect(() => {
-    router.replace('/dashboard')
-  }, [router])
-
-  return <div />
+  return <ClientRedirect />
 }
