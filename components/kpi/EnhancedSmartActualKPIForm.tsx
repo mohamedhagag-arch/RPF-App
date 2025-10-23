@@ -1269,8 +1269,8 @@ export function EnhancedSmartActualKPIForm({
               // Select Activity Message or Form Section
               <ModernCard className="w-full">
                 <div className="p-6">
-                  {!selectedActivity ? (
-                    // Select Activity Message
+                  {!selectedActivity && completedActivities.size < projectActivities.length ? (
+                    // Select Activity Message - Only show when not all activities are completed
                     <div className="text-center py-12">
                       <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
                         <Activity className="w-8 h-8 text-white" />
@@ -1285,7 +1285,23 @@ export function EnhancedSmartActualKPIForm({
                         {projectActivities.filter(activity => !completedActivities.has(activity.id)).length} activities remaining
                       </div>
                     </div>
-                  ) : (
+                  ) : !selectedActivity && completedActivities.size === projectActivities.length && projectActivities.length > 0 ? (
+                    // All Activities Completed - Show Preview Message
+                    <div className="text-center py-12">
+                      <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <CheckCircle2 className="w-8 h-8 text-white" />
+                      </div>
+                      <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                        All Activities Completed!
+                      </h2>
+                      <p className="text-gray-600 dark:text-gray-400 mb-4">
+                        All activities have been completed. You can review and submit your data.
+                      </p>
+                      <div className="text-sm text-gray-500 dark:text-gray-400">
+                        {completedActivities.size} activities completed
+                      </div>
+                    </div>
+                  ) : selectedActivity ? (
                     // Form Section
                     <>
                       {/* Header */}
