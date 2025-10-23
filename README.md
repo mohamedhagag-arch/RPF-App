@@ -4,201 +4,180 @@
 
 **Masters of Foundation Construction** - Advanced project management system using Next.js and Supabase for managing projects, activities, and key performance indicators with real-time progress tracking and comprehensive reporting.
 
-## 🎯 Quick Start
+## 🚀 Features
 
+### 📊 **Smart BOQ Management**
+- Advanced Bill of Quantities management
+- Real-time progress tracking
+- Automated calculations and reporting
+- Smart form validation and auto-fill
+
+### 📈 **KPI Tracking & Analytics**
+- Comprehensive KPI management
+- Real-time analytics and reporting
+- Smart KPI forms with global date selection
+- Batch submission and preview functionality
+- Enhanced start date calculation from planned KPIs
+
+### 🏗️ **Project Management System**
+- Complete project lifecycle management
+- Activity timeline with smart date calculation
+- KPI day order display
+- Project analytics and reporting
+- Advanced sorting and filtering
+
+### 👥 **User Management & Permissions**
+- Role-based access control (Admin, Manager, Engineer, Viewer)
+- 54 granular permissions across 8 categories
+- User synchronization and management
+- Department and job title management
+
+### 📤 **Export/Import Functionality**
+- Export/Import for Departments, Job Titles, Divisions, and Currencies
+- Multiple formats (JSON, CSV, Excel)
+- Bulk operations and data integration
+- Data validation and error handling
+
+### 🎯 **Enhanced Activity Management**
+- Activity timeline with start/end dates and duration
+- Smart start date calculation from first planned KPI
+- KPI activity date and day order display
+- Multiple matching strategies for data integration
+
+## 🛠️ **Technology Stack**
+
+- **Frontend**: Next.js 14 (App Router), React 18, TypeScript
+- **Styling**: Tailwind CSS
+- **Backend**: Supabase (PostgreSQL)
+- **Authentication**: Supabase Auth
+- **Database**: PostgreSQL with Row Level Security (RLS)
+- **Deployment**: Vercel
+
+## 🚀 **Quick Start**
+
+### **Prerequisites**
+- Node.js 18+ 
+- npm 8+
+- Supabase account
+
+### **Installation**
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/rabat-mvp.git
-cd rabat-mvp
+git clone https://github.com/YOUR_USERNAME/alrabat-rpf.git
+
+# Navigate to project directory
+cd alrabat-rpf
 
 # Install dependencies
 npm install
 
 # Set up environment variables
 cp .env.example .env.local
-# Fill in your Supabase credentials
+# Edit .env.local with your Supabase credentials
 
 # Run development server
 npm run dev
 ```
 
-## ⭐ Latest Updates (v1.0.0)
-
-- 🆕 **Planning Schema Integration** - Direct connection to real planning data
-- 🆕 **Auto Progress Calculation** - Automatic calculation based on Planned vs Actual values
-- 🆕 **Advanced Reporting System** - Daily, Weekly, Monthly, and Lookahead reports
-- 🆕 **Critical Path Analysis** - Identify activities requiring immediate attention
-
-## Features
-
-- 🔐 **Advanced Authentication System** with different permission levels
-- 📊 **Project Management** - Add, edit, and delete projects from Planning Database
-- 📋 **Bill of Quantities (BOQ) Management** - Track activities with auto-calculated progress
-- 📈 **Key Performance Indicators (KPI) Tracking** - Monitor performance with timestamps
-- 📅 **Advanced Reporting** - Daily, Weekly, Monthly reports with Lookahead planning
-- 🎯 **Auto Progress Calculation** - Progress % = (Actual / Planned) × 100
-- 📤 **Export Data** - Export to CSV, Excel, or JSON formats
-- 📥 **Import Data** - Import from Excel/CSV with preview and validation
-- 🎨 **English User Interface** with responsive design
-- 📱 **Responsive Design** that works on all devices
-
-## Technologies Used
-
-- **Frontend**: Next.js 14, React 18, TypeScript
-- **Backend**: Supabase (PostgreSQL)
-- **Styling**: Tailwind CSS
-- **Authentication**: Supabase Auth
-- **Icons**: Lucide React
-
-## System Requirements
-
-- Node.js 18+ 
-- npm or yarn
-- Supabase account
-
-## Installation and Setup
-
-### 1. Clone the Project
-
-```bash
-git clone <repository-url>
-cd rabat-mvp
-```
-
-### 2. Install Dependencies
-
-```bash
-npm install
-# or
-yarn install
-```
-
-### 3. Setup Supabase
-
-1. Create a new project in [Supabase](https://supabase.com)
-2. Copy the URL and API Key from project settings
-3. Create a `.env.local` file in the root folder:
-
+### **Environment Variables**
 ```env
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+SITE_URL=https://alrabat-rpf.vercel.app
 ```
 
-### 4. Setup Database
+## 📊 **Database Schema**
 
-1. Open Supabase Dashboard
-2. Go to SQL Editor
-3. Copy the content from `lib/database-schema.sql` file and paste it in the editor
-4. Click "Run" to create tables and policies
+The system uses PostgreSQL with the following main tables:
+- `users` - User management and roles
+- `projects` - Project information
+- `boq_activities` - Bill of Quantities activities
+- `kpi_records` - Key Performance Indicators
+- `departments` - Department management
+- `job_titles` - Job title management
+- `divisions` - Division management
+- `currencies` - Currency management
 
-### 5. Run the Project
+## 🔐 **Security**
 
+- Row Level Security (RLS) enabled on all tables
+- Role-based access control
+- Granular permission system
+- Secure authentication with Supabase Auth
+- Data validation and sanitization
+
+## 📈 **Performance**
+
+- Optimized database queries
+- Lazy loading and pagination
+- Efficient state management
+- Smart caching strategies
+- Performance monitoring and analytics
+
+## 🚀 **Deployment**
+
+The application is deployed on Vercel with automatic deployments from the main branch.
+
+### **Production URL**
+https://alrabat-rpf.vercel.app
+
+### **Deployment Commands**
 ```bash
-npm run dev
-# or
-yarn dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) in your browser.
-
-## Project Structure
-
-```
-rabat-mvp/
-├── app/                    # Next.js App Router
-│   ├── globals.css        # Global styles
-│   ├── layout.tsx         # Main layout
-│   ├── page.tsx           # Home page
-│   └── providers.tsx      # Context providers
-├── components/            # Components
-│   ├── auth/             # Authentication components
-│   ├── dashboard/        # Dashboard
-│   ├── projects/         # Project management
-│   ├── boq/              # BOQ management
-│   ├── kpi/              # KPI tracking
-│   └── ui/               # UI components
-├── lib/                  # Libraries and configurations
-│   ├── supabase.ts       # Supabase configuration
-│   └── database-schema.sql # Database schema
-└── public/               # Static files
-```
-
-## Permission Levels
-
-- **Admin**: Full permissions (user management, data deletion)
-- **Manager**: Project and activity management
-- **Engineer**: Add and edit activities and KPIs
-- **Viewer**: View data only
-
-## Usage
-
-### 1. Login
-- Use existing accounts (admin@rabat.com, manager@rabat.com, engineer@rabat.com)
-- Or create new account
-
-### 2. Project Management
-- Go to "Projects"
-- View all projects from Planning Database
-- Projects are automatically synced with Planning Schema
-
-### 3. Activity Management (BOQ)
-- Go to "BOQ Activities"
-- Add or edit activities
-- Enter **Planned Quantity** (from planning phase)
-- Enter **Actual Quantity** (from site engineer)
-- **Progress % is calculated automatically!** ✨
-  - Formula: (Actual / Planned) × 100
-  - Status updated automatically (Completed, On Track, Delayed)
-
-### 4. KPI Tracking
-- Go to "KPI Tracking"
-- Track planned vs actual values with timestamps
-- Monitor performance indicators
-
-### 5. Advanced Reports (New!)
-- Go to "Advanced Reports" in sidebar
-- Choose report type:
-  - **Daily** - Today's activities and progress
-  - **Weekly** - This week's summary
-  - **Monthly** - Month performance
-  - **Lookahead** - Current week + Next week planning
-  - **Summary** - Complete project overview
-- Export reports as needed
-
-## Data Import
-
-You can import data from CSV files located in the `Database` folder:
-
-1. **ProjectsList**: Project data
-2. **BOQ Rates**: Activity and quantity data
-3. **KPI**: KPI data
-
-## Support and Help
-
-For help or to report issues:
-
-1. Check the `lib/database-schema.sql` file to ensure database setup is correct
-2. Verify environment variables in `.env.local` are correct
-3. Check browser console for errors
-
-## Development
-
-### Adding New Features
-
-1. Create components in the appropriate folder
-2. Add required tables to the database
-3. Update RLS policies as needed
-4. Add tests
-
-### Building for Production
-
-```bash
+# Build for production
 npm run build
+
+# Start production server
 npm start
+
+# Run linting
+npm run lint
+
+# Type checking
+npm run type-check
 ```
 
-## License
+## 📝 **Recent Updates**
 
-This project is licensed under the MIT License.
+### **Version 3.0.14 (December 2024)**
+- Enhanced Start Date Calculation with Multiple Matching Strategies
+- Activity Timeline Display with Smart Date Calculation
+- KPI Activity Date and Day Order Display
+- Multiple Fallback System for Start Date
+- Comprehensive Logging for Debugging
+- Smart Date Sorting and Validation
+
+### **Version 3.0.13 (December 2024)**
+- Export/Import functionality for Departments, Job Titles, Divisions, and Currencies
+- Bulk operations and data integration
+- Enhanced user management and permissions
+- Improved UI/UX for data management
+
+### **Version 3.0.12 (December 2024)**
+- Smart KPI Form with global date selection
+- Batch submission and preview functionality
+- Submit protection and success messages
+- Enhanced form validation and user experience
+
+## 🤝 **Contributing**
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
+
+## 📄 **License**
+
+This project is proprietary software developed for AlRabat RPF.
+
+## 📞 **Support**
+
+For support and questions, please contact the development team.
+
+---
+
+**Developed by:** AlRabat RPF Development Team  
+**Version:** 3.0.14  
+**Last Updated:** December 2024
