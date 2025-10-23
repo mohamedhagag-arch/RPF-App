@@ -169,7 +169,7 @@ export async function checkConnection(): Promise<boolean> {
     }
     
     if (!session) {
-      console.warn('⚠️ No active session found')
+      console.warn('⚠️ No active session found - but not redirecting immediately')
       // لا نقوم بإعادة توجيه فورية - نترك للمستخدم اختيار تسجيل الدخول
       return false
     }

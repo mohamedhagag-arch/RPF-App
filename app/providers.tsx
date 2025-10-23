@@ -122,7 +122,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         
         // First try to get session with retry mechanism
         let session = null
-        let retries = isReload ? 15 : 5 // More retries for reload scenarios
+        let retries = isReload ? 15 : 5 // Increased retries for better session recovery
         
         while (retries > 0) {
           try {
@@ -143,7 +143,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
             console.log('⚠️ AuthProvider: Session fetch error:', error)
             retries--
             if (retries > 0) {
-              await new Promise(resolve => setTimeout(resolve, isReload ? 1500 : 2000))
+              await new Promise(resolve => setTimeout(resolve, isReload ? 1000 : 2000))
               continue
             }
           }
@@ -154,7 +154,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
           userEmail: session?.user?.email,
           expiresAt: session?.expires_at,
           isExpired: session?.expires_at ? new Date(session.expires_at * 1000) < new Date() : false,
-          isReload
+          isReload,
+          timeUntilExpiry: session?.expires_at ? Math.floor((session.expires_at * 1000 - Date.now()) / 1000 / 60) : 0
         })
         
         if (mounted.current) {
@@ -181,8 +182,42 @@ export function Providers({ children }: { children: React.ReactNode }) {
               console.log('❌ AuthProvider: Error fetching user profile:', error)
               setAppUser(null)
             }
+          } else if (session?.user && session.expires_at && new Date(session.expires_at * 1000) <= new Date()) {
+            console.log('⚠️ AuthProvider: Session expired, attempting to refresh...')
+            try {
+              const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
+              if (refreshError) {
+                console.log('❌ AuthProvider: Session refresh failed:', refreshError.message)
+                setAppUser(null)
+              } else if (refreshData.session) {
+                console.log('✅ AuthProvider: Session refreshed successfully')
+                setUser(refreshData.session.user)
+                // Try to fetch profile with refreshed session
+                try {
+                  const { data: profile, error } = await supabase
+                    .from('users')
+                    .select('*')
+                    .eq('id', refreshData.session.user.id)
+                    .single()
+                  
+                  if (error) {
+                    console.log('⚠️ AuthProvider: User profile not found after refresh:', error.message)
+                    setAppUser(null)
+                  } else {
+                    console.log('✅ AuthProvider: User profile loaded after refresh')
+                    setAppUser(profile)
+                  }
+                } catch (error) {
+                  console.log('❌ AuthProvider: Error fetching user profile after refresh:', error)
+                  setAppUser(null)
+                }
+              }
+            } catch (error) {
+              console.log('❌ AuthProvider: Error refreshing session:', error)
+              setAppUser(null)
+            }
           } else {
-            console.log('⚠️ AuthProvider: No valid session - clearing user data')
+            console.log('⚠️ AuthProvider: No valid session - but not redirecting immediately')
             setAppUser(null)
           }
           

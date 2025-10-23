@@ -35,12 +35,13 @@ export default function AuthenticatedLayout({
       const isReload = window.performance?.navigation?.type === 1
       if (isReload) {
         sessionStorage.setItem('auth_reload_check', 'true')
+        console.log('🔄 Layout: Page reload detected, setting reload flag')
       }
     }
   }, [])
 
   useEffect(() => {
-    // ✅ FIX: Don't redirect immediately on reload - give time for session recovery
+    // ✅ FIX: More tolerant session handling - don't redirect immediately
     if (mounted && !loading && !user) {
       // Check if this is a reload scenario
       const isReload = typeof window !== 'undefined' && (
@@ -53,16 +54,24 @@ export default function AuthenticatedLayout({
       
       if (isReload) {
         console.log('🔄 Layout: Detected reload, waiting for session recovery...')
-        // Wait a bit longer for session to recover
+        // Clear the reload flag
+        sessionStorage.removeItem('auth_reload_check')
+        // Wait longer for session to recover
         setTimeout(() => {
           if (!user) {
             console.log('⚠️ Layout: No session found after reload, redirecting to login')
             router.push('/')
           }
-        }, 15000) // Increased timeout for reload scenarios
+        }, 45000) // Increased timeout to 45 seconds
       } else {
-        // For new tabs or navigation, redirect immediately
-        router.push('/')
+        // For new tabs or navigation, wait a bit before redirecting
+        console.log('🔄 Layout: New navigation detected, waiting for session...')
+        setTimeout(() => {
+          if (!user) {
+            console.log('⚠️ Layout: No session found, redirecting to login')
+            router.push('/')
+          }
+        }, 20000) // Wait 20 seconds before redirecting
       }
     }
   }, [user, loading, mounted, router])

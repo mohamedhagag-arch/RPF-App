@@ -15,6 +15,7 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Alert } from '@/components/ui/Alert'
 import { IntelligentBOQForm } from './IntelligentBOQForm'
 import { BOQTable } from './BOQTable'
+import { BOQTableWithCustomization } from './BOQTableWithCustomization'
 import { Pagination } from '@/components/ui/Pagination'
 import { Plus, ClipboardList, CheckCircle, Clock, AlertCircle, Filter, X, Search } from 'lucide-react'
 import { ExportButton } from '@/components/ui/ExportButton'
@@ -43,6 +44,11 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editingActivity, setEditingActivity] = useState<BOQActivity | null>(null)
+  const [useCustomizedTable, setUseCustomizedTable] = useState(true) // ✅ Use customized table by default
+  
+  // Zone Management
+  const [selectedZone, setSelectedZone] = useState<string | null>(null)
+  const [availableZones, setAvailableZones] = useState<string[]>([])
   
   // ✅ Simple Filter State
   const [showFilters, setShowFilters] = useState(false)
@@ -50,7 +56,8 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     search: '',
     project: '',
     division: '',
-    status: ''
+    status: '',
+    zone: ''
   })
   const [filteredActivities, setFilteredActivities] = useState<BOQActivity[]>([])
   
@@ -107,6 +114,13 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       })
     }
     
+    // Zone filter
+    if (filters.zone) {
+      filtered = filtered.filter(activity => 
+        activity.zone_ref === filters.zone
+      )
+    }
+    
     console.log('🔍 Filter applied:', {
       original: activitiesList.length,
       filtered: filtered.length,
@@ -151,7 +165,8 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       search: '',
       project: '',
       division: '',
-      status: ''
+      status: '',
+      zone: ''
     })
     setFilteredActivities([])
     setActivities([])
@@ -204,6 +219,11 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       if (filtersToApply.division) {
         activitiesQuery = activitiesQuery.eq('Activity Division', filtersToApply.division)
         console.log('🔍 Applied division filter:', filtersToApply.division)
+      }
+      
+      if (filtersToApply.zone) {
+        activitiesQuery = activitiesQuery.eq('Zone Ref', filtersToApply.zone)
+        console.log('🔍 Applied zone filter:', filtersToApply.zone)
       }
       
       // ✅ Note: Status filter not available in BOQ Rates table
@@ -490,6 +510,31 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
           setProjects(mappedProjects)
           console.log('✅ BOQ: Projects list loaded -', mappedProjects.length, 'projects')
           
+          // ✅ Load available zones
+          try {
+            const { data: zonesData, error: zonesError } = await executeQuery(async () =>
+              supabase
+                .from(TABLES.BOQ_ACTIVITIES)
+                .select('Zone Ref')
+                .not('Zone Ref', 'is', null)
+                .not('Zone Ref', 'eq', '')
+            )
+            
+            if (!zonesError && zonesData) {
+              const zones = new Set<string>()
+              zonesData.forEach((item: any) => {
+                if (item['Zone Ref']) {
+                  zones.add(item['Zone Ref'])
+                }
+              })
+              const zoneList = Array.from(zones).sort()
+              setAvailableZones(zoneList)
+              console.log(`✅ Loaded ${zoneList.length} available zones`)
+            }
+          } catch (zonesError) {
+            console.error('❌ Error loading zones:', zonesError)
+          }
+          
           // ✅ Projects loaded - ready for filtering
           console.log('✅ Projects loaded - ready for filtering')
           // ✅ Don't auto-fetch BOQ activities - wait for filters to be applied
@@ -531,7 +576,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     window.scrollTo({ top: 0, behavior: 'smooth' })
     
     // ✅ Only fetch data if filters are applied
-    if (filters.search || filters.project || filters.division || filters.status) {
+    if (filters.search || filters.project || filters.division || filters.status || filters.zone) {
       console.log('🔄 Page changed with filters applied - fetching data...')
       fetchData(page, true)
     }
@@ -1004,13 +1049,23 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
           
           {/* Add New Activity Button */}
           {guard.hasAccess('boq.create') && (
-            <Button 
-              onClick={() => setShowForm(true)} 
-              className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Add New Activity</span>
-            </Button>
+            <div className="flex gap-2">
+              <Button 
+                onClick={() => setShowForm(true)} 
+                className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Add New Activity</span>
+              </Button>
+              <Button 
+                onClick={() => setUseCustomizedTable(!useCustomizedTable)}
+                variant="outline"
+                className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
+              >
+                <Filter className="h-4 w-4" />
+                <span>{useCustomizedTable ? 'Standard View' : 'Customize Columns'}</span>
+              </Button>
+            </div>
           )}
         </div>
         
@@ -1034,7 +1089,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
                 <Filter className="h-4 w-4" />
                 {showFilters ? 'Hide Filters' : 'Show Filters'}
               </Button>
-              {(filters.search || filters.project || filters.division || filters.status) && (
+              {(filters.search || filters.project || filters.division || filters.status || filters.zone) && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -1121,6 +1176,25 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
                   <option value="completed">Completed (100%)</option>
                 </select>
               </div>
+              
+              {/* Zone Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Zone
+                </label>
+                <select
+                  value={filters.zone}
+                  onChange={(e) => handleFilterChange('zone', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                >
+                  <option value="">All Zones</option>
+                  {availableZones.map((zone) => (
+                    <option key={zone} value={zone}>
+                      {zone}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           )}
         </div>
@@ -1205,14 +1279,24 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
               </div>
             </div>
           ) : (
-            <BOQTable
-              activities={getCurrentPageData()}
-              projects={projects}
-              allKPIs={allKPIs}
-              onEdit={setEditingActivity}
-              onDelete={handleDeleteActivity}
-              onBulkDelete={handleBulkDeleteActivity}
-            />
+            useCustomizedTable ? (
+              <BOQTableWithCustomization
+                activities={getCurrentPageData()}
+                projects={projects}
+                onEdit={setEditingActivity}
+                onDelete={handleDeleteActivity}
+                onBulkDelete={handleBulkDeleteActivity}
+              />
+            ) : (
+              <BOQTable
+                activities={getCurrentPageData()}
+                projects={projects}
+                allKPIs={allKPIs}
+                onEdit={setEditingActivity}
+                onDelete={handleDeleteActivity}
+                onBulkDelete={handleBulkDeleteActivity}
+              />
+            )
           )}
         </CardContent>
         

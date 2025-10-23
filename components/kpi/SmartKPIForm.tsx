@@ -22,6 +22,7 @@ export function SmartKPIForm({ kpi, projects, onSubmit, onCancel }: SmartKPIForm
     project_full_code: '',
     activity_name: '',
     section: '',
+    zone: '',
     quantity: 0,
     input_type: 'Planned' as 'Planned' | 'Actual',
     drilled_meters: 0,
@@ -37,6 +38,7 @@ export function SmartKPIForm({ kpi, projects, onSubmit, onCancel }: SmartKPIForm
         project_full_code: kpi.project_full_code || '',
         activity_name: kpi.activity_name || '',
         section: kpi.section || '',
+        zone: kpi.zone || '',
         quantity: kpi.quantity || 0,
         input_type: kpi.input_type || 'Planned',
         drilled_meters: kpi.drilled_meters || 0,
@@ -47,6 +49,7 @@ export function SmartKPIForm({ kpi, projects, onSubmit, onCancel }: SmartKPIForm
         project_full_code: '',
         activity_name: '',
         section: '',
+        zone: '',
         quantity: 0,
         input_type: 'Planned',
         drilled_meters: 0,
@@ -254,6 +257,19 @@ export function SmartKPIForm({ kpi, projects, onSubmit, onCancel }: SmartKPIForm
                 value={formData.section}
                 onChange={(e) => handleChange('section', e.target.value)}
                 placeholder="e.g., -10m, Section A"
+              />
+            </div>
+
+            {/* Zone (Optional) */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Zone <span className="text-gray-400">(Optional)</span>
+              </label>
+              <Input
+                type="text"
+                value={formData.zone}
+                onChange={(e) => handleChange('zone', e.target.value)}
+                placeholder="e.g., Zone 1, Area A"
               />
             </div>
 

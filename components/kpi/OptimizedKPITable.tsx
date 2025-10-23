@@ -176,14 +176,14 @@ export function OptimizedKPITable({
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">
                   Project
                 </th>
+                <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider w-20">
+                  Zone
+                </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">
                   Quantity
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">
                   Target Date
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">
-                  Status
                 </th>
                 {(canEdit || canDelete) && (
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">
@@ -245,6 +245,13 @@ export function OptimizedKPITable({
                       </div>
                     </td>
                     
+                    {/* Zone */}
+                    <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-900 dark:text-gray-100 w-20">
+                      <span className="px-1.5 py-0.5 text-xs font-medium bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-400 rounded text-center truncate max-w-16">
+                        {kpi.zone || 'N/A'}
+                      </span>
+                    </td>
+                    
                     {/* Quantity */}
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <div className={`font-bold text-lg ${
@@ -287,23 +294,6 @@ export function OptimizedKPITable({
                       })()}
                     </td>
                     
-                    {/* Status */}
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="space-y-2">
-                        <span className={`inline-flex items-center px-3 py-1.5 text-xs font-bold rounded-full ${getKPITypeStatusColor(kpi.input_type, kpi.status)}`}>
-                          {kpi.status.charAt(0).toUpperCase() + kpi.status.slice(1)}
-                        </span>
-                        {/* Performance Bar */}
-                        <div className="w-20 bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
-                          <div 
-                            className={`h-1.5 rounded-full transition-all ${
-                              isPlanned ? 'bg-blue-600' : 'bg-green-600'
-                            }`}
-                            style={{ width: `${kpi.performance_level}%` }}
-                          ></div>
-                        </div>
-                      </div>
-                    </td>
                     
                     {/* Enhanced Actions */}
                     {(canEdit || canDelete) && (

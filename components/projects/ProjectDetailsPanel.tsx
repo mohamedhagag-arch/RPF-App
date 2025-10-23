@@ -28,6 +28,7 @@ import {
   Target,
   Zap,
   Award,
+  Timer,
   AlertCircle
 } from 'lucide-react'
 
@@ -122,7 +123,7 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
     return activity.calendar_duration || 0
   }
 
-  // ✅ Calculate Start Date from KPI data or project start date
+  // ✅ Calculate Start Date from first planned KPI for the activity
   const calculateActivityStartDate = (activity: any) => {
     // If activity has start date, use it
     if (activity.planned_activity_start_date) {
@@ -132,26 +133,75 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
     // If no KPI data, return null
     if (!analytics?.kpis) return null
     
-    // Find KPI records for this activity
-    const activityKPIs = analytics.kpis.filter((kpi: any) => 
-      kpi.project_code === activity.project_code && 
-      kpi.activity_name === activity.activity_name
-    )
+    // Find KPI records for this activity - try multiple matching strategies
+    const activityKPIs = analytics.kpis.filter((kpi: any) => {
+      // Strategy 1: Exact match on activity_name
+      if (kpi.activity_name === activity.activity_name && kpi.project_code === activity.project_code) {
+        return true
+      }
+      
+      // Strategy 2: Match on activity (fallback name)
+      if (kpi.activity === activity.activity && kpi.project_code === activity.project_code) {
+        return true
+      }
+      
+      // Strategy 3: Match on kpi_name (some KPIs might use kpi_name instead)
+      if (kpi.kpi_name === activity.activity_name && kpi.project_code === activity.project_code) {
+        return true
+      }
+      
+      return false
+    })
+    
+    console.log(`🔍 Activity: ${activity.activity_name} - Found ${activityKPIs.length} KPIs`)
     
     if (activityKPIs.length > 0) {
-      // Try to find start date from KPI records
+      // Find the first planned KPI (input_type = 'Planned') for this activity
+      const plannedKPIs = activityKPIs.filter((kpi: any) => kpi.input_type === 'Planned')
+      
+      console.log(`📅 Planned KPIs for ${activity.activity_name}: ${plannedKPIs.length}`)
+      
+      if (plannedKPIs.length > 0) {
+        // Sort by target_date to get the earliest planned KPI
+        const sortedPlannedKPIs = plannedKPIs.sort((a: any, b: any) => {
+          const dateA = new Date(a.target_date || a.actual_date || '')
+          const dateB = new Date(b.target_date || b.actual_date || '')
+          return dateA.getTime() - dateB.getTime()
+        })
+        
+        // Get the target_date from the first planned KPI
+        const firstPlannedKPI = sortedPlannedKPIs[0]
+        console.log(`🎯 First planned KPI for ${activity.activity_name}:`, firstPlannedKPI)
+        
+        if (firstPlannedKPI?.target_date) {
+          console.log(`✅ Found start date from planned KPI: ${firstPlannedKPI.target_date}`)
+          return firstPlannedKPI.target_date
+        }
+      }
+      
+      // Fallback: If no planned KPIs, try to find any KPI with target_date
+      const kpiWithTargetDate = activityKPIs.find((kpi: any) => kpi.target_date)
+      if (kpiWithTargetDate?.target_date) {
+        console.log(`✅ Found start date from any KPI: ${kpiWithTargetDate.target_date}`)
+        return kpiWithTargetDate.target_date
+      }
+      
+      // Fallback: Try to find any KPI with start_date
       const kpiWithStartDate = activityKPIs.find((kpi: any) => kpi.start_date)
       if (kpiWithStartDate?.start_date) {
+        console.log(`✅ Found start date from KPI start_date: ${kpiWithStartDate.start_date}`)
         return kpiWithStartDate.start_date
       }
       
       // If no start date in KPI, use project start date as fallback
       const projectData = analytics.project as any
       if (projectData?.project_start_date) {
+        console.log(`✅ Using project start date: ${projectData.project_start_date}`)
         return projectData.project_start_date
       }
     }
     
+    console.log(`❌ No start date found for activity: ${activity.activity_name}`)
     return null
   }
 
@@ -878,7 +928,7 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                             <h4 className="font-semibold text-lg text-gray-900 dark:text-white mb-1">
                               {activity.activity_name || activity.activity}
                             </h4>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 mb-2">
                               <Badge variant="outline" className="text-xs">
                                 {activity.activity_division || 'No division'}
                               </Badge>
@@ -887,6 +937,58 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                                   {activity.unit}
                                 </Badge>
                               )}
+                            </div>
+                            
+                            {/* Activity Timeline - Always Visible */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                              <div className="flex items-center gap-2">
+                                <Calendar className="h-4 w-4 text-blue-500" />
+                                <div>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">Start Date</p>
+                                  <p className="font-medium text-gray-900 dark:text-white">
+                                    {(() => {
+                                      const startDate = calculateActivityStartDate(activity)
+                                      return startDate 
+                                        ? new Date(startDate).toLocaleDateString('en-US', {
+                                            year: 'numeric',
+                                            month: 'short',
+                                            day: 'numeric'
+                                          })
+                                        : 'Not set'
+                                    })()}
+                                  </p>
+                                </div>
+                              </div>
+                              
+                              <div className="flex items-center gap-2">
+                                <Clock className="h-4 w-4 text-red-500" />
+                                <div>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">End Date</p>
+                                  <p className="font-medium text-gray-900 dark:text-white">
+                                    {activity.deadline 
+                                      ? new Date(activity.deadline).toLocaleDateString('en-US', {
+                                          year: 'numeric',
+                                          month: 'short',
+                                          day: 'numeric'
+                                        })
+                                      : 'Not set'
+                                    }
+                                  </p>
+                                </div>
+                              </div>
+                              
+                              <div className="flex items-center gap-2">
+                                <Timer className="h-4 w-4 text-green-500" />
+                                <div>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">Duration</p>
+                                  <p className="font-medium text-gray-900 dark:text-white">
+                                    {(() => {
+                                      const duration = calculateActivityDuration(activity)
+                                      return duration > 0 ? `${duration} days` : 'Not set'
+                                    })()}
+                                  </p>
+                                </div>
+                              </div>
                             </div>
                           </div>
                           <div className="flex gap-2">
@@ -904,7 +1006,7 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                               onClick={() => toggleActivityDetails(activity.id)}
                               className="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded"
                             >
-                              {showActivityDetails[activity.id] ? "Hide" : "Show"}
+                              {showActivityDetails[activity.id] ? "Hide Details" : "Show Details"}
                             </button>
                           </div>
                         </div>
@@ -987,98 +1089,136 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                           </div>
                         </div>
                         
-                        {/* Dates Section */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                        {/* Enhanced Timeline Section */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
                           <div className="flex items-center gap-2">
                             <Calendar className="h-4 w-4 text-blue-500" />
-                          <div>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">Start Date</p>
-                            <p className="text-sm font-medium text-gray-900 dark:text-white">
+                            <div>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">Start Date</p>
+                              <p className="text-sm font-medium text-gray-900 dark:text-white">
+                                {(() => {
+                                  const startDate = calculateActivityStartDate(activity)
+                                  return startDate 
+                                    ? new Date(startDate).toLocaleDateString('en-US', {
+                                        year: 'numeric',
+                                        month: 'short',
+                                        day: 'numeric'
+                                      })
+                                    : 'Not set'
+                                })()}
+                              </p>
                               {(() => {
                                 const startDate = calculateActivityStartDate(activity)
-                                return startDate 
-                                  ? new Date(startDate).toLocaleDateString('en-US', {
+                                const originalStartDate = activity.planned_activity_start_date
+                                
+                                if (startDate) {
+                                  return (
+                                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                                      {(() => {
+                                        const startDateObj = new Date(startDate)
+                                        const today = new Date()
+                                        const diffTime = startDateObj.getTime() - today.getTime()
+                                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+                                        
+                                        if (diffDays > 0) {
+                                          return `${diffDays} days from now`
+                                        } else if (diffDays === 0) {
+                                          return 'Today'
+                                        } else {
+                                          return `${Math.abs(diffDays)} days ago`
+                                        }
+                                      })()}
+                                    </p>
+                                  )
+                                }
+                                
+                                if (startDate && startDate !== originalStartDate) {
+                                  return (
+                                    <p className="text-xs text-blue-600 dark:text-blue-400">
+                                      Updated from KPI
+                                    </p>
+                                  )
+                                }
+                                
+                                return null
+                              })()}
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-2">
+                            <Clock className="h-4 w-4 text-red-500" />
+                            <div>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">End Date</p>
+                              <p className="text-sm font-medium text-gray-900 dark:text-white">
+                                {activity.deadline 
+                                  ? new Date(activity.deadline).toLocaleDateString('en-US', {
                                       year: 'numeric',
                                       month: 'short',
                                       day: 'numeric'
                                     })
                                   : 'Not set'
-                              })()}
-                            </p>
-                            {(() => {
-                              const startDate = calculateActivityStartDate(activity)
-                              const originalStartDate = activity.planned_activity_start_date
-                              
-                              if (startDate) {
-                                return (
-                                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                                    {(() => {
-                                      const startDateObj = new Date(startDate)
-                                      const today = new Date()
-                                      const diffTime = startDateObj.getTime() - today.getTime()
-                                      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-                                      
-                                      if (diffDays > 0) {
-                                        return `${diffDays} days from now`
-                                      } else if (diffDays === 0) {
-                                        return 'Today'
-                                      } else {
-                                        return `${Math.abs(diffDays)} days ago`
-                                      }
-                                    })()}
-                                  </p>
-                                )
-                              }
-                              
-                              if (startDate && startDate !== originalStartDate) {
-                                return (
-                                  <p className="text-xs text-blue-600 dark:text-blue-400">
-                                    Updated from KPI
-                                  </p>
-                                )
-                              }
-                              
-                              return null
-                            })()}
-                          </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Clock className="h-4 w-4 text-red-500" />
-                            <div>
-                              <p className="text-xs text-gray-500 dark:text-gray-400">Deadline</p>
-                              <p className="text-sm font-medium text-gray-900 dark:text-white">
-                                {activity.deadline 
-                                  ? new Date(activity.deadline).toLocaleDateString()
-                                  : 'Not set'
                                 }
                               </p>
+                              {(() => {
+                                if (activity.deadline) {
+                                  const endDateObj = new Date(activity.deadline)
+                                  const today = new Date()
+                                  const diffTime = endDateObj.getTime() - today.getTime()
+                                  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+                                  
+                                  if (diffDays > 0) {
+                                    return (
+                                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                                        {diffDays} days remaining
+                                      </p>
+                                    )
+                                  } else if (diffDays === 0) {
+                                    return (
+                                      <p className="text-xs text-orange-600 dark:text-orange-400">
+                                        Due today
+                                      </p>
+                                    )
+                                  } else {
+                                    return (
+                                      <p className="text-xs text-red-600 dark:text-red-400">
+                                        {Math.abs(diffDays)} days overdue
+                                      </p>
+                                    )
+                                  }
+                                }
+                                return null
+                              })()}
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-2">
+                            <Timer className="h-4 w-4 text-green-500" />
+                            <div>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">Duration</p>
+                              <p className="text-sm font-medium text-gray-900 dark:text-white">
+                                {(() => {
+                                  const duration = calculateActivityDuration(activity)
+                                  return duration > 0 ? `${duration} days` : 'Not set'
+                                })()}
+                              </p>
+                              {(() => {
+                                const duration = calculateActivityDuration(activity)
+                                const originalDuration = activity.calendar_duration
+                                if (duration !== originalDuration && duration > 0) {
+                                  return (
+                                    <p className="text-xs text-blue-600 dark:text-blue-400">
+                                      Updated from KPI
+                                    </p>
+                                  )
+                                }
+                                return null
+                              })()}
                             </div>
                           </div>
                         </div>
                         
                         {/* Additional Details */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-                          <div>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">Duration</p>
-                            <p className="text-sm font-medium text-gray-900 dark:text-white">
-                              {(() => {
-                                const duration = calculateActivityDuration(activity)
-                                return duration > 0 ? `${duration} days` : 'Not set'
-                              })()}
-                            </p>
-                            {(() => {
-                              const duration = calculateActivityDuration(activity)
-                              const originalDuration = activity.calendar_duration
-                              if (duration !== originalDuration && duration > 0) {
-                                return (
-                                  <p className="text-xs text-blue-600 dark:text-blue-400">
-                                    Updated from KPI
-                                  </p>
-                                )
-                              }
-                              return null
-                            })()}
-                          </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
                           <div>
                             <p className="text-xs text-gray-500 dark:text-gray-400">Zone</p>
                             <p className="text-sm font-medium text-gray-900 dark:text-white">
@@ -1120,6 +1260,69 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                             <h4 className="font-semibold text-lg text-gray-900 dark:text-white mb-1">
                               {kpi.activity_name || kpi.kpi_name}
                             </h4>
+                            
+                            {/* Activity Date and Day Order - Always Visible */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm mb-2">
+                              <div className="flex items-center gap-2">
+                                <Calendar className="h-4 w-4 text-blue-500" />
+                                <div>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">Activity Date</p>
+                                  <p className="font-medium text-gray-900 dark:text-white">
+                                    {kpi.target_date || kpi.start_date || kpi.actual_date
+                                      ? new Date(kpi.target_date || kpi.start_date || kpi.actual_date).toLocaleDateString('en-US', {
+                                          year: 'numeric',
+                                          month: 'short',
+                                          day: 'numeric'
+                                        })
+                                      : 'Not set'
+                                    }
+                                  </p>
+                                </div>
+                              </div>
+                              
+                              <div className="flex items-center gap-2">
+                                <Target className="h-4 w-4 text-green-500" />
+                                <div>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">Day Order</p>
+                                  <p className="font-medium text-gray-900 dark:text-white">
+                                    {(() => {
+                                      // Calculate day order based on target_date
+                                      if (!kpi.target_date) return 'Not set'
+                                      
+                                      // Find all KPIs for the same activity and sort by date
+                                      const activityKPIs = analytics.kpis.filter((otherKpi: any) => 
+                                        otherKpi.activity_name === kpi.activity_name &&
+                                        otherKpi.project_code === kpi.project_code
+                                      )
+                                      
+                                      if (activityKPIs.length <= 1) return 'Day 1'
+                                      
+                                      // Sort by target_date
+                                      const sortedKPIs = activityKPIs.sort((a: any, b: any) => {
+                                        const dateA = new Date(a.target_date || a.start_date || a.actual_date || '')
+                                        const dateB = new Date(b.target_date || b.start_date || b.actual_date || '')
+                                        return dateA.getTime() - dateB.getTime()
+                                      })
+                                      
+                                      // Find the position of current KPI
+                                      const currentIndex = sortedKPIs.findIndex((otherKpi: any) => otherKpi.id === kpi.id)
+                                      
+                                      if (currentIndex === -1) return 'Day 1'
+                                      
+                                      const dayNumber = currentIndex + 1
+                                      const dayNames = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh', 'Eighth', 'Ninth', 'Tenth']
+                                      
+                                      if (dayNumber <= 10) {
+                                        return `${dayNames[dayNumber - 1]} Day (${dayNumber})`
+                                      } else {
+                                        return `Day ${dayNumber}`
+                                      }
+                                    })()}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                            
                             <div className="flex items-center gap-2">
                               <Badge variant="outline" className="text-xs">
                                 {kpi.input_type}

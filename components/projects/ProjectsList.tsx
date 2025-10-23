@@ -25,6 +25,7 @@ import { ProjectCard } from './ProjectCard'
 import { ProjectCardWithAnalytics } from './ProjectCardWithAnalytics'
 import { ModernProjectCard } from './ModernProjectCard'
 import { ProjectDetailsPanel } from './ProjectDetailsPanel'
+import { ProjectsTableWithCustomization } from './ProjectsTableWithCustomization'
 import { AdvancedSorting, SortOption, FilterOption } from '@/components/ui/AdvancedSorting'
 import { Pagination } from '@/components/ui/Pagination'
 import { Plus, Search, Building, Calendar, DollarSign, Percent, Hash, CheckCircle, Clock, AlertCircle, Folder, BarChart3, Grid } from 'lucide-react'
@@ -58,6 +59,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
   const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
+  const [useCustomizedTable, setUseCustomizedTable] = useState(true) // ✅ Use customized table by default
   const [viewingProject, setViewingProject] = useState<Project | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [viewMode, setViewMode] = useState<'cards' | 'simple'>('cards') // Default to cards view
@@ -778,13 +780,22 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
           
           {/* Add New Project Button */}
           {guard.hasAccess('projects.create') && (
-            <button 
-              onClick={() => setShowForm(true)} 
-              className="btn-primary flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Add New Project</span>
-            </button>
+            <div className="flex gap-2">
+              <button 
+                onClick={() => setShowForm(true)} 
+                className="btn-primary flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Add New Project</span>
+              </button>
+              <button 
+                onClick={() => setUseCustomizedTable(!useCustomizedTable)}
+                className="btn-outline flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
+              >
+                <Grid className="h-4 w-4" />
+                <span>{useCustomizedTable ? 'Standard View' : 'Customize Columns'}</span>
+              </button>
+            </div>
           )}
         </div>
         
@@ -954,37 +965,46 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
               </div>
             </div>
           ) : (
-            // Card View
-            <div className={`grid gap-6 ${getCardGridClasses(viewMode)} transition-all duration-300 ease-in-out`}>
-              {filteredProjects.map((project) => {
-                // Calculate analytics for this project (using pre-loaded data)
-                const analytics = shouldLoadCardAnalytics(viewMode) 
-                  ? calculateProjectAnalytics(project, allActivities, allKPIs)
-                  : null
-                
-                // تقليل التسجيل لتجنب البطء
-                if (shouldLoadCardAnalytics(viewMode) && Math.random() < 0.1) {
-                  console.log(`🔍 Analytics for ${project.project_code}:`, {
-                    allActivitiesCount: allActivities.length,
-                    allKPIsCount: allKPIs.length,
-                    hasAnalytics: !!analytics
-                  })
-                }
-                
-                // 🔧 NEW: Always use ModernProjectCard for better UX
-                return (
-                  <ModernProjectCard
-                    key={project.id}
-                    project={project}
-                    onEdit={setEditingProject}
-                    onDelete={handleDeleteProject}
-                    onViewDetails={setViewingProject}
-                    getStatusColor={getStatusColor}
-                    getStatusText={getStatusText}
-                  />
-                )
-              })}
-            </div>
+            useCustomizedTable ? (
+              // Table View with Customization
+              <ProjectsTableWithCustomization
+                projects={filteredProjects}
+                onEdit={setEditingProject}
+                onDelete={handleDeleteProject}
+              />
+            ) : (
+              // Card View
+              <div className={`grid gap-6 ${getCardGridClasses(viewMode)} transition-all duration-300 ease-in-out`}>
+                {filteredProjects.map((project) => {
+                  // Calculate analytics for this project (using pre-loaded data)
+                  const analytics = shouldLoadCardAnalytics(viewMode) 
+                    ? calculateProjectAnalytics(project, allActivities, allKPIs)
+                    : null
+                  
+                  // تقليل التسجيل لتجنب البطء
+                  if (shouldLoadCardAnalytics(viewMode) && Math.random() < 0.1) {
+                    console.log(`🔍 Analytics for ${project.project_code}:`, {
+                      allActivitiesCount: allActivities.length,
+                      allKPIsCount: allKPIs.length,
+                      hasAnalytics: !!analytics
+                    })
+                  }
+                  
+                  // 🔧 NEW: Always use ModernProjectCard for better UX
+                  return (
+                    <ModernProjectCard
+                      key={project.id}
+                      project={project}
+                      onEdit={setEditingProject}
+                      onDelete={handleDeleteProject}
+                      onViewDetails={setViewingProject}
+                      getStatusColor={getStatusColor}
+                      getStatusText={getStatusText}
+                    />
+                  )
+                })}
+              </div>
+            )
           )}
         </CardContent>
         

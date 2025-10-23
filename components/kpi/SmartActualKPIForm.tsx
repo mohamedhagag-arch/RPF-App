@@ -34,13 +34,88 @@ export function SmartActualKPIForm({
   const [unit, setUnit] = useState('')
   const [actualDate, setActualDate] = useState('')
   const [section, setSection] = useState('')
+  const [zone, setZone] = useState('')
+  const [zoneNumber, setZoneNumber] = useState('')
   const [day, setDay] = useState('')
   const [drilledMeters, setDrilledMeters] = useState('')
+  
+  // Zone Management
+  const [availableZones, setAvailableZones] = useState<string[]>([])
+  const [showZoneDropdown, setShowZoneDropdown] = useState(false)
+  const [zoneSuggestions, setZoneSuggestions] = useState<string[]>([])
   
   // Smart form state
   const [selectedActivity, setSelectedActivity] = useState<BOQActivity | null>(null)
   const [dailyRate, setDailyRate] = useState<number>(0)
   const [isAutoCalculated, setIsAutoCalculated] = useState(false)
+  
+  // Smart integration between Section and Zone
+  const [sectionZoneMapping, setSectionZoneMapping] = useState<Record<string, string>>({})
+  
+  // Build section-zone mapping from BOQ data
+  useEffect(() => {
+    const mapping: Record<string, string> = {}
+    activities.forEach(activity => {
+      if (activity.activity_division && activity.zone_ref) {
+        mapping[activity.activity_division] = activity.zone_ref
+      }
+    })
+    setSectionZoneMapping(mapping)
+    console.log('✅ Smart Form: Section-Zone mapping built:', mapping)
+  }, [activities])
+
+  // Load available zones
+  useEffect(() => {
+    const loadAvailableZones = async () => {
+      try {
+        console.log('🔄 Loading available zones for SmartActualKPIForm...')
+        const { getSupabaseClient } = await import('@/lib/simpleConnectionManager')
+        const supabase = getSupabaseClient()
+        
+        const { data, error } = await supabase
+          .from('boq_activities')
+          .select('zone_ref, zone_number')
+          .not('zone_ref', 'is', null)
+          .not('zone_ref', 'eq', '')
+        
+        if (error) throw error
+        
+        // Extract unique zones
+        const zones = new Set<string>()
+        data?.forEach((item: any) => {
+          if (item.zone_ref) {
+            zones.add(item.zone_ref)
+          }
+        })
+        
+        const zoneList = Array.from(zones).sort()
+        setAvailableZones(zoneList)
+        setZoneSuggestions(zoneList)
+        console.log(`✅ Loaded ${zoneList.length} available zones for SmartActualKPIForm`)
+      } catch (error) {
+        console.error('❌ Error loading zones for SmartActualKPIForm:', error)
+        // Fallback to common zone patterns
+        const commonZones = [
+          'Zone A', 'Zone B', 'Zone C', 'Zone D', 'Zone E',
+          'Area 1', 'Area 2', 'Area 3', 'Area 4', 'Area 5',
+          'Section A', 'Section B', 'Section C', 'Section D',
+          'Block 1', 'Block 2', 'Block 3', 'Block 4'
+        ]
+        setAvailableZones(commonZones)
+        setZoneSuggestions(commonZones)
+      }
+    }
+    
+    loadAvailableZones()
+  }, [])
+  
+  // Smart auto-fill zone when section changes
+  useEffect(() => {
+    if (section && sectionZoneMapping[section] && !zone) {
+      setZone(sectionZoneMapping[section])
+      console.log('✅ Smart Form: Zone auto-filled from Section mapping:', sectionZoneMapping[section])
+    }
+  }, [section, sectionZoneMapping, zone])
   
   // Dropdowns
   const [showProjectDropdown, setShowProjectDropdown] = useState(false)
@@ -78,6 +153,7 @@ export function SmartActualKPIForm({
       
       setActualDate(formatDateForInput(actualDateValue))
       setSection(kpi['Section'] || kpi.section || '')
+      setZone(kpi['Zone'] || kpi.zone || '')
       setDay(kpi['Day'] || kpi.day || '')
       setDrilledMeters(kpi['Drilled Meters']?.toString() || kpi.drilled_meters?.toString() || '')
       
@@ -141,6 +217,12 @@ export function SmartActualKPIForm({
         console.log('✅ Smart Form: Section auto-filled:', selectedActivity.activity_division)
       }
       
+      // Auto-fill zone from BOQ data
+      if (selectedActivity.zone_ref) {
+        setZone(selectedActivity.zone_ref)
+        console.log('✅ Smart Form: Zone auto-filled from BOQ:', selectedActivity.zone_ref)
+      }
+      
       // Auto-fill daily rate and calculate quantity
       if (selectedActivity.productivity_daily_rate && selectedActivity.productivity_daily_rate > 0) {
         setDailyRate(selectedActivity.productivity_daily_rate)
@@ -188,6 +270,29 @@ export function SmartActualKPIForm({
       console.log('🧠 Smart Form: Activity selected for auto-fill:', activity.activity_name)
     }
   }
+
+  // Zone handlers
+  function handleZoneSelect(selectedZone: string) {
+    setZone(selectedZone)
+    setShowZoneDropdown(false)
+    
+    // Auto-generate zone number if not provided
+    if (!zoneNumber) {
+      const zoneNum = selectedZone.match(/(\d+)/)?.[1] || ''
+      setZoneNumber(zoneNum)
+    }
+    
+    console.log('✅ Zone selected:', selectedZone)
+  }
+
+  function handleZoneNumberChange(value: string) {
+    setZoneNumber(value)
+    
+    // Auto-generate zone ref if not provided
+    if (!zone && value) {
+      setZone(`Zone ${value}`)
+    }
+  }
   
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -217,6 +322,8 @@ export function SmartActualKPIForm({
         'Input Type': 'Actual', // Fixed to Actual only
         'Actual Date': actualDate,
         'Section': section,
+        'Zone': zone,
+        'Zone Number': zoneNumber,
         'Day': day,
         'Drilled Meters': parseFloat(drilledMeters) || 0
       }
@@ -491,27 +598,36 @@ export function SmartActualKPIForm({
               </p>
             </div>
             
-            {/* Additional Fields */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Section
-                  {section && (
-                    <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
-                      Auto-filled
-                    </span>
-                  )}
-                </label>
-                <input
-                  type="text"
-                  placeholder="Section name..."
-                  value={section}
-                  onChange={(e) => setSection(e.target.value)}
-                  className={`w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white ${
-                    section ? 'bg-blue-50 border-blue-300' : 'border-gray-300 dark:border-gray-600'
-                  }`}
-                />
-              </div>
+            {/* Zone Field - Very Prominent */}
+            <div className="space-y-2 mb-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border-2 border-yellow-300 dark:border-yellow-700">
+              <label className="block text-lg font-bold text-gray-700 dark:text-gray-300">
+                Zone (المنطقة) *
+                <span className="ml-2 text-sm bg-red-100 text-red-800 px-3 py-1 rounded-full">
+                  ZONE FIELD
+                </span>
+                {section && (
+                  <span className="ml-2 text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-full">
+                    Auto-filled
+                  </span>
+                )}
+              </label>
+              <input
+                type="text"
+                placeholder="Enter zone name..."
+                value={section}
+                onChange={(e) => setSection(e.target.value)}
+                className={`w-full px-4 py-3 text-lg border-2 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white ${
+                  section ? 'bg-blue-50 border-blue-300' : 'border-gray-300 dark:border-gray-600'
+                }`}
+                required
+              />
+              <p className="text-sm text-gray-600 dark:text-gray-400 font-medium">
+                Specify the zone or area where this activity was performed
+              </p>
+            </div>
+            
+            {/* Day Number and Drilled Meters */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                   Day Number

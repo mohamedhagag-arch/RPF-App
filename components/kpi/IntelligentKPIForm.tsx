@@ -37,8 +37,15 @@ export function IntelligentKPIForm({
   const [targetDate, setTargetDate] = useState('')
   const [actualDate, setActualDate] = useState('')
   const [section, setSection] = useState('')
+  const [zone, setZone] = useState('')
+  const [zoneNumber, setZoneNumber] = useState('')
   const [day, setDay] = useState('')
   const [drilledMeters, setDrilledMeters] = useState('')
+  
+  // Zone Management
+  const [availableZones, setAvailableZones] = useState<string[]>([])
+  const [showZoneDropdown, setShowZoneDropdown] = useState(false)
+  const [zoneSuggestions, setZoneSuggestions] = useState<string[]>([])
   
   // Dropdowns
   const [showProjectDropdown, setShowProjectDropdown] = useState(false)
@@ -171,6 +178,8 @@ export function IntelligentKPIForm({
         setActualDate(formatDateForInput(foundActualDate))
       }
       setSection(kpi['Section'] || kpi.section || '')
+      setZone(kpi['Zone'] || kpi.zone || '')
+      setZoneNumber(kpi['Zone Number'] || kpi.zone_number || '')
       setDay(kpi['Day'] || kpi.day || '')
       setDrilledMeters(kpi['Drilled Meters']?.toString() || kpi.drilled_meters?.toString() || '')
       
@@ -183,6 +192,8 @@ export function IntelligentKPIForm({
         targetDate: formatDateForInput(targetDateValue),
         actualDate: formatDateForInput(actualDateValue),
         section: kpi['Section'] || kpi.section,
+        zone: kpi['Zone'] || kpi.zone,
+        zoneNumber: kpi['Zone Number'] || kpi.zone_number,
         day: kpi['Day'] || kpi.day,
         drilledMeters: kpi['Drilled Meters'] || kpi.drilled_meters
       })
@@ -245,6 +256,51 @@ export function IntelligentKPIForm({
       setAvailableActivities([])
     }
   }, [projectCode, projects, activities])
+
+  // Load available zones
+  useEffect(() => {
+    const loadAvailableZones = async () => {
+      try {
+        console.log('🔄 Loading available zones for KPI form...')
+        const { getSupabaseClient } = await import('@/lib/simpleConnectionManager')
+        const supabase = getSupabaseClient()
+        
+        const { data, error } = await supabase
+          .from('boq_activities')
+          .select('zone_ref, zone_number')
+          .not('zone_ref', 'is', null)
+          .not('zone_ref', 'eq', '')
+        
+        if (error) throw error
+        
+        // Extract unique zones
+        const zones = new Set<string>()
+        data?.forEach((item: any) => {
+          if (item.zone_ref) {
+            zones.add(item.zone_ref)
+          }
+        })
+        
+        const zoneList = Array.from(zones).sort()
+        setAvailableZones(zoneList)
+        setZoneSuggestions(zoneList)
+        console.log(`✅ Loaded ${zoneList.length} available zones for KPI form`)
+      } catch (error) {
+        console.error('❌ Error loading zones for KPI form:', error)
+        // Fallback to common zone patterns
+        const commonZones = [
+          'Zone A', 'Zone B', 'Zone C', 'Zone D', 'Zone E',
+          'Area 1', 'Area 2', 'Area 3', 'Area 4', 'Area 5',
+          'Section A', 'Section B', 'Section C', 'Section D',
+          'Block 1', 'Block 2', 'Block 3', 'Block 4'
+        ]
+        setAvailableZones(commonZones)
+        setZoneSuggestions(commonZones)
+      }
+    }
+    
+    loadAvailableZones()
+  }, [])
   
   // Smart auto-fill when activity is selected
   useEffect(() => {
@@ -312,6 +368,39 @@ export function IntelligentKPIForm({
     if (activity) {
       setSelectedActivity(activity)
       console.log('🧠 Smart Form: Activity selected for auto-fill:', activity.activity_name)
+      
+      // Auto-fill zone information from activity
+      if (activity.zone_ref) {
+        setZone(activity.zone_ref)
+        console.log('✅ Smart Form: Zone auto-filled from activity:', activity.zone_ref)
+      }
+      if (activity.zone_number) {
+        setZoneNumber(activity.zone_number)
+        console.log('✅ Smart Form: Zone number auto-filled from activity:', activity.zone_number)
+      }
+    }
+  }
+
+  // Zone handlers
+  function handleZoneSelect(selectedZone: string) {
+    setZone(selectedZone)
+    setShowZoneDropdown(false)
+    
+    // Auto-generate zone number if not provided
+    if (!zoneNumber) {
+      const zoneNum = selectedZone.match(/(\d+)/)?.[1] || ''
+      setZoneNumber(zoneNum)
+    }
+    
+    console.log('✅ Zone selected:', selectedZone)
+  }
+
+  function handleZoneNumberChange(value: string) {
+    setZoneNumber(value)
+    
+    // Auto-generate zone ref if not provided
+    if (!zone && value) {
+      setZone(`Zone ${value}`)
     }
   }
   
@@ -366,6 +455,8 @@ export function IntelligentKPIForm({
         'Target Date': targetDate || '',
         'Actual Date': actualDate || '',
         'Section': section || '',
+        'Zone': zone || '',
+        'Zone Number': zoneNumber || '',
         'Day': day || '',
         'Drilled Meters': parseFloat(drilledMeters) || 0
       }
@@ -774,6 +865,74 @@ export function IntelligentKPIForm({
                 placeholder="e.g., Zone A, Area 1..."
                 className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+            </div>
+            <div className="relative">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <span className="flex items-center gap-2">
+                  <span className="text-lg">🏗️</span>
+                  Zone (Optional)
+                </span>
+              </label>
+              <input
+                type="text"
+                value={zone}
+                onChange={(e) => {
+                  setZone(e.target.value)
+                  setShowZoneDropdown(true)
+                }}
+                onFocus={() => setShowZoneDropdown(true)}
+                placeholder="e.g., Zone A, Area 1, Section B..."
+                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              
+              {/* Zone Suggestions Dropdown */}
+              {showZoneDropdown && zoneSuggestions.length > 0 && (
+                <div className="absolute z-50 mt-1 w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                  <div className="p-2 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+                    <p className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                      🏗️ Available zones ({zoneSuggestions.length})
+                    </p>
+                  </div>
+                  {zoneSuggestions
+                    .filter(z => 
+                      zone === '' || 
+                      z.toLowerCase().includes(zone.toLowerCase())
+                    )
+                    .map((z, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => handleZoneSelect(z)}
+                        className="w-full px-4 py-2 text-left hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors text-gray-900 dark:text-white"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span>{z}</span>
+                          <span className="text-xs text-gray-500">Zone</span>
+                        </div>
+                      </button>
+                    ))
+                  }
+                </div>
+              )}
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <span className="flex items-center gap-2">
+                  <span className="text-lg">🔢</span>
+                  Zone Number (Optional)
+                </span>
+              </label>
+              <input
+                type="text"
+                value={zoneNumber}
+                onChange={(e) => handleZoneNumberChange(e.target.value)}
+                placeholder="e.g., 1, 2, 3..."
+                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                💡 Auto-generated from Zone Reference
+              </p>
             </div>
           </div>
 

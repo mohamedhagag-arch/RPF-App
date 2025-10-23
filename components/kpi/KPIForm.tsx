@@ -27,6 +27,7 @@ export function KPIForm({ kpi, projects, activities, onSubmit, onCancel }: KPIFo
     target_date: '',
     completion_date: '',
     status: 'on_track' as 'on_track' | 'delayed' | 'completed' | 'at_risk',
+    zone: '',
     notes: '',
   })
   const [error, setError] = useState('')
@@ -43,6 +44,7 @@ export function KPIForm({ kpi, projects, activities, onSubmit, onCancel }: KPIFo
         target_date: kpi.target_date || '',
         completion_date: kpi.completion_date || '',
         status: kpi.status || 'on_track',
+        zone: kpi.zone || '',
         notes: kpi.notes || '',
       })
     }
@@ -234,6 +236,20 @@ export function KPIForm({ kpi, projects, activities, onSubmit, onCancel }: KPIFo
                 <option value="completed">Completed</option>
                 <option value="at_risk">At Risk</option>
               </select>
+            </div>
+
+            {/* Zone */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Zone
+              </label>
+              <Input
+                type="text"
+                value={formData.zone}
+                onChange={(e) => handleChange('zone', e.target.value)}
+                placeholder="Zone name..."
+                className="w-full"
+              />
             </div>
 
             {/* Notes */}

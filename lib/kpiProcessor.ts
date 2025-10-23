@@ -8,6 +8,7 @@ export interface ProcessedKPI {
   project_full_code: string
   activity_name: string
   section: string
+  zone: string
   quantity: number
   input_type: 'Planned' | 'Actual'
   drilled_meters: number
@@ -64,6 +65,7 @@ export function processKPIRecord(kpi: any): ProcessedKPI {
     project_full_code: kpi.project_full_code || '',
     activity_name: kpi.activity_name || '',
     section: kpi.section || '',
+    zone: kpi.zone || '',
     quantity: quantity,
     input_type: inputType as 'Planned' | 'Actual',
     drilled_meters: kpi.drilled_meters || 0,

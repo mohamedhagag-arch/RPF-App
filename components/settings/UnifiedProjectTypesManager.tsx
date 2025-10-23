@@ -612,53 +612,178 @@ export function UnifiedProjectTypesManager() {
       
       const typeActivities = activities[type.name] || []
       
-      // Prepare specific type template
-      const templateData = {
-        project_type: {
-          name: type.name,
-          code: type.code,
-          description: type.description,
-          is_active: type.is_active
-        },
-        activities: typeActivities.map(activity => ({
-          project_type: activity.project_type,
-          activity_name: activity.activity_name,
-          activity_name_ar: activity.activity_name_ar,
-          description: activity.description,
-          default_unit: activity.default_unit,
-          estimated_rate: activity.estimated_rate,
-          category: activity.category,
-          typical_duration: activity.typical_duration,
-          division: activity.division,
-          display_order: activity.display_order,
-          is_active: activity.is_active
-        })),
-        metadata: {
-          exported_at: new Date().toISOString(),
-          version: '1.0',
-          type_name: type.name,
-          total_activities: typeActivities.length
-        }
-      }
+      // Create CSV content for Excel
+      const headers = [
+        'Project Type',
+        'Project Type Code', 
+        'Project Type Description',
+        'Activity Name',
+        'Activity Name (Arabic)',
+        'Activity Description',
+        'Default Unit',
+        'Estimated Rate',
+        'Category',
+        'Typical Duration (Days)',
+        'Division',
+        'Display Order',
+        'Is Active'
+      ]
       
-      // Create and download file
-      const dataStr = JSON.stringify(templateData, null, 2)
-      const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr)
+      const rows = typeActivities.map(activity => [
+        type.name,
+        type.code || '',
+        type.description || '',
+        activity.activity_name,
+        activity.activity_name_ar || '',
+        activity.description || '',
+        activity.default_unit,
+        activity.estimated_rate,
+        activity.category || '',
+        activity.typical_duration || 0,
+        activity.division || '',
+        activity.display_order || 0,
+        activity.is_active ? 'Yes' : 'No'
+      ])
       
-      const exportFileDefaultName = `project-type-${type.name.replace(/\s+/g, '-').toLowerCase()}-template-${new Date().toISOString().split('T')[0]}.json`
+      const csvContent = [headers, ...rows]
+        .map(row => row.map(cell => `"${cell}"`).join(','))
+        .join('\n')
       
-      const linkElement = document.createElement('a')
-      linkElement.setAttribute('href', dataUri)
-      linkElement.setAttribute('download', exportFileDefaultName)
-      linkElement.click()
+      // Add BOM for UTF-8 support
+      const bom = '\uFEFF'
+      const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' })
       
-      setSuccess(`Template for "${type.name}" exported successfully`)
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${type.name.replace(/[^a-zA-Z0-9]/g, '_')}_activities.csv`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      
+      setSuccess(`Exported ${typeActivities.length} activities for "${type.name}" as CSV/Excel`)
       setTimeout(() => setSuccess(''), 3000)
       
     } catch (err: any) {
       setError(err.message || 'Failed to export template')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleImportToSpecificType = async (event: React.ChangeEvent<HTMLInputElement>, projectTypeName: string) => {
+    console.log('🔄 Import triggered for:', projectTypeName)
+    const file = event.target.files?.[0]
+    if (!file) {
+      console.log('❌ No file selected')
+      return
+    }
+    
+    console.log('📁 File selected:', file.name, 'Size:', file.size)
+
+    try {
+      setLoading(true)
+      setError('')
+      
+      const fileExtension = file.name.split('.').pop()?.toLowerCase()
+      
+      if (fileExtension === 'json') {
+        // Handle JSON import
+        const text = await file.text()
+        const data = JSON.parse(text)
+        
+        if (data.project_type !== projectTypeName) {
+          setError(`This template is for "${data.project_type}", not "${projectTypeName}"`)
+          return
+        }
+        
+        const activitiesData = data.activities.map((activity: any) => ({
+          project_type: projectTypeName,
+          activity_name: activity.activity_name,
+          activity_name_ar: activity.activity_name_ar || '',
+          description: activity.description || '',
+          default_unit: activity.default_unit,
+          estimated_rate: activity.estimated_rate || 0,
+          category: activity.category || '',
+          typical_duration: activity.typical_duration || 0,
+          division: activity.division || '',
+          display_order: activity.display_order || 0,
+          is_active: activity.is_active !== false
+        }))
+        
+        const { error } = await executeQuery(async () =>
+          (supabase as any)
+            .from('project_type_activities')
+            .upsert(activitiesData, { onConflict: 'project_type,activity_name' })
+        )
+        
+        if (error) throw error
+        
+        setSuccess(`Imported ${activitiesData.length} activities to "${projectTypeName}"`)
+        
+      } else if (['csv', 'xlsx', 'xls'].includes(fileExtension || '')) {
+        // Handle CSV/Excel import
+        const text = await file.text()
+        const lines = text.split('\n').filter(line => line.trim())
+        const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim())
+        
+        const activitiesData: any[] = []
+        
+        for (let i = 1; i < lines.length; i++) {
+          const values = lines[i].split(',').map(v => v.replace(/"/g, '').trim())
+          const row: any = {}
+          
+          headers.forEach((header, index) => {
+            row[header] = values[index] || ''
+          })
+          
+          if (row['Project Type'] === projectTypeName) {
+            activitiesData.push({
+              project_type: projectTypeName,
+              activity_name: row['Activity Name'],
+              activity_name_ar: row['Activity Name (Arabic)'] || '',
+              description: row['Activity Description'] || '',
+              default_unit: row['Default Unit'],
+              estimated_rate: parseFloat(row['Estimated Rate']) || 0,
+              category: row['Category'] || '',
+              typical_duration: parseInt(row['Typical Duration (Days)']) || 0,
+              division: row['Division'] || '',
+              display_order: parseInt(row['Display Order']) || 0,
+              is_active: row['Is Active']?.toLowerCase() === 'yes' || row['Is Active']?.toLowerCase() === 'true'
+            })
+          }
+        }
+        
+        if (activitiesData.length === 0) {
+          setError(`No activities found for "${projectTypeName}" in this file`)
+          return
+        }
+        
+        const { error } = await executeQuery(async () =>
+          (supabase as any)
+            .from('project_type_activities')
+            .upsert(activitiesData, { onConflict: 'project_type,activity_name' })
+        )
+        
+        if (error) throw error
+        
+        setSuccess(`Imported ${activitiesData.length} activities to "${projectTypeName}"`)
+      } else {
+        setError('Unsupported file format. Please use CSV, XLSX, XLS, or JSON files.')
+        return
+      }
+      
+      // Reload data
+      await loadData()
+      setTimeout(() => setSuccess(''), 5000)
+      
+    } catch (err: any) {
+      setError('Failed to import activities: ' + err.message)
+    } finally {
+      setLoading(false)
+      // Reset file input
+      event.target.value = ''
     }
   }
 
@@ -1081,6 +1206,38 @@ export function UnifiedProjectTypesManager() {
               Upload template files to import project types and activities
             </p>
             <div className="flex gap-2">
+              <ModernButton
+                onClick={() => {
+                  const input = document.getElementById('import-template') as HTMLInputElement
+                  if (input) {
+                    input.click()
+                  }
+                }}
+                variant="outline"
+                size="sm"
+                icon={<FileText className="h-4 w-4" />}
+                disabled={loading}
+                className="flex-1 cursor-pointer"
+              >
+                Import JSON
+              </ModernButton>
+              
+              <ModernButton
+                onClick={() => {
+                  const input = document.getElementById('import-excel') as HTMLInputElement
+                  if (input) {
+                    input.click()
+                  }
+                }}
+                variant="outline"
+                size="sm"
+                icon={<FileSpreadsheet className="h-4 w-4" />}
+                disabled={loading}
+                className="flex-1 cursor-pointer"
+              >
+                Import CSV
+              </ModernButton>
+              
               <input
                 type="file"
                 accept=".json"
@@ -1088,18 +1245,7 @@ export function UnifiedProjectTypesManager() {
                 className="hidden"
                 id="import-template"
               />
-              <label htmlFor="import-template" className="flex-1">
-                <ModernButton
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  icon={<FileText className="h-4 w-4" />}
-                  disabled={loading}
-                  className="w-full cursor-pointer"
-                >
-                  Import JSON
-                </ModernButton>
-              </label>
+              
               <input
                 type="file"
                 accept=".csv,.xlsx,.xls"
@@ -1107,18 +1253,6 @@ export function UnifiedProjectTypesManager() {
                 className="hidden"
                 id="import-excel"
               />
-              <label htmlFor="import-excel" className="flex-1">
-                <ModernButton
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  icon={<FileSpreadsheet className="h-4 w-4" />}
-                  disabled={loading}
-                  className="w-full cursor-pointer"
-                >
-                  Import CSV
-                </ModernButton>
-              </label>
             </div>
           </div>
         </div>
@@ -1256,6 +1390,31 @@ export function UnifiedProjectTypesManager() {
                   >
                     Export
                   </ModernButton>
+                  
+                  <ModernButton
+                    onClick={() => {
+                      const input = document.getElementById(`import-${type.name.replace(/[^a-zA-Z0-9]/g, '_')}`) as HTMLInputElement
+                      if (input) {
+                        input.click()
+                      }
+                    }}
+                    variant="outline"
+                    size="sm"
+                    icon={<Upload className="h-4 w-4" />}
+                    disabled={loading}
+                    title="Import activities to this project type"
+                    className="cursor-pointer"
+                  >
+                    Import
+                  </ModernButton>
+                  
+                  <input
+                    type="file"
+                    accept=".csv,.xlsx,.xls,.json"
+                    onChange={(e) => handleImportToSpecificType(e, type.name)}
+                    className="hidden"
+                    id={`import-${type.name.replace(/[^a-zA-Z0-9]/g, '_')}`}
+                  />
                   
                   <ModernButton
                     onClick={() => handleEditType(type)}

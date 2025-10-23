@@ -42,6 +42,7 @@ export function AddKPIForm() {
   const [unit, setUnit] = useState('')
   const [actualDate, setActualDate] = useState('')
   const [section, setSection] = useState('')
+  const [zone, setZone] = useState('')
   const [day, setDay] = useState('')
   const [drilledMeters, setDrilledMeters] = useState('')
   
@@ -201,6 +202,7 @@ export function AddKPIForm() {
         actual_date: actualDate,
         activity_date: actualDate,
         section,
+        zone,
         day,
         drilled_meters: parseFloat(drilledMeters) || 0,
         'Actual Date': actualDate,
@@ -537,6 +539,18 @@ export function AddKPIForm() {
                   value={section}
                   onChange={(e) => setSection(e.target.value)}
                   className={`w-full ${section ? 'bg-blue-50 border-blue-300' : ''}`}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Zone
+                </label>
+                <Input
+                  type="text"
+                  placeholder="Zone name..."
+                  value={zone}
+                  onChange={(e) => setZone(e.target.value)}
+                  className="w-full"
                 />
               </div>
               <div className="space-y-2">

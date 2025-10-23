@@ -172,6 +172,9 @@ export function BOQTable({ activities, projects, allKPIs, onEdit, onDelete, onBu
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
               Activity
             </th>
+            <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
+              Zone
+            </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
               Total Quantity
             </th>
@@ -235,6 +238,18 @@ export function BOQTable({ activities, projects, allKPIs, onEdit, onDelete, onBu
                 <div className="text-sm text-gray-900 dark:text-gray-100 font-medium mb-1">{activity.activity_name}</div>
                 <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">{activity.activity}</div>
                 <BOQWithKPIStatus activity={activity} allKPIs={allKPIs} />
+              </td>
+              <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-900 dark:text-gray-100 w-24">
+                <div className="flex flex-col gap-1">
+                  <span className="px-1.5 py-0.5 text-xs font-medium bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-400 rounded text-center truncate">
+                    {activity.zone_ref || 'N/A'}
+                  </span>
+                  {activity.zone_number && (
+                    <span className="px-1.5 py-0.5 text-xs font-medium bg-indigo-100 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-400 rounded text-center truncate">
+                      {activity.zone_number}
+                    </span>
+                  )}
+                </div>
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                 {(activity.planned_units || 0).toLocaleString()} {activity.unit || ''}

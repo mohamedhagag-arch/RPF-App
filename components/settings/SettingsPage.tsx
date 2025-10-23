@@ -315,6 +315,7 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
         }
         return <DepartmentsJobTitlesManager />
 
+
       case 'notifications':
         return <NotificationSettingsManager />
 

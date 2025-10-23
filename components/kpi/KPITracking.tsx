@@ -13,7 +13,9 @@ import { Button } from '@/components/ui/Button'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Alert } from '@/components/ui/Alert'
 import { IntelligentKPIForm } from '@/components/kpi/IntelligentKPIForm'
+import { EnhancedSmartActualKPIForm } from '@/components/kpi/EnhancedSmartActualKPIForm'
 import { OptimizedKPITable } from '@/components/kpi/OptimizedKPITable'
+import { KPITableWithCustomization } from '@/components/kpi/KPITableWithCustomization'
 import { syncBOQFromKPI } from '@/lib/boqKpiSync'
 import { calculateActivityRate, ActivityRate } from '@/lib/rateCalculator'
 import { calculateActivityProgress, ActivityProgress } from '@/lib/progressCalculator'
@@ -21,7 +23,7 @@ import { autoSaveOnKPIUpdate } from '@/lib/autoCalculationSaver'
 import { UnifiedFilter, FilterState } from '@/components/ui/UnifiedFilter'
 import { Pagination } from '@/components/ui/Pagination'
 import { SmartFilter } from '@/components/ui/SmartFilter'
-import { Plus, BarChart3, CheckCircle, Clock, AlertCircle, Target, Info, Filter } from 'lucide-react'
+import { Plus, BarChart3, CheckCircle, Clock, AlertCircle, Target, Info, Filter, X } from 'lucide-react'
 import { ExportButton } from '@/components/ui/ExportButton'
 import { ImportButton } from '@/components/ui/ImportButton'
 import { PrintButton } from '@/components/ui/PrintButton'
@@ -48,6 +50,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   const [error, setError] = useState('')
   const isMountedRef = useRef(true) // ✅ Track if component is mounted
   const [showForm, setShowForm] = useState(false)
+  const [showEnhancedForm, setShowEnhancedForm] = useState(false)
+  const [useCustomizedTable, setUseCustomizedTable] = useState(true) // ✅ Use customized table by default
   // editingKPI is now handled by EnhancedKPITable
   const [filters, setFilters] = useState<FilterState>({})
   
@@ -1016,29 +1020,47 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
             </div>
           )}
           
-          {/* Add New KPI Buttons */}
-          {guard.hasAccess('kpi.create') && (
-            <div className="flex flex-col sm:flex-row gap-2">
-              <Button 
-                onClick={() => setShowForm(true)} 
-                className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
-              >
-                <Plus className="h-4 w-4" />
-                <span>Add New KPI</span>
-              </Button>
-              <Button 
-                onClick={() => {
-                  // ✅ Use router.push to maintain session and avoid reload
-                  router.push('/kpi/add')
-                }}
-                variant="outline"
-                className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
-              >
-                <Target className="h-4 w-4" />
-                <span>Site KPI Form</span>
-              </Button>
-            </div>
-          )}
+                 {/* Add New KPI Buttons */}
+                 {guard.hasAccess('kpi.create') && (
+                   <div className="flex flex-col sm:flex-row gap-2">
+                     <Button 
+                       onClick={() => setShowForm(true)} 
+                       className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
+                     >
+                       <Plus className="h-4 w-4" />
+                       <span>Add New KPI</span>
+                     </Button>
+                     <Button 
+                       onClick={() => {
+                         // Navigate to the dedicated smart form page
+                         router.push('/kpi/smart-form')
+                       }}
+                       className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white"
+                     >
+                       <Target className="h-4 w-4" />
+                       <span>Smart Site KPI Form</span>
+                     </Button>
+                     <Button 
+                       onClick={() => {
+                         // ✅ Use router.push to maintain session and avoid reload
+                         router.push('/kpi/add')
+                       }}
+                       variant="outline"
+                       className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
+                     >
+                       <Target className="h-4 w-4" />
+                       <span>Legacy Site Form</span>
+                     </Button>
+                     <Button 
+                       onClick={() => setUseCustomizedTable(!useCustomizedTable)}
+                       variant="outline"
+                       className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
+                     >
+                       <Filter className="h-4 w-4" />
+                       <span>{useCustomizedTable ? 'Standard View' : 'Customize Columns'}</span>
+                     </Button>
+                   </div>
+                 )}
         </div>
         
         {/* Action Buttons */}
@@ -1279,14 +1301,27 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          <OptimizedKPITable
-            kpis={paginatedKPIs}
-            projects={projects}
-            activities={activities}
-            onDelete={handleDeleteKPI}
-            onBulkDelete={handleBulkDeleteKPI}
-            onUpdate={handleUpdateKPI}
-          />
+          {useCustomizedTable ? (
+            <KPITableWithCustomization
+              kpis={paginatedKPIs as any}
+              projects={projects}
+              onEdit={(kpi: KPIRecord) => {
+                // Handle edit - you can implement this
+                console.log('Edit KPI:', kpi)
+              }}
+              onDelete={handleDeleteKPI}
+              onBulkDelete={handleBulkDeleteKPI}
+            />
+          ) : (
+            <OptimizedKPITable
+              kpis={paginatedKPIs}
+              projects={projects}
+              activities={activities}
+              onDelete={handleDeleteKPI}
+              onBulkDelete={handleBulkDeleteKPI}
+              onUpdate={handleUpdateKPI}
+            />
+          )}
           
           {/* Pagination */}
           {totalPages > 1 && (
@@ -1314,6 +1349,16 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           activities={activities}
           onSubmit={handleCreateKPI}
           onCancel={() => setShowForm(false)}
+        />
+      )}
+
+      {showEnhancedForm && (
+        <EnhancedSmartActualKPIForm
+          kpi={null}
+          projects={projects}
+          activities={activities}
+          onSubmit={handleCreateKPI}
+          onCancel={() => setShowEnhancedForm(false)}
         />
       )}
 

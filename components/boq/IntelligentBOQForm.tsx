@@ -68,6 +68,13 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   const [showActivityDropdown, setShowActivityDropdown] = useState(false)
   const [activitySelected, setActivitySelected] = useState(false)
   
+  // Zone Management
+  const [zoneRef, setZoneRef] = useState(activity?.zone_ref || '')
+  const [zoneNumber, setZoneNumber] = useState(activity?.zone_number || '')
+  const [availableZones, setAvailableZones] = useState<string[]>([])
+  const [showZoneDropdown, setShowZoneDropdown] = useState(false)
+  const [zoneSuggestions, setZoneSuggestions] = useState<string[]>([])
+  
   // ✅ Activity Filter States
   const [activityFilter, setActivityFilter] = useState<string>('all') // 'all', 'project_type', 'division', 'category'
   const [availableCategories, setAvailableCategories] = useState<string[]>([])
@@ -204,6 +211,51 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       }
     }
     loadAllProjectTypeActivities()
+  }, [])
+
+  // Load available zones from existing activities
+  useEffect(() => {
+    const loadAvailableZones = async () => {
+      try {
+        console.log('🔄 Loading available zones from existing activities...')
+        const supabase = getSupabaseClient()
+        const { data, error } = await executeQuery(async () =>
+          supabase
+            .from('boq_activities')
+            .select('zone_ref, zone_number')
+            .not('zone_ref', 'is', null)
+            .not('zone_ref', 'eq', '')
+        )
+        
+        if (error) throw error
+        
+        // Extract unique zones
+        const zones = new Set<string>()
+        data?.forEach((item: any) => {
+          if (item.zone_ref) {
+            zones.add(item.zone_ref)
+          }
+        })
+        
+        const zoneList = Array.from(zones).sort()
+        setAvailableZones(zoneList)
+        setZoneSuggestions(zoneList)
+        console.log(`✅ Loaded ${zoneList.length} available zones:`, zoneList)
+      } catch (error) {
+        console.error('❌ Error loading zones:', error)
+        // Fallback to common zone patterns
+        const commonZones = [
+          'Zone A', 'Zone B', 'Zone C', 'Zone D', 'Zone E',
+          'Area 1', 'Area 2', 'Area 3', 'Area 4', 'Area 5',
+          'Section A', 'Section B', 'Section C', 'Section D',
+          'Block 1', 'Block 2', 'Block 3', 'Block 4'
+        ]
+        setAvailableZones(commonZones)
+        setZoneSuggestions(commonZones)
+      }
+    }
+    
+    loadAvailableZones()
   }, [])
   
   // ✅ Handle project selection and load project details
@@ -654,6 +706,29 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
     setUnit(selectedUnit)
     setShowUnitDropdown(false)
   }
+
+  // Zone handlers
+  function handleZoneSelect(selectedZone: string) {
+    setZoneRef(selectedZone)
+    setShowZoneDropdown(false)
+    
+    // Auto-generate zone number if not provided
+    if (!zoneNumber) {
+      const zoneNum = selectedZone.match(/(\d+)/)?.[1] || ''
+      setZoneNumber(zoneNum)
+    }
+    
+    console.log('✅ Zone selected:', selectedZone)
+  }
+
+  function handleZoneNumberChange(value: string) {
+    setZoneNumber(value)
+    
+    // Auto-generate zone ref if not provided
+    if (!zoneRef && value) {
+      setZoneRef(`Zone ${value}`)
+    }
+  }
   
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -707,7 +782,8 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         project_full_code: project?.project_code || projectCode,
         activity_name: activityName,
         activity_division: project?.responsible_division || '',
-        zone_ref: project?.responsible_division || '',
+        zone_ref: zoneRef || project?.responsible_division || '',
+        zone_number: zoneNumber || '',
         unit,
         planned_units: parseFloat(plannedUnits) || 0,
         planned_value: parseFloat(plannedValue) || 0,
@@ -1176,6 +1252,102 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                 </div>
               )}
             </div>
+
+            {/* Zone Management */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="relative">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <span className="flex items-center gap-2">
+                    <span className="text-lg">🏗️</span>
+                    Zone Reference <span className="text-red-500">*</span>
+                  </span>
+                </label>
+                <Input 
+                  value={zoneRef}
+                  onChange={(e) => {
+                    setZoneRef(e.target.value)
+                    setShowZoneDropdown(true)
+                  }}
+                  onFocus={() => setShowZoneDropdown(true)}
+                  placeholder="e.g., Zone A, Area 1, Section B..."
+                  required
+                  disabled={loading}
+                />
+                
+                {/* Zone Suggestions Dropdown */}
+                {showZoneDropdown && zoneSuggestions.length > 0 && (
+                  <div className="absolute z-20 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                    <div className="p-2 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+                      <p className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                        🏗️ Available zones ({zoneSuggestions.length})
+                      </p>
+                    </div>
+                    {zoneSuggestions
+                      .filter(z => 
+                        zoneRef === '' || 
+                        z.toLowerCase().includes(zoneRef.toLowerCase())
+                      )
+                      .map((z, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => handleZoneSelect(z)}
+                          className="w-full px-4 py-2 text-left hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors text-gray-900 dark:text-white"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span>{z}</span>
+                            <span className="text-xs text-gray-500">Zone</span>
+                          </div>
+                        </button>
+                      ))
+                    }
+                  </div>
+                )}
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <span className="flex items-center gap-2">
+                    <span className="text-lg">🔢</span>
+                    Zone Number
+                  </span>
+                </label>
+                <Input 
+                  value={zoneNumber}
+                  onChange={(e) => handleZoneNumberChange(e.target.value)}
+                  placeholder="e.g., 1, 2, 3..."
+                  disabled={loading}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  💡 Auto-generated from Zone Reference
+                </p>
+              </div>
+            </div>
+
+            {/* Zone Info Card */}
+            {zoneRef && (
+              <div className="p-4 bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-900/20 dark:to-blue-900/20 border border-green-200 dark:border-green-700 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0">
+                    <div className="w-8 h-8 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center">
+                      <span className="text-lg">🏗️</span>
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-gray-900 dark:text-white mb-1">
+                      Zone Information
+                    </h3>
+                    <div className="grid grid-cols-2 gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      <div><span className="font-medium">Zone:</span> {zoneRef}</div>
+                      <div><span className="font-medium">Number:</span> {zoneNumber || 'Auto-generated'}</div>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2">
+                      💡 This zone will be used for tracking and analytics
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
             
             {/* Activity Timing */}
             <div>
