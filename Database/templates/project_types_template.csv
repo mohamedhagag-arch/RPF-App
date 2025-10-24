@@ -1,0 +1,7 @@
+name,description,is_active
+Construction,General construction projects,true
+Infrastructure,Infrastructure development projects,true
+Marine,Marine construction projects,true
+Soil Improvement,Soil improvement and foundation projects,true
+Renovation,Renovation and maintenance projects,true
+Development,Urban development projects,true

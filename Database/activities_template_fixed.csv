@@ -1,0 +1,34 @@
+name,division,unit,category,description,typical_duration,is_active,usage_count
+Mobilization,Enabling Division,Lump Sum,General,Mobilization activities,1,true,0
+Vibro Compaction,Enabling Division,No.,Soil Improvement,Vibro compaction work,2,true,0
+Supply of Concrete Panel,Enabling Division,No.,Structural,Supply concrete panels,1,true,0
+Sheet Pile,Enabling Division,No.,Structural,Sheet pile installation,3,true,0
+Soldier Pile (H. Beams),Enabling Division,No.,Structural,Soldier pile work,2,true,0
+C.Piles 1000mm,Enabling Division,No.,Foundation,Concrete piles 1000mm,5,true,0
+C.Piles 750mm,Enabling Division,No.,Foundation,Concrete piles 750mm,4,true,0
+Integrity Test,Enabling Division,No.,Testing,Pile integrity testing,1,true,0
+PTP Test,Enabling Division,No.,Testing,Pile testing,1,true,0
+Excavation to General PL,Enabling Division,Cubic Meter,Earthwork,Excavation work,2,true,0
+Excavation to Final Pit,Enabling Division,Cubic Meter,Earthwork,Final pit excavation,3,true,0
+Excavation -2.00m,Enabling Division,Cubic Meter,Earthwork,Deep excavation,2,true,0
+Excavation & Cart Away,Enabling Division,Cubic Meter,Earthwork,Excavation and disposal,2,true,0
+Anchoring,Enabling Division,No.,Structural,Anchoring work,1,true,0
+Capping Beam,Enabling Division,Running Meter,Structural,Capping beam construction,3,true,0
+Caliper Logging Test,Enabling Division,No.,Testing,Caliper logging test,1,true,0
+Sonic Test,Enabling Division,No.,Testing,Sonic testing,1,true,0
+EV / AC,Enabling Division,Lump Sum,Electrical,Electrical work,2,true,0
+CMC Column,Enabling Division,No.,Structural,CMC column work,2,true,0
+Trench Sheet - Infra,Enabling Division,No.,Infrastructure,Trench sheet work,1,true,0
+Road Construction,Infrastructure Division,Square Meter,Infrastructure,Road construction work,10,true,0
+Bridge Construction,Infrastructure Division,Meter,Infrastructure,Bridge construction,15,true,0
+Pipeline Installation,Infrastructure Division,Meter,Infrastructure,Pipeline installation,5,true,0
+Drainage Works,Infrastructure Division,Meter,Infrastructure,Drainage system work,7,true,0
+Utilities Installation,Infrastructure Division,Lump Sum,Infrastructure,Utilities installation,3,true,0
+Stone Column,Soil Improvement Division,No.,Soil Improvement,Stone column work,2,true,0
+Dynamic Compaction,Soil Improvement Division,Square Meter,Soil Improvement,Dynamic compaction,3,true,0
+Soil Stabilization,Soil Improvement Division,Cubic Meter,Soil Improvement,Soil stabilization,4,true,0
+Dredging Works,Marine Division,Cubic Meter,Marine,Dredging operations,8,true,0
+Breakwater Construction,Marine Division,Meter,Marine,Breakwater construction,12,true,0
+Quay Wall Construction,Marine Division,Meter,Marine,Quay wall construction,10,true,0
+Jetty Construction,Marine Division,Meter,Marine,Jetty construction,14,true,0
+Waterfront Development,Marine Division,Square Meter,Marine,Waterfront development,20,true,0

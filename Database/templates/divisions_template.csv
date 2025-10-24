@@ -1,0 +1,7 @@
+name,description,is_active
+Enabling Division,Main enabling works division,true
+Infrastructure Division,Infrastructure development division,true
+Marine Division,Marine construction division,true
+Soil Improvement Division,Soil improvement and foundation division,true
+Mechanical Division,Mechanical systems division,true
+Electrical Division,Electrical systems division,true

@@ -1,0 +1,161 @@
+{
+  "project_type": {
+    "name": "Residential",
+    "code": "RES",
+    "description": "Residential building projects including villas, apartments, and housing complexes",
+    "is_active": true
+  },
+  "activities": [
+    {
+      "project_type": "Residential",
+      "activity_name": "Site Survey",
+      "activity_name_ar": "المساحة الميدانية",
+      "description": "Land survey and site measurement",
+      "default_unit": "LS",
+      "estimated_rate": 500.00,
+      "category": "Survey",
+      "typical_duration": 2,
+      "division": "Survey Division",
+      "display_order": 1,
+      "is_active": true
+    },
+    {
+      "project_type": "Residential",
+      "activity_name": "Foundation Excavation",
+      "activity_name_ar": "حفر الأساسات",
+      "description": "Foundation excavation and preparation",
+      "default_unit": "Cubic Meter",
+      "estimated_rate": 15.00,
+      "category": "Foundation",
+      "typical_duration": 8,
+      "division": "Civil Division",
+      "display_order": 2,
+      "is_active": true
+    },
+    {
+      "project_type": "Residential",
+      "activity_name": "Foundation Concrete",
+      "activity_name_ar": "خرسانة الأساسات",
+      "description": "Foundation concrete casting and curing",
+      "default_unit": "Cubic Meter",
+      "estimated_rate": 80.00,
+      "category": "Concrete",
+      "typical_duration": 5,
+      "division": "Civil Division",
+      "display_order": 3,
+      "is_active": true
+    },
+    {
+      "project_type": "Residential",
+      "activity_name": "Block Work",
+      "activity_name_ar": "أعمال البناء",
+      "description": "Masonry and block construction",
+      "default_unit": "Square Meter",
+      "estimated_rate": 25.00,
+      "category": "Masonry",
+      "typical_duration": 20,
+      "division": "Construction Division",
+      "display_order": 4,
+      "is_active": true
+    },
+    {
+      "project_type": "Residential",
+      "activity_name": "Roof Slab",
+      "activity_name_ar": "بلاطة السقف",
+      "description": "Roof slab construction and finishing",
+      "default_unit": "Square Meter",
+      "estimated_rate": 45.00,
+      "category": "Concrete",
+      "typical_duration": 12,
+      "division": "Civil Division",
+      "display_order": 5,
+      "is_active": true
+    },
+    {
+      "project_type": "Residential",
+      "activity_name": "Plastering",
+      "activity_name_ar": "أعمال البياض",
+      "description": "Wall and ceiling plastering",
+      "default_unit": "Square Meter",
+      "estimated_rate": 15.00,
+      "category": "Finishing",
+      "typical_duration": 12,
+      "division": "Construction Division",
+      "display_order": 6,
+      "is_active": true
+    },
+    {
+      "project_type": "Residential",
+      "activity_name": "Tiling",
+      "activity_name_ar": "أعمال البلاط",
+      "description": "Floor and wall tiling works",
+      "default_unit": "Square Meter",
+      "estimated_rate": 35.00,
+      "category": "Finishing",
+      "typical_duration": 8,
+      "division": "Construction Division",
+      "display_order": 7,
+      "is_active": true
+    },
+    {
+      "project_type": "Residential",
+      "activity_name": "Painting",
+      "activity_name_ar": "أعمال الدهان",
+      "description": "Interior and exterior painting",
+      "default_unit": "Square Meter",
+      "estimated_rate": 12.00,
+      "category": "Finishing",
+      "typical_duration": 6,
+      "division": "Construction Division",
+      "display_order": 8,
+      "is_active": true
+    },
+    {
+      "project_type": "Residential",
+      "activity_name": "Electrical Installation",
+      "activity_name_ar": "التوصيلات الكهربائية",
+      "description": "Electrical wiring and fixtures installation",
+      "default_unit": "LS",
+      "estimated_rate": 1500.00,
+      "category": "Electrical",
+      "typical_duration": 10,
+      "division": "Electrical Division",
+      "display_order": 9,
+      "is_active": true
+    },
+    {
+      "project_type": "Residential",
+      "activity_name": "Plumbing Installation",
+      "activity_name_ar": "التوصيلات الصحية",
+      "description": "Plumbing and sanitary installation",
+      "default_unit": "LS",
+      "estimated_rate": 1200.00,
+      "category": "Plumbing",
+      "typical_duration": 8,
+      "division": "Plumbing Division",
+      "display_order": 10,
+      "is_active": true
+    },
+    {
+      "project_type": "Residential",
+      "activity_name": "Landscaping",
+      "activity_name_ar": "أعمال التنسيق",
+      "description": "Garden and landscaping works",
+      "default_unit": "Square Meter",
+      "estimated_rate": 20.00,
+      "category": "Landscaping",
+      "typical_duration": 5,
+      "division": "Landscaping Division",
+      "display_order": 11,
+      "is_active": true
+    }
+  ],
+  "metadata": {
+    "exported_at": "2025-01-20T15:30:00.000Z",
+    "version": "1.0",
+    "type_name": "Residential",
+    "total_activities": 11,
+    "exported_by": "admin@alrabat.com",
+    "system_version": "1.0.0"
+  }
+}

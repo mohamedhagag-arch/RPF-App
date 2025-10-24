@@ -1,0 +1,33 @@
+# Vercel headers file
+# Security and performance headers
+
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  X-XSS-Protection: 1; mode=block
+  Referrer-Policy: origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+# Cache static assets
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Cache images
+/images/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Cache fonts
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Cache manifest
+/manifest.json
+  Cache-Control: public, max-age=86400
+
+# Cache robots.txt
+/robots.txt
+  Cache-Control: public, max-age=86400
+
+# Cache sitemap
+/sitemap.xml
+  Cache-Control: public, max-age=86400

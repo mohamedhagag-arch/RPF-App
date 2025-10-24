@@ -1,0 +1,42 @@
+# Vercel ignore file
+# Files and directories to exclude from Vercel deployment
+
+# Development files
+.env.local
+.env.development
+.env.test
+
+# Documentation
+*.md
+!README.md
+
+# Scripts (not needed in production)
+scripts/
+Database/
+
+# Development tools
+.vscode/
+.idea/
+
+# Logs
+*.log
+logs/
+
+# Cache
+.cache/
+.parcel-cache/
+
+# Temporary files
+tmp/
+temp/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Clear cache script
+clear-cache.bat

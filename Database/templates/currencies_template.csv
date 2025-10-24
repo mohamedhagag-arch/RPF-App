@@ -1,0 +1,6 @@
+code,name,symbol,exchange_rate,is_default,is_active
+USD,US Dollar,$,1.0,true,true
+EUR,European Euro,€,0.85,false,true
+GBP,British Pound,£,0.73,false,true
+AED,UAE Dirham,د.إ,3.67,false,true
+SAR,Saudi Riyal,ر.س,3.75,false,true
