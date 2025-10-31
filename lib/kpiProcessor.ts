@@ -12,6 +12,9 @@ export interface ProcessedKPI {
   quantity: number
   input_type: 'Planned' | 'Actual'
   drilled_meters: number
+  value: number
+  planned_value: number
+  actual_value: number
   // Data fields for reports
   unit?: string
   target_date: string
@@ -58,6 +61,17 @@ function calculateSmartStatus(quantity: number, inputType: string): {
 export function processKPIRecord(kpi: any): ProcessedKPI {
   const quantity = kpi.quantity || 0
   const inputType = kpi.input_type || 'Planned'
+  const rawValue = typeof kpi.value === 'number' ? kpi.value : parseFloat(kpi.value || '0') || 0
+  const plannedValue = typeof kpi.planned_value === 'number'
+    ? kpi.planned_value
+    : inputType === 'Planned'
+      ? rawValue
+      : 0
+  const actualValue = typeof kpi.actual_value === 'number'
+    ? kpi.actual_value
+    : inputType === 'Actual'
+      ? rawValue
+      : 0
   const smartStatus = calculateSmartStatus(quantity, inputType)
   
   return {
@@ -69,6 +83,9 @@ export function processKPIRecord(kpi: any): ProcessedKPI {
     quantity: quantity,
     input_type: inputType as 'Planned' | 'Actual',
     drilled_meters: kpi.drilled_meters || 0,
+    value: rawValue,
+    planned_value: plannedValue,
+    actual_value: actualValue,
     // Data fields for reports
     unit: kpi.unit || '',
     target_date: kpi.target_date || kpi.created_at || '',

@@ -180,7 +180,7 @@ export function SmartBOQForm({ activity, projects, onSubmit, onCancel }: SmartBO
       
       // Get project activities
       const { data: activities, error: activitiesError } = await supabase
-        .from('boq_activities')
+        .from('Planning Database - BOQ Rates')
         .select('*')
         .eq('project_code', project.project_code)
         .order('activity_name')

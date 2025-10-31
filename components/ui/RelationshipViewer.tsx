@@ -109,7 +109,7 @@ export function RelationshipViewer({
   const fetchProjectData = async (id: string) => {
     // Fetch project
     const { data: projectData, error: projectError } = await supabase
-      .from('projects')
+      .from('Planning Database - ProjectsList')
       .select('*')
       .eq('id', id)
       .single()
@@ -119,7 +119,7 @@ export function RelationshipViewer({
 
     // Fetch related activities
     const { data: activitiesData, error: activitiesError } = await supabase
-      .from('boq_activities')
+      .from('Planning Database - BOQ Rates')
       .select('*')
       .eq('project_id', id)
       .order('created_at', { ascending: false })
@@ -129,7 +129,7 @@ export function RelationshipViewer({
 
     // Fetch related KPIs
     const { data: kpisData, error: kpisError } = await supabase
-      .from('kpi_records')
+      .from('Planning Database - KPI')
       .select('*')
       .eq('project_id', id)
       .order('created_at', { ascending: false })
@@ -141,7 +141,7 @@ export function RelationshipViewer({
   const fetchActivityData = async (id: string) => {
     // Fetch activity
     const { data: activityData, error: activityError } = await supabase
-      .from('boq_activities')
+      .from('Planning Database - BOQ Rates')
       .select('*')
       .eq('id', id)
       .single()
@@ -150,7 +150,7 @@ export function RelationshipViewer({
 
     // Fetch related project
     const { data: projectData, error: projectError } = await supabase
-      .from('projects')
+      .from('Planning Database - ProjectsList')
       .select('*')
       .eq('id', (activityData as any).project_id)
       .single()
@@ -163,7 +163,7 @@ export function RelationshipViewer({
 
     // Fetch related KPIs
     const { data: kpisData, error: kpisError } = await supabase
-      .from('kpi_records')
+      .from('Planning Database - KPI')
       .select('*')
       .eq('activity_id', id)
       .order('created_at', { ascending: false })
@@ -175,7 +175,7 @@ export function RelationshipViewer({
   const fetchKPIData = async (id: string) => {
     // Fetch KPI
     const { data: kpiData, error: kpiError } = await supabase
-      .from('kpi_records')
+      .from('Planning Database - KPI')
       .select('*')
       .eq('id', id)
       .single()
@@ -184,7 +184,7 @@ export function RelationshipViewer({
 
     // Fetch related project
     const { data: projectData, error: projectError } = await supabase
-      .from('projects')
+      .from('Planning Database - ProjectsList')
       .select('*')
       .eq('id', (kpiData as any).project_id)
       .single()
@@ -195,7 +195,7 @@ export function RelationshipViewer({
     // Fetch related activity
     if ((kpiData as any).activity_id) {
       const { data: activityData, error: activityError } = await supabase
-        .from('boq_activities')
+        .from('Planning Database - BOQ Rates')
         .select('*')
         .eq('id', (kpiData as any).activity_id)
         .single()

@@ -50,7 +50,7 @@ export function ProjectCard({
       <CardContent className="space-y-3">
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div>
-            <p className="text-gray-500">Project Type</p>
+            <p className="text-gray-500">Project Scope</p>
             <p className="font-medium">{project.project_type || 'Not specified'}</p>
           </div>
           <div>

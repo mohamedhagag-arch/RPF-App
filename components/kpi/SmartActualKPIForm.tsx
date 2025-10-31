@@ -5,6 +5,7 @@ import { Project, BOQActivity } from '@/lib/supabase'
 import { ModernCard } from '@/components/ui/ModernCard'
 import { Button } from '@/components/ui/Button'
 import { Alert } from '@/components/ui/Alert'
+import { KPIDataMapper } from '@/lib/kpi-data-mapper'
 import { X, Save, Sparkles, Target, Calendar, TrendingUp, Info, CheckCircle2, Hash, Building, Activity } from 'lucide-react'
 
 interface SmartActualKPIFormProps {
@@ -33,7 +34,6 @@ export function SmartActualKPIForm({
   const [quantity, setQuantity] = useState('')
   const [unit, setUnit] = useState('')
   const [actualDate, setActualDate] = useState('')
-  const [section, setSection] = useState('')
   const [zone, setZone] = useState('')
   const [zoneNumber, setZoneNumber] = useState('')
   const [day, setDay] = useState('')
@@ -49,20 +49,6 @@ export function SmartActualKPIForm({
   const [dailyRate, setDailyRate] = useState<number>(0)
   const [isAutoCalculated, setIsAutoCalculated] = useState(false)
   
-  // Smart integration between Section and Zone
-  const [sectionZoneMapping, setSectionZoneMapping] = useState<Record<string, string>>({})
-  
-  // Build section-zone mapping from BOQ data
-  useEffect(() => {
-    const mapping: Record<string, string> = {}
-    activities.forEach(activity => {
-      if (activity.activity_division && activity.zone_ref) {
-        mapping[activity.activity_division] = activity.zone_ref
-      }
-    })
-    setSectionZoneMapping(mapping)
-    console.log('✅ Smart Form: Section-Zone mapping built:', mapping)
-  }, [activities])
 
   // Load available zones
   useEffect(() => {
@@ -73,18 +59,18 @@ export function SmartActualKPIForm({
         const supabase = getSupabaseClient()
         
         const { data, error } = await supabase
-          .from('boq_activities')
-          .select('zone_ref, zone_number')
-          .not('zone_ref', 'is', null)
-          .not('zone_ref', 'eq', '')
+          .from('Planning Database - BOQ Rates')
+          .select('"Zone Ref", "Zone Number"')
+          .not('"Zone Ref"', 'is', null)
+          .not('"Zone Ref"', 'eq', '')
         
         if (error) throw error
         
         // Extract unique zones
         const zones = new Set<string>()
         data?.forEach((item: any) => {
-          if (item.zone_ref) {
-            zones.add(item.zone_ref)
+          if (item['Zone Ref']) {
+            zones.add(item['Zone Ref'])
           }
         })
         
@@ -109,13 +95,6 @@ export function SmartActualKPIForm({
     loadAvailableZones()
   }, [])
   
-  // Smart auto-fill zone when section changes
-  useEffect(() => {
-    if (section && sectionZoneMapping[section] && !zone) {
-      setZone(sectionZoneMapping[section])
-      console.log('✅ Smart Form: Zone auto-filled from Section mapping:', sectionZoneMapping[section])
-    }
-  }, [section, sectionZoneMapping, zone])
   
   // Dropdowns
   const [showProjectDropdown, setShowProjectDropdown] = useState(false)
@@ -152,7 +131,6 @@ export function SmartActualKPIForm({
       }
       
       setActualDate(formatDateForInput(actualDateValue))
-      setSection(kpi['Section'] || kpi.section || '')
       setZone(kpi['Zone'] || kpi.zone || '')
       setDay(kpi['Day'] || kpi.day || '')
       setDrilledMeters(kpi['Drilled Meters']?.toString() || kpi.drilled_meters?.toString() || '')
@@ -188,16 +166,64 @@ export function SmartActualKPIForm({
   
   // Auto-load project data when project code changes
   useEffect(() => {
-    if (projectCode && projects.length > 0) {
+    const loadProjectActivities = async () => {
+      if (!projectCode || projects.length === 0) return
+
       const selectedProject = projects.find(p => p.project_code === projectCode)
-      if (selectedProject) {
-        setProject(selectedProject)
-        // Filter activities for this project
-        const projectActivities = activities.filter(a => a.project_code === projectCode)
+      if (!selectedProject) return
+
+      setProject(selectedProject)
+
+      // Use comprehensive matching strategy to load ALL activities (old + new)
+      try {
+        console.log(`🔍 Auto-loading activities for project: ${projectCode}`)
+
+        const { getSupabaseClient, executeQuery } = await import('@/lib/simpleConnectionManager')
+        const { TABLES } = await import('@/lib/supabase')
+        const { mapBOQFromDB } = await import('@/lib/dataMappers')
+        const supabase = getSupabaseClient()
+
+        // Multiple strategies to find all activities
+        const { data: activitiesByCode } = await executeQuery(async () =>
+          supabase.from(TABLES.BOQ_ACTIVITIES).select('*').eq('Project Code', projectCode)
+        )
+        const { data: activitiesByFullCode } = await executeQuery(async () =>
+          supabase.from(TABLES.BOQ_ACTIVITIES).select('*').eq('Project Full Code', projectCode)
+        )
+        const { data: activitiesByFullCodeStart } = await executeQuery(async () =>
+          supabase.from(TABLES.BOQ_ACTIVITIES).select('*').like('Project Full Code', `${projectCode}%`)
+        )
+
+        // Merge results
+        const allActivitiesData = [
+          ...(Array.isArray(activitiesByCode) ? activitiesByCode : []),
+          ...(Array.isArray(activitiesByFullCode) ? activitiesByFullCode : []),
+          ...(Array.isArray(activitiesByFullCodeStart) ? activitiesByFullCodeStart : [])
+        ]
+
+        // Remove duplicates
+        const uniqueActivities = Array.from(
+          new Map(allActivitiesData.map((item: any) => [item.id, item])).values()
+        )
+
+        // Map to application format
+        const mappedActivities = uniqueActivities.map(mapBOQFromDB)
+        setAvailableActivities(mappedActivities)
+
+        console.log(`✅ Auto-loaded ${mappedActivities.length} activities for project ${projectCode}`)
+
+      } catch (error: any) {
+        console.error('❌ Error auto-loading activities:', error)
+        // Fallback to props
+        const projectActivities = activities.filter(a => 
+          a.project_code === projectCode || 
+          a.project_full_code === projectCode
+        )
         setAvailableActivities(projectActivities)
-        console.log('✅ Loaded activities for project:', projectActivities.length)
       }
     }
+
+    loadProjectActivities()
   }, [projectCode, projects, activities])
   
   // Smart auto-fill when activity is selected
@@ -211,14 +237,9 @@ export function SmartActualKPIForm({
         console.log('✅ Smart Form: Unit auto-filled:', selectedActivity.unit)
       }
       
-      // Auto-fill section
-      if (selectedActivity.activity_division) {
-        setSection(selectedActivity.activity_division)
-        console.log('✅ Smart Form: Section auto-filled:', selectedActivity.activity_division)
-      }
       
-      // Auto-fill zone from BOQ data
-      if (selectedActivity.zone_ref) {
+      // Auto-fill zone from BOQ data (only if it's a valid zone, not division)
+      if (selectedActivity.zone_ref && selectedActivity.zone_ref !== 'Enabling Division') {
         setZone(selectedActivity.zone_ref)
         console.log('✅ Smart Form: Zone auto-filled from BOQ:', selectedActivity.zone_ref)
       }
@@ -239,24 +260,133 @@ export function SmartActualKPIForm({
   }, [selectedActivity])
   
   
-  const handleProjectSelect = (selectedProject: Project) => {
+  const handleProjectSelect = async (selectedProject: Project) => {
     setProjectCode(selectedProject.project_code)
     setProject(selectedProject)
     setShowProjectDropdown(false)
-    
-    // Load activities for this project
-    const projectActivities = activities.filter(a => a.project_code === selectedProject.project_code)
-    setAvailableActivities(projectActivities)
-    console.log('✅ Loaded activities for project:', projectActivities.length)
     
     // Reset activity related fields when project changes
     setActivityName('')
     setSelectedActivity(null)
     setUnit('')
-    setSection('')
     setQuantity('')
     setDailyRate(0)
     setIsAutoCalculated(false)
+    
+    // Load activities for this project using comprehensive matching strategy
+    // This ensures all old and new activities are loaded
+    try {
+      const projectCode = selectedProject.project_code
+      const projectSubCode = selectedProject.project_sub_code || ''
+      const projectFullCode = `${projectCode}${projectSubCode}`
+
+      console.log(`🔍 Fetching ALL activities for project: ${projectCode} (Full: ${projectFullCode})`)
+
+      const { getSupabaseClient, executeQuery } = await import('@/lib/simpleConnectionManager')
+      const { TABLES } = await import('@/lib/supabase')
+      const { mapBOQFromDB } = await import('@/lib/dataMappers')
+      const supabase = getSupabaseClient()
+
+      // Strategy 1: Match by exact Project Code
+      const { data: activitiesByCode, error: error1 } = await executeQuery(async () =>
+        supabase
+          .from(TABLES.BOQ_ACTIVITIES)
+          .select('*')
+          .eq('Project Code', projectCode)
+      )
+
+      // Strategy 2: Match by exact Project Full Code
+      const { data: activitiesByFullCodeExact, error: error2 } = await executeQuery(async () =>
+        supabase
+          .from(TABLES.BOQ_ACTIVITIES)
+          .select('*')
+          .eq('Project Full Code', projectCode)
+      )
+
+      // Strategy 3: Match where Project Full Code starts with Project Code
+      const { data: activitiesByFullCodeStart, error: error3 } = await executeQuery(async () =>
+        supabase
+          .from(TABLES.BOQ_ACTIVITIES)
+          .select('*')
+          .like('Project Full Code', `${projectCode}%`)
+      )
+
+      // Strategy 4: Match where Project Code contains the project code (for old data)
+      const { data: activitiesByCodeContains, error: error4 } = await executeQuery(async () =>
+        supabase
+          .from(TABLES.BOQ_ACTIVITIES)
+          .select('*')
+          .ilike('Project Code', `%${projectCode}%`)
+          .neq('Project Code', projectCode)
+      )
+
+      // Strategy 5: Match where Project Full Code contains the project code (for old data)
+      const { data: activitiesByFullCodeContains, error: error5 } = await executeQuery(async () =>
+        supabase
+          .from(TABLES.BOQ_ACTIVITIES)
+          .select('*')
+          .ilike('Project Full Code', `%${projectCode}%`)
+          .neq('Project Full Code', projectCode)
+      )
+
+      // Merge ALL results
+      const allActivitiesData = [
+        ...(Array.isArray(activitiesByCode) ? activitiesByCode : []),
+        ...(Array.isArray(activitiesByFullCodeExact) ? activitiesByFullCodeExact : []),
+        ...(Array.isArray(activitiesByFullCodeStart) ? activitiesByFullCodeStart : []),
+        ...(Array.isArray(activitiesByCodeContains) ? activitiesByCodeContains : []),
+        ...(Array.isArray(activitiesByFullCodeContains) ? activitiesByFullCodeContains : [])
+      ]
+
+      // Remove duplicates based on id
+      const uniqueActivitiesData = Array.from(
+        new Map(allActivitiesData.map((item: any) => [item.id, item])).values()
+      )
+
+      // Additional client-side filtering to ensure all match the project
+      const filteredActivities = uniqueActivitiesData.filter((item: any) => {
+        const itemProjectCode = (item['Project Code'] || '').toString().trim()
+        const itemProjectFullCode = (item['Project Full Code'] || '').toString().trim()
+
+        // Direct matches
+        if (itemProjectCode === projectCode) return true
+        if (itemProjectFullCode === projectCode) return true
+        if (itemProjectFullCode.startsWith(projectCode)) return true
+
+        // For old database entries, check if project code appears anywhere
+        if (itemProjectCode.includes(projectCode)) return true
+        if (itemProjectFullCode.includes(projectCode)) return true
+
+        return false
+      })
+
+      // Map to application format
+      const mappedActivities = filteredActivities.map(mapBOQFromDB)
+      setAvailableActivities(mappedActivities)
+
+      console.log(`✅ Loaded ${mappedActivities.length} activities for project ${projectCode}`)
+      console.log(`📊 Activities:`, mappedActivities.map(a => ({
+        name: a.activity_name,
+        project_code: a.project_code,
+        project_full_code: a.project_full_code
+      })))
+
+      if (mappedActivities.length === 0) {
+        console.warn(`⚠️ NO ACTIVITIES FOUND for project ${projectCode}!`)
+      }
+
+    } catch (error: any) {
+      console.error('❌ Error fetching activities:', error)
+      
+      // Fallback: Try to use activities from props if available
+      const projectActivities = activities.filter(a => 
+        a.project_code === selectedProject.project_code || 
+        a.project_full_code === selectedProject.project_code ||
+        a.project_full_code?.startsWith(selectedProject.project_code)
+      )
+      setAvailableActivities(projectActivities)
+      console.log(`✅ Fallback: Loaded ${projectActivities.length} activities from props`)
+    }
   }
   
   const handleActivitySelect = (activityName: string) => {
@@ -321,11 +451,10 @@ export function SmartActualKPIForm({
         'Unit': unit,
         'Input Type': 'Actual', // Fixed to Actual only
         'Actual Date': actualDate,
-        'Section': section,
         'Zone': zone,
         'Zone Number': zoneNumber,
         'Day': day,
-        'Drilled Meters': parseFloat(drilledMeters) || 0
+        'Drilled Meters': drilledMeters ? parseFloat(drilledMeters) : null
       }
       
       console.log('📦 Submitting KPI:', kpiData)
@@ -508,6 +637,7 @@ export function SmartActualKPIForm({
             
             {/* Smart Quantity and Unit */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Unit field is read-only and auto-filled from selected activity */}
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                   <Hash className="w-4 h-4 inline mr-2" />
@@ -562,19 +692,24 @@ export function SmartActualKPIForm({
                   Unit *
                   {unit && (
                     <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
-                      Auto-filled
+                      Auto-filled from Activity
                     </span>
                   )}
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g., m², m³, kg..."
+                  placeholder="Select an activity to auto-fill unit..."
                   value={unit}
-                  onChange={(e) => setUnit(e.target.value)}
-                  className={`w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white ${
-                    unit ? 'bg-blue-50 border-blue-300' : 'border-gray-300 dark:border-gray-600'
+                  readOnly
+                  className={`w-full px-3 py-2 border rounded-md dark:bg-gray-800 dark:text-white ${
+                    unit ? 'bg-blue-50 border-blue-300 cursor-not-allowed' : 'border-gray-300 dark:border-gray-600 bg-gray-50 cursor-not-allowed'
                   }`}
                 />
+                {!unit && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Unit will be automatically filled when you select an activity
+                  </p>
+                )}
               </div>
             </div>
             
@@ -605,19 +740,14 @@ export function SmartActualKPIForm({
                 <span className="ml-2 text-sm bg-red-100 text-red-800 px-3 py-1 rounded-full">
                   ZONE FIELD
                 </span>
-                {section && (
-                  <span className="ml-2 text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-full">
-                    Auto-filled
-                  </span>
-                )}
               </label>
               <input
                 type="text"
                 placeholder="Enter zone name..."
-                value={section}
-                onChange={(e) => setSection(e.target.value)}
+                value={zone}
+                onChange={(e) => setZone(e.target.value)}
                 className={`w-full px-4 py-3 text-lg border-2 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white ${
-                  section ? 'bg-blue-50 border-blue-300' : 'border-gray-300 dark:border-gray-600'
+                  zone ? 'bg-blue-50 border-blue-300' : 'border-gray-300 dark:border-gray-600'
                 }`}
                 required
               />
@@ -647,10 +777,13 @@ export function SmartActualKPIForm({
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                   Drilled Meters
+                  <span className="ml-2 text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">
+                    Optional
+                  </span>
                 </label>
                 <input
                   type="number"
-                  placeholder="0.00"
+                  placeholder="Enter drilled meters (optional)..."
                   value={drilledMeters}
                   onChange={(e) => setDrilledMeters(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
@@ -658,7 +791,7 @@ export function SmartActualKPIForm({
                   min="0"
                 />
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Optional: For drilling activities
+                  Only for drilling activities - leave empty if not applicable
                 </p>
               </div>
             </div>

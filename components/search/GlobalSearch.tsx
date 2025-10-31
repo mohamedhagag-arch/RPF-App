@@ -88,7 +88,7 @@ export function GlobalSearch({ onResultClick, onClose, isOpen = false }: GlobalS
       // Search projects
       if (selectedCategory === 'all' || selectedCategory === 'projects') {
         const { data: projects } = await supabase
-          .from('projects')
+          .from('Planning Database - ProjectsList')
           .select('*')
           .or(`project_name.ilike.%${searchTerm}%,project_code.ilike.%${searchTerm}%,project_type.ilike.%${searchTerm}%,responsible_division.ilike.%${searchTerm}%`)
           .limit(10)
@@ -114,7 +114,7 @@ export function GlobalSearch({ onResultClick, onClose, isOpen = false }: GlobalS
       // Search activities
       if (selectedCategory === 'all' || selectedCategory === 'activities') {
         const { data: activities } = await supabase
-          .from('boq_activities')
+          .from('Planning Database - BOQ Rates')
           .select('*')
           .or(`activity_name.ilike.%${searchTerm}%,activity.ilike.%${searchTerm}%,activity_division.ilike.%${searchTerm}%,project_code.ilike.%${searchTerm}%`)
           .limit(10)
@@ -141,7 +141,7 @@ export function GlobalSearch({ onResultClick, onClose, isOpen = false }: GlobalS
       // Search KPIs
       if (selectedCategory === 'all' || selectedCategory === 'kpis') {
         const { data: kpis } = await supabase
-          .from('kpi_records')
+          .from('Planning Database - KPI')
           .select('*')
           .or(`kpi_name.ilike.%${searchTerm}%,notes.ilike.%${searchTerm}%`)
           .limit(10)

@@ -120,12 +120,12 @@ export function ProjectForm({ project, onSubmit, onCancel }: ProjectFormProps) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Project Type
+                  Project Scope
                 </label>
                 <Input
                   value={formData.project_type}
                   onChange={(e) => handleChange('project_type', e.target.value)}
-                  placeholder="Enter project type"
+                  placeholder="Enter project scope"
                 />
               </div>
 

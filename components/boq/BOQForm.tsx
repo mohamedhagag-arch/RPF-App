@@ -76,7 +76,7 @@ export function BOQForm({ activity, projects, onSubmit, onCancel }: BOQFormProps
         activity_name: activity.activity_name,
         activity_division: activity.activity_division || '',
         unit: activity.unit || '',
-        zone_ref: activity.zone_ref || '',
+        zone_ref: (activity.zone_ref && activity.zone_ref !== 'Enabling Division') ? activity.zone_ref : '',
         zone_number: activity.zone_number || '',
         
         // ✅ Quantities
@@ -211,7 +211,7 @@ export function BOQForm({ activity, projects, onSubmit, onCancel }: BOQFormProps
         
         // Get project activities
         const { data: activities, error: activitiesError } = await supabase
-          .from('boq_activities')
+          .from('Planning Database - BOQ Rates')
           .select('*')
           .eq('project_code', project.project_code)
           .order('activity_name')

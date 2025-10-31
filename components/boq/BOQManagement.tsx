@@ -44,7 +44,14 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editingActivity, setEditingActivity] = useState<BOQActivity | null>(null)
-  const [useCustomizedTable, setUseCustomizedTable] = useState(true) // ✅ Use customized table by default
+  // ✅ Standard View is always the default - Force to true on mount
+  const [useCustomizedTable, setUseCustomizedTable] = useState(true)
+  
+  // Ensure Standard View is always the default on mount
+  useEffect(() => {
+    // Force Standard View on initial mount
+    setUseCustomizedTable(true)
+  }, [])
   
   // Zone Management
   const [selectedZone, setSelectedZone] = useState<string | null>(null)

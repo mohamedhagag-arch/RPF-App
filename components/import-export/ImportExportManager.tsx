@@ -92,7 +92,7 @@ export function ImportExportManager({ userRole = 'viewer', onClose }: ImportExpo
       // Export projects
       if (exportOptions.projects) {
         setProgress(20)
-        let query = supabase.from('projects').select('*')
+        let query = supabase.from('Planning Database - ProjectsList').select('*')
         
         if (exportOptions.dateRange.start) {
           query = query.gte('created_at', exportOptions.dateRange.start)
@@ -108,7 +108,7 @@ export function ImportExportManager({ userRole = 'viewer', onClose }: ImportExpo
       // Export activities
       if (exportOptions.activities) {
         setProgress(40)
-        let query = supabase.from('boq_activities').select('*')
+        let query = supabase.from('Planning Database - BOQ Rates').select('*')
         
         if (exportOptions.dateRange.start) {
           query = query.gte('created_at', exportOptions.dateRange.start)
@@ -124,7 +124,7 @@ export function ImportExportManager({ userRole = 'viewer', onClose }: ImportExpo
       // Export KPIs
       if (exportOptions.kpis) {
         setProgress(60)
-        let query = supabase.from('kpi_records').select('*')
+        let query = supabase.from('Planning Database - KPI').select('*')
         
         if (exportOptions.dateRange.start) {
           query = query.gte('created_at', exportOptions.dateRange.start)
@@ -204,7 +204,7 @@ export function ImportExportManager({ userRole = 'viewer', onClose }: ImportExpo
       if (data.projects && data.projects.length > 0) {
         setProgress(60)
         const { error: projectsError } = await supabase
-          .from('projects')
+          .from('Planning Database - ProjectsList')
           .upsert(data.projects, { onConflict: 'id' })
         
         if (projectsError) throw projectsError
@@ -214,7 +214,7 @@ export function ImportExportManager({ userRole = 'viewer', onClose }: ImportExpo
       if (data.activities && data.activities.length > 0) {
         setProgress(70)
         const { error: activitiesError } = await supabase
-          .from('boq_activities')
+          .from('Planning Database - BOQ Rates')
           .upsert(data.activities, { onConflict: 'id' })
         
         if (activitiesError) throw activitiesError
@@ -224,7 +224,7 @@ export function ImportExportManager({ userRole = 'viewer', onClose }: ImportExpo
       if (data.kpis && data.kpis.length > 0) {
         setProgress(80)
         const { error: kpisError } = await supabase
-          .from('kpi_records')
+          .from('Planning Database - KPI')
           .upsert(data.kpis, { onConflict: 'id' })
         
         if (kpisError) throw kpisError

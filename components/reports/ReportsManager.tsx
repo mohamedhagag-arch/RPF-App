@@ -76,7 +76,7 @@ export function ReportsManager({ userRole = 'viewer' }: ReportsManagerProps) {
   const fetchProjects = async () => {
     try {
       const { data } = await supabase
-        .from('projects')
+        .from('Planning Database - ProjectsList')
         .select('*')
         .order('project_name')
       
@@ -99,9 +99,9 @@ export function ReportsManager({ userRole = 'viewer' }: ReportsManagerProps) {
       // Fetch all data with timeout protection
       const [projectsResult, activitiesResult, kpisResult] = await Promise.race([
         Promise.all([
-          (supabase as any).from('projects').select('*'), // Load all projects
-          (supabase as any).from('boq_activities').select('*'), // Load all activities
-          (supabase as any).from('kpi_records').select('*') // Load all KPIs
+          (supabase as any).from('Planning Database - ProjectsList').select('*'), // Load all projects
+          (supabase as any).from('Planning Database - BOQ Rates').select('*'), // Load all activities
+          (supabase as any).from('Planning Database - KPI').select('*') // Load all KPIs
         ]),
         timeoutPromise
       ]) as any

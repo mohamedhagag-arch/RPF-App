@@ -165,9 +165,16 @@ export function calculateProjectProgressFromValues(activities: any[]): {
 /**
  * Calculate project progress using KPI data (more accurate)
  */
+type ProjectKPIAggregate = {
+  totalActual: number
+  totalPlanned: number
+  totalActualValue: number
+  totalPlannedValue: number
+}
+
 export function calculateProjectProgressFromKPI(
   activities: any[],
-  kpiData: { [key: string]: { totalActual: number; totalPlanned: number } }
+  kpiData: { [key: string]: ProjectKPIAggregate }
 ): {
   totalProjectValue: number
   totalEarnedValue: number
@@ -191,22 +198,36 @@ export function calculateProjectProgressFromKPI(
   for (const activity of activities) {
     // Get KPI data for this activity
     const kpiKey = `${activity.project_code}-${activity.activity_name}`
-    const kpiInfo = kpiData[kpiKey] || { totalActual: 0, totalPlanned: 0 }
+    const kpiInfo: ProjectKPIAggregate = kpiData[kpiKey] || {
+      totalActual: 0,
+      totalPlanned: 0,
+      totalActualValue: 0,
+      totalPlannedValue: 0
+    }
 
     // Use KPI actual if available, otherwise use BOQ actual
     const actualUnits = kpiInfo.totalActual > 0 ? kpiInfo.totalActual : (activity.actual_units || 0)
     const plannedUnits = kpiInfo.totalPlanned > 0 ? kpiInfo.totalPlanned : (activity.planned_units || 0)
 
-    // ✅ Calculate rate for this activity using correct business logic
-    const rate = (activity.total_units || 0) > 0
-      ? (activity.total_value || 0) / (activity.total_units || 0)
-      : 0
+    let rate = 0
+    if ((activity.total_units || 0) > 0 && (activity.total_value || 0)) {
+      rate = (activity.total_value || 0) / (activity.total_units || 0)
+    } else if ((activity.planned_units || 0) > 0 && (activity.total_value || 0)) {
+      rate = (activity.total_value || 0) / (activity.planned_units || 0)
+    } else if (kpiInfo.totalPlannedValue > 0 && kpiInfo.totalPlanned > 0) {
+      rate = kpiInfo.totalPlannedValue / kpiInfo.totalPlanned
+    }
 
-    // ✅ Calculate planned value (Planned Units × Rate)
-    const plannedValue = plannedUnits * rate
+    let plannedValue = plannedUnits * rate
+    let earnedValue = actualUnits * rate
 
-    // ✅ Calculate earned value (Actual Units × Rate)
-    const earnedValue = actualUnits * rate
+    if (kpiInfo.totalPlannedValue > 0) {
+      plannedValue = kpiInfo.totalPlannedValue
+    }
+
+    if (kpiInfo.totalActualValue > 0) {
+      earnedValue = kpiInfo.totalActualValue
+    }
 
     // ✅ Calculate activity progress
     const activityProgress = plannedValue > 0 ? (earnedValue / plannedValue) * 100 : 0

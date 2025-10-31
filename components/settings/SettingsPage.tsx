@@ -152,17 +152,17 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
       
       // Export projects
       const { data: projects } = await supabase
-        .from('projects')
+        .from('Planning Database - ProjectsList')
         .select('*')
 
       // Export BOQ activities
       const { data: activities } = await supabase
-        .from('boq_activities')
+        .from('Planning Database - BOQ Rates')
         .select('*')
 
       // Export KPIs
       const { data: kpis } = await supabase
-        .from('kpi_records')
+        .from('Planning Database - KPI')
         .select('*')
 
       const exportData = {
@@ -210,7 +210,7 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
       // Import projects
       if (data.projects.length > 0) {
         const { error: projectsError } = await supabase
-          .from('projects')
+          .from('Planning Database - ProjectsList')
           .upsert(data.projects, { onConflict: 'id' })
 
         if (projectsError) throw projectsError
@@ -219,7 +219,7 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
       // Import activities
       if (data.activities.length > 0) {
         const { error: activitiesError } = await supabase
-          .from('boq_activities')
+          .from('Planning Database - BOQ Rates')
           .upsert(data.activities, { onConflict: 'id' })
 
         if (activitiesError) throw activitiesError
@@ -228,7 +228,7 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
       // Import KPIs
       if (data.kpis.length > 0) {
         const { error: kpisError } = await supabase
-          .from('kpi_records')
+          .from('Planning Database - KPI')
           .upsert(data.kpis, { onConflict: 'id' })
 
         if (kpisError) throw kpisError
@@ -267,7 +267,7 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
     { id: 'system', label: 'System Settings', icon: Shield, roles: ['admin'], permission: 'settings.manage' },
     { id: 'departments-titles', label: 'Departments & Titles', icon: Building2, roles: ['admin', 'manager'], permission: 'settings.divisions' },
     { id: 'divisions', label: 'Divisions', icon: Building2, roles: ['admin', 'manager'], permission: 'settings.divisions' },
-    { id: 'unified-project-types', label: 'Project Types & Activities', icon: Briefcase, roles: ['admin', 'manager'], permission: 'settings.project_types' },
+    { id: 'unified-project-types', label: 'Project Scope & Activities', icon: Briefcase, roles: ['admin', 'manager'], permission: 'settings.project_types' },
     { id: 'currencies', label: 'Currencies', icon: DollarSign, roles: ['admin', 'manager'], permission: 'settings.currencies' },
     { id: 'data', label: 'Data Management', icon: Database, roles: ['admin', 'manager'], permission: 'system.export' },
     { id: 'security', label: 'Security', icon: Shield, roles: ['admin', 'manager'], permission: 'users.manage' }
@@ -360,7 +360,7 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
             <div className="text-center py-12">
               <Shield className="h-12 w-12 text-gray-400 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Access Denied</h3>
-              <p className="text-gray-600 dark:text-gray-400">You don't have permission to access project types management.</p>
+              <p className="text-gray-600 dark:text-gray-400">You don't have permission to access project scope management.</p>
             </div>
           )
         }
@@ -372,7 +372,7 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
             <div className="text-center py-12">
               <Shield className="h-12 w-12 text-gray-400 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Access Denied</h3>
-              <p className="text-gray-600 dark:text-gray-400">You don't have permission to access project types management.</p>
+              <p className="text-gray-600 dark:text-gray-400">You don't have permission to access project scope management.</p>
             </div>
           )
         }

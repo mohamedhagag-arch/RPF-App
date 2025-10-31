@@ -7,6 +7,13 @@
 import { Project, BOQActivity, KPIRecord } from './supabase'
 import { calculateProjectProgressFromValues, calculateProjectProgressFromKPI } from './boqValueCalculator'
 
+type KPIAggregate = {
+  totalActual: number
+  totalPlanned: number
+  totalActualValue: number
+  totalPlannedValue: number
+}
+
 export interface ProjectAnalytics {
   project: Project
   
@@ -178,44 +185,100 @@ export function calculateProjectAnalytics(
   let totalEarnedValue = 0
   
   // Prepare KPI data for more accurate calculation
-  const kpiData: { [key: string]: { totalActual: number; totalPlanned: number } } = {}
+  const kpiData: Record<string, KPIAggregate> = {}
+  let totalPlannedValueFromKPIs = 0
+  let totalEarnedValueFromKPIs = 0
   
   // Group KPI data by activity
   for (const kpi of projectKPIs) {
     const key = `${kpi.project_code}-${kpi.activity_name}`
     if (!kpiData[key]) {
-      kpiData[key] = { totalActual: 0, totalPlanned: 0 }
+      kpiData[key] = {
+        totalActual: 0,
+        totalPlanned: 0,
+        totalActualValue: 0,
+        totalPlannedValue: 0
+      }
     }
     
+    const quantityValue = parseFloat(kpi.quantity?.toString() || '0') || 0
+    let financialValue = parseFloat(kpi.value?.toString() || '0') || 0
+    
+    // ✅ If Value is missing or zero, calculate from Quantity × Rate
+    // This fixes the issue where newly created KPIs don't have Value field
+    if (!financialValue || financialValue === 0) {
+      // Find the related activity to get the rate
+      const relatedActivity = projectActivities.find(a => 
+        a.activity_name === kpi.activity_name && 
+        (a.project_code === kpi.project_code || a.project_full_code === kpi.project_full_code)
+      )
+      
+      if (relatedActivity && relatedActivity.rate && relatedActivity.rate > 0) {
+        financialValue = quantityValue * relatedActivity.rate
+      } else if (relatedActivity && relatedActivity.total_value && relatedActivity.total_units && relatedActivity.total_units > 0) {
+        // Calculate rate from activity total
+        const rate = relatedActivity.total_value / relatedActivity.total_units
+        financialValue = quantityValue * rate
+      } else {
+        // Last fallback: use quantity as value (1:1 ratio)
+        financialValue = quantityValue
+      }
+    }
+
     if (kpi.input_type === 'Actual') {
-      kpiData[key].totalActual += parseFloat(kpi.quantity?.toString() || '0') || 0
+      kpiData[key].totalActual += quantityValue
+      kpiData[key].totalActualValue += financialValue
+      totalEarnedValueFromKPIs += financialValue
     } else if (kpi.input_type === 'Planned') {
-      kpiData[key].totalPlanned += parseFloat(kpi.quantity?.toString() || '0') || 0
+      kpiData[key].totalPlanned += quantityValue
+      kpiData[key].totalPlannedValue += financialValue
+      totalPlannedValueFromKPIs += financialValue
     }
   }
   
   for (const activity of projectActivities) {
     // Get KPI data for this activity
     const kpiKey = `${activity.project_code}-${activity.activity_name}`
-    const kpiInfo = kpiData[kpiKey] || { totalActual: 0, totalPlanned: 0 }
+    const kpiInfo: KPIAggregate = kpiData[kpiKey] || {
+      totalActual: 0,
+      totalPlanned: 0,
+      totalActualValue: 0,
+      totalPlannedValue: 0
+    }
     
     // Use KPI actual if available, otherwise use BOQ actual
     const actualUnits = kpiInfo.totalActual > 0 ? kpiInfo.totalActual : (activity.actual_units || 0)
     const plannedUnits = kpiInfo.totalPlanned > 0 ? kpiInfo.totalPlanned : (activity.planned_units || 0)
     
-    // Calculate rate for this activity
-    const rate = (activity.total_units || 0) > 0 
-      ? (activity.total_value || 0) / (activity.total_units || 0) 
-      : 0
+    let rate = 0
+    if ((activity.total_units || 0) > 0 && (activity.total_value || 0)) {
+      rate = (activity.total_value || 0) / (activity.total_units || 0)
+    } else if ((activity.planned_units || 0) > 0 && (activity.total_value || 0)) {
+      rate = (activity.total_value || 0) / (activity.planned_units || 0)
+    } else if (kpiInfo.totalPlannedValue > 0 && kpiInfo.totalPlanned > 0) {
+      rate = kpiInfo.totalPlannedValue / kpiInfo.totalPlanned
+    }
     
-    // Calculate planned value (Planned Units × Rate)
-    const plannedValue = plannedUnits * rate
-    
-    // Calculate earned value (Actual Units × Rate)
-    const earnedValue = actualUnits * rate
+    let plannedValue = plannedUnits * rate
+    let earnedValue = actualUnits * rate
+
+    if (kpiInfo.totalPlannedValue > 0) {
+      plannedValue = kpiInfo.totalPlannedValue
+    }
+
+    if (kpiInfo.totalActualValue > 0) {
+      earnedValue = kpiInfo.totalActualValue
+    }
     
     totalPlannedValue += plannedValue
     totalEarnedValue += earnedValue
+  }
+  
+  if (totalPlannedValueFromKPIs > 0) {
+    totalPlannedValue = totalPlannedValueFromKPIs
+  }
+  if (totalEarnedValueFromKPIs > 0) {
+    totalEarnedValue = totalEarnedValueFromKPIs
   }
   
   const totalRemainingValue = totalPlannedValue - totalEarnedValue

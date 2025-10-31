@@ -6,6 +6,7 @@ import { Project, BOQActivity } from '@/lib/supabase'
 import { ModernCard } from '@/components/ui/ModernCard'
 import { Button } from '@/components/ui/Button'
 import { Alert } from '@/components/ui/Alert'
+import { KPIDataMapper } from '@/lib/kpi-data-mapper'
 import { X, Save, Sparkles, Target, Calendar, TrendingUp, Info, CheckCircle2 } from 'lucide-react'
 
 interface IntelligentKPIFormProps {
@@ -36,7 +37,6 @@ export function IntelligentKPIForm({
   const [unit, setUnit] = useState('')
   const [targetDate, setTargetDate] = useState('')
   const [actualDate, setActualDate] = useState('')
-  const [section, setSection] = useState('')
   const [zone, setZone] = useState('')
   const [zoneNumber, setZoneNumber] = useState('')
   const [day, setDay] = useState('')
@@ -177,7 +177,6 @@ export function IntelligentKPIForm({
         console.log('🔄 Using found actual date:', foundActualDate)
         setActualDate(formatDateForInput(foundActualDate))
       }
-      setSection(kpi['Section'] || kpi.section || '')
       setZone(kpi['Zone'] || kpi.zone || '')
       setZoneNumber(kpi['Zone Number'] || kpi.zone_number || '')
       setDay(kpi['Day'] || kpi.day || '')
@@ -191,7 +190,6 @@ export function IntelligentKPIForm({
         unit: kpi['Unit'] || kpi.unit,
         targetDate: formatDateForInput(targetDateValue),
         actualDate: formatDateForInput(actualDateValue),
-        section: kpi['Section'] || kpi.section,
         zone: kpi['Zone'] || kpi.zone,
         zoneNumber: kpi['Zone Number'] || kpi.zone_number,
         day: kpi['Day'] || kpi.day,
@@ -266,18 +264,18 @@ export function IntelligentKPIForm({
         const supabase = getSupabaseClient()
         
         const { data, error } = await supabase
-          .from('boq_activities')
-          .select('zone_ref, zone_number')
-          .not('zone_ref', 'is', null)
-          .not('zone_ref', 'eq', '')
+          .from('Planning Database - BOQ Rates')
+          .select('"Zone Ref", "Zone Number"')
+          .not('"Zone Ref"', 'is', null)
+          .not('"Zone Ref"', 'eq', '')
         
         if (error) throw error
         
         // Extract unique zones
         const zones = new Set<string>()
         data?.forEach((item: any) => {
-          if (item.zone_ref) {
-            zones.add(item.zone_ref)
+          if (item['Zone Ref']) {
+            zones.add(item['Zone Ref'])
           }
         })
         
@@ -317,11 +315,6 @@ export function IntelligentKPIForm({
           console.log('✅ Smart Form: Unit auto-filled:', foundActivity.unit)
         }
         
-        // Auto-fill section
-        if (foundActivity.activity_division) {
-          setSection(foundActivity.activity_division)
-          console.log('✅ Smart Form: Section auto-filled:', foundActivity.activity_division)
-        }
         
         // Auto-fill daily rate and calculate quantity for Actual KPIs
         if (inputType === 'Actual' && foundActivity.productivity_daily_rate && foundActivity.productivity_daily_rate > 0) {
@@ -353,7 +346,6 @@ export function IntelligentKPIForm({
     setActivityName('')
     setSelectedActivity(null)
     setUnit('')
-    setSection('')
     setQuantity('')
     setDailyRate(0)
     setIsAutoCalculated(false)
@@ -369,8 +361,8 @@ export function IntelligentKPIForm({
       setSelectedActivity(activity)
       console.log('🧠 Smart Form: Activity selected for auto-fill:', activity.activity_name)
       
-      // Auto-fill zone information from activity
-      if (activity.zone_ref) {
+      // Auto-fill zone information from activity (only if it's a valid zone, not division)
+      if (activity.zone_ref && activity.zone_ref !== 'Enabling Division') {
         setZone(activity.zone_ref)
         console.log('✅ Smart Form: Zone auto-filled from activity:', activity.zone_ref)
       }
@@ -454,7 +446,6 @@ export function IntelligentKPIForm({
         'Input Type': inputType || 'Planned',
         'Target Date': targetDate || '',
         'Actual Date': actualDate || '',
-        'Section': section || '',
         'Zone': zone || '',
         'Zone Number': zoneNumber || '',
         'Day': day || '',
@@ -482,9 +473,14 @@ export function IntelligentKPIForm({
       console.log('🔍 Project Full Code:', kpiData['Project Full Code'])
       console.log('🔍 Activity Name:', kpiData['Activity Name'])
       console.log('🔍 Quantity:', kpiData['Quantity'])
+      console.log('🔍 Input Type:', kpiData['Input Type'])
+      console.log('🔍 Target Date:', kpiData['Target Date'])
+      console.log('🔍 Actual Date:', kpiData['Actual Date'])
       
       // Submit
+      console.log('🚀 Calling onSubmit with data:', kpiData)
       await onSubmit(kpiData)
+      console.log('✅ onSubmit completed successfully')
       
       setSuccess(`✅ KPI ${kpi ? 'updated' : 'created'} successfully!`)
       
@@ -854,18 +850,6 @@ export function IntelligentKPIForm({
               </div>
             )}
             
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Section (Optional)
-              </label>
-              <input
-                type="text"
-                value={section}
-                onChange={(e) => setSection(e.target.value)}
-                placeholder="e.g., Zone A, Area 1..."
-                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
             <div className="relative">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 <span className="flex items-center gap-2">

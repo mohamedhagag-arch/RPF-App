@@ -87,7 +87,7 @@ export function ProjectTypeActivitiesManager() {
       setLoading(true)
       setError('')
       
-      console.log('🔍 Loading project type activities...')
+      console.log('🔍 Loading project scope activities...')
       
       const [allActivitiesData, typesData, statsData] = await Promise.all([
         getAllActivities(showInactive),
@@ -112,8 +112,8 @@ export function ProjectTypeActivitiesManager() {
       
       // If no data loaded, show message
       if (typesData.length === 0) {
-        console.log('⚠️ No project types found. Check database setup.')
-        setError('No project types found. Please run the SQL script in Supabase.')
+        console.log('⚠️ No project scopes found. Check database setup.')
+        setError('No project scopes found. Please run the SQL script in Supabase.')
       }
       
     } catch (error: any) {
@@ -179,7 +179,7 @@ export function ProjectTypeActivitiesManager() {
       }
       
       if (!formData.project_type.trim()) {
-        setError('Project type is required')
+        setError('Project scope is required')
         return
       }
       
@@ -257,7 +257,7 @@ export function ProjectTypeActivitiesManager() {
   }
 
   const handleCopyActivities = async () => {
-    const toProjectType = prompt('Enter target project type name:')
+    const toProjectType = prompt('Enter target project scope name:')
     if (!toProjectType?.trim()) return
     
     try {
@@ -281,7 +281,7 @@ export function ProjectTypeActivitiesManager() {
     }
   }
 
-  // Get current activities for selected project type
+  // Get current activities for selected project scope
   const currentActivities = selectedProjectType ? (activities[selectedProjectType] || []) : []
   
   // Filter activities
@@ -323,10 +323,10 @@ export function ProjectTypeActivitiesManager() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-            Project Type Activities
+            Project Scope Activities
           </h2>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-            Manage activities for each project type
+            Manage activities for each project scope
           </p>
         </div>
         
@@ -478,7 +478,7 @@ export function ProjectTypeActivitiesManager() {
         {/* Project Types List */}
         <ModernCard className="p-4 lg:col-span-1">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
-            Project Types
+            Project Scopes
           </h3>
           
           {loading ? (
@@ -489,7 +489,7 @@ export function ProjectTypeActivitiesManager() {
             <div className="text-center py-8">
               <AlertCircle className="h-8 w-8 text-yellow-500 mx-auto mb-2" />
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                No project types found
+                No project scopes found
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-500">
                 Run SQL script in Supabase
@@ -575,14 +575,14 @@ export function ProjectTypeActivitiesManager() {
                 <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                 <p className="text-gray-600 dark:text-gray-400">
                   {projectTypes.length === 0 
-                    ? 'No project types found. Please run the SQL script in Supabase.'
-                    : 'Select a project type to view its activities'
+                    ? 'No project scopes found. Please run the SQL script in Supabase.'
+                    : 'Select a project scope to view its activities'
                   }
                 </p>
                 {projectTypes.length === 0 && (
                   <div className="mt-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
                     <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                      <strong>Setup Required:</strong> Run the SQL script to create project type activities.
+                      <strong>Setup Required:</strong> Run the SQL script to create project scope activities.
                     </p>
                   </div>
                 )}
@@ -591,7 +591,7 @@ export function ProjectTypeActivitiesManager() {
               <div className="text-center py-12">
                 <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                 <p className="text-gray-600 dark:text-gray-400">
-                  {searchTerm || filterCategory ? 'No activities match your filters' : 'No activities found for this project type'}
+                  {searchTerm || filterCategory ? 'No activities match your filters' : 'No activities found for this project scope'}
                 </p>
                 {canManage && !searchTerm && !filterCategory && (
                   <ModernButton
@@ -717,7 +717,7 @@ export function ProjectTypeActivitiesManager() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Project Type *
+                  Project Scope *
                 </label>
                 <Input
                   value={formData.project_type}

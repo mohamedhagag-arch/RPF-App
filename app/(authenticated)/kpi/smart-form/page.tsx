@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { Project, BOQActivity, TABLES } from '@/lib/supabase'
 import { mapProjectFromDB, mapBOQFromDB } from '@/lib/dataMappers'
+import { KPIConsistencyManager } from '@/lib/kpi-data-consistency-fix'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Alert } from '@/components/ui/Alert'
 import { ArrowLeft, Target, Sparkles } from 'lucide-react'
@@ -42,7 +43,8 @@ export default function SmartKPIPage() {
         const mappedProjects = (projectsData || []).map(mapProjectFromDB)
         setProjects(mappedProjects)
         
-        // Fetch activities
+        // Fetch ALL activities (no filter - get everything)
+        // This ensures both old and new activities are loaded
         const { data: activitiesData, error: activitiesError } = await supabase
           .from(TABLES.BOQ_ACTIVITIES)
           .select('*')
@@ -55,7 +57,15 @@ export default function SmartKPIPage() {
         const mappedActivities = (activitiesData || []).map(mapBOQFromDB)
         setActivities(mappedActivities)
         
-        console.log('✅ Smart KPI Form: Loaded', mappedProjects.length, 'projects and', mappedActivities.length, 'activities')
+        console.log('✅ Smart KPI Form: Loaded', mappedProjects.length, 'projects and', mappedActivities.length, 'total activities (old + new)')
+        console.log('📊 Activities breakdown:', {
+          total: mappedActivities.length,
+          sample: mappedActivities.slice(0, 3).map(a => ({
+            name: a.activity_name,
+            project_code: a.project_code,
+            project_full_code: a.project_full_code
+          }))
+        })
         
       } catch (err: any) {
         console.error('❌ Error loading data:', err)
@@ -70,22 +80,85 @@ export default function SmartKPIPage() {
 
   const handleCreateKPI = async (kpiData: any) => {
     try {
-      console.log('📦 Creating KPI from Smart Form:', kpiData)
+      console.log('📦 Creating KPI from Smart Form (ENHANCED):', kpiData)
+      
+      // ✅ FIX: Use KPIConsistencyManager to ensure proper format
+      // ✅ Calculate Value from Quantity × Rate (from activity)
+      const finalProjectCode = kpiData['Project Full Code'] || kpiData.project_code
+      const finalActivityName = kpiData['Activity Name'] || kpiData.activity_name
+      const finalQuantity = parseFloat(kpiData['Quantity'] || kpiData.quantity || '0')
+      
+      // Find related activity to calculate Value
+      let calculatedValue = kpiData['Value'] || kpiData.value || 0
+      if (!calculatedValue || calculatedValue === 0) {
+        // Try to find activity to get rate
+        const relatedActivity = activities.find((a: any) => 
+          a.activity_name === finalActivityName && 
+          (a.project_code === finalProjectCode || a.project_full_code === finalProjectCode)
+        )
+        
+        if (relatedActivity) {
+          let rate = 0
+          if (relatedActivity.rate && relatedActivity.rate > 0) {
+            rate = relatedActivity.rate
+          } else if (relatedActivity.total_value && relatedActivity.total_units && relatedActivity.total_units > 0) {
+            rate = relatedActivity.total_value / relatedActivity.total_units
+          }
+          
+          if (rate > 0) {
+            calculatedValue = finalQuantity * rate
+            console.log(`💰 Calculated Value: ${finalQuantity} × ${rate} = ${calculatedValue}`)
+          }
+        }
+        
+        // If still no value, use quantity as fallback
+        if (!calculatedValue || calculatedValue === 0) {
+          calculatedValue = finalQuantity
+        }
+      }
+      
+      const standardizedData = KPIConsistencyManager.createStandardKPIForSave({
+        projectCode: finalProjectCode,
+        projectSubCode: kpiData['Project Sub Code'] || '',
+        // ❌ Removed projectName - not stored in KPI table
+        activityName: finalActivityName,
+        // ❌ Removed activityDivision - not stored in KPI table
+        quantity: finalQuantity,
+        unit: kpiData['Unit'] || kpiData.unit || '',
+        inputType: 'Actual', // Always Actual for manual entry
+        targetDate: kpiData['Target Date'] || '',
+        actualDate: kpiData['Actual Date'] || kpiData.actual_date || new Date().toISOString().split('T')[0],
+        // ✅ Map Zone Ref/Number to Section/Zone (the actual columns in KPI table)
+        zoneRef: kpiData['Zone Ref'] || kpiData['Section'] || kpiData.zone_ref || kpiData.section || '',
+        zoneNumber: kpiData['Zone Number'] || kpiData['Zone'] || kpiData.zone_number || kpiData.zone || ''
+      })
+      
+      // ✅ Add Value field if available or calculated
+      if (calculatedValue && calculatedValue > 0) {
+        standardizedData['Value'] = calculatedValue.toString()
+      }
+
+      console.log('🔧 Standardized KPI data:', standardizedData)
       
       const { data, error } = await supabase
         .from(TABLES.KPI)
-        .insert([kpiData] as any)
+        .insert([standardizedData] as any)
         .select()
         .single()
 
       if (error) {
+        console.error('❌ Database error:', error)
         throw error
       }
       
-      console.log('✅ KPI created successfully:', data)
+      console.log('✅ KPI created successfully with consistent format:', data)
       
-      // Show success message
-      alert(`✅ KPI created successfully for activity: ${kpiData['Activity Name']}`)
+      // Show success message with more details
+      const successActivityName = standardizedData['Activity Name']
+      const successProjectCode = standardizedData['Project Full Code']
+      const successQuantity = standardizedData['Quantity']
+      
+      alert(`✅ KPI created successfully!\n\nActivity: ${successActivityName}\nProject: ${successProjectCode}\nQuantity: ${successQuantity}\nType: Actual`)
       
     } catch (err: any) {
       console.error('❌ Error creating KPI:', err)

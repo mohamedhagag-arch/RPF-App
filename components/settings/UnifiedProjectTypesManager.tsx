@@ -34,10 +34,12 @@ import {
   Archive,
   FileSpreadsheet,
   Table,
-  MoreVertical
+  MoreVertical,
+  Trash,
+  AlertTriangle
 } from 'lucide-react'
 
-interface ProjectType {
+interface ProjectScope {
   id: string
   name: string
   code?: string
@@ -86,7 +88,7 @@ export function UnifiedProjectTypesManager() {
   const supabase = getSupabaseClient()
   
   // State
-  const [projectTypes, setProjectTypes] = useState<ProjectType[]>([])
+  const [projectScopes, setProjectScopes] = useState<ProjectScope[]>([])
   const [activities, setActivities] = useState<Record<string, ProjectActivity[]>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -96,15 +98,15 @@ export function UnifiedProjectTypesManager() {
   // UI State
   const [expandedTypes, setExpandedTypes] = useState<Set<string>>(new Set())
   const [selectedType, setSelectedType] = useState<string | null>(null)
-  const [showTypeForm, setShowTypeForm] = useState(false)
+  const [showScopeForm, setShowScopeForm] = useState(false)
   const [showActivityForm, setShowActivityForm] = useState(false)
-  const [editingType, setEditingType] = useState<ProjectType | null>(null)
+  const [editingScope, setEditingScope] = useState<ProjectScope | null>(null)
   const [editingActivity, setEditingActivity] = useState<ProjectActivity | null>(null)
   const [showExportMenu, setShowExportMenu] = useState(false)
   const [showImportMenu, setShowImportMenu] = useState(false)
   
-  // Form State - Project Type
-  const [typeFormData, setTypeFormData] = useState({
+  // Form State - Project Scope
+  const [scopeFormData, setScopeFormData] = useState({
     name: '',
     code: '',
     description: ''
@@ -168,7 +170,7 @@ export function UnifiedProjectTypesManager() {
       )
       
       if (typesError) throw typesError
-      setProjectTypes(typesData || [])
+      setProjectScopes(typesData || [])
       
       // Load all activities
       const { data: activitiesData, error: activitiesError } = await executeQuery(async () =>
@@ -199,81 +201,81 @@ export function UnifiedProjectTypesManager() {
     }
   }
 
-  // Project Type Functions
-  const handleAddType = () => {
-    setEditingType(null)
-    setTypeFormData({ name: '', code: '', description: '' })
-    setShowTypeForm(true)
+  // Project Scope Functions
+  const handleAddScope = () => {
+    setEditingScope(null)
+    setScopeFormData({ name: '', code: '', description: '' })
+    setShowScopeForm(true)
     setShowActivityForm(false)
   }
 
-  const handleEditType = (type: ProjectType) => {
-    setEditingType(type)
-    setTypeFormData({
-      name: type.name,
-      code: type.code || '',
-      description: type.description || ''
+  const handleEditScope = (scope: ProjectScope) => {
+    setEditingScope(scope)
+    setScopeFormData({
+      name: scope.name,
+      code: scope.code || '',
+      description: scope.description || ''
     })
-    setShowTypeForm(true)
+    setShowScopeForm(true)
     setShowActivityForm(false)
   }
 
-  const handleSaveType = async () => {
+  const handleSaveScope = async () => {
     try {
       setLoading(true)
       setError('')
       
-      if (!typeFormData.name.trim()) {
-        setError('Project type name is required')
+      if (!scopeFormData.name.trim()) {
+        setError('Project scope name is required')
         return
       }
       
-      if (editingType) {
+      if (editingScope) {
         // Update
         const { error } = await executeQuery(async () =>
           (supabase as any)
             .from('project_types')
             .update({
-              name: typeFormData.name.trim(),
-              code: typeFormData.code.trim(),
-              description: typeFormData.description.trim(),
+              name: scopeFormData.name.trim(),
+              code: scopeFormData.code.trim(),
+              description: scopeFormData.description.trim(),
               updated_at: new Date().toISOString()
             })
-            .eq('id', editingType.id)
+            .eq('id', editingScope.id)
         )
         
         if (error) throw error
-        setSuccess('Project type updated successfully')
+        setSuccess('Project scope updated successfully')
       } else {
         // Create
         const { error } = await executeQuery(async () =>
           (supabase as any)
             .from('project_types')
             .insert({
-              name: typeFormData.name.trim(),
-              code: typeFormData.code.trim(),
-              description: typeFormData.description.trim(),
+              name: scopeFormData.name.trim(),
+              code: scopeFormData.code.trim(),
+              description: scopeFormData.description.trim(),
               is_active: true,
               usage_count: 0
             })
         )
         
         if (error) throw error
-        setSuccess('Project type added successfully')
+        setSuccess('Project scope added successfully')
       }
       
-      setShowTypeForm(false)
+      setShowScopeForm(false)
       await loadData()
       
     } catch (err: any) {
-      setError(err.message || 'Failed to save project type')
+      setError(err.message || 'Failed to save project scope')
     } finally {
       setLoading(false)
     }
   }
 
-  const handleDeleteType = async (type: ProjectType) => {
-    if (!confirm(`Are you sure you want to delete "${type.name}"? This will ${type.usage_count > 0 ? 'disable' : 'delete'} the type.`)) {
+  const handleDeleteScope = async (scope: ProjectScope) => {
+    if (!confirm(`Are you sure you want to delete "${scope.name}"? This will ${scope.usage_count > 0 ? 'disable' : 'delete'} the scope.`)) {
       return
     }
     
@@ -284,16 +286,16 @@ export function UnifiedProjectTypesManager() {
       // Use safe delete function
       const { data, error } = await executeQuery(async () =>
         (supabase as any).rpc('safe_delete_project_type', {
-          p_project_type_name: type.name
+          p_project_type_name: scope.name
         })
       )
       
       if (error) throw error
       
       if ((data as any)?.action === 'disabled') {
-        setSuccess(`Disabled "${type.name}" and ${(data as any).activities_affected} activities`)
+        setSuccess(`Disabled "${scope.name}" and ${(data as any).activities_affected} activities`)
       } else {
-        setSuccess(`Deleted "${type.name}"`)
+        setSuccess(`Deleted "${scope.name}"`)
       }
       
       await loadData()
@@ -305,21 +307,21 @@ export function UnifiedProjectTypesManager() {
     }
   }
 
-  const handleToggleTypeActive = async (type: ProjectType) => {
+  const handleToggleScopeActive = async (scope: ProjectScope) => {
     try {
       setLoading(true)
       setError('')
       
-      if (!type.is_active) {
+      if (!scope.is_active) {
         // Re-enable
         const { error } = await executeQuery(async () =>
           (supabase as any).rpc('enable_project_type', {
-            p_project_type_name: type.name
+            p_project_type_name: scope.name
           })
         )
         
         if (error) throw error
-        setSuccess(`Re-enabled "${type.name}"`)
+        setSuccess(`Re-enabled "${scope.name}"`)
       } else {
         // Disable
         const { error } = await executeQuery(async () =>
@@ -329,27 +331,27 @@ export function UnifiedProjectTypesManager() {
               is_active: false,
               updated_at: new Date().toISOString()
             })
-            .eq('id', type.id)
+            .eq('id', scope.id)
         )
         
         if (error) throw error
-        setSuccess(`Disabled "${type.name}"`)
+        setSuccess(`Disabled "${scope.name}"`)
       }
       
       await loadData()
       
     } catch (err: any) {
-      setError(err.message || 'Failed to toggle project type')
+      setError(err.message || 'Failed to toggle project scope')
     } finally {
       setLoading(false)
     }
   }
 
   // Activity Functions
-  const handleAddActivity = (projectType: string) => {
+  const handleAddActivity = (projectScope: string) => {
     setEditingActivity(null)
     setActivityFormData({
-      project_type: projectType,
+      project_type: projectScope,
       activity_name: '',
       activity_name_ar: '',
       description: '',
@@ -360,9 +362,9 @@ export function UnifiedProjectTypesManager() {
       division: '',
       display_order: '0'
     })
-    setSelectedType(projectType)
+    setSelectedType(projectScope)
     setShowActivityForm(true)
-    setShowTypeForm(false)
+    setShowScopeForm(false)
   }
 
   const handleEditActivity = (activity: ProjectActivity) => {
@@ -381,7 +383,7 @@ export function UnifiedProjectTypesManager() {
     })
     setSelectedType(activity.project_type)
     setShowActivityForm(true)
-    setShowTypeForm(false)
+    setShowScopeForm(false)
   }
 
   const handleSaveActivity = async () => {
@@ -507,11 +509,11 @@ export function UnifiedProjectTypesManager() {
       
       // Prepare template data
       const templateData = {
-        project_types: projectTypes.map(type => ({
-          name: type.name,
-          code: type.code,
-          description: type.description,
-          is_active: type.is_active
+        project_types: projectScopes.map(scope => ({
+          name: scope.name,
+          code: scope.code,
+          description: scope.description,
+          is_active: scope.is_active
         })),
         activities: Object.values(activities).flat().map(activity => ({
           project_type: activity.project_type,
@@ -529,7 +531,7 @@ export function UnifiedProjectTypesManager() {
         metadata: {
           exported_at: new Date().toISOString(),
           version: '1.0',
-          total_types: projectTypes.length,
+          total_types: projectScopes.length,
           total_activities: Object.values(activities).flat().length
         }
       }
@@ -605,18 +607,18 @@ export function UnifiedProjectTypesManager() {
     }
   }
 
-  const handleExportSpecificType = async (type: ProjectType) => {
+  const handleExportSpecificScope = async (scope: ProjectScope) => {
     try {
       setLoading(true)
       setError('')
       
-      const typeActivities = activities[type.name] || []
+      const scopeActivities = activities[scope.name] || []
       
       // Create CSV content for Excel
       const headers = [
-        'Project Type',
-        'Project Type Code', 
-        'Project Type Description',
+        'Project Scope',
+        'Project Scope Code', 
+        'Project Scope Description',
         'Activity Name',
         'Activity Name (Arabic)',
         'Activity Description',
@@ -629,10 +631,10 @@ export function UnifiedProjectTypesManager() {
         'Is Active'
       ]
       
-      const rows = typeActivities.map(activity => [
-        type.name,
-        type.code || '',
-        type.description || '',
+      const rows = scopeActivities.map(activity => [
+        scope.name,
+        scope.code || '',
+        scope.description || '',
         activity.activity_name,
         activity.activity_name_ar || '',
         activity.description || '',
@@ -656,13 +658,13 @@ export function UnifiedProjectTypesManager() {
       const url = window.URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = `${type.name.replace(/[^a-zA-Z0-9]/g, '_')}_activities.csv`
+      link.download = `${scope.name.replace(/[^a-zA-Z0-9]/g, '_')}_activities.csv`
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
       window.URL.revokeObjectURL(url)
       
-      setSuccess(`Exported ${typeActivities.length} activities for "${type.name}" as CSV/Excel`)
+      setSuccess(`Exported ${scopeActivities.length} activities for "${scope.name}" as CSV/Excel`)
       setTimeout(() => setSuccess(''), 3000)
       
     } catch (err: any) {
@@ -672,8 +674,8 @@ export function UnifiedProjectTypesManager() {
     }
   }
 
-  const handleImportToSpecificType = async (event: React.ChangeEvent<HTMLInputElement>, projectTypeName: string) => {
-    console.log('🔄 Import triggered for:', projectTypeName)
+  const handleImportToSpecificScope = async (event: React.ChangeEvent<HTMLInputElement>, projectScopeName: string) => {
+    console.log('🔄 Import triggered for:', projectScopeName)
     const file = event.target.files?.[0]
     if (!file) {
       console.log('❌ No file selected')
@@ -693,13 +695,13 @@ export function UnifiedProjectTypesManager() {
         const text = await file.text()
         const data = JSON.parse(text)
         
-        if (data.project_type !== projectTypeName) {
-          setError(`This template is for "${data.project_type}", not "${projectTypeName}"`)
+        if (data.project_type !== projectScopeName) {
+          setError(`This template is for "${data.project_type}", not "${projectScopeName}"`)
           return
         }
         
         const activitiesData = data.activities.map((activity: any) => ({
-          project_type: projectTypeName,
+          project_type: projectScopeName,
           activity_name: activity.activity_name,
           activity_name_ar: activity.activity_name_ar || '',
           description: activity.description || '',
@@ -720,7 +722,7 @@ export function UnifiedProjectTypesManager() {
         
         if (error) throw error
         
-        setSuccess(`Imported ${activitiesData.length} activities to "${projectTypeName}"`)
+        setSuccess(`Imported ${activitiesData.length} activities to "${projectScopeName}"`)
         
       } else if (['csv', 'xlsx', 'xls'].includes(fileExtension || '')) {
         // Handle CSV/Excel import
@@ -738,9 +740,9 @@ export function UnifiedProjectTypesManager() {
             row[header] = values[index] || ''
           })
           
-          if (row['Project Type'] === projectTypeName) {
+          if (row['Project Type'] === projectScopeName) {
             activitiesData.push({
-              project_type: projectTypeName,
+              project_type: projectScopeName,
               activity_name: row['Activity Name'],
               activity_name_ar: row['Activity Name (Arabic)'] || '',
               description: row['Activity Description'] || '',
@@ -756,7 +758,7 @@ export function UnifiedProjectTypesManager() {
         }
         
         if (activitiesData.length === 0) {
-          setError(`No activities found for "${projectTypeName}" in this file`)
+          setError(`No activities found for "${projectScopeName}" in this file`)
           return
         }
         
@@ -768,7 +770,7 @@ export function UnifiedProjectTypesManager() {
         
         if (error) throw error
         
-        setSuccess(`Imported ${activitiesData.length} activities to "${projectTypeName}"`)
+        setSuccess(`Imported ${activitiesData.length} activities to "${projectScopeName}"`)
       } else {
         setError('Unsupported file format. Please use CSV, XLSX, XLS, or JSON files.')
         return
@@ -816,11 +818,11 @@ export function UnifiedProjectTypesManager() {
         ],
         // Data rows
         ...allActivities.map(activity => {
-          const projectType = projectTypes.find(pt => pt.name === activity.project_type)
+          const projectScope = projectScopes.find(pt => pt.name === activity.project_type)
           return [
             activity.project_type,
-            projectType?.code || '',
-            projectType?.description || '',
+            projectScope?.code || '',
+            projectScope?.description || '',
             activity.activity_name,
             activity.activity_name_ar || '',
             activity.description || '',
@@ -915,7 +917,17 @@ export function UnifiedProjectTypesManager() {
       const projectTypesMap = new Map()
       const activitiesData: ImportActivityData[] = []
       
-      dataRows.forEach(row => {
+      // Remove duplicate rows from source data
+      const uniqueRows = dataRows.filter((row, index, self) => 
+        index === self.findIndex(r => 
+          r['Project Type'] === row['Project Type'] && 
+          r['Activity Name'] === row['Activity Name']
+        )
+      )
+      
+      console.log(`Processing ${uniqueRows.length} unique rows from ${dataRows.length} total rows`)
+      
+      uniqueRows.forEach(row => {
         const projectTypeName = row['Project Type']
         if (!projectTypesMap.has(projectTypeName)) {
           projectTypesMap.set(projectTypeName, {
@@ -941,24 +953,37 @@ export function UnifiedProjectTypesManager() {
         })
       })
       
-      // Import project types
+      // Import project types (remove duplicates first)
       const projectTypesArray = Array.from(projectTypesMap.values())
       if (projectTypesArray.length > 0) {
+        // Remove duplicates based on name
+        const uniqueProjectTypes = projectTypesArray.filter((type, index, self) => 
+          index === self.findIndex(t => t.name === type.name)
+        )
+        
         const { error: typesError } = await executeQuery(async () =>
           (supabase as any)
             .from('project_types')
-            .upsert(projectTypesArray, { onConflict: 'name' })
+            .upsert(uniqueProjectTypes, { onConflict: 'name' })
         )
         
         if (typesError) throw typesError
       }
       
-      // Import activities
+      // Import activities (remove duplicates first)
       if (activitiesData.length > 0) {
+        // Remove duplicates based on project_type + activity_name
+        const uniqueActivities = activitiesData.filter((activity, index, self) => 
+          index === self.findIndex(a => 
+            a.project_type === activity.project_type && 
+            a.activity_name === activity.activity_name
+          )
+        )
+        
         const { error: activitiesError } = await executeQuery(async () =>
           (supabase as any)
             .from('project_type_activities')
-            .upsert(activitiesData, { onConflict: 'project_type,activity_name' })
+            .upsert(uniqueActivities, { onConflict: 'project_type,activity_name' })
         )
         
         if (activitiesError) throw activitiesError
@@ -971,7 +996,8 @@ export function UnifiedProjectTypesManager() {
       await loadData()
       
     } catch (err: any) {
-      setError('Failed to import Excel template: ' + err.message)
+      console.error('Import error details:', err)
+      setError(`Failed to import Excel template: ${err.message}\n\nPlease check:\n1. File format is correct CSV\n2. No duplicate rows in the file\n3. All required headers are present\n4. Data values are valid`)
     } finally {
       setLoading(false)
     }
@@ -998,6 +1024,54 @@ export function UnifiedProjectTypesManager() {
     document.getElementById('import-excel')?.click()
   }
 
+  // Clear All Data Function
+  const handleClearAllData = async () => {
+    if (!confirm('⚠️ WARNING: This will delete ALL project types and activities!\n\nThis action cannot be undone.\n\nAre you absolutely sure?')) {
+      return
+    }
+
+    if (!confirm('🚨 FINAL CONFIRMATION 🚨\n\nYou are about to delete:\n• All project types\n• All activities\n• All associated data\n\nClick OK to proceed or Cancel to abort.')) {
+      return
+    }
+
+    try {
+      setLoading(true)
+      setError('')
+      
+      // Delete all activities first
+      const { error: activitiesError } = await executeQuery(async () =>
+        supabase
+          .from('project_type_activities')
+          .delete()
+          .neq('id', '00000000-0000-0000-0000-000000000000') // Delete all
+      )
+      
+      if (activitiesError) throw activitiesError
+      
+      // Delete all project types
+      const { error: typesError } = await executeQuery(async () =>
+        supabase
+          .from('project_types')
+          .delete()
+          .neq('id', '00000000-0000-0000-0000-000000000000') // Delete all
+      )
+      
+      if (typesError) throw typesError
+      
+      setSuccess('✅ All data cleared successfully! All project types and activities have been deleted.')
+      setTimeout(() => setSuccess(''), 5000)
+      
+      // Reload data
+      await loadData()
+      
+    } catch (err: any) {
+      setError('Failed to clear all data: ' + err.message)
+      console.error('Error clearing all data:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   // UI Functions
   const toggleExpanded = (typeName: string) => {
     const newExpanded = new Set(expandedTypes)
@@ -1010,7 +1084,7 @@ export function UnifiedProjectTypesManager() {
   }
 
   const expandAll = () => {
-    setExpandedTypes(new Set(projectTypes.map(t => t.name)))
+    setExpandedTypes(new Set(projectScopes.map(t => t.name)))
   }
 
   const collapseAll = () => {
@@ -1018,18 +1092,18 @@ export function UnifiedProjectTypesManager() {
   }
 
   // Filter
-  const filteredTypes = projectTypes.filter(type =>
-    type.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    type.code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    type.description?.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredScopes = projectScopes.filter(scope =>
+    scope.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    scope.code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    scope.description?.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
-  if (loading && projectTypes.length === 0) {
+  if (loading && projectScopes.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600 dark:text-gray-400">Loading project types and activities...</p>
+          <p className="text-gray-600 dark:text-gray-400">Loading project scopes and activities...</p>
         </div>
       </div>
     )
@@ -1051,12 +1125,23 @@ export function UnifiedProjectTypesManager() {
         
         <div className="flex items-center gap-3">
           <ModernButton
-            onClick={handleAddType}
+            onClick={handleClearAllData}
+            variant="danger"
+            size="md"
+            icon={<Trash className="h-4 w-4" />}
+            disabled={loading}
+            title="Clear all project types and activities (DANGEROUS!)"
+          >
+            Clear All Data
+          </ModernButton>
+          
+          <ModernButton
+            onClick={handleAddScope}
             variant="primary"
             size="md"
             icon={<Plus className="h-4 w-4" />}
           >
-            Add Project Type
+            Add Project Scope
           </ModernButton>
         </div>
       </div>
@@ -1092,9 +1177,9 @@ export function UnifiedProjectTypesManager() {
               <FolderTree className="h-6 w-6 text-blue-600" />
             </div>
             <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Project Types</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Project Scopes</p>
               <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                {projectTypes.filter(t => t.is_active).length}
+                {projectScopes.filter(t => t.is_active).length}
               </p>
             </div>
           </div>
@@ -1134,10 +1219,10 @@ export function UnifiedProjectTypesManager() {
               <BarChart3 className="h-6 w-6 text-orange-600" />
             </div>
             <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Avg per Type</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Avg per Scope</p>
               <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                {projectTypes.length > 0 
-                  ? Math.round(Object.values(activities).flat().length / projectTypes.length)
+                {projectScopes.length > 0 
+                  ? Math.round(Object.values(activities).flat().length / projectScopes.length)
                   : 0}
               </p>
             </div>
@@ -1161,6 +1246,31 @@ export function UnifiedProjectTypesManager() {
           </div>
         </div>
         
+        {/* Clear All Data Warning */}
+        <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+          <div className="flex items-center gap-3 mb-2">
+            <AlertTriangle className="h-5 w-5 text-red-600" />
+            <h4 className="font-medium text-red-800 dark:text-red-200">Dangerous Operations</h4>
+          </div>
+          <p className="text-sm text-red-700 dark:text-red-300 mb-3">
+            Use the "Clear All Data" button above to completely remove all project types and activities. This action cannot be undone! You will be asked to confirm twice.
+          </p>
+          <div className="flex items-center gap-2">
+            <ModernButton
+              onClick={handleClearAllData}
+              variant="danger"
+              size="sm"
+              icon={<Trash className="h-4 w-4" />}
+              disabled={loading}
+            >
+              Clear All Data
+            </ModernButton>
+            <span className="text-xs text-red-600 dark:text-red-400">
+              ⚠️ This will delete everything!
+            </span>
+          </div>
+        </div>
+
         {/* Template Actions */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           {/* Export Section */}
@@ -1267,8 +1377,8 @@ export function UnifiedProjectTypesManager() {
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
             <div className="text-center">
-              <div className="text-2xl font-bold text-blue-600">{projectTypes.length}</div>
-              <div className="text-xs text-gray-600 dark:text-gray-400">Project Types</div>
+              <div className="text-2xl font-bold text-blue-600">{projectScopes.length}</div>
+              <div className="text-xs text-gray-600 dark:text-gray-400">Project Scopes</div>
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-green-600">{Object.values(activities).flat().length}</div>
@@ -1280,9 +1390,9 @@ export function UnifiedProjectTypesManager() {
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-orange-600">
-                {projectTypes.length > 0 ? Math.round(Object.values(activities).flat().length / projectTypes.length) : 0}
+                {projectScopes.length > 0 ? Math.round(Object.values(activities).flat().length / projectScopes.length) : 0}
               </div>
-              <div className="text-xs text-gray-600 dark:text-gray-400">Avg per Type</div>
+              <div className="text-xs text-gray-600 dark:text-gray-400">Avg per Scope</div>
             </div>
           </div>
         </div>
@@ -1317,20 +1427,20 @@ export function UnifiedProjectTypesManager() {
         </ModernButton>
       </div>
 
-      {/* Project Types List */}
+      {/* Project Scopes List */}
       <div className="space-y-4">
-        {filteredTypes.map((type) => {
-          const typeActivities = activities[type.name] || []
-          const isExpanded = expandedTypes.has(type.name)
-          const activeActivities = typeActivities.filter(a => a.is_active).length
+        {filteredScopes.map((scope) => {
+          const scopeActivities = activities[scope.name] || []
+          const isExpanded = expandedTypes.has(scope.name)
+          const activeActivities = scopeActivities.filter(a => a.is_active).length
           
           return (
-            <ModernCard key={type.id} className={!type.is_active ? 'opacity-60' : ''}>
-              {/* Project Type Header */}
+            <ModernCard key={scope.id} className={!scope.is_active ? 'opacity-60' : ''}>
+              {/* Project Scope Header */}
               <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
                 <div className="flex items-center gap-4 flex-1">
                   <button
-                    onClick={() => toggleExpanded(type.name)}
+                    onClick={() => toggleExpanded(scope.name)}
                     className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
                   >
                     {isExpanded ? (
@@ -1343,36 +1453,36 @@ export function UnifiedProjectTypesManager() {
                   <div className="flex-1">
                     <div className="flex items-center gap-3">
                       <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                        {type.name}
+                        {scope.name}
                       </h3>
-                      {type.code && (
+                      {scope.code && (
                         <ModernBadge variant="info" size="sm">
-                          {type.code}
+                          {scope.code}
                         </ModernBadge>
                       )}
-                      {!type.is_active && (
+                      {!scope.is_active && (
                         <ModernBadge variant="gray" size="sm">
                           <EyeOff className="h-3 w-3 mr-1" />
                           Disabled
                         </ModernBadge>
                       )}
                     </div>
-                    {type.description && (
+                    {scope.description && (
                       <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                        {type.description}
+                        {scope.description}
                       </p>
                     )}
                     <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
                       <span>{activeActivities} activities</span>
                       <span>•</span>
-                      <span>{type.usage_count} uses</span>
+                      <span>{scope.usage_count} uses</span>
                     </div>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2">
                   <ModernButton
-                    onClick={() => handleAddActivity(type.name)}
+                    onClick={() => handleAddActivity(scope.name)}
                     variant="outline"
                     size="sm"
                     icon={<Plus className="h-4 w-4" />}
@@ -1381,19 +1491,19 @@ export function UnifiedProjectTypesManager() {
                   </ModernButton>
                   
                   <ModernButton
-                    onClick={() => handleExportSpecificType(type)}
+                    onClick={() => handleExportSpecificScope(scope)}
                     variant="outline"
                     size="sm"
                     icon={<Download className="h-4 w-4" />}
                     disabled={loading}
-                    title="Export this project type as template"
+                    title="Export this project scope as template"
                   >
                     Export
                   </ModernButton>
                   
                   <ModernButton
                     onClick={() => {
-                      const input = document.getElementById(`import-${type.name.replace(/[^a-zA-Z0-9]/g, '_')}`) as HTMLInputElement
+                      const input = document.getElementById(`import-${scope.name.replace(/[^a-zA-Z0-9]/g, '_')}`) as HTMLInputElement
                       if (input) {
                         input.click()
                       }
@@ -1402,7 +1512,7 @@ export function UnifiedProjectTypesManager() {
                     size="sm"
                     icon={<Upload className="h-4 w-4" />}
                     disabled={loading}
-                    title="Import activities to this project type"
+                    title="Import activities to this project scope"
                     className="cursor-pointer"
                   >
                     Import
@@ -1411,13 +1521,13 @@ export function UnifiedProjectTypesManager() {
                   <input
                     type="file"
                     accept=".csv,.xlsx,.xls,.json"
-                    onChange={(e) => handleImportToSpecificType(e, type.name)}
+                    onChange={(e) => handleImportToSpecificScope(e, scope.name)}
                     className="hidden"
-                    id={`import-${type.name.replace(/[^a-zA-Z0-9]/g, '_')}`}
+                    id={`import-${scope.name.replace(/[^a-zA-Z0-9]/g, '_')}`}
                   />
                   
                   <ModernButton
-                    onClick={() => handleEditType(type)}
+                    onClick={() => handleEditScope(scope)}
                     variant="outline"
                     size="sm"
                     icon={<Edit2 className="h-4 w-4" />}
@@ -1426,16 +1536,16 @@ export function UnifiedProjectTypesManager() {
                   </ModernButton>
                   
                   <ModernButton
-                    onClick={() => handleToggleTypeActive(type)}
+                    onClick={() => handleToggleScopeActive(scope)}
                     variant="outline"
                     size="sm"
-                    icon={type.is_active ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    icon={scope.is_active ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   >
-                    {type.is_active ? 'Disable' : 'Enable'}
+                    {scope.is_active ? 'Disable' : 'Enable'}
                   </ModernButton>
                   
                   <ModernButton
-                    onClick={() => handleDeleteType(type)}
+                    onClick={() => handleDeleteScope(scope)}
                     variant="danger"
                     size="sm"
                     icon={<Trash2 className="h-4 w-4" />}
@@ -1448,12 +1558,12 @@ export function UnifiedProjectTypesManager() {
               {/* Activities List */}
               {isExpanded && (
                 <div className="p-4">
-                  {typeActivities.length === 0 ? (
+                  {scopeActivities.length === 0 ? (
                     <div className="text-center py-8 text-gray-500">
                       <Activity className="h-12 w-12 mx-auto mb-3 opacity-30" />
                       <p>No activities yet</p>
                       <ModernButton
-                        onClick={() => handleAddActivity(type.name)}
+                        onClick={() => handleAddActivity(scope.name)}
                         variant="outline"
                         size="sm"
                         className="mt-3"
@@ -1463,7 +1573,7 @@ export function UnifiedProjectTypesManager() {
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {typeActivities.map((activity) => (
+                      {scopeActivities.map((activity) => (
                         <div
                           key={activity.id}
                           className={`flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg ${
@@ -1542,16 +1652,16 @@ export function UnifiedProjectTypesManager() {
         })}
       </div>
 
-      {/* Project Type Form Modal */}
-      {showTypeForm && (
+      {/* Project Scope Form Modal */}
+      {showScopeForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <ModernCard className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
-                {editingType ? 'Edit Project Type' : 'Add Project Type'}
+                {editingScope ? 'Edit Project Scope' : 'Add Project Scope'}
               </h3>
               <button
-                onClick={() => setShowTypeForm(false)}
+                onClick={() => setShowScopeForm(false)}
                 className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
               >
                 <X className="h-5 w-5" />
@@ -1564,8 +1674,8 @@ export function UnifiedProjectTypesManager() {
                   Name <span className="text-red-500">*</span>
                 </label>
                 <Input
-                  value={typeFormData.name}
-                  onChange={(e) => setTypeFormData({ ...typeFormData, name: e.target.value })}
+                  value={scopeFormData.name}
+                  onChange={(e) => setScopeFormData({ ...scopeFormData, name: e.target.value })}
                   placeholder="e.g., Infrastructure"
                   required
                 />
@@ -1576,8 +1686,8 @@ export function UnifiedProjectTypesManager() {
                   Code
                 </label>
                 <Input
-                  value={typeFormData.code}
-                  onChange={(e) => setTypeFormData({ ...typeFormData, code: e.target.value })}
+                  value={scopeFormData.code}
+                  onChange={(e) => setScopeFormData({ ...scopeFormData, code: e.target.value })}
                   placeholder="e.g., INF"
                   maxLength={10}
                 />
@@ -1588,9 +1698,9 @@ export function UnifiedProjectTypesManager() {
                   Description
                 </label>
                 <textarea
-                  value={typeFormData.description}
-                  onChange={(e) => setTypeFormData({ ...typeFormData, description: e.target.value })}
-                  placeholder="Brief description of this project type"
+                  value={scopeFormData.description}
+                  onChange={(e) => setScopeFormData({ ...scopeFormData, description: e.target.value })}
+                  placeholder="Brief description of this project scope"
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
                   rows={3}
                 />
@@ -1598,20 +1708,20 @@ export function UnifiedProjectTypesManager() {
 
               <div className="flex items-center justify-end gap-3 pt-4">
                 <ModernButton
-                  onClick={() => setShowTypeForm(false)}
+                  onClick={() => setShowScopeForm(false)}
                   variant="outline"
                   size="md"
                 >
                   Cancel
                 </ModernButton>
                 <ModernButton
-                  onClick={handleSaveType}
+                  onClick={handleSaveScope}
                   variant="primary"
                   size="md"
                   icon={<Save className="h-4 w-4" />}
                   disabled={loading}
                 >
-                  {editingType ? 'Update' : 'Create'}
+                  {editingScope ? 'Update' : 'Create'}
                 </ModernButton>
               </div>
             </div>

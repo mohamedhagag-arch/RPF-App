@@ -1,11 +1,11 @@
 /**
- * Project Types Manager
- * إدارة أنواع المشاريع (Project Types) في Supabase مع إمكانية الإضافة والتعديل
+ * Project Scopes Manager
+ * إدارة نطاقات المشاريع (Project Scopes) في Supabase مع إمكانية الإضافة والتعديل
  */
 
 import { getSupabaseClient, executeQuery } from './simpleConnectionManager'
 
-export interface ProjectType {
+export interface ProjectScope {
   id?: string
   name: string
   code?: string
@@ -16,8 +16,8 @@ export interface ProjectType {
   usage_count?: number
 }
 
-// أنواع المشاريع الافتراضية
-export const DEFAULT_PROJECT_TYPES: ProjectType[] = [
+// نطاقات المشاريع الافتراضية
+export const DEFAULT_PROJECT_SCOPES: ProjectScope[] = [
   {
     name: 'Infrastructure',
     code: 'INF',
@@ -81,9 +81,9 @@ export const DEFAULT_PROJECT_TYPES: ProjectType[] = [
 ]
 
 /**
- * تهيئة جدول أنواع المشاريع في Supabase
+ * تهيئة جدول نطاقات المشاريع في Supabase
  */
-export async function initializeProjectTypesTable(): Promise<{ success: boolean; error?: string }> {
+export async function initializeProjectScopesTable(): Promise<{ success: boolean; error?: string }> {
   try {
     const supabase = getSupabaseClient()
     
@@ -100,28 +100,28 @@ export async function initializeProjectTypesTable(): Promise<{ success: boolean;
       const { error } = await executeQuery(async () =>
         (supabase as any)
           .from('project_types')
-          .insert(DEFAULT_PROJECT_TYPES)
+          .insert(DEFAULT_PROJECT_SCOPES)
       )
       
       if (error) {
-        console.error('Error initializing project types:', error)
+        console.error('Error initializing project scopes:', error)
         return { success: false, error: error.message }
       }
       
-      console.log('✅ Project types table initialized with default types')
+      console.log('✅ Project scopes table initialized with default scopes')
     }
     
     return { success: true }
   } catch (error: any) {
-    console.error('Error initializing project types table:', error)
+    console.error('Error initializing project scopes table:', error)
     return { success: false, error: error.message }
   }
 }
 
 /**
- * جلب جميع أنواع المشاريع النشطة
+ * جلب جميع نطاقات المشاريع النشطة
  */
-export async function getAllProjectTypes(): Promise<ProjectType[]> {
+export async function getAllProjectScopes(): Promise<ProjectScope[]> {
   try {
     const supabase = getSupabaseClient()
     
@@ -134,57 +134,57 @@ export async function getAllProjectTypes(): Promise<ProjectType[]> {
     )
     
     if (error) {
-      console.error('Error fetching project types:', error)
-      // إرجاع الأنواع الافتراضية في حالة الخطأ
-      return DEFAULT_PROJECT_TYPES
+      console.error('Error fetching project scopes:', error)
+      // إرجاع النطاقات الافتراضية في حالة الخطأ
+      return DEFAULT_PROJECT_SCOPES
     }
     
-    return (data as ProjectType[]) || DEFAULT_PROJECT_TYPES
+    return (data as ProjectScope[]) || DEFAULT_PROJECT_SCOPES
   } catch (error) {
-    console.error('Error fetching project types:', error)
-    return DEFAULT_PROJECT_TYPES
+      console.error('Error fetching project scopes:', error)
+      return DEFAULT_PROJECT_SCOPES
   }
 }
 
 /**
- * جلب أسماء أنواع المشاريع فقط (للاستخدام في القوائم المنسدلة)
+ * جلب أسماء نطاقات المشاريع فقط (للاستخدام في القوائم المنسدلة)
  */
-export async function getProjectTypeNames(): Promise<string[]> {
+export async function getProjectScopeNames(): Promise<string[]> {
   try {
-    const types = await getAllProjectTypes()
-    return types.map(t => t.name)
+    const scopes = await getAllProjectScopes()
+    return scopes.map(t => t.name)
   } catch (error) {
-    console.error('Error fetching project type names:', error)
-    return DEFAULT_PROJECT_TYPES.map(t => t.name)
+    console.error('Error fetching project scope names:', error)
+    return DEFAULT_PROJECT_SCOPES.map(t => t.name)
   }
 }
 
 /**
- * إضافة نوع مشروع جديد
+ * إضافة نطاق مشروع جديد
  */
-export async function addProjectType(projectType: Omit<ProjectType, 'id' | 'created_at' | 'updated_at'>): Promise<{ success: boolean; error?: string; data?: ProjectType }> {
+export async function addProjectScope(projectScope: Omit<ProjectScope, 'id' | 'created_at' | 'updated_at'>): Promise<{ success: boolean; error?: string; data?: ProjectScope }> {
   try {
     const supabase = getSupabaseClient()
     
-    // تحقق من عدم وجود نوع بنفس الاسم
+    // تحقق من عدم وجود نطاق بنفس الاسم
     const { data: existing } = await executeQuery(async () =>
       supabase
         .from('project_types')
         .select('id')
-        .eq('name', projectType.name)
+        .eq('name', projectScope.name)
         .single()
     )
     
     if (existing) {
-      return { success: false, error: 'Project type with this name already exists' }
+      return { success: false, error: 'Project scope with this name already exists' }
     }
     
-    // أضف النوع الجديد
+    // أضف النطاق الجديد
     const { data, error } = await executeQuery(async () =>
       (supabase as any)
         .from('project_types')
         .insert([{
-          ...projectType,
+          ...projectScope,
           usage_count: 0
         }])
         .select()
@@ -192,22 +192,22 @@ export async function addProjectType(projectType: Omit<ProjectType, 'id' | 'crea
     )
     
     if (error) {
-      console.error('Error adding project type:', error)
+      console.error('Error adding project scope:', error)
       return { success: false, error: error.message }
     }
     
-    console.log('✅ Project type added successfully:', data)
-    return { success: true, data: data as unknown as ProjectType }
+    console.log('✅ Project scope added successfully:', data)
+    return { success: true, data: data as unknown as ProjectScope }
   } catch (error: any) {
-    console.error('Error adding project type:', error)
+      console.error('Error adding project scope:', error)
     return { success: false, error: error.message }
   }
 }
 
 /**
- * تحديث نوع مشروع
+ * تحديث نطاق مشروع
  */
-export async function updateProjectType(id: string, updates: Partial<ProjectType>): Promise<{ success: boolean; error?: string }> {
+export async function updateProjectScope(id: string, updates: Partial<ProjectScope>): Promise<{ success: boolean; error?: string }> {
   try {
     const supabase = getSupabaseClient()
     
@@ -222,22 +222,22 @@ export async function updateProjectType(id: string, updates: Partial<ProjectType
     )
     
     if (error) {
-      console.error('Error updating project type:', error)
+      console.error('Error updating project scope:', error)
       return { success: false, error: error.message }
     }
     
-    console.log('✅ Project type updated successfully')
+    console.log('✅ Project scope updated successfully')
     return { success: true }
   } catch (error: any) {
-    console.error('Error updating project type:', error)
+      console.error('Error updating project scope:', error)
     return { success: false, error: error.message }
   }
 }
 
 /**
- * حذف (تعطيل) نوع مشروع
+ * حذف (تعطيل) نطاق مشروع
  */
-export async function deleteProjectType(id: string): Promise<{ success: boolean; error?: string }> {
+export async function deleteProjectScope(id: string): Promise<{ success: boolean; error?: string }> {
   try {
     const supabase = getSupabaseClient()
     
@@ -253,31 +253,31 @@ export async function deleteProjectType(id: string): Promise<{ success: boolean;
     )
     
     if (error) {
-      console.error('Error deleting project type:', error)
+      console.error('Error deleting project scope:', error)
       return { success: false, error: error.message }
     }
     
-    console.log('✅ Project type deactivated successfully')
+    console.log('✅ Project scope deactivated successfully')
     return { success: true }
   } catch (error: any) {
-    console.error('Error deleting project type:', error)
+      console.error('Error deleting project scope:', error)
     return { success: false, error: error.message }
   }
 }
 
 /**
- * زيادة عداد الاستخدام عند استخدام النوع في مشروع
+ * زيادة عداد الاستخدام عند استخدام النطاق في مشروع
  */
-export async function incrementProjectTypeUsage(projectTypeName: string): Promise<void> {
+export async function incrementProjectScopeUsage(projectScopeName: string): Promise<void> {
   try {
     const supabase = getSupabaseClient()
     
-    // جلب النوع الحالي
+    // جلب النطاق الحالي
     const { data: projectType } = await executeQuery(async () =>
       supabase
         .from('project_types')
         .select('id, usage_count')
-        .eq('name', projectTypeName)
+        .eq('name', projectScopeName)
         .single()
     )
     
@@ -294,16 +294,16 @@ export async function incrementProjectTypeUsage(projectTypeName: string): Promis
       )
     }
   } catch (error) {
-    console.error('Error incrementing project type usage:', error)
+      console.error('Error incrementing project scope usage:', error)
   }
 }
 
 /**
- * البحث عن أنواع المشاريع
+ * البحث عن نطاقات المشاريع
  */
-export async function searchProjectTypes(searchTerm: string): Promise<ProjectType[]> {
+export async function searchProjectScopes(searchTerm: string): Promise<ProjectScope[]> {
   try {
-    if (!searchTerm) return await getAllProjectTypes()
+    if (!searchTerm) return await getAllProjectScopes()
     
     const supabase = getSupabaseClient()
     
@@ -317,13 +317,13 @@ export async function searchProjectTypes(searchTerm: string): Promise<ProjectTyp
     )
     
     if (error) {
-      console.error('Error searching project types:', error)
+      console.error('Error searching project scopes:', error)
       return []
     }
     
-    return (data as ProjectType[]) || []
+    return (data as ProjectScope[]) || []
   } catch (error) {
-    console.error('Error searching project types:', error)
+    console.error('Error searching project scopes:', error)
     return []
   }
 }

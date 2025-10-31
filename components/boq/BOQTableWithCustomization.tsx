@@ -390,7 +390,7 @@ export function BOQTableWithCustomization({
               </span>
             </div>
             <div className="text-xs text-gray-500 dark:text-gray-500">
-              {activity.activity_division || 'N/A'} • {activity.zone_ref || 'N/A'}
+              {activity.activity_division || 'N/A'} • {(activity.zone_ref && activity.zone_ref !== 'Enabling Division') ? activity.zone_ref : 'N/A'}
             </div>
           </div>
         )

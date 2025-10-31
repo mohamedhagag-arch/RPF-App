@@ -68,20 +68,36 @@ export function mapBOQFromDB(row: any): any {
   
   // Helper to parse numbers from strings with commas
   const parseNum = (val: any) => {
-    if (!val) return 0
+    if (val === null || val === undefined || val === '') return 0
     if (typeof val === 'number') return val
-    return parseFloat(String(val).replace(/,/g, ''))
+    const str = String(val).trim()
+    if (!str) return 0
+    const match = str.match(/-?[0-9]+[0-9,\.\s]*/)
+    if (!match) return 0
+    const numeric = match[0]
+      .replace(/[^0-9,\.\-]/g, '')
+      .replace(/\s+/g, '')
+      .replace(/,/g, '')
+    const parsed = parseFloat(numeric)
+    return Number.isFinite(parsed) ? parsed : 0
   }
   
   // Extract activity name from Activity field or Zone Ref
+  // Handle both old and new database formats
   const activityName = row['Activity Name'] || row['Activity'] || 
-                       (row['Zone Ref'] ? row['Zone Ref'].split('‣')[1]?.trim() : '') || ''
+                       (row['Zone Ref'] ? row['Zone Ref'].split('‣')[1]?.trim() : '') || 
+                       row['activity_name'] || row['activity'] || ''
+  
+  // Normalize project codes - handle both old and new formats
+  const projectCode = (row['Project Code'] || row['project_code'] || '').toString().trim()
+  const projectSubCode = (row['Project Sub Code'] || row['project_sub_code'] || '').toString().trim()
+  const projectFullCode = (row['Project Full Code'] || row['project_full_code'] || projectCode || '').toString().trim()
   
   return {
     id: row.id,
-    project_code: row['Project Code'] || '',
-    project_sub_code: row['Project Sub Code'] || '',
-    project_full_code: row['Project Full Code'] || row['Project Code'] || '',
+    project_code: projectCode,
+    project_sub_code: projectSubCode,
+    project_full_code: projectFullCode || projectCode,
     activity: row['Activity'] || '',
     activity_division: row['Activity Division'] || '',
     unit: row['Unit'] || '',
@@ -208,14 +224,38 @@ export function mapKPIFromDB(row: any): any {
   if (!row) return row
   
   const parseNum = (val: any) => {
-    if (!val) return 0
+    if (val === null || val === undefined || val === '') return 0
     if (typeof val === 'number') return val
-    return parseFloat(String(val).replace(/,/g, ''))
+    const str = String(val).trim()
+    if (!str) return 0
+    const match = str.match(/-?[0-9]+[0-9,\.\s]*/)
+    if (!match) return 0
+    const numeric = match[0]
+      .replace(/[^0-9,\.\-]/g, '')
+      .replace(/\s+/g, '')
+      .replace(/,/g, '')
+    const parsed = parseFloat(numeric)
+    return Number.isFinite(parsed) ? parsed : 0
   }
   
   const quantity = parseNum(row['Quantity'])
   const inputType = row['Input Type'] || ''
-  const value = parseNum(row['Value']) // 💰 Financial value
+  let value = parseNum(row['Value']) // 💰 Financial value
+  
+  // ✅ If Value is missing or zero, calculate it from Quantity × Rate (from activity)
+  // This fixes the issue where newly created KPIs don't have Value field
+  if (!value || value === 0) {
+    // Try to get rate from related activity if available
+    // Note: This is a fallback - ideally Value should be saved when creating KPI
+    const activityRate = parseNum(row['Rate']) || 0
+    if (activityRate > 0 && quantity > 0) {
+      value = quantity * activityRate
+      console.log(`💰 Calculated Value for KPI: ${quantity} × ${activityRate} = ${value}`)
+    } else {
+      // Use quantity as fallback (1:1 ratio)
+      value = quantity
+    }
+  }
   
   // For backward compatibility
   const plannedValue = inputType === 'Planned' ? value : 0

@@ -9,11 +9,9 @@ import { ModernBadge } from '@/components/ui/ModernBadge'
 import { Input } from '@/components/ui/Input'
 import { Alert } from '@/components/ui/Alert'
 import {
-  PROJECT_TYPES,
   DIVISIONS,
   PROJECT_STATUSES,
   generateProjectSubCode,
-  suggestProjectType,
   validateProjectCode
 } from '@/lib/projectTemplates'
 import {
@@ -26,9 +24,9 @@ import {
   addDivision as addNewDivision
 } from '@/lib/divisionsManager'
 import {
-  getProjectTypeNames,
-  incrementProjectTypeUsage,
-  addProjectType as addNewProjectType
+  getProjectScopeNames,
+  incrementProjectScopeUsage,
+  addProjectScope as addNewProjectScope
 } from '@/lib/projectTypesManager'
 import {
   getAllCurrencies,
@@ -103,7 +101,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
   const [showProjectTypeDropdown, setShowProjectTypeDropdown] = useState(false)
   const [showDivisionDropdown, setShowDivisionDropdown] = useState(false)
   
-  // Project Type Input
+  // Project Scope Input
   const [projectTypeInput, setProjectTypeInput] = useState('')
   
   // Division Input
@@ -264,32 +262,29 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
     }
   }, [project])
   
-  // Load project types from Supabase (optimized)
+  // Load project scopes from Supabase (from Project Scope Management)
   useEffect(() => {
-    const loadProjectTypes = async () => {
+    const loadProjectScopes = async () => {
       try {
-        console.log('🔄 Loading project types from Supabase...')
-        const types = await getProjectTypeNames()
-        console.log('✅ Project types loaded:', types)
+        console.log('🔄 Loading project scopes from Supabase...')
+        const scopes = await getProjectScopeNames()
+        console.log('✅ Project scopes loaded:', scopes)
         
-        if (types && types.length > 0) {
-          // Limit number of types loaded for performance
-          const limitedTypes = types.slice(0, 50) // Limit to 50 types max
-          setProjectTypeSuggestions(limitedTypes)
-          console.log(`📊 Loaded ${limitedTypes.length} project types (limited for performance)`)
+        if (scopes && scopes.length > 0) {
+          // Limit number of scopes loaded for performance
+          const limitedScopes = scopes.slice(0, 100) // Limit to 100 scopes max
+          setProjectTypeSuggestions(limitedScopes)
+          console.log(`📊 Loaded ${limitedScopes.length} project scopes from Project Scope Management`)
         } else {
-          // إذا لم يكن هناك أنواع في Supabase، استخدم الافتراضية
-          console.log('⚠️ No project types in Supabase, using default types')
-          setProjectTypeSuggestions(PROJECT_TYPES.slice(0, 20)) // تحديد الأنواع الافتراضية أيضاً
+          console.log('⚠️ No project scopes found in Supabase')
+          setProjectTypeSuggestions([]) // Empty array instead of fallback
         }
       } catch (error) {
-        console.error('❌ Error loading project types:', error)
-        // Fallback to default project types
-        console.log('📋 Using fallback default project types:', PROJECT_TYPES)
-        setProjectTypeSuggestions(PROJECT_TYPES.slice(0, 20)) // تحديد الأنواع الافتراضية
+        console.error('❌ Error loading project scopes:', error)
+        setProjectTypeSuggestions([]) // Empty array on error
       }
     }
-    loadProjectTypes()
+    loadProjectScopes()
   }, [])
   
   // Auto-generate sub-code when project code changes
@@ -310,61 +305,50 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
     }
   }, [projectCode])
   
-  // Update suggestions when divisions change (optimized)
-  useEffect(() => {
-    if (responsibleDivisions.length > 0) {
-      const allSuggestions: string[] = []
-      responsibleDivisions.forEach(division => {
-        const suggestions = suggestProjectType(division)
-        allSuggestions.push(...suggestions)
-      })
-      // إزالة التكرارات وتحسين الأداء
-      const uniqueSuggestions = Array.from(new Set(allSuggestions))
-      setProjectTypeSuggestions(uniqueSuggestions)
-    }
-  }, [responsibleDivisions]) // إزالة projectTypeSuggestions من dependencies
+  // Project scopes are loaded directly from Project Scope Management
+  // No need to modify suggestions based on divisions
   
   
-  async function handleProjectTypeSelect(type: string) {
-    console.log('✅ Project type selected:', type)
+  async function handleProjectScopeSelect(scope: string) {
+    console.log('✅ Project scope selected:', scope)
     
-    // إضافة النوع إلى القائمة إذا لم يكن موجوداً
-    if (!projectTypes.includes(type)) {
-      setProjectTypes([...projectTypes, type])
-      console.log('➕ Project type added to list:', type)
+    // إضافة النطاق إلى القائمة إذا لم يكن موجوداً
+    if (!projectTypes.includes(scope)) {
+      setProjectTypes([...projectTypes, scope])
+      console.log('➕ Project scope added to list:', scope)
     }
     
     setProjectTypeInput('')
     setShowProjectTypeDropdown(false)
-    console.log('🔒 Project type dropdown closed')
+    console.log('🔒 Project scope dropdown closed')
     
-    // إذا كان نوع جديد، أضفه إلى Supabase
-    const isExisting = projectTypeSuggestions.some(t => t.toLowerCase() === type.toLowerCase())
-    if (!isExisting && type.trim()) {
+    // إذا كان نطاق جديد، أضفه إلى Supabase
+    const isExisting = projectTypeSuggestions.some(s => s.toLowerCase() === scope.toLowerCase())
+    if (!isExisting && scope.trim()) {
       try {
-        console.log('➕ Adding new project type to Supabase:', type)
-        const result = await addNewProjectType({
-          name: type.trim(),
+        console.log('➕ Adding new project scope to Supabase:', scope)
+        const result = await addNewProjectScope({
+          name: scope.trim(),
           is_active: true
         })
         
         if (result.success) {
-          // تحديث قائمة الأنواع
-          const updatedTypes = await getProjectTypeNames()
-          setProjectTypeSuggestions(updatedTypes)
-          setSuccess(`Project type "${type}" added successfully!`)
-          console.log('✅ New project type added successfully')
+          // تحديث قائمة النطاقات من Project Scope Management
+          const updatedScopes = await getProjectScopeNames()
+          setProjectTypeSuggestions(updatedScopes)
+          setSuccess(`Project scope "${scope}" added successfully!`)
+          console.log('✅ New project scope added successfully to Project Scope Management')
         }
       } catch (error) {
-        console.error('Error adding project type:', error)
+        console.error('Error adding project scope:', error)
       }
     }
   }
 
-  function handleRemoveProjectType(projectTypeToRemove: string) {
-    console.log('🗑️ Removing project type:', projectTypeToRemove)
-    setProjectTypes(projectTypes.filter(pt => pt !== projectTypeToRemove))
-    console.log('✅ Project type removed from list')
+  function handleRemoveProjectScope(projectScopeToRemove: string) {
+    console.log('🗑️ Removing project scope:', projectScopeToRemove)
+    setProjectTypes(projectTypes.filter(ps => ps !== projectScopeToRemove))
+    console.log('✅ Project scope removed from list')
   }
   
   async function handleDivisionSelect(division: string) {
@@ -476,8 +460,8 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
       }
       
       // زيادة عداد استخدام أنواع المشاريع
-      for (const projectType of projectTypes) {
-        await incrementProjectTypeUsage(projectType)
+      for (const projectScope of projectTypes) {
+        await incrementProjectScopeUsage(projectScope)
       }
       
       // زيادة عداد استخدام الأقسام
@@ -645,7 +629,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
             />
           </div>
           
-          {/* Division & Project Type */}
+          {/* Division & Project Scope */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Responsible Division */}
             <div className="relative division-dropdown-container">
@@ -760,22 +744,22 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
               )}
             </div>
             
-            {/* Project Type */}
+            {/* Project Scope */}
             <div className="relative project-type-dropdown-container">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 <Briefcase className="inline h-4 w-4 mr-1" />
-                Project Type {projectTypes.length > 0 && `(${projectTypes.length} selected)`}
+                Project Scope {projectTypes.length > 0 && `(${projectTypes.length} selected)`}
               </label>
               
               <div className="relative">
                 <div 
                   className="flex flex-wrap items-center gap-1 p-2 min-h-[42px] border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 cursor-text"
                   onClick={() => {
-                    console.log('🖱️ Project type container clicked, showing dropdown')
+                    console.log('🖱️ Project scope container clicked, showing dropdown')
                     setShowProjectTypeDropdown(true)
                   }}
                 >
-                  {/* Selected Project Types */}
+                  {/* Selected Project Scopes */}
                   {projectTypes.map((type, index) => (
                     <span
                       key={index}
@@ -786,7 +770,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation()
-                          handleRemoveProjectType(type)
+                          handleRemoveProjectScope(type)
                         }}
                         className="ml-1 hover:bg-blue-200 dark:hover:bg-blue-900/50 rounded-full p-0.5"
                       >
@@ -805,20 +789,20 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                       // إظهار القائمة فقط إذا كان النص أكثر من حرفين أو فارغ
                       if (value.length >= 2 || value.length === 0) {
                         setShowProjectTypeDropdown(true)
-                        console.log('✏️ Project type input changed, showing dropdown')
+                        console.log('✏️ Project scope input changed, showing dropdown')
                       } else {
                         setShowProjectTypeDropdown(false)
                       }
                     }}
                     onFocus={() => {
-                      console.log('🎯 Project type input focused, showing dropdown')
+                      console.log('🎯 Project scope input focused, showing dropdown')
                       setShowProjectTypeDropdown(true)
                     }}
                     onClick={() => {
-                      console.log('🖱️ Project type input clicked, showing dropdown')
+                      console.log('🖱️ Project scope input clicked, showing dropdown')
                       setShowProjectTypeDropdown(true)
                     }}
-                    placeholder={projectTypes.length === 0 ? "Type or select project type..." : ""}
+                    placeholder={projectTypes.length === 0 ? "Type or select project scope..." : ""}
                     disabled={loading}
                     className="flex-1 min-w-[120px] bg-transparent border-none outline-none text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                   />
@@ -826,7 +810,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                 <button
                   type="button"
                   onClick={() => {
-                    console.log('🔽 Toggle project type dropdown clicked')
+                    console.log('🔽 Toggle project scope dropdown clicked')
                     setShowProjectTypeDropdown(!showProjectTypeDropdown)
                   }}
                   className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
@@ -838,7 +822,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                 </button>
               </div>
               
-              {/* Project Type Dropdown - Optimized */}
+              {/* Project Scope Dropdown - Optimized */}
               {showProjectTypeDropdown && (() => {
                 // تحسين الأداء: فلترة مسبقة مع تحسينات إضافية
                 const inputLower = projectTypeInput.toLowerCase()
@@ -849,28 +833,27 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                     if (inputLower.length < 2) return false
                     return type.toLowerCase().includes(inputLower)
                   })
-                  .filter(type => !projectTypes.includes(type)) // إخفاء الأنواع المختارة بالفعل
-                  .slice(0, 15) // تقليل عدد العناصر المعروضة إلى 15
+                  .filter(type => !projectTypes.includes(type)) // إخفاء النطاقات المختارة بالفعل
                 
-                // إظهار القائمة فقط إذا كان هناك نتائج أو يمكن إضافة نوع جديد
+                // إظهار القائمة فقط إذا كان هناك نتائج أو يمكن إضافة نطاق جديد
                 const canAddNew = projectTypeInput.length >= 2 && 
                   !projectTypeSuggestions.some(t => t.toLowerCase() === inputLower)
                 
+                const totalScopes = projectTypeSuggestions.length
+                const availableScopes = filteredSuggestions.length
+                
                 return (filteredSuggestions.length > 0 || canAddNew) && (
-                  <div className="absolute z-20 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                  <div className="absolute z-20 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                     <div className="p-2 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600 sticky top-0">
                       <p className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                        {responsibleDivisions.length > 0 
-                          ? `💡 Suggested for ${responsibleDivisions.join(', ')} (${filteredSuggestions.length} types)` 
-                          : `📁 Select or add project type (${filteredSuggestions.length} types)`
-                        }
+                        📁 Select or add project scope from Project Scope Management ({projectTypeInput === '' ? `${totalScopes} total, ${availableScopes} available` : `${availableScopes} matching`} scopes)
                       </p>
                     </div>
                     {filteredSuggestions.map((type, idx) => (
                       <button
                         key={`${type}-${idx}`} // مفتاح فريد أفضل
                         type="button"
-                        onClick={() => handleProjectTypeSelect(type)}
+                        onClick={() => handleProjectScopeSelect(type)}
                         className="w-full px-4 py-2 text-left hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors text-gray-900 dark:text-white"
                       >
                         {type}
@@ -879,10 +862,10 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                     {canAddNew && (
                       <button
                         type="button"
-                        onClick={() => handleProjectTypeSelect(projectTypeInput)}
+                        onClick={() => handleProjectScopeSelect(projectTypeInput)}
                         className="w-full px-4 py-2 text-left bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors text-green-700 dark:text-green-300 border-t border-green-200 dark:border-green-800"
                       >
-                        ➕ Add "{projectTypeInput}" as new type
+                        ➕ Add "{projectTypeInput}" as new scope
                       </button>
                     )}
                   </div>
@@ -1334,9 +1317,9 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                 <p className="font-medium mb-1">💡 Smart Features:</p>
                 <ul className="list-disc list-inside space-y-0.5 text-xs">
                   <li>Auto-generates sub-code from project code</li>
-                  <li>Suggests project types based on division</li>
+                  <li>Loads project scopes from Project Scope Management</li>
                   <li>Provides typical duration and budget estimates</li>
-                  <li>Saves custom divisions and project types for future use</li>
+                  <li>Saves custom divisions and project scopes for future use</li>
                   <li>Validates project code format automatically</li>
                   <li>Email addresses are clickable for direct communication</li>
                   <li>Location coordinates open in Google Maps</li>

@@ -59,7 +59,14 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
   const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
-  const [useCustomizedTable, setUseCustomizedTable] = useState(true) // ✅ Use customized table by default
+  // ✅ Standard View is always the default - Force to true on mount
+  const [useCustomizedTable, setUseCustomizedTable] = useState(true)
+  
+  // Ensure Standard View is always the default on mount
+  useEffect(() => {
+    // Force Standard View on initial mount
+    setUseCustomizedTable(true)
+  }, [])
   const [viewingProject, setViewingProject] = useState<Project | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [viewMode, setViewMode] = useState<'cards'>('cards') // Default to cards view
@@ -87,7 +94,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
   const sortOptions: SortOption[] = [
     { key: 'project_name', label: 'Project Name', icon: Folder, type: 'string' },
     { key: 'project_code', label: 'Project Code', icon: Hash, type: 'string' },
-    { key: 'project_type', label: 'Project Type', icon: Building, type: 'string' },
+    { key: 'project_type', label: 'Project Scope', icon: Building, type: 'string' },
     { key: 'responsible_division', label: 'Responsible Division', icon: Building, type: 'string' },
     { key: 'project_status', label: 'Project Status', icon: CheckCircle, type: 'string' },
     { key: 'contract_amount', label: 'Contract Amount', icon: DollarSign, type: 'number' },
@@ -110,7 +117,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
     },
     {
       key: 'project_type',
-      label: 'Project Type',
+      label: 'Project Scope',
       type: 'select',
       options: Array.from(new Set(projects.map(p => p.project_type).filter(Boolean))).map(type => ({
         value: type,
@@ -215,6 +222,26 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
         
         return 0
       })
+    } else {
+      // ✅ Default sorting: By project code descending (newest projects first, e.g., P5096, P5095, ...)
+      filtered.sort((a, b) => {
+        const aCode = (a.project_code || '').toString().trim()
+        const bCode = (b.project_code || '').toString().trim()
+        
+        // Extract numeric part for numeric comparison
+        const aMatch = aCode.match(/(\d+)/)
+        const bMatch = bCode.match(/(\d+)/)
+        
+        if (aMatch && bMatch) {
+          const aNum = parseInt(aMatch[1], 10)
+          const bNum = parseInt(bMatch[1], 10)
+          // Descending order: higher numbers first (P5096 before P5095)
+          return bNum - aNum
+        }
+        
+        // Fallback to alphabetical comparison if no numbers found
+        return bCode.localeCompare(aCode)
+      })
     }
 
     return filtered
@@ -247,7 +274,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
         supabase
           .from(TABLES.PROJECTS)
           .select('*')
-          .order('created_at', { ascending: false })
+          .order('project_code', { ascending: false }) // ✅ Sort by project code descending (P5096, P5095, ...)
           .range(from, to),
         timeoutPromise
       ]) as any

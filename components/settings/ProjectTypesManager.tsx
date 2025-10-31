@@ -3,12 +3,12 @@
 import { useState, useEffect } from 'react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { 
-  getAllProjectTypes, 
-  addProjectType, 
-  updateProjectType, 
-  deleteProjectType,
-  initializeProjectTypesTable,
-  ProjectType
+  getAllProjectScopes, 
+  addProjectScope, 
+  updateProjectScope, 
+  deleteProjectScope,
+  initializeProjectScopesTable,
+  ProjectScope
 } from '@/lib/projectTypesManager'
 import { getActivityStats } from '@/lib/projectTypeActivitiesManager'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -30,12 +30,12 @@ import {
 
 export function ProjectTypesManager() {
   const guard = usePermissionGuard()
-  const [projectTypes, setProjectTypes] = useState<ProjectType[]>([])
+  const [projectScopes, setProjectScopes] = useState<ProjectScope[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [showForm, setShowForm] = useState(false)
-  const [editingType, setEditingType] = useState<ProjectType | null>(null)
+  const [editingScope, setEditingScope] = useState<ProjectScope | null>(null)
   const [activityStats, setActivityStats] = useState<Record<string, number>>({})
   
   // Form fields
@@ -46,26 +46,26 @@ export function ProjectTypesManager() {
   })
 
   useEffect(() => {
-    fetchProjectTypes()
+    fetchProjectScopes()
   }, [])
 
-  const fetchProjectTypes = async () => {
+  const fetchProjectScopes = async () => {
     try {
       setLoading(true)
       setError('')
       
       // Initialize table if needed
-      await initializeProjectTypesTable()
+      await initializeProjectScopesTable()
       
-      // Fetch project types
-      const data = await getAllProjectTypes()
-      setProjectTypes(data)
+      // Fetch project scopes
+      const data = await getAllProjectScopes()
+      setProjectScopes(data)
       
       // Fetch activity statistics
       await fetchActivityStats()
     } catch (error: any) {
-      setError('Failed to load project types')
-      console.error('Error fetching project types:', error)
+      setError('Failed to load project scopes')
+      console.error('Error fetching project scopes:', error)
     } finally {
       setLoading(false)
     }
@@ -87,32 +87,32 @@ export function ProjectTypesManager() {
     setSuccess('')
 
     if (!formData.name.trim()) {
-      setError('Project type name is required')
+      setError('Project scope name is required')
       return
     }
 
     try {
       setLoading(true)
 
-      if (editingType) {
-        // تحديث نوع موجود
-        const result = await updateProjectType(editingType.id!, {
+      if (editingScope) {
+        // تحديث نطاق موجود
+        const result = await updateProjectScope(editingScope.id!, {
           name: formData.name.trim(),
           code: formData.code.trim(),
           description: formData.description.trim()
         })
 
         if (result.success) {
-          setSuccess('Project type updated successfully')
-          await fetchProjectTypes()
+          setSuccess('Project scope updated successfully')
+          await fetchProjectScopes()
           await fetchActivityStats()
           resetForm()
         } else {
-          setError(result.error || 'Failed to update project type')
+          setError(result.error || 'Failed to update project scope')
         }
       } else {
-        // إضافة نوع جديد
-        const result = await addProjectType({
+        // إضافة نطاق جديد
+        const result = await addProjectScope({
           name: formData.name.trim(),
           code: formData.code.trim(),
           description: formData.description.trim(),
@@ -120,12 +120,12 @@ export function ProjectTypesManager() {
         })
 
         if (result.success) {
-          setSuccess('Project type added successfully')
-          await fetchProjectTypes()
+          setSuccess('Project scope added successfully')
+          await fetchProjectScopes()
           await fetchActivityStats()
           resetForm()
         } else {
-          setError(result.error || 'Failed to add project type')
+          setError(result.error || 'Failed to add project scope')
         }
       }
     } catch (error: any) {
@@ -135,20 +135,20 @@ export function ProjectTypesManager() {
     }
   }
 
-  const handleEdit = (projectType: ProjectType) => {
-    setEditingType(projectType)
+  const handleEdit = (projectScope: ProjectScope) => {
+    setEditingScope(projectScope)
     setFormData({
-      name: projectType.name,
-      code: projectType.code || '',
-      description: projectType.description || ''
+      name: projectScope.name,
+      code: projectScope.code || '',
+      description: projectScope.description || ''
     })
     setShowForm(true)
     setError('')
     setSuccess('')
   }
 
-  const handleDelete = async (projectType: ProjectType) => {
-    if (!confirm(`Are you sure you want to delete "${projectType.name}"?`)) {
+  const handleDelete = async (projectScope: ProjectScope) => {
+    if (!confirm(`Are you sure you want to delete "${projectScope.name}" project scope?`)) {
       return
     }
 
@@ -157,14 +157,14 @@ export function ProjectTypesManager() {
       setError('')
       setSuccess('')
 
-      const result = await deleteProjectType(projectType.id!)
+      const result = await deleteProjectScope(projectScope.id!)
 
       if (result.success) {
-        setSuccess('Project type deleted successfully')
-        await fetchProjectTypes()
+        setSuccess('Project scope deleted successfully')
+        await fetchProjectScopes()
         await fetchActivityStats()
       } else {
-        setError(result.error || 'Failed to delete project type')
+      setError(result.error || 'Failed to delete project scope')
       }
     } catch (error: any) {
       setError(error.message || 'An error occurred')
@@ -175,7 +175,7 @@ export function ProjectTypesManager() {
 
   const resetForm = () => {
     setFormData({ name: '', code: '', description: '' })
-    setEditingType(null)
+    setEditingScope(null)
     setShowForm(false)
     setError('')
   }
@@ -190,9 +190,9 @@ export function ProjectTypesManager() {
                 <Briefcase className="h-6 w-6 text-white" />
               </div>
               <div>
-                <CardTitle>Project Types Management</CardTitle>
+                <CardTitle>Project Scope Management</CardTitle>
                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                  Manage project types and categories
+                  Manage project scopes and categories
                 </p>
               </div>
             </div>
@@ -200,7 +200,7 @@ export function ProjectTypesManager() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={fetchProjectTypes}
+                onClick={fetchProjectScopes}
                 disabled={loading}
               >
                 <RefreshCw className="h-4 w-4" />
@@ -214,7 +214,7 @@ export function ProjectTypesManager() {
                   disabled={loading}
                 >
                   <Plus className="h-4 w-4 mr-2" />
-                  Add Project Type
+                  Add Project Scope
                 </Button>
               )}
             </div>
@@ -242,7 +242,7 @@ export function ProjectTypesManager() {
             <div className="mb-6 p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800/50">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold">
-                  {editingType ? 'Edit Project Type' : 'Add New Project Type'}
+                  {editingScope ? 'Edit Project Scope' : 'Add New Project Scope'}
                 </h3>
                 <button
                   onClick={resetForm}
@@ -255,7 +255,7 @@ export function ProjectTypesManager() {
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium mb-2">
-                    Project Type Name *
+                    Project Scope Name *
                   </label>
                   <Input
                     value={formData.name}
@@ -267,7 +267,7 @@ export function ProjectTypesManager() {
 
                 <div>
                   <label className="block text-sm font-medium mb-2">
-                    Code (Optional)
+                    Scope Code (Optional)
                   </label>
                   <Input
                     value={formData.code}
@@ -279,12 +279,12 @@ export function ProjectTypesManager() {
 
                 <div>
                   <label className="block text-sm font-medium mb-2">
-                    Description (Optional)
+                    Scope Description (Optional)
                   </label>
                   <textarea
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    placeholder="Brief description of the project type"
+                    placeholder="Brief description of the project scope"
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
                              bg-white dark:bg-gray-700 text-gray-900 dark:text-white
                              focus:ring-2 focus:ring-purple-500 focus:border-transparent
@@ -304,30 +304,30 @@ export function ProjectTypesManager() {
                   </Button>
                   <Button type="submit" disabled={loading}>
                     <Save className="h-4 w-4 mr-2" />
-                    {editingType ? 'Update' : 'Add'} Project Type
+                    {editingScope ? 'Update' : 'Add'} Project Scope
                   </Button>
                 </div>
               </form>
             </div>
           )}
 
-          {/* Project Types List */}
+          {/* Project Scope List */}
           {loading ? (
             <div className="flex justify-center py-12">
               <LoadingSpinner size="lg" />
             </div>
-          ) : projectTypes.length === 0 ? (
+          ) : projectScopes.length === 0 ? (
             <div className="text-center py-12">
               <Briefcase className="h-12 w-12 text-gray-400 mx-auto mb-4" />
               <p className="text-gray-600 dark:text-gray-400">
-                No project types found. Add your first project type!
+                No project scopes found. Add your first project scope!
               </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {projectTypes.map((projectType) => (
+              {projectScopes.map((projectScope) => (
                 <div
-                  key={projectType.id}
+                  key={projectScope.id}
                   className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg
                            hover:border-purple-500 dark:hover:border-purple-500 transition-colors"
                 >
@@ -335,29 +335,29 @@ export function ProjectTypesManager() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <h4 className="font-semibold text-gray-900 dark:text-white">
-                          {projectType.name}
+                          {projectScope.name}
                         </h4>
-                        {projectType.code && (
+                        {projectScope.code && (
                           <span className="px-2 py-0.5 text-xs font-medium bg-purple-100 dark:bg-purple-900 
                                        text-purple-800 dark:text-purple-200 rounded">
-                            {projectType.code}
+                            {projectScope.code}
                           </span>
                         )}
                       </div>
-                      {projectType.description && (
+                      {projectScope.description && (
                         <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                          {projectType.description}
+                          {projectScope.description}
                         </p>
                       )}
                       <div className="flex items-center gap-4 mt-2">
-                        {projectType.usage_count !== undefined && projectType.usage_count > 0 && (
+                        {projectScope.usage_count !== undefined && projectScope.usage_count > 0 && (
                           <p className="text-xs text-gray-500 dark:text-gray-500">
-                            Used in {projectType.usage_count} project{projectType.usage_count !== 1 ? 's' : ''}
+                            Used in {projectScope.usage_count} project{projectScope.usage_count !== 1 ? 's' : ''}
                           </p>
                         )}
-                        {activityStats[projectType.name] !== undefined && (
+                        {activityStats[projectScope.name] !== undefined && (
                           <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">
-                            {activityStats[projectType.name]} activities
+                            {activityStats[projectScope.name]} activities linked
                           </p>
                         )}
                       </div>
@@ -365,7 +365,7 @@ export function ProjectTypesManager() {
                     <div className="flex gap-1 ml-2">
                       {guard.hasAccess('settings.project_types') && (
                         <button
-                          onClick={() => handleEdit(projectType)}
+                          onClick={() => handleEdit(projectScope)}
                           className="p-2 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-lg transition-colors"
                           title="Edit"
                         >
@@ -374,7 +374,7 @@ export function ProjectTypesManager() {
                       )}
                       {guard.hasAccess('settings.project_types') && (
                         <button
-                          onClick={() => handleDelete(projectType)}
+                          onClick={() => handleDelete(projectScope)}
                           className="p-2 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
                           title="Delete"
                         >

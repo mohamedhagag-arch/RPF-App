@@ -1,10 +1,16 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Project, BOQActivity } from '@/lib/supabase'
+import { Project, BOQActivity, TABLES } from '@/lib/supabase'
+import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
+import { mapBOQFromDB } from '@/lib/dataMappers'
 import { ModernCard } from '@/components/ui/ModernCard'
 import { Button } from '@/components/ui/Button'
 import { Alert } from '@/components/ui/Alert'
+import { KPIDataMapper } from '@/lib/kpi-data-mapper'
+import { KPIConsistencyManager } from '@/lib/kpi-data-consistency-fix'
+import { enhancedKPIFetcher } from '@/lib/enhanced-kpi-fetcher'
+import { EnhancedQuantitySummary } from '@/components/kpi/EnhancedQuantitySummary'
 import { 
   X, 
   Save, 
@@ -68,7 +74,6 @@ export function EnhancedSmartActualKPIForm({
   const [quantity, setQuantity] = useState('')
   const [unit, setUnit] = useState('')
   const [actualDate, setActualDate] = useState('')
-  const [section, setSection] = useState('')
   const [day, setDay] = useState('')
   const [drilledMeters, setDrilledMeters] = useState('')
   const [hasWorkToday, setHasWorkToday] = useState<boolean | null>(null)
@@ -104,6 +109,9 @@ export function EnhancedSmartActualKPIForm({
   const [selectedZone, setSelectedZone] = useState<string>('all')
   const [selectedStatus, setSelectedStatus] = useState<string>('all')
   
+  // Zone selection for display
+  const [selectedZones, setSelectedZones] = useState<Set<string>>(new Set())
+  
   // Initialize with today's date
   useEffect(() => {
     const today = new Date().toISOString().split('T')[0]
@@ -129,21 +137,158 @@ export function EnhancedSmartActualKPIForm({
   }, [showProjectDropdown])
   
   // Load project activities when project is selected
+  // Fetch directly from database to ensure ALL activities (old + new) are loaded
   useEffect(() => {
-    if (selectedProject && activities.length > 0) {
-      const projectActivities = activities
-        .filter(a => a.project_code === selectedProject.project_code)
-        .map(activity => ({
+    const loadProjectActivities = async () => {
+      if (!selectedProject) return
+      
+      const projectCode = selectedProject.project_code
+      const projectSubCode = selectedProject.project_sub_code || ''
+      const projectFullCode = `${projectCode}${projectSubCode}`
+      
+      console.log(`🔍 Smart KPI Form: Fetching ALL activities for project: ${projectCode} (Full: ${projectFullCode})`)
+      
+      try {
+        const supabase = getSupabaseClient()
+        
+        // Strategy 1: Match by exact Project Code
+        const { data: activitiesByCode, error: error1 } = await executeQuery(async () =>
+          supabase
+            .from(TABLES.BOQ_ACTIVITIES)
+            .select('*')
+            .eq('Project Code', projectCode)
+        )
+        
+        // Strategy 2: Match by exact Project Full Code
+        const { data: activitiesByFullCodeExact, error: error2 } = await executeQuery(async () =>
+          supabase
+            .from(TABLES.BOQ_ACTIVITIES)
+            .select('*')
+            .eq('Project Full Code', projectCode)
+        )
+        
+        // Strategy 3: Match where Project Full Code starts with Project Code
+        const { data: activitiesByFullCodeStart, error: error3 } = await executeQuery(async () =>
+          supabase
+            .from(TABLES.BOQ_ACTIVITIES)
+            .select('*')
+            .like('Project Full Code', `${projectCode}%`)
+        )
+        
+        // Strategy 4: Match where Project Code contains the project code (for old data)
+        const { data: activitiesByCodeContains, error: error4 } = await executeQuery(async () =>
+          supabase
+            .from(TABLES.BOQ_ACTIVITIES)
+            .select('*')
+            .ilike('Project Code', `%${projectCode}%`)
+            .neq('Project Code', projectCode)
+        )
+        
+        // Strategy 5: Match where Project Full Code contains the project code (for old data)
+        const { data: activitiesByFullCodeContains, error: error5 } = await executeQuery(async () =>
+          supabase
+            .from(TABLES.BOQ_ACTIVITIES)
+            .select('*')
+            .ilike('Project Full Code', `%${projectCode}%`)
+            .neq('Project Full Code', projectCode)
+        )
+        
+        // Merge ALL results
+        const allActivitiesData = [
+          ...(Array.isArray(activitiesByCode) ? activitiesByCode : []),
+          ...(Array.isArray(activitiesByFullCodeExact) ? activitiesByFullCodeExact : []),
+          ...(Array.isArray(activitiesByFullCodeStart) ? activitiesByFullCodeStart : []),
+          ...(Array.isArray(activitiesByCodeContains) ? activitiesByCodeContains : []),
+          ...(Array.isArray(activitiesByFullCodeContains) ? activitiesByFullCodeContains : [])
+        ]
+        
+        // Remove duplicates based on id
+        const uniqueActivitiesData = Array.from(
+          new Map(allActivitiesData.map((item: any) => [item.id, item])).values()
+        )
+        
+        // Additional client-side filtering to ensure all match the project
+        const filteredActivities = uniqueActivitiesData.filter((item: any) => {
+          const itemProjectCode = (item['Project Code'] || '').toString().trim()
+          const itemProjectFullCode = (item['Project Full Code'] || '').toString().trim()
+          
+          // Direct matches
+          if (itemProjectCode === projectCode) return true
+          if (itemProjectFullCode === projectCode) return true
+          if (itemProjectFullCode.startsWith(projectCode)) return true
+          
+          // For old database entries, check if project code appears anywhere
+          if (itemProjectCode.includes(projectCode)) return true
+          if (itemProjectFullCode.includes(projectCode)) return true
+          
+          return false
+        })
+        
+        // Map to application format
+        const mappedActivities = filteredActivities.map(mapBOQFromDB)
+        
+        const projectActivities = mappedActivities.map(activity => ({
           ...activity,
           isCompleted: false,
           hasWorkToday: false
         }))
-      
-      setProjectActivities(projectActivities)
-      setCurrentStep('activities')
-      console.log('✅ Loaded activities for project:', projectActivities.length)
+        
+        setProjectActivities(projectActivities)
+        setCurrentStep('activities')
+        
+        console.log(`📊 Smart KPI Form: Comprehensive fetch results:`, {
+          byCode: activitiesByCode?.length || 0,
+          byFullCodeExact: activitiesByFullCodeExact?.length || 0,
+          byFullCodeStart: activitiesByFullCodeStart?.length || 0,
+          byCodeContains: activitiesByCodeContains?.length || 0,
+          byFullCodeContains: activitiesByFullCodeContains?.length || 0,
+          totalBeforeDedup: allActivitiesData.length,
+          uniqueAfterDedup: uniqueActivitiesData.length,
+          finalAfterFilter: projectActivities.length
+        })
+        
+        console.log(`✅ Smart KPI Form: Loaded ${projectActivities.length} activities for project ${projectCode}`)
+        console.log(`📋 Activities:`, projectActivities.map(a => ({
+          name: a.activity_name,
+          project_code: a.project_code,
+          project_full_code: a.project_full_code
+        })))
+        
+        if (projectActivities.length === 0) {
+          console.warn(`⚠️ NO ACTIVITIES FOUND for project ${projectCode} in Smart KPI Form!`)
+        }
+        
+      } catch (error: any) {
+        console.error('❌ Error fetching activities in Smart KPI Form:', error)
+        
+        // Fallback: Try to use activities from props if available
+        if (activities.length > 0) {
+          console.log('📋 Using fallback: activities from props')
+          const projectActivities = activities
+            .filter(a => {
+              const aProjectCode = (a.project_code || '').toString().trim()
+              const aProjectFullCode = (a.project_full_code || '').toString().trim()
+              return aProjectCode === projectCode || 
+                     aProjectFullCode === projectCode || 
+                     aProjectFullCode.startsWith(projectCode) ||
+                     aProjectCode.includes(projectCode) ||
+                     aProjectFullCode.includes(projectCode)
+            })
+            .map(activity => ({
+              ...activity,
+              isCompleted: false,
+              hasWorkToday: false
+            }))
+          
+          setProjectActivities(projectActivities)
+          setCurrentStep('activities')
+          console.log(`✅ Fallback: Loaded ${projectActivities.length} activities from props`)
+        }
+      }
     }
-  }, [selectedProject, activities])
+    
+    loadProjectActivities()
+  }, [selectedProject])
   
   // Load actual quantities from BOQ activities
   useEffect(() => {
@@ -170,10 +315,6 @@ export function EnhancedSmartActualKPIForm({
         setUnit(selectedActivity.unit)
       }
       
-      // Auto-fill section
-      if (selectedActivity.activity_division) {
-        setSection(selectedActivity.activity_division)
-      }
       
       // Auto-fill daily rate and calculate quantity
       if (selectedActivity.productivity_daily_rate && selectedActivity.productivity_daily_rate > 0) {
@@ -261,9 +402,72 @@ export function EnhancedSmartActualKPIForm({
       )
     }
 
-    // Zone filter
-    if (selectedZone !== 'all') {
-      filtered = filtered.filter(activity => activity.activity_division === selectedZone)
+    // Zone filter - use selectedZones (Set) to filter by zone_ref
+    if (selectedZones.size > 0) {
+      filtered = filtered.filter(activity => {
+        // Get activity zone - prefer zone_ref, fallback to zone_number or project code
+        let activityZone = (activity.zone_ref || '').toString().trim()
+        if (!activityZone || activityZone === '0' || activityZone === 'Enabling Division') {
+          activityZone = (activity.zone_number || '').toString().trim()
+        }
+        if (!activityZone || activityZone === '0') {
+          // If no zone, create a default zone based on project code
+          activityZone = selectedProject ? `${selectedProject.project_code} - 0` : '0'
+        }
+        
+        // Check if activity's zone matches any of the selected zones
+        const matches = Array.from(selectedZones).some(selectedZone => {
+          const selectedZoneStr = selectedZone.toString().trim()
+          
+          // Exact match
+          if (activityZone === selectedZoneStr) return true
+          
+          // Contains match (for old data formats like "P5095 - 0")
+          if (activityZone.includes(selectedZoneStr)) return true
+          if (selectedZoneStr.includes(activityZone)) return true
+          
+          // Special case: if selected zone is "P5095 - 0" and activity zone is "0", match if project code matches
+          if (selectedZoneStr.includes(' - ') && (activityZone === '0' || !activityZone || activityZone === '')) {
+            const projectCodeFromZone = selectedZoneStr.split(' - ')[0]
+            if (activity.project_code === projectCodeFromZone) return true
+          }
+          
+          // Special case: if activity zone is "P5095 - 0" format and selected is just the zone part
+          if (activityZone.includes(' - ') && !selectedZoneStr.includes(' - ')) {
+            const zonePart = activityZone.split(' - ')[1]
+            if (zonePart === selectedZoneStr || selectedZoneStr === '0') return true
+          }
+          
+          // Special case: if selected zone is "P5095 - 0" and activity has zone_ref matching the format
+          if (selectedZoneStr.includes(' - ')) {
+            const [projectFromSelected, zoneFromSelected] = selectedZoneStr.split(' - ')
+            const activityZoneRef = (activity.zone_ref || '').toString().trim()
+            const activityZoneNum = (activity.zone_number || '').toString().trim()
+            
+            // Match if activity zone_ref equals zone part and project matches
+            if (activity.project_code === projectFromSelected) {
+              if (activityZoneRef === zoneFromSelected) return true
+              if (activityZoneNum === zoneFromSelected) return true
+              if ((!activityZoneRef || activityZoneRef === '0') && zoneFromSelected === '0') return true
+            }
+          }
+          
+          return false
+        })
+        
+        return matches
+      })
+      console.log(`🔍 Filtered activities by zones:`, {
+        selectedZones: Array.from(selectedZones),
+        beforeFilter: projectActivities.length,
+        afterFilter: filtered.length,
+        sampleActivities: filtered.slice(0, 3).map(a => ({
+          name: a.activity_name,
+          zone_ref: a.zone_ref,
+          zone_number: a.zone_number,
+          project_code: a.project_code
+        }))
+      })
     }
 
     // Status filter
@@ -280,10 +484,41 @@ export function EnhancedSmartActualKPIForm({
     return filtered
   }
 
-  // Get unique zones from activities
+  // Get unique zones from activities (filter out Enabling Division and empty values)
   const getUniqueZones = () => {
-    const zones = projectActivities.map(activity => activity.activity_division).filter(Boolean)
-    return Array.from(new Set(zones))
+    if (!selectedProject) return []
+    
+    const zones = projectActivities
+      .map(activity => {
+        // Prefer zone_ref, fallback to zone_number if zone_ref is empty or "0"
+        const zoneRef = (activity.zone_ref || '').toString().trim()
+        const zoneNumber = (activity.zone_number || '').toString().trim()
+        
+        // If zone_ref exists and is valid, use it
+        if (zoneRef && zoneRef !== '0' && zoneRef !== 'Enabling Division') {
+          // If zone_ref doesn't include project code, add it for consistency
+          if (!zoneRef.includes(selectedProject.project_code) && selectedProject.project_code) {
+            return `${selectedProject.project_code} - ${zoneRef}`
+          }
+          return zoneRef
+        }
+        
+        // If zone_number exists and is valid, combine with project code
+        if (zoneNumber && zoneNumber !== '0') {
+          return `${selectedProject.project_code} - ${zoneNumber}`
+        }
+        
+        // If both are empty or "0", create default zone with project code
+        if (selectedProject?.project_code) {
+          return `${selectedProject.project_code} - 0`
+        }
+        
+        return ''
+      })
+      .filter(zone => zone && zone !== 'Enabling Division' && zone !== '0' && zone !== '')
+    
+    // Remove duplicates and sort
+    return Array.from(new Set(zones)).sort()
   }
 
   const handleWorkTodayQuestion = (activityId: string, hasWork: boolean) => {
@@ -328,19 +563,44 @@ export function EnhancedSmartActualKPIForm({
       const finalDate = globalDate || actualDate
       
       // Prepare the final data with the correct date and structure
-      const finalFormData = {
-        'Project Code': formData.project_code,
-        'Activity Name': selectedActivity?.activity_name,
-        'Quantity': formData.quantity,
-        'Unit': formData.unit,
+      // ✅ Only include columns that exist in the unified KPI table
+      const finalFormData: any = {
+        'Project Full Code': selectedProject?.project_code || formData.project_code,
+        'Project Code': selectedProject?.project_code || formData.project_code,
+        'Project Sub Code': selectedProject?.project_sub_code || '',
+        'Activity Name': selectedActivity?.activity_name || formData.activity_name,
+        'Quantity': formData.quantity?.toString() || '0',
+        'Unit': formData.unit || selectedActivity?.unit || '',
+        'Input Type': 'Actual',
         'Actual Date': finalDate,
-        'Section': formData.section,
-        'Drilled Meters': formData.drilled_meters,
-        'Recorded By': formData.recorded_by,
         'Activity Date': finalDate,
-        'Target Date': finalDate,
-        'Project Full Code': selectedProject?.project_code,
-        'Input Type': 'Actual'
+        'Target Date': finalDate || '',
+        'Drilled Meters': formData.drilled_meters?.toString() || '0',
+        // ✅ Use 'Section' and 'Zone' instead of 'Zone Ref' and 'Zone Number'
+        'Section': selectedActivity?.zone_ref || '',
+        'Zone': selectedActivity?.zone_ref || selectedActivity?.zone_number || '',
+        // ❌ Removed 'Zone Ref' - use 'Section' or 'Zone' instead
+        // ❌ Removed 'Zone Number' - use 'Zone' instead
+        // ❌ Removed 'Activity Division' - not a column in unified KPI table
+        // ❌ Removed 'Project Full Name' - not a column in unified KPI table
+        'Recorded By': formData.recorded_by || ''
+      }
+      
+      // ✅ Calculate Value from Quantity × Rate if available
+      if (selectedActivity) {
+        let rate = 0
+        if (selectedActivity.rate && selectedActivity.rate > 0) {
+          rate = selectedActivity.rate
+        } else if (selectedActivity.total_value && selectedActivity.total_units && selectedActivity.total_units > 0) {
+          rate = selectedActivity.total_value / selectedActivity.total_units
+        }
+        
+        if (rate > 0) {
+          const quantity = parseFloat(formData.quantity || '0')
+          const calculatedValue = quantity * rate
+          finalFormData['Value'] = calculatedValue.toString()
+          console.log(`💰 Calculated Value: ${quantity} × ${rate} = ${calculatedValue}`)
+        }
       }
       
       console.log('📅 Using date for all activities:', finalDate)
@@ -683,7 +943,7 @@ export function EnhancedSmartActualKPIForm({
                   </div>
                 )}
 
-                {/* Search and Filters */}
+                {/* Search and Zone Display */}
                 <div className="mb-6 space-y-3">
                   {/* Search */}
                   <div>
@@ -696,45 +956,66 @@ export function EnhancedSmartActualKPIForm({
                     />
                   </div>
 
-                  {/* Zone Filter */}
-                  <div>
-                    <select
-                      value={selectedZone}
-                      onChange={(e) => setSelectedZone(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-                    >
-                      <option value="all">All Zones</option>
-                      {getUniqueZones().map(zone => (
-                        <option key={zone} value={zone}>{zone}</option>
-                      ))}
-                    </select>
+                  {/* Zone Display with Multi-Selection */}
+                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-lg p-3 border border-blue-200 dark:border-blue-700">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Available Zones:</span>
+                      </div>
+                      {selectedZones.size > 0 && (
+                        <button
+                          onClick={() => setSelectedZones(new Set())}
+                          className="text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-100 px-2 py-1 rounded transition-colors"
+                        >
+                          Clear Selection
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {getUniqueZones().length > 0 ? (
+                        getUniqueZones().map(zone => {
+                          const isSelected = selectedZones.has(zone)
+                          return (
+                            <button
+                              key={zone}
+                              onClick={() => {
+                                const newSelectedZones = new Set(selectedZones)
+                                if (isSelected) {
+                                  newSelectedZones.delete(zone)
+                                } else {
+                                  newSelectedZones.add(zone)
+                                }
+                                setSelectedZones(newSelectedZones)
+                              }}
+                              className={`px-3 py-1 rounded-full text-xs font-medium transition-all duration-200 ${
+                                isSelected
+                                  ? 'bg-blue-600 text-white shadow-md'
+                                  : 'bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-800 dark:text-blue-100 dark:hover:bg-blue-700'
+                              }`}
+                            >
+                              {zone}
+                            </button>
+                          )
+                        })
+                      ) : (
+                        <span className="text-xs text-gray-500 dark:text-gray-400">No zones available</span>
+                      )}
+                    </div>
+                    {selectedZones.size > 0 && (
+                      <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+                        Selected: {Array.from(selectedZones).join(', ')}
+                      </div>
+                    )}
                   </div>
 
-                  {/* Status Filter */}
-                  <div>
-                    <select
-                      value={selectedStatus}
-                      onChange={(e) => setSelectedStatus(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-                    >
-                      <option value="all">All Status</option>
-                      <option value="pending">Pending</option>
-                      <option value="current">Current</option>
-                      <option value="completed">Completed</option>
-                    </select>
-                  </div>
-
-                  {/* Clear Filters */}
-                  {(activitySearchTerm || selectedZone !== 'all' || selectedStatus !== 'all') && (
+                  {/* Clear Search */}
+                  {activitySearchTerm && (
                     <button
-                      onClick={() => {
-                        setActivitySearchTerm('')
-                        setSelectedZone('all')
-                        setSelectedStatus('all')
-                      }}
+                      onClick={() => setActivitySearchTerm('')}
                       className="w-full px-3 py-2 text-sm text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md transition-colors"
                     >
-                      Clear Filters
+                      Clear Search
                     </button>
                   )}
                 </div>
@@ -781,11 +1062,13 @@ export function EnhancedSmartActualKPIForm({
                             <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
                               {activity.activity}
                             </p>
-                            <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                              <span>{activity.unit}</span>
-                              <span>•</span>
-                              <span>{activity.activity_division}</span>
-                            </div>
+                            {activity.zone_ref && activity.zone_ref !== 'Enabling Division' && (
+                              <div className="flex items-center gap-3 text-xs">
+                                <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full font-medium">
+                                  Zone: {activity.zone_ref}
+                                </span>
+                              </div>
+                            )}
                           </div>
                           {isCompleted && (
                             <div className="ml-2 flex items-center gap-2">
@@ -905,7 +1188,7 @@ export function EnhancedSmartActualKPIForm({
                   </div>
                 </div>
 
-                {/* Search and Filters */}
+                {/* Search and Zone Display */}
                 <div className="mb-6 space-y-3">
                   {/* Search */}
                   <div>
@@ -918,45 +1201,66 @@ export function EnhancedSmartActualKPIForm({
                     />
                   </div>
 
-                  {/* Zone Filter */}
-                  <div>
-                    <select
-                      value={selectedZone}
-                      onChange={(e) => setSelectedZone(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-                    >
-                      <option value="all">All Zones</option>
-                      {getUniqueZones().map(zone => (
-                        <option key={zone} value={zone}>{zone}</option>
-                      ))}
-                    </select>
+                  {/* Zone Display with Multi-Selection */}
+                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-lg p-3 border border-blue-200 dark:border-blue-700">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Available Zones:</span>
+                      </div>
+                      {selectedZones.size > 0 && (
+                        <button
+                          onClick={() => setSelectedZones(new Set())}
+                          className="text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-100 px-2 py-1 rounded transition-colors"
+                        >
+                          Clear Selection
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {getUniqueZones().length > 0 ? (
+                        getUniqueZones().map(zone => {
+                          const isSelected = selectedZones.has(zone)
+                          return (
+                            <button
+                              key={zone}
+                              onClick={() => {
+                                const newSelectedZones = new Set(selectedZones)
+                                if (isSelected) {
+                                  newSelectedZones.delete(zone)
+                                } else {
+                                  newSelectedZones.add(zone)
+                                }
+                                setSelectedZones(newSelectedZones)
+                              }}
+                              className={`px-3 py-1 rounded-full text-xs font-medium transition-all duration-200 ${
+                                isSelected
+                                  ? 'bg-blue-600 text-white shadow-md'
+                                  : 'bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-800 dark:text-blue-100 dark:hover:bg-blue-700'
+                              }`}
+                            >
+                              {zone}
+                            </button>
+                          )
+                        })
+                      ) : (
+                        <span className="text-xs text-gray-500 dark:text-gray-400">No zones available</span>
+                      )}
+                    </div>
+                    {selectedZones.size > 0 && (
+                      <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+                        Selected: {Array.from(selectedZones).join(', ')}
+                      </div>
+                    )}
                   </div>
 
-                  {/* Status Filter */}
-                  <div>
-                    <select
-                      value={selectedStatus}
-                      onChange={(e) => setSelectedStatus(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-                    >
-                      <option value="all">All Status</option>
-                      <option value="pending">Pending</option>
-                      <option value="current">Current</option>
-                      <option value="completed">Completed</option>
-                    </select>
-                  </div>
-
-                  {/* Clear Filters */}
-                  {(activitySearchTerm || selectedZone !== 'all' || selectedStatus !== 'all') && (
+                  {/* Clear Search */}
+                  {activitySearchTerm && (
                     <button
-                      onClick={() => {
-                        setActivitySearchTerm('')
-                        setSelectedZone('all')
-                        setSelectedStatus('all')
-                      }}
+                      onClick={() => setActivitySearchTerm('')}
                       className="w-full px-3 py-2 text-sm text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md transition-colors"
                     >
-                      Clear Filters
+                      Clear Search
                     </button>
                   )}
                 </div>
@@ -1003,11 +1307,13 @@ export function EnhancedSmartActualKPIForm({
                             <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
                               {activity.activity}
                             </p>
-                            <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                              <span>{activity.unit}</span>
-                              <span>•</span>
-                              <span>{activity.activity_division}</span>
-                            </div>
+                            {activity.zone_ref && activity.zone_ref !== 'Enabling Division' && (
+                              <div className="flex items-center gap-3 text-xs">
+                                <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full font-medium">
+                                  Zone: {activity.zone_ref}
+                                </span>
+                              </div>
+                            )}
                           </div>
                           {isCompleted && (
                             <div className="ml-2 flex items-center gap-2">
@@ -1174,7 +1480,7 @@ export function EnhancedSmartActualKPIForm({
                                 Date
                               </th>
                               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                                Section
+                                Drilled Meters
                               </th>
                               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                                 Drilled
@@ -1219,7 +1525,7 @@ export function EnhancedSmartActualKPIForm({
                                   </td>
                                   <td className="px-4 py-4">
                                     <div className="text-sm text-gray-900 dark:text-white">
-                                      {data['Section'] || data.section || 'N/A'}
+                                      {data['Drilled Meters'] || data.drilled_meters ? `${data['Drilled Meters'] || data.drilled_meters}m` : 'N/A'}
                                     </div>
                                   </td>
                                   <td className="px-4 py-4">
@@ -1323,28 +1629,97 @@ export function EnhancedSmartActualKPIForm({
                     // Form Section
                     <>
                       {/* Header */}
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-600 rounded-full flex items-center justify-center">
-                  <Target className="w-6 h-6 text-white" />
+            <div className="mb-6">
+              {/* Header with back button */}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-600 rounded-full flex items-center justify-center">
+                    <Target className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+                      Activity Details
+                    </h2>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      Project: {selectedProject?.project_code}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-                    Activity Details
-                  </h2>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    {selectedProject?.project_code} - {currentActivity.activity_name}
-                  </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setCurrentStep('activities')}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </Button>
+              </div>
+
+              {/* Activity Information Card */}
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-700">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                      {currentActivity.activity_name}
+                    </h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                      {currentActivity.activity}
+                    </p>
+                    
+                    {/* Activity Details Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Unit:</span>
+                          <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">
+                            {currentActivity.unit || 'N/A'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Division:</span>
+                          <span className="text-xs text-gray-700 dark:text-gray-300">
+                            {currentActivity.activity_division || 'N/A'}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        {currentActivity.zone_ref && currentActivity.zone_ref !== 'Enabling Division' && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Zone:</span>
+                            <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
+                              {currentActivity.zone_ref}
+                            </span>
+                          </div>
+                        )}
+                        {currentActivity.zone_number && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Zone #:</span>
+                            <span className="text-xs text-gray-700 dark:text-gray-300">
+                              {currentActivity.zone_number}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Status Badge */}
+                  <div className="flex flex-col items-end gap-2">
+                    <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
+                      Active
+                    </span>
+                    {currentActivity.planned_units && (
+                      <div className="text-right">
+                        <span className="text-xs text-gray-500 dark:text-gray-400">Planned:</span>
+                        <span className="text-sm font-semibold text-gray-900 dark:text-white ml-1">
+                          {currentActivity.planned_units} {currentActivity.unit}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setCurrentStep('activities')}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </Button>
             </div>
 
             {/* Global Date Display in Form */}
@@ -1420,6 +1795,11 @@ export function EnhancedSmartActualKPIForm({
                 </h3>
                 <p className="text-gray-600 dark:text-gray-400 mb-6">
                   {currentActivity.activity_name}
+                  {currentActivity.zone_ref && currentActivity.zone_ref !== 'Enabling Division' && (
+                    <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
+                      Zone: {currentActivity.zone_ref}
+                    </span>
+                  )}
                 </p>
                 
                 {/* Edit Mode Notice */}
@@ -1467,123 +1847,75 @@ export function EnhancedSmartActualKPIForm({
                     placeholder="Enter quantity"
                   />
                   
-                  {/* Quantity Information */}
-                  {selectedActivity && (() => {
-                    // Simple and direct calculation
-                    const totalPlanned = selectedActivity.planned_units || 0
-                    const completedSoFar = selectedActivity.actual_units || 0
-                    const remaining = Math.max(0, totalPlanned - completedSoFar)
-                    const newQuantity = parseFloat(quantity) || 0
-                    const afterThisEntry = Math.max(0, remaining - newQuantity)
-                    
-                    console.log('🧮 Quantity Calculation:', {
-                      activityName: selectedActivity.activity_name,
-                      totalPlanned,
-                      completedSoFar,
-                      remaining,
-                      newQuantity,
-                      afterThisEntry
-                    })
-                    
-                    return (
-                      <div className="mt-2 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg">
-                        <div className="text-sm text-blue-800 dark:text-blue-200">
-                          <div className="flex justify-between items-center mb-1">
-                            <span className="font-medium">Total Activity Quantity:</span>
-                            <span className="font-bold">{totalPlanned} {selectedActivity.unit || ''}</span>
-                          </div>
-                          <div className="flex justify-between items-center mb-1">
-                            <span className="font-medium">Completed So Far:</span>
-                            <span className="font-bold">{completedSoFar} {selectedActivity.unit || ''}</span>
-                          </div>
-                          <div className="flex justify-between items-center border-t border-blue-200 dark:border-blue-700 pt-1 mt-1">
-                            <span className="font-medium text-green-700 dark:text-green-300">Remaining:</span>
-                            <span className="font-bold text-green-700 dark:text-green-300">
-                              {remaining} {selectedActivity.unit || ''}
-                            </span>
-                          </div>
-                          {newQuantity > 0 && (
-                            <div className="flex justify-between items-center border-t border-blue-200 dark:border-blue-700 pt-1 mt-1">
-                              <span className="font-medium text-purple-700 dark:text-purple-300">After This Entry:</span>
-                              <span className="font-bold text-purple-700 dark:text-purple-300">
-                                {afterThisEntry} {selectedActivity.unit || ''}
-                              </span>
-                            </div>
-                          )}
-                        </div>
+                  {/* Quantity Summary */}
+                  {selectedActivity && selectedProject && (
+                    <div className="mt-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Target className="h-4 w-4 text-blue-600" />
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                          Quantity Summary
+                        </span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400 bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 px-2 py-1 rounded">
+                          Live Data
+                        </span>
                       </div>
-                    )
-                  })()}
+                      <EnhancedQuantitySummary
+                        selectedActivity={selectedActivity}
+                        selectedProject={selectedProject}
+                        newQuantity={parseFloat(quantity) || 0}
+                        unit={unit || selectedActivity.unit || ''}
+                        showDebug={false}
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Unit
+                    {unit && (
+                      <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                        Auto-filled from Activity
+                      </span>
+                    )}
                   </label>
                   <input
                     type="text"
                     value={unit}
-                    onChange={(e) => setUnit(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-                    placeholder="Enter unit"
+                    readOnly
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white bg-gray-50 cursor-not-allowed"
+                    placeholder="Select an activity to auto-fill unit..."
                   />
+                  {!unit && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Unit will be automatically filled when you select an activity
+                    </p>
+                  )}
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Activity Date
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="date"
-                      value={actualDate}
-                      onChange={(e) => {
-                        setActualDate(e.target.value)
-                        setGlobalDate(e.target.value) // Update global date when changed
-                      }}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-                    />
-                    {globalDate && actualDate === globalDate && (
-                      <div className="absolute -top-6 right-0 text-xs text-green-600 font-medium">
-                        ✓ Using global date
-                      </div>
-                    )}
-                  </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    This date will be applied to all activities in this session
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Section
-                  </label>
-                  <input
-                    type="text"
-                    value={section}
-                    onChange={(e) => setSection(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-                    placeholder="Enter section"
-                  />
-                </div>
-              </div>
-
-              {(selectedActivity as any).activity_type === 'Drilling' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Drilled Meters
+                    <span className="ml-2 text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">
+                      Optional
+                    </span>
                   </label>
                   <input
                     type="number"
+                    step="0.01"
+                    min="0"
                     value={drilledMeters}
                     onChange={(e) => setDrilledMeters(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-                    placeholder="Enter drilled meters"
+                    placeholder="Enter drilled meters (optional)"
                   />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Only for drilling activities - leave empty if not applicable
+                  </p>
                 </div>
-              )}
+              </div>
             </div>
 
             {/* Smart Features */}
@@ -1642,7 +1974,6 @@ export function EnhancedSmartActualKPIForm({
                     quantity: parseFloat(quantity) || 0,
                     unit,
                     actual_date: actualDate,
-                    section,
                     drilled_meters: drilledMeters ? parseFloat(drilledMeters) : null,
                     recorded_by: 'Engineer'
                   })}

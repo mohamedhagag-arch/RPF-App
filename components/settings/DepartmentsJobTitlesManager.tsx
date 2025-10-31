@@ -75,6 +75,25 @@ export function DepartmentsJobTitlesManager() {
     is_active: true,
     display_order: 0
   })
+  const buildDepartmentPayload = (dept: Partial<Department>, fallbackOrder = 0) => {
+    const nameEn = typeof dept.name_en === 'string' ? dept.name_en.trim() : String(dept.name_en || '').trim()
+    const nameArRaw = dept.name_ar
+    const nameAr = typeof nameArRaw === 'string' ? nameArRaw.trim() : nameArRaw != null ? String(nameArRaw).trim() : ''
+    const description = typeof dept.description === 'string'
+      ? dept.description.trim()
+      : String(dept.description || '').trim()
+    const displayOrderValue = typeof dept.display_order === 'number'
+      ? dept.display_order
+      : Number(dept.display_order)
+
+    return {
+      name_en: nameEn,
+      name_ar: nameAr.length > 0 ? nameAr : null,
+      description,
+      is_active: parseBoolean(dept.is_active, true),
+      display_order: Number.isFinite(displayOrderValue) ? Number(displayOrderValue) : fallbackOrder
+    }
+  }
 
   // Job Titles
   const [jobTitles, setJobTitles] = useState<JobTitle[]>([])
@@ -86,6 +105,37 @@ export function DepartmentsJobTitlesManager() {
     is_active: true,
     display_order: 0
   })
+
+  const parseBoolean = (value: any, defaultValue = true) => {
+    if (typeof value === 'boolean') return value
+    if (typeof value === 'number') return value !== 0
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase()
+      if (['true', '1', 'yes', 'y', 'active', 'on'].includes(normalized)) return true
+      if (['false', '0', 'no', 'n', 'inactive', 'off'].includes(normalized)) return false
+    }
+    return defaultValue
+  }
+
+  const buildJobTitlePayload = (title: Partial<JobTitle>, fallbackOrder = 0) => {
+    const titleEn = typeof title.title_en === 'string' ? title.title_en.trim() : String(title.title_en || '').trim()
+    const titleArRaw = title.title_ar
+    const titleArStr = typeof titleArRaw === 'string' ? titleArRaw.trim() : titleArRaw != null ? String(titleArRaw).trim() : ''
+    const description = typeof title.description === 'string'
+      ? title.description.trim()
+      : String(title.description || '').trim()
+    const displayOrderValue = typeof title.display_order === 'number'
+      ? title.display_order
+      : Number(title.display_order)
+
+    return {
+      title_en: titleEn,
+      title_ar: titleArStr.length > 0 ? titleArStr : null,
+      description,
+      is_active: parseBoolean(title.is_active, true),
+      display_order: Number.isFinite(displayOrderValue) ? Number(displayOrderValue) : fallbackOrder
+    }
+  }
 
   useEffect(() => {
     loadData()
@@ -268,19 +318,21 @@ export function DepartmentsJobTitlesManager() {
                 is_active: record.is_active,
                 display_order: record.display_order,
               })
-              .select()
-              .single()
             if (insertError) throw insertError
           } else {
-            const { error: insertError } = await (supabase as any)
-              .from('job_titles')
-              .insert({
+            const payload = buildJobTitlePayload(
+              {
                 title_en: record.title_en,
                 title_ar: record.title_ar,
                 description: record.description,
                 is_active: record.is_active,
-                display_order: record.display_order,
-              })
+                display_order: record.display_order
+              },
+              jobTitles.length + successful
+            )
+            const { error: insertError } = await (supabase as any)
+              .from('job_titles')
+              .insert(payload)
               .select()
               .single()
             if (insertError) throw insertError
@@ -288,7 +340,11 @@ export function DepartmentsJobTitlesManager() {
           successful++
         } catch (recordError: any) {
           failed++
-          errors.push(`Record failed: ${recordError.message}`)
+          if (recordError?.code === '23505' || recordError?.message?.includes('duplicate key value')) {
+            errors.push('Record failed: Arabic job title already exists.')
+          } else {
+            errors.push(`Record failed: ${recordError.message}`)
+          }
         }
       }
       
@@ -316,7 +372,12 @@ export function DepartmentsJobTitlesManager() {
         .order('display_order')
 
       if (fetchError) throw fetchError
-      setDepartments(data || [])
+      const normalized = (data || []).map((item: any) => ({
+        ...item,
+        name_ar: item?.name_ar || '',
+        description: item?.description || ''
+      }))
+      setDepartments(normalized)
     } catch (error: any) {
       console.error('Error loading departments:', error)
       setError('Failed to load departments')
@@ -331,7 +392,12 @@ export function DepartmentsJobTitlesManager() {
         .order('display_order')
 
       if (fetchError) throw fetchError
-      setJobTitles(data || [])
+      const normalized = (data || []).map((item: any) => ({
+        ...item,
+        title_ar: item?.title_ar || '',
+        description: item?.description || ''
+      }))
+      setJobTitles(normalized)
     } catch (error: any) {
       console.error('Error loading job titles:', error)
       setError('Failed to load job titles')
@@ -339,24 +405,33 @@ export function DepartmentsJobTitlesManager() {
   }
 
   const handleAddDepartment = async () => {
-    if (!newDept.name_en || !newDept.name_ar) {
-      setError('Please fill in both English and Arabic names')
+    if (!newDept.name_en || newDept.name_en.trim() === '') {
+      setError('Please fill in the English name')
       return
+    }
+    const sanitizedArabicName = newDept.name_ar?.trim()
+    if (sanitizedArabicName) {
+      const duplicateArabic = departments.some(
+        existing => existing.name_ar && existing.name_ar.trim() === sanitizedArabicName
+      )
+      if (duplicateArabic) {
+        setError('Arabic department name already exists. Please choose a different Arabic name.')
+        return
+      }
     }
 
     try {
       setSaving(true)
       setError('')
 
+      const payload = buildDepartmentPayload({
+        ...newDept,
+        display_order: departments.length
+      }, departments.length)
+
       const { error: insertError } = await (supabase as any)
         .from('departments')
-        .insert({
-          name_en: newDept.name_en,
-          name_ar: newDept.name_ar,
-          description: newDept.description,
-          is_active: newDept.is_active,
-          display_order: departments.length
-        })
+        .insert(payload)
 
       if (insertError) throw insertError
 
@@ -365,26 +440,37 @@ export function DepartmentsJobTitlesManager() {
       setNewDept({ name_en: '', name_ar: '', description: '', is_active: true, display_order: 0 })
       await loadDepartments()
     } catch (error: any) {
-      setError('Failed to add department: ' + error.message)
+      if (error?.code === '23505' || error?.message?.includes('duplicate key value')) {
+        setError('Failed to add department: Arabic name already exists in the system.')
+      } else {
+        setError('Failed to add department: ' + (error.message || 'Unknown error'))
+      }
     } finally {
       setSaving(false)
     }
   }
 
   const handleUpdateDepartment = async (dept: Department) => {
+    const trimmedArabic = dept.name_ar?.trim()
+    if (trimmedArabic) {
+      const duplicateArabic = departments.some(
+        existing => existing.id !== dept.id && existing.name_ar && existing.name_ar.trim() === trimmedArabic
+      )
+      if (duplicateArabic) {
+        setError('Arabic department name already exists. Please choose a different Arabic name.')
+        return
+      }
+    }
+
     try {
       setSaving(true)
       setError('')
 
+      const payload = buildDepartmentPayload(dept, dept.display_order)
+
       const { error: updateError } = await (supabase as any)
         .from('departments')
-        .update({
-          name_en: dept.name_en,
-          name_ar: dept.name_ar,
-          description: dept.description,
-          is_active: dept.is_active,
-          display_order: dept.display_order
-        })
+        .update(payload)
         .eq('id', dept.id)
 
       if (updateError) throw updateError
@@ -394,7 +480,11 @@ export function DepartmentsJobTitlesManager() {
       setEditingDept(null)
       await loadDepartments()
     } catch (error: any) {
-      setError('Failed to update department: ' + error.message)
+      if (error?.code === '23505' || error?.message?.includes('duplicate key value')) {
+        setError('Failed to update department: Arabic name already exists in the system.')
+      } else {
+        setError('Failed to update department: ' + (error.message || 'Unknown error'))
+      }
     } finally {
       setSaving(false)
     }
@@ -425,24 +515,34 @@ export function DepartmentsJobTitlesManager() {
   }
 
   const handleAddJobTitle = async () => {
-    if (!newTitle.title_en) {
+    if (!newTitle.title_en || newTitle.title_en.trim() === '') {
       setError('Please fill in the English title')
       return
+    }
+
+    const sanitizedArabicTitle = newTitle.title_ar?.trim()
+    if (sanitizedArabicTitle) {
+      const duplicateArabic = jobTitles.some(
+        existing => existing.title_ar && existing.title_ar.trim() === sanitizedArabicTitle
+      )
+      if (duplicateArabic) {
+        setError('Arabic job title already exists. Please choose a different Arabic name.')
+        return
+      }
     }
 
     try {
       setSaving(true)
       setError('')
 
+      const payload = buildJobTitlePayload({
+        ...newTitle,
+        display_order: jobTitles.length
+      }, jobTitles.length)
+
       const { error: insertError } = await (supabase as any)
         .from('job_titles')
-        .insert({
-          title_en: newTitle.title_en,
-          title_ar: newTitle.title_ar,
-          description: newTitle.description,
-          is_active: newTitle.is_active,
-          display_order: jobTitles.length
-        })
+        .insert(payload)
 
       if (insertError) throw insertError
 
@@ -451,26 +551,37 @@ export function DepartmentsJobTitlesManager() {
       setNewTitle({ title_en: '', title_ar: '', description: '', is_active: true, display_order: 0 })
       await loadJobTitles()
     } catch (error: any) {
-      setError('Failed to add job title: ' + error.message)
+      if (error?.code === '23505' || error?.message?.includes('duplicate key value')) {
+        setError('Failed to add job title: Arabic name already exists in the system.')
+      } else {
+        setError('Failed to add job title: ' + (error.message || 'Unknown error'))
+      }
     } finally {
       setSaving(false)
     }
   }
 
   const handleUpdateJobTitle = async (title: JobTitle) => {
+    const trimmedArabic = title.title_ar?.trim()
+    if (trimmedArabic) {
+      const duplicateArabic = jobTitles.some(
+        existing => existing.id !== title.id && existing.title_ar && existing.title_ar.trim() === trimmedArabic
+      )
+      if (duplicateArabic) {
+        setError('Arabic job title already exists. Please choose a different Arabic name.')
+        return
+      }
+    }
+
     try {
       setSaving(true)
       setError('')
 
+      const payload = buildJobTitlePayload(title, title.display_order)
+
       const { error: updateError } = await (supabase as any)
         .from('job_titles')
-        .update({
-          title_en: title.title_en,
-          title_ar: title.title_ar,
-          description: title.description,
-          is_active: title.is_active,
-          display_order: title.display_order
-        })
+        .update(payload)
         .eq('id', title.id)
 
       if (updateError) throw updateError
@@ -480,7 +591,11 @@ export function DepartmentsJobTitlesManager() {
       setEditingTitle(null)
       await loadJobTitles()
     } catch (error: any) {
-      setError('Failed to update job title: ' + error.message)
+      if (error?.code === '23505' || error?.message?.includes('duplicate key value')) {
+        setError('Failed to update job title: Arabic name already exists in the system.')
+      } else {
+        setError('Failed to update job title: ' + (error.message || 'Unknown error'))
+      }
     } finally {
       setSaving(false)
     }
@@ -830,7 +945,8 @@ export function DepartmentsJobTitlesManager() {
                           <div className="flex items-center justify-between">
                             <div className="flex-1">
                               <h3 className="font-medium text-gray-900 dark:text-white">
-                                {dept.name_en} / {dept.name_ar}
+                                {dept.name_en}
+                                {dept.name_ar?.trim() ? ` / ${dept.name_ar.trim()}` : ''}
                               </h3>
                               {dept.description && (
                                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
@@ -932,117 +1048,122 @@ export function DepartmentsJobTitlesManager() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
-                    {jobTitles.map((title) => (
-                      <div
-                        key={title.id}
-                        className="border border-gray-200 dark:border-gray-700 rounded-lg p-4"
-                      >
-                        {editingTitle === title.id ? (
-                          <div className="space-y-3">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                              <Input
-                                value={title.title_en}
-                                onChange={(e) => {
-                                  const updated = jobTitles.map(t =>
-                                    t.id === title.id ? { ...t, title_en: e.target.value } : t
-                                  )
-                                  setJobTitles(updated)
-                                }}
-                              />
-                              <Input
-                                value={title.title_ar}
-                                onChange={(e) => {
-                                  const updated = jobTitles.map(t =>
-                                    t.id === title.id ? { ...t, title_ar: e.target.value } : t
-                                  )
-                                  setJobTitles(updated)
-                                }}
-                                dir="rtl"
-                              />
-                              <div className="md:col-span-2">
+                    {jobTitles.map((title) => {
+                      const trimmedArabic = title.title_ar?.trim()
+
+                      return (
+                        <div
+                          key={title.id}
+                          className="border border-gray-200 dark:border-gray-700 rounded-lg p-4"
+                        >
+                          {editingTitle === title.id ? (
+                            <div className="space-y-3">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 <Input
-                                  value={title.description || ''}
+                                  value={title.title_en}
                                   onChange={(e) => {
                                     const updated = jobTitles.map(t =>
-                                      t.id === title.id ? { ...t, description: e.target.value } : t
+                                      t.id === title.id ? { ...t, title_en: e.target.value } : t
                                     )
                                     setJobTitles(updated)
                                   }}
-                                  placeholder="Description"
                                 />
+                                <Input
+                                  value={title.title_ar}
+                                  onChange={(e) => {
+                                    const updated = jobTitles.map(t =>
+                                      t.id === title.id ? { ...t, title_ar: e.target.value } : t
+                                    )
+                                    setJobTitles(updated)
+                                  }}
+                                  dir="rtl"
+                                />
+                                <div className="md:col-span-2">
+                                  <Input
+                                    value={title.description || ''}
+                                    onChange={(e) => {
+                                      const updated = jobTitles.map(t =>
+                                        t.id === title.id ? { ...t, description: e.target.value } : t
+                                      )
+                                      setJobTitles(updated)
+                                    }}
+                                    placeholder="Description"
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex items-center justify-end space-x-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setEditingTitle(null)}
+                                >
+                                  <X className="h-4 w-4 mr-1" />
+                                  Cancel
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleUpdateJobTitle(title)}
+                                  disabled={saving}
+                                >
+                                  <Save className="h-4 w-4 mr-1" />
+                                  Save
+                                </Button>
                               </div>
                             </div>
-                            <div className="flex items-center justify-end space-x-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => setEditingTitle(null)}
-                              >
-                                <X className="h-4 w-4 mr-1" />
-                                Cancel
-                              </Button>
-                              <Button
-                                size="sm"
-                                onClick={() => handleUpdateJobTitle(title)}
-                                disabled={saving}
-                              >
-                                <Save className="h-4 w-4 mr-1" />
-                                Save
-                              </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-between">
-                            <div className="flex-1">
-                              <h3 className="font-medium text-gray-900 dark:text-white">
-                                {title.title_en} / {title.title_ar}
-                              </h3>
-                              {title.description && (
-                                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                                  {title.description}
-                                </p>
-                              )}
-                              <div className="flex items-center space-x-2 mt-2">
-                                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                                  title.is_active
-                                    ? 'bg-green-100 text-green-800'
-                                    : 'bg-gray-100 text-gray-800'
-                                }`}>
-                                  {title.is_active ? 'Active' : 'Inactive'}
-                                </span>
-                                <span className="text-xs text-gray-500">
-                                  Order: {title.display_order}
-                                </span>
+                          ) : (
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1">
+                                <h3 className="font-medium text-gray-900 dark:text-white">
+                                  {title.title_en}
+                                  {trimmedArabic ? ` / ${trimmedArabic}` : ''}
+                                </h3>
+                                {title.description && (
+                                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                                    {title.description}
+                                  </p>
+                                )}
+                                <div className="flex items-center space-x-2 mt-2">
+                                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                    title.is_active
+                                      ? 'bg-green-100 text-green-800'
+                                      : 'bg-gray-100 text-gray-800'
+                                  }`}>
+                                    {title.is_active ? 'Active' : 'Inactive'}
+                                  </span>
+                                  <span className="text-xs text-gray-500">
+                                    Order: {title.display_order}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => toggleActive('job_title', title.id, title.is_active)}
+                                >
+                                  {title.is_active ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setEditingTitle(title.id)}
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleDeleteJobTitle(title.id)}
+                                  className="text-red-600 hover:text-red-700"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
                               </div>
                             </div>
-                            <div className="flex items-center space-x-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => toggleActive('job_title', title.id, title.is_active)}
-                              >
-                                {title.is_active ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => setEditingTitle(title.id)}
-                              >
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleDeleteJobTitle(title.id)}
-                                className="text-red-600 hover:text-red-700"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
                 </CardContent>
               </Card>

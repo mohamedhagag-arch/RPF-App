@@ -8,6 +8,7 @@ import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { KPIRecord, Project, BOQActivity, TABLES } from '@/lib/supabase'
 import { mapKPIFromDB, mapProjectFromDB, mapBOQFromDB } from '@/lib/dataMappers'
 import { processKPIRecord, ProcessedKPI } from '@/lib/kpiProcessor'
+import { KPIDataMapper } from '@/lib/kpi-data-mapper'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
@@ -23,7 +24,8 @@ import { autoSaveOnKPIUpdate } from '@/lib/autoCalculationSaver'
 import { UnifiedFilter, FilterState } from '@/components/ui/UnifiedFilter'
 import { Pagination } from '@/components/ui/Pagination'
 import { SmartFilter } from '@/components/ui/SmartFilter'
-import { Plus, BarChart3, CheckCircle, Clock, AlertCircle, Target, Info, Filter, X } from 'lucide-react'
+import { Plus, BarChart3, CheckCircle, Clock, AlertCircle, Target, Info, Filter, X, Coins, DollarSign } from 'lucide-react'
+import { formatCurrency } from '@/lib/boqValueCalculator'
 import { ExportButton } from '@/components/ui/ExportButton'
 import { ImportButton } from '@/components/ui/ImportButton'
 import { PrintButton } from '@/components/ui/PrintButton'
@@ -51,7 +53,14 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   const isMountedRef = useRef(true) // ✅ Track if component is mounted
   const [showForm, setShowForm] = useState(false)
   const [showEnhancedForm, setShowEnhancedForm] = useState(false)
-  const [useCustomizedTable, setUseCustomizedTable] = useState(true) // ✅ Use customized table by default
+  // ✅ Standard View is always the default - Force to true on mount
+  const [useCustomizedTable, setUseCustomizedTable] = useState(true)
+  
+  // Ensure Standard View is always the default on mount
+  useEffect(() => {
+    // Force Standard View on initial mount
+    setUseCustomizedTable(true)
+  }, [])
   // editingKPI is now handled by EnhancedKPITable
   const [filters, setFilters] = useState<FilterState>({})
   
@@ -355,20 +364,59 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       // 🎯 Use UNIFIED table for all KPIs (both Planned & Actual)
       console.log('🎯 Inserting into MAIN KPI table')
       
+      // ✅ Calculate Value from Quantity × Rate (from activity)
+      const projectCode = kpiData['Project Full Code'] || kpiData.project_full_code || ''
+      const activityName = kpiData['Activity Name'] || kpiData.activity_name || ''
+      const quantity = parseFloat(kpiData['Quantity'] || kpiData.quantity?.toString() || '0')
+      
+      let calculatedValue = kpiData['Value'] || kpiData.value || 0
+      
+      // If Value is not provided, calculate it from activity rate
+      if (!calculatedValue || calculatedValue === 0) {
+        // Find related activity to get rate
+        const relatedActivity = activities.find((a: any) => 
+          a.activity_name === activityName && 
+          (a.project_code === projectCode || a.project_full_code === projectCode)
+        )
+        
+        if (relatedActivity) {
+          let rate = 0
+          if (relatedActivity.rate && relatedActivity.rate > 0) {
+            rate = relatedActivity.rate
+          } else if (relatedActivity.total_value && relatedActivity.total_units && relatedActivity.total_units > 0) {
+            rate = relatedActivity.total_value / relatedActivity.total_units
+          }
+          
+          if (rate > 0) {
+            calculatedValue = quantity * rate
+            console.log(`💰 Calculated Value: ${quantity} × ${rate} = ${calculatedValue}`)
+          }
+        }
+        
+        // If still no value, use quantity as fallback (1:1 ratio)
+        if (!calculatedValue || calculatedValue === 0) {
+          calculatedValue = quantity
+          console.log(`⚠️ Using quantity as Value fallback: ${calculatedValue}`)
+        }
+      }
+      
       // Map to database format (WITH Input Type in unified table)
       const dbData = {
-        'Project Full Code': kpiData.project_full_code,
-        'Project Code': kpiData.project_code || '',
-        'Project Sub Code': kpiData.project_sub_code || '',
-        'Activity Name': kpiData.activity_name,
-        'Quantity': kpiData.quantity?.toString(),
-        'Input Type': kpiData.input_type || 'Planned', // ✅ Required in unified table
-        'Target Date': kpiData.target_date || '',
-        'Actual Date': kpiData.actual_date || '',
-        'Activity Date': kpiData.activity_date || kpiData.target_date || kpiData.actual_date || '',
-        'Unit': kpiData.unit || '',
-        'Section': kpiData.section || '',
-        'Drilled Meters': kpiData.drilled_meters?.toString() || '0'
+        'Project Full Code': projectCode,
+        'Project Code': kpiData['Project Code'] || kpiData.project_code || '',
+        'Project Sub Code': kpiData['Project Sub Code'] || kpiData.project_sub_code || '',
+        'Activity Name': activityName,
+        'Quantity': quantity.toString(),
+        'Value': calculatedValue.toString(), // ✅ Include calculated Value
+        'Input Type': kpiData['Input Type'] || kpiData.input_type || 'Planned', // ✅ Required in unified table
+        'Target Date': kpiData['Target Date'] || kpiData.target_date || '',
+        'Actual Date': kpiData['Actual Date'] || kpiData.actual_date || '',
+        'Activity Date': kpiData['Activity Date'] || kpiData.activity_date || kpiData['Target Date'] || kpiData['Actual Date'] || kpiData.target_date || kpiData.actual_date || '',
+        'Unit': kpiData['Unit'] || kpiData.unit || '',
+        'Zone': kpiData['Zone'] || kpiData.zone || '',
+        'Zone Number': kpiData['Zone Number'] || kpiData.zone_number || '',
+        'Day': kpiData['Day'] || kpiData.day || '',
+        'Drilled Meters': kpiData['Drilled Meters'] || kpiData.drilled_meters?.toString() || '0'
       }
 
       console.log('📦 Database format:', dbData)
@@ -387,12 +435,12 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       console.log('Created data:', data)
       
       // 🔄 AUTO-SYNC: If this is Actual, update BOQ
-      if (kpiData.input_type === 'Actual') {
+      if (kpiData['Input Type'] === 'Actual' || kpiData.input_type === 'Actual') {
         console.log('🔄 Auto-syncing BOQ from KPI Actual...')
         const { syncBOQFromKPI } = await import('@/lib/boqKpiSync')
         const syncResult = await syncBOQFromKPI(
-          kpiData.project_full_code,
-          kpiData.activity_name
+          kpiData['Project Full Code'] || kpiData.project_full_code,
+          kpiData['Activity Name'] || kpiData.activity_name
         )
         console.log('Sync result:', syncResult)
       }
@@ -434,18 +482,20 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       
       // Map to database format (WITH Input Type in unified table)
       const dbData = {
-        'Project Full Code': kpiData.project_full_code || '',
-        'Project Code': kpiData.project_code || '',
-        'Project Sub Code': kpiData.project_sub_code || '',
-        'Activity Name': kpiData.activity_name || '',
-        'Quantity': kpiData.quantity?.toString() || '0',
-        'Input Type': kpiData.input_type || 'Planned', // ✅ Required in unified table
-        'Target Date': kpiData.target_date || '',
-        'Actual Date': kpiData.actual_date || '',
-        'Activity Date': kpiData.activity_date || kpiData.target_date || kpiData.actual_date || '',
-        'Unit': kpiData.unit || '',
-        'Section': kpiData.section || '',
-        'Drilled Meters': kpiData.drilled_meters?.toString() || '0'
+        'Project Full Code': kpiData['Project Full Code'] || kpiData.project_full_code || '',
+        'Project Code': kpiData['Project Code'] || kpiData.project_code || '',
+        'Project Sub Code': kpiData['Project Sub Code'] || kpiData.project_sub_code || '',
+        'Activity Name': kpiData['Activity Name'] || kpiData.activity_name || '',
+        'Quantity': kpiData['Quantity'] || kpiData.quantity?.toString() || '0',
+        'Input Type': kpiData['Input Type'] || kpiData.input_type || 'Planned', // ✅ Required in unified table
+        'Target Date': kpiData['Target Date'] || kpiData.target_date || '',
+        'Actual Date': kpiData['Actual Date'] || kpiData.actual_date || '',
+        'Activity Date': kpiData['Activity Date'] || kpiData.activity_date || kpiData['Target Date'] || kpiData['Actual Date'] || kpiData.target_date || kpiData.actual_date || '',
+        'Unit': kpiData['Unit'] || kpiData.unit || '',
+        'Zone': kpiData['Zone'] || kpiData.zone || '',
+        'Zone Number': kpiData['Zone Number'] || kpiData.zone_number || '',
+        'Day': kpiData['Day'] || kpiData.day || '',
+        'Drilled Meters': kpiData['Drilled Meters'] || kpiData.drilled_meters?.toString() || '0'
       }
       
       console.log('🔍 dbData after mapping:', dbData)
@@ -849,11 +899,14 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   const actualKPIs = filteredKPIs.filter(k => k.input_type === 'Actual')
   const plannedCount = plannedKPIs.length
   const actualCount = actualKPIs.length
-  const achievementRate = plannedCount > 0 ? (actualCount / plannedCount) * 100 : 0
   
   // Total quantities
   const totalPlannedQty = plannedKPIs.reduce((sum: number, k: ProcessedKPI) => sum + k.quantity, 0)
   const totalActualQty = actualKPIs.reduce((sum: number, k: ProcessedKPI) => sum + k.quantity, 0)
+  const totalPlannedValue = plannedKPIs.reduce((sum: number, k: ProcessedKPI) => sum + (k.planned_value ?? (k.input_type === 'Planned' ? k.value ?? 0 : 0)), 0)
+  const totalActualValue = actualKPIs.reduce((sum: number, k: ProcessedKPI) => sum + (k.actual_value ?? (k.input_type === 'Actual' ? k.value ?? 0 : 0)), 0)
+  const valueAchievementRate = totalPlannedValue > 0 ? (totalActualValue / totalPlannedValue) * 100 : 0
+  const achievementRate = totalPlannedValue > 0 ? valueAchievementRate : 0
   
   // Quality statistics
   const excellentKPIs = filteredKPIs.filter(k => k.status === 'excellent').length
@@ -1169,7 +1222,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
 
       {/* KPI Statistics - Show if KPIs are loaded */}
       {kpis.length > 0 && (
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-4">
         <Card className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900 dark:to-purple-800 border-purple-200 dark:border-purple-700">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
@@ -1212,6 +1265,40 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           </CardContent>
         </Card>
 
+        <Card className="bg-gradient-to-br from-indigo-50 to-indigo-100 dark:from-indigo-900 dark:to-indigo-800 border-indigo-200 dark:border-indigo-700">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-indigo-600 dark:text-indigo-300">Planned Value</p>
+                <p className="text-3xl font-bold text-indigo-900 dark:text-indigo-100">
+                  {formatCurrency(totalPlannedValue)}
+                </p>
+                <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-1">
+                  Across {plannedCount.toLocaleString()} planned KPIs
+                </p>
+              </div>
+              <Coins className="h-10 w-10 text-indigo-500" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-emerald-900 dark:to-emerald-800 border-emerald-200 dark:border-emerald-700">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-emerald-600 dark:text-emerald-300">Actual Value</p>
+                <p className="text-3xl font-bold text-emerald-900 dark:text-emerald-100">
+                  {formatCurrency(totalActualValue)}
+                </p>
+                <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1">
+                  {valueAchievementRate.toFixed(1)}% of planned value
+                </p>
+              </div>
+              <DollarSign className="h-10 w-10 text-emerald-500" />
+            </div>
+          </CardContent>
+        </Card>
+
         <Card className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900 dark:to-orange-800 border-orange-200 dark:border-orange-700">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
@@ -1221,7 +1308,10 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
                   {achievementRate.toFixed(1)}%
                 </p>
                 <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
-                  {actualCount} / {plannedCount}
+                  {formatCurrency(totalActualValue)} / {formatCurrency(totalPlannedValue)}
+                </p>
+                <p className="text-[11px] text-orange-500 dark:text-orange-300">
+                  {actualCount.toLocaleString()} / {plannedCount.toLocaleString()} KPIs
                 </p>
               </div>
               <div className="relative w-10 h-10">

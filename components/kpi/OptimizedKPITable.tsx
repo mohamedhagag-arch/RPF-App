@@ -185,6 +185,9 @@ export function OptimizedKPITable({
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">
                   Target Date
                 </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">
+                  Actual Date
+                </th>
                 {(canEdit || canDelete) && (
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">
                     Actions
@@ -294,6 +297,35 @@ export function OptimizedKPITable({
                       })()}
                     </td>
                     
+                    {/* Actual Date */}
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      {(() => {
+                        const dateValue = kpi.actual_date
+                        if (!dateValue) {
+                          return <span className="text-gray-400 dark:text-gray-600">Not set</span>
+                        }
+                        
+                        const date = new Date(dateValue)
+                        if (isNaN(date.getTime())) {
+                          return <span className="text-gray-400 dark:text-gray-600">Invalid date</span>
+                        }
+                        
+                        return (
+                          <div>
+                            <div className="font-semibold text-gray-900 dark:text-gray-100">
+                              {date.toLocaleDateString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                year: 'numeric'
+                              })}
+                            </div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400">
+                              ✓ Actual
+                            </div>
+                          </div>
+                        )
+                      })()}
+                    </td>
                     
                     {/* Enhanced Actions */}
                     {(canEdit || canDelete) && (

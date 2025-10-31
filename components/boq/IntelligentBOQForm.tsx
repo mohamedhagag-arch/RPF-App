@@ -80,6 +80,9 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   const [availableCategories, setAvailableCategories] = useState<string[]>([])
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [categoryCounts, setCategoryCounts] = useState<Record<string, number>>({})
+  const [availableScopes, setAvailableScopes] = useState<string[]>([]) // Available project scopes for filtering
+  const [selectedScopeFilter, setSelectedScopeFilter] = useState<string>('all') // Filter by specific scope
+  const [allLoadedActivities, setAllLoadedActivities] = useState<Activity[]>([]) // Store all loaded activities
   const [unit, setUnit] = useState(activity?.unit || '')
   const [unitSuggestions] = useState<string[]>(getAllUnits())
   const [showUnitDropdown, setShowUnitDropdown] = useState(false)
@@ -154,64 +157,91 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
     }
   }, [projects])
 
-  // Load ALL activities from project_type_activities table
+  // Load activities based on project scopes from project_type_activities table
   useEffect(() => {
-    const loadAllProjectTypeActivities = async () => {
+    const loadActivitiesByProjectScopes = async () => {
       try {
-        console.log('🔄 Loading ALL activities from project_type_activities table...')
-        const supabase = getSupabaseClient()
-        const { data, error } = await executeQuery(async () =>
-          supabase
-            .from('project_type_activities')
-            .select('*')
-            .eq('is_active', true)
-            .order('activity_name', { ascending: true })
-        )
-        
-        if (error) throw error
-        
-        // Convert to Activity format
-        const activities = (data || []).map((pta: any) => ({
-          id: pta.id,
-          name: pta.activity_name,
-          division: pta.project_type,
-          unit: pta.default_unit || '',
-          category: pta.category || 'General',
-          is_active: pta.is_active,
-          usage_count: 0,
-          created_at: pta.created_at,
-          updated_at: pta.updated_at
-        }))
-        
-        console.log(`✅ Loaded ${activities.length} activities from project_type_activities table`)
-        setActivitySuggestions(activities)
-        console.log('💡 All project type activities loaded - user can select any activity')
-      } catch (error) {
-        console.error('❌ Error loading project type activities:', error)
-        // Fallback to regular activities
-        console.log('📋 Using fallback to regular activities')
-        try {
-          const activities = await getAllActivities()
-          setActivitySuggestions(activities)
-        } catch (fallbackError) {
-          console.error('❌ Fallback also failed:', fallbackError)
-          // Final fallback to templates
-          setActivitySuggestions(ACTIVITY_TEMPLATES.map(template => ({
-            id: template.name,
-            name: template.name,
-            division: template.division,
-            unit: template.defaultUnit,
-            category: template.category,
-            is_active: true,
-            usage_count: 0,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          })))
+        // If no project selected, don't load activities
+        if (!project || !project.project_type) {
+          console.log('⚠️ No project or project scope selected, clearing activity suggestions')
+          setActivitySuggestions([])
+          return
         }
+
+        // Parse project scopes (may be comma-separated)
+        const projectScopes = project.project_type
+          .split(',')
+          .map(scope => scope.trim())
+          .filter(scope => scope.length > 0)
+        
+        // Set available scopes for filtering
+        setAvailableScopes(projectScopes)
+        console.log(`🔄 Loading activities for project scopes: ${projectScopes.join(', ')}`)
+        console.log(`📊 Available scopes for filtering: ${projectScopes.length}`)
+        
+        // Load activities for each scope
+        const allActivitiesMap = new Map<string, any>()
+        
+        for (const scope of projectScopes) {
+          try {
+            const scopeActivities = await getActivitiesByProjectType(scope, false)
+            
+            scopeActivities.forEach((pta: ProjectTypeActivity) => {
+              // Use activity_name as unique key to avoid duplicates
+              const key = pta.activity_name.toLowerCase().trim()
+              if (!allActivitiesMap.has(key)) {
+                allActivitiesMap.set(key, {
+                  id: pta.id,
+                  name: pta.activity_name,
+                  division: pta.project_type, // Store the scope this activity belongs to
+                  unit: pta.default_unit || '',
+                  category: pta.category || 'General',
+                  is_active: pta.is_active,
+                  usage_count: 0,
+                  created_at: pta.created_at,
+                  updated_at: pta.updated_at
+                })
+              }
+            })
+            
+            console.log(`✅ Loaded ${scopeActivities.length} activities for scope "${scope}"`)
+          } catch (scopeError) {
+            console.warn(`⚠️ Error loading activities for scope "${scope}":`, scopeError)
+          }
+        }
+        
+        // Convert map to array and sort
+        const activities = Array.from(allActivitiesMap.values())
+          .sort((a, b) => a.name.localeCompare(b.name))
+        
+        console.log(`✅ Total unique activities loaded: ${activities.length} from ${projectScopes.length} scope(s)`)
+        
+        // Store all activities and update suggestions
+        setAllLoadedActivities(activities)
+        
+        // Apply scope filter if one is selected
+        if (selectedScopeFilter !== 'all') {
+          const filtered = activities.filter(act => act.division === selectedScopeFilter)
+          setActivitySuggestions(filtered)
+          console.log(`🔍 Filtered to ${filtered.length} activities for scope "${selectedScopeFilter}"`)
+        } else {
+          setActivitySuggestions(activities)
+        }
+        
+        if (activities.length === 0) {
+          console.log('⚠️ No activities found for selected project scopes')
+        }
+      } catch (error) {
+        console.error('❌ Error loading project scope activities:', error)
+        // Clear suggestions on error
+        setActivitySuggestions([])
+        setAllLoadedActivities([])
+        setAvailableScopes([])
       }
     }
-    loadAllProjectTypeActivities()
-  }, [])
+    
+    loadActivitiesByProjectScopes()
+  }, [project?.project_type, project?.project_code, selectedScopeFilter])
 
   // Load available zones from existing activities
   useEffect(() => {
@@ -221,10 +251,10 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         const supabase = getSupabaseClient()
         const { data, error } = await executeQuery(async () =>
           supabase
-            .from('boq_activities')
-            .select('zone_ref, zone_number')
-            .not('zone_ref', 'is', null)
-            .not('zone_ref', 'eq', '')
+            .from('Planning Database - BOQ Rates')
+            .select('"Zone Ref", "Zone Number"')
+            .not('"Zone Ref"', 'is', null)
+            .not('"Zone Ref"', 'eq', '')
         )
         
         if (error) throw error
@@ -232,8 +262,8 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         // Extract unique zones
         const zones = new Set<string>()
         data?.forEach((item: any) => {
-          if (item.zone_ref) {
-            zones.add(item.zone_ref)
+          if (item['Zone Ref']) {
+            zones.add(item['Zone Ref'])
           }
         })
         
@@ -270,51 +300,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         setProject(selectedProject)
         console.log('✅ Project loaded:', selectedProject.project_name)
         
-        // ✅ Load project activities from database
-        try {
-          console.log('🔄 Loading project activities for:', selectedProject.project_name)
-          
-          const supabase = getSupabaseClient()
-          const { data: activities, error: activitiesError } = await supabase
-            .from('boq_activities')
-            .select('*')
-            .eq('project_code', selectedProject.project_code)
-            .order('activity_name')
-          
-          if (activitiesError) {
-            console.error('❌ Error loading activities:', activitiesError)
-          } else {
-            console.log('📊 Loaded activities:', activities?.length || 0)
-            
-            // ✅ Update activity suggestions with project activities ONLY
-            if (activities && activities.length > 0) {
-              const projectActivities = activities.map((act: any) => ({
-                id: act.id,
-                name: act.activity_name,
-                division: act.activity_division || 'General',
-                unit: act.unit || '',
-                category: 'Project Activity',
-                is_active: true,
-                usage_count: 0,
-                created_at: act.created_at,
-                updated_at: act.updated_at
-              }))
-              
-              // ✅ Set ONLY project activities (not combine)
-              setActivitySuggestions(projectActivities)
-              console.log('✅ Set project activities as suggestions only')
-            } else {
-              // ✅ If no project activities, clear suggestions
-              setActivitySuggestions([])
-              console.log('✅ No project activities found, cleared suggestions')
-            }
-          }
-        } catch (error) {
-          console.error('❌ Error loading project activities:', error)
-        }
-        
-        // ✅ Load activities based on project type ONLY (not combine)
-        await loadActivitiesForProjectType(selectedProject.project_type)
+        // Activities will be loaded automatically by useEffect that watches project.project_type
       }
     }
   }
@@ -326,24 +312,23 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       if (selectedProject) {
         setProject(selectedProject)
         console.log('✅ Project loaded:', selectedProject.project_name)
-        
-        // ✅ Don't reload activities - keep all activities visible
-        console.log('💡 Keeping all activities visible - no filtering by project type')
+        console.log('📁 Project scopes:', selectedProject.project_type || 'None')
+        // Activities will be loaded automatically by the useEffect that watches project.project_type
       }
     }
   }, [projectCode, allProjects])
 
-  // Function to load activities based on project type
+  // Function to load activities based on project scope
   const loadActivitiesForProjectType = async (projectType?: string) => {
     if (!projectType) {
-      console.log('⚠️ No project type specified, using all activities')
+      console.log('⚠️ No project scope specified, using all activities')
       const allActivities = await getAllActivities()
       setActivitySuggestions(allActivities)
       return
     }
 
     try {
-      console.log('🔍 Loading activities for project type:', projectType)
+      console.log('🔍 Loading activities for project scope:', projectType)
       
       // ✅ استخدام النظام الجديد للأنشطة المقترحة
       const suggestedActivities = await getSuggestedActivities(projectType)
@@ -352,7 +337,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       setActivitySuggestions(suggestedActivities)
       
     } catch (error) {
-      console.error('❌ Error loading activities for project type:', error)
+      console.error('❌ Error loading activities for project scope:', error)
       // Fallback to all activities
       const allActivities = await getAllActivities()
       setActivitySuggestions(allActivities)
@@ -389,7 +374,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       try {
         const supabase = getSupabaseClient()
         
-        // Get unique categories for this project type from project_type_activities
+        // Get unique categories for this project scope from project_type_activities
         const { data, error } = await executeQuery(async () =>
           supabase
             .from('project_type_activities')
@@ -428,9 +413,14 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
     loadCategories()
   }, [project?.project_type])
 
-  // ✅ Filter activities based on selected filter and category
+  // ✅ Filter activities based on selected filter, category, and scope
   const getFilteredActivities = () => {
     let filtered = activitySuggestions
+
+    // Filter by scope if selected
+    if (selectedScopeFilter !== 'all') {
+      filtered = filtered.filter(act => act.division === selectedScopeFilter)
+    }
 
     // Filter by category if selected
     if (selectedCategory !== 'all') {
@@ -445,6 +435,19 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
     }
 
     return filtered
+  }
+
+  // Handle scope filter change
+  const handleScopeFilterChange = (scope: string) => {
+    setSelectedScopeFilter(scope)
+    if (scope === 'all') {
+      setActivitySuggestions(allLoadedActivities)
+      console.log('🔍 Showing all activities from all scopes')
+    } else {
+      const filtered = allLoadedActivities.filter(act => act.division === scope)
+      setActivitySuggestions(filtered)
+      console.log(`🔍 Filtered to ${filtered.length} activities for scope "${scope}"`)
+    }
   }
   
   // Auto-suggest unit when activity name changes
@@ -576,7 +579,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         planned_value: parseFloat(plannedValue) || 0,
         planned_activity_start_date: startDate,
         deadline: endDate,
-        zone_ref: project?.responsible_division || '',
+        zone_ref: (project?.responsible_division && project?.responsible_division !== 'Enabling Division') ? project?.responsible_division : '',
         project_full_name: project?.project_name || '',
         activity_timing: activityTiming,
         has_value: hasValue,
@@ -782,7 +785,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         project_full_code: project?.project_code || projectCode,
         activity_name: activityName,
         activity_division: project?.responsible_division || '',
-        zone_ref: zoneRef || project?.responsible_division || '',
+        zone_ref: zoneRef || ((project?.responsible_division && project?.responsible_division !== 'Enabling Division') ? project?.responsible_division : ''),
         zone_number: zoneNumber || '',
         unit,
         planned_units: parseFloat(plannedUnits) || 0,
@@ -900,7 +903,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
               planned_value: parseFloat(plannedValue) || 0,
               planned_activity_start_date: startDate,
               deadline: endDate,
-              zone_ref: project?.responsible_division || '',
+              zone_ref: (project?.responsible_division && project?.responsible_division !== 'Enabling Division') ? project?.responsible_division : '',
               project_full_name: project?.project_name || ''
             }
             
@@ -1109,32 +1112,56 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                 <div className="absolute z-20 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                   <div className="p-2 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
                     <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
-                      💡 Activities for {project?.project_type || project?.responsible_division || 'this project'} ({activitySuggestions.length} activities)
+                      💡 Activities for project scope{project?.project_type?.includes(',') ? 's' : ''}: <strong>{project?.project_type || 'None selected'}</strong> ({allLoadedActivities.length} total, {activitySuggestions.length} shown)
                     </p>
                     
-                    {/* ✅ Activity Filter */}
+                    {/* ✅ Scope Filter */}
+                    {availableScopes.length > 0 && (
+                      <div className="flex flex-col gap-2 mb-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <label className="text-xs font-medium text-gray-700 dark:text-gray-300">Filter by Scope:</label>
+                          <select
+                            value={selectedScopeFilter}
+                            onChange={(e) => handleScopeFilterChange(e.target.value)}
+                            className="text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-medium"
+                          >
+                            <option value="all">All Scopes ({allLoadedActivities.length})</option>
+                            {availableScopes.map(scope => {
+                              const scopeCount = allLoadedActivities.filter(act => act.division === scope).length
+                              return (
+                                <option key={scope} value={scope}>
+                                  {scope} ({scopeCount})
+                                </option>
+                              )
+                            })}
+                          </select>
+                          <span className="text-xs text-gray-500 dark:text-gray-400">
+                            📊 {getFilteredActivities().length} shown
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* ✅ Category Filter */}
                     {availableCategories.length > 1 && (
                       <div className="flex flex-col gap-2 mb-2">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <label className="text-xs text-gray-600 dark:text-gray-400">Filter by Category:</label>
                           <select
                             value={selectedCategory}
                             onChange={(e) => setSelectedCategory(e.target.value)}
                             className="text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                           >
-                            <option value="all">All Categories ({activitySuggestions.length})</option>
+                            <option value="all">All Categories</option>
                             {availableCategories.map(category => (
                               <option key={category} value={category}>
                                 {category} ({categoryCounts[category] || 0})
                               </option>
                             ))}
                           </select>
-                          <span className="text-xs text-gray-500">
-                            ({getFilteredActivities().length} shown)
-                          </span>
                         </div>
                         <div className="text-xs text-blue-600 dark:text-blue-400">
-                          📊 Categories from Project Types Management
+                          📊 Categories from Project Scopes Management
                         </div>
                       </div>
                     )}
@@ -1264,45 +1291,11 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                 </label>
                 <Input 
                   value={zoneRef}
-                  onChange={(e) => {
-                    setZoneRef(e.target.value)
-                    setShowZoneDropdown(true)
-                  }}
-                  onFocus={() => setShowZoneDropdown(true)}
-                  placeholder="e.g., Zone A, Area 1, Section B..."
+                  onChange={(e) => setZoneRef(e.target.value)}
+                  placeholder="Enter zone reference manually..."
                   required
                   disabled={loading}
                 />
-                
-                {/* Zone Suggestions Dropdown */}
-                {showZoneDropdown && zoneSuggestions.length > 0 && (
-                  <div className="absolute z-20 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                    <div className="p-2 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
-                      <p className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                        🏗️ Available zones ({zoneSuggestions.length})
-                      </p>
-                    </div>
-                    {zoneSuggestions
-                      .filter(z => 
-                        zoneRef === '' || 
-                        z.toLowerCase().includes(zoneRef.toLowerCase())
-                      )
-                      .map((z, idx) => (
-                        <button
-                          key={idx}
-                          type="button"
-                          onClick={() => handleZoneSelect(z)}
-                          className="w-full px-4 py-2 text-left hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors text-gray-900 dark:text-white"
-                        >
-                          <div className="flex items-center justify-between">
-                            <span>{z}</span>
-                            <span className="text-xs text-gray-500">Zone</span>
-                          </div>
-                        </button>
-                      ))
-                    }
-                  </div>
-                )}
               </div>
               
               <div>

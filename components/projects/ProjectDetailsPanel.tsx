@@ -288,13 +288,108 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
       
       console.log(`📊 Fetching analytics for project: ${project.project_code} (${project.project_name})`)
       
-      // ✅ Fetch ONLY activities for THIS project from 'Planning Database - BOQ Rates'
-      const { data: activitiesData, error: activitiesError } = await executeQuery(async () =>
+      // ✅ Fetch ALL activities for THIS project from 'Planning Database - BOQ Rates'
+      // Use comprehensive matching to include both new and old database entries
+      const projectCode = project.project_code
+      const projectFullCode = `${project.project_code}${project.project_sub_code || ''}`
+      
+      console.log(`🔍 Fetching ALL activities for project: ${projectCode} (Full: ${projectFullCode})`)
+      console.log(`📋 Using comprehensive matching strategy to include old and new entries`)
+      
+      // Strategy 1: Match by exact Project Code
+      const { data: activitiesByCode, error: error1 } = await executeQuery(async () =>
         supabase
           .from(TABLES.BOQ_ACTIVITIES)
           .select('*')
-          .eq('Project Code', project.project_code)
+          .eq('Project Code', projectCode)
       )
+      
+      // Strategy 2: Match by exact Project Full Code
+      const { data: activitiesByFullCodeExact, error: error2 } = await executeQuery(async () =>
+        supabase
+          .from(TABLES.BOQ_ACTIVITIES)
+          .select('*')
+          .eq('Project Full Code', projectCode)
+      )
+      
+      // Strategy 3: Match where Project Full Code starts with Project Code (for sub-projects)
+      const { data: activitiesByFullCodeStart, error: error3 } = await executeQuery(async () =>
+        supabase
+          .from(TABLES.BOQ_ACTIVITIES)
+          .select('*')
+          .like('Project Full Code', `${projectCode}%`)
+      )
+      
+      // Strategy 4: Match where Project Code contains the project code (for old data formats)
+      // Some old entries might have project code in different format
+      const { data: activitiesByCodeContains, error: error4 } = await executeQuery(async () =>
+        supabase
+          .from(TABLES.BOQ_ACTIVITIES)
+          .select('*')
+          .ilike('Project Code', `%${projectCode}%`)
+          .neq('Project Code', projectCode) // Exclude exact matches already fetched
+      )
+      
+      // Strategy 5: Match where Project Full Code contains the project code (for old data)
+      const { data: activitiesByFullCodeContains, error: error5 } = await executeQuery(async () =>
+        supabase
+          .from(TABLES.BOQ_ACTIVITIES)
+          .select('*')
+          .ilike('Project Full Code', `%${projectCode}%`)
+          .neq('Project Full Code', projectCode) // Exclude exact matches already fetched
+      )
+      
+      // Merge ALL results
+      const allActivitiesData = [
+        ...(Array.isArray(activitiesByCode) ? activitiesByCode : []),
+        ...(Array.isArray(activitiesByFullCodeExact) ? activitiesByFullCodeExact : []),
+        ...(Array.isArray(activitiesByFullCodeStart) ? activitiesByFullCodeStart : []),
+        ...(Array.isArray(activitiesByCodeContains) ? activitiesByCodeContains : []),
+        ...(Array.isArray(activitiesByFullCodeContains) ? activitiesByFullCodeContains : [])
+      ]
+      
+      // Remove duplicates based on id (primary key)
+      const uniqueActivitiesData = Array.from(
+        new Map(allActivitiesData.map((item: any) => [item.id, item])).values()
+      )
+      
+      // Additional client-side filtering to ensure all match the project
+      const filteredActivities = uniqueActivitiesData.filter((item: any) => {
+        const itemProjectCode = (item['Project Code'] || '').toString().trim()
+        const itemProjectFullCode = (item['Project Full Code'] || '').toString().trim()
+        
+        // Direct matches
+        if (itemProjectCode === projectCode) return true
+        if (itemProjectFullCode === projectCode) return true
+        if (itemProjectFullCode.startsWith(projectCode)) return true
+        
+        // For old database entries, check if project code appears anywhere
+        if (itemProjectCode.includes(projectCode)) return true
+        if (itemProjectFullCode.includes(projectCode)) return true
+        
+        return false
+      })
+      
+      const activitiesData = filteredActivities
+      const activitiesError = error1 || error2 || error3 || error4 || error5
+      
+      console.log(`📊 Comprehensive fetch results:`, {
+        byCode: activitiesByCode?.length || 0,
+        byFullCodeExact: activitiesByFullCodeExact?.length || 0,
+        byFullCodeStart: activitiesByFullCodeStart?.length || 0,
+        byCodeContains: activitiesByCodeContains?.length || 0,
+        byFullCodeContains: activitiesByFullCodeContains?.length || 0,
+        totalBeforeDedup: allActivitiesData.length,
+        uniqueAfterDedup: uniqueActivitiesData.length,
+        finalAfterFilter: filteredActivities.length
+      })
+      
+      if (filteredActivities.length === 0) {
+        console.warn(`⚠️ NO ACTIVITIES FOUND for project ${projectCode} after comprehensive search!`)
+        console.log(`💡 This might indicate a data issue. Check database for entries with Project Code or Project Full Code matching: ${projectCode}`)
+      } else {
+        console.log(`✅ Successfully found ${filteredActivities.length} activities for project ${projectCode}`)
+      }
       
       if (activitiesError) {
         console.error('❌ Error fetching activities:', activitiesError)
@@ -929,9 +1024,24 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                               {activity.activity_name || activity.activity}
                             </h4>
                             <div className="flex items-center gap-2 mb-2">
-                              <Badge variant="outline" className="text-xs">
-                                {activity.activity_division || 'No division'}
-                              </Badge>
+                              {(() => {
+                                const zoneLabel = (activity.zone_ref || activity.zone_number || '').toString().trim()
+                                const divisionLabel = (activity.activity_division || '').toString().trim()
+                                const shouldShowDivision = divisionLabel && divisionLabel.toLowerCase() !== 'enabling division'
+
+                                return (
+                                  <>
+                                    <Badge variant="outline" className="text-xs">
+                                      {zoneLabel ? `Zone: ${zoneLabel}` : 'Zone: N/A'}
+                                    </Badge>
+                                    {shouldShowDivision && divisionLabel !== zoneLabel && (
+                                      <Badge variant="outline" className="text-xs text-gray-600 dark:text-gray-300 border-dashed">
+                                        {divisionLabel}
+                                      </Badge>
+                                    )}
+                                  </>
+                                )
+                              })()}
                               {activity.unit && (
                                 <Badge variant="outline" className="text-xs">
                                   {activity.unit}
