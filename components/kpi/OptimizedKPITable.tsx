@@ -300,7 +300,7 @@ export function OptimizedKPITable({
                     {/* Actual Date */}
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       {(() => {
-                        const dateValue = kpi.actual_date
+                        const dateValue = kpi.input_type === 'Actual' ? kpi.activity_date : undefined
                         if (!dateValue) {
                           return <span className="text-gray-400 dark:text-gray-600">Not set</span>
                         }
