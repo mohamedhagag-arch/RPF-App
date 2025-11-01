@@ -4,29 +4,57 @@ import { useAuth } from './providers'
 import { LoginForm } from '@/components/auth/LoginForm'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { usePathname } from 'next/navigation'
+import { useEffect, useState } from 'react'
 
 /**
  * ✅ ROOT FIX: Simplified home page component
  * All redirect logic has been moved to middleware.ts
  * This component only handles rendering the login form
  * No client-side redirects here - middleware handles that
+ * 
+ * CRITICAL: This component should ONLY be rendered on '/' route
  */
 export default function Home() {
   const { user, loading } = useAuth()
   const pathname = usePathname()
+  const [shouldRender, setShouldRender] = useState(false)
   
-  // ✅ CRITICAL: Only render on actual home page
-  // If somehow we're not on '/', return null immediately
-  if (typeof window !== 'undefined') {
+  // ✅ CRITICAL: Check pathname immediately on mount
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    
     const currentPath = window.location.pathname
-    if (currentPath !== '/' || (pathname && pathname !== '/')) {
-      // Not on home page - middleware should handle redirect, just return null
-      return null
+    const isHome = currentPath === '/' && (pathname === '/' || pathname === null)
+    
+    if (!isHome) {
+      // Not on home page - don't render anything
+      console.log('🚫 Home component: Not on home route, skipping render:', {
+        currentPath,
+        pathname
+      })
+      setShouldRender(false)
+      return
     }
+    
+    // Only set to render if we're actually on home page
+    setShouldRender(true)
+  }, [pathname])
+  
+  // ✅ CRITICAL: Don't render anything on server or if not on home
+  if (typeof window === 'undefined') {
+    // Server-side: return null to avoid hydration mismatch
+    return null
   }
   
-  // On server, render nothing (will be handled by middleware or client hydration)
-  if (typeof window === 'undefined') {
+  // ✅ CRITICAL: Don't render if we haven't confirmed we're on home page
+  // OR if we're clearly not on home page
+  const currentPath = typeof window !== 'undefined' ? window.location.pathname : ''
+  if (currentPath !== '/' || (pathname && pathname !== '/')) {
+    return null
+  }
+  
+  // Don't render until we've confirmed we're on home
+  if (!shouldRender) {
     return null
   }
 

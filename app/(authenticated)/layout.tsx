@@ -117,6 +117,8 @@ export default function AuthenticatedLayout({
     router.push('/directory')
   }
 
+  // ✅ CRITICAL FIX: Always show loading instead of null
+  // This prevents blank white screen while session is being restored
   if (!mounted || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
@@ -125,8 +127,18 @@ export default function AuthenticatedLayout({
     )
   }
 
+  // ✅ CRITICAL FIX: Don't return null - show loading to allow session recovery
+  // Returning null causes blank white screen before session can be restored
   if (!user) {
-    return null
+    // Give client-side time to recover session (especially important on Vercel)
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="text-center">
+          <LoadingSpinner size="lg" />
+          <p className="mt-4 text-gray-600 dark:text-gray-400">Restoring session...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
