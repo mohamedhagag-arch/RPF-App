@@ -262,6 +262,76 @@ export function Providers({ children }: { children: React.ReactNode }) {
           isExpired: session?.expires_at ? new Date(session.expires_at * 1000) < new Date() : false
         })
         
+        // ✅ CRITICAL FIX: Handle INITIAL_SESSION event specially
+        // INITIAL_SESSION may have session but it might need refresh or has missing expires_at
+        if (event === 'INITIAL_SESSION') {
+          if (session?.user) {
+            // We have a user - always try to fetch profile first
+            setUser(session.user) // Set user immediately
+            
+            // Check if session is valid
+            const hasExpiresAt = !!session.expires_at
+            const isExpired = hasExpiresAt ? new Date(session.expires_at * 1000) < new Date() : false
+            
+            if (isExpired) {
+              console.log('⚠️ AuthProvider: INITIAL_SESSION expired, attempting refresh...')
+              try {
+                // Try to refresh the session
+                const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
+                
+                if (refreshError) {
+                  console.log('⚠️ AuthProvider: Session refresh failed, but trying profile fetch anyway:', refreshError.message)
+                  // Don't clear appUser - try to fetch profile with current session
+                } else if (refreshData?.session) {
+                  console.log('✅ AuthProvider: Session refreshed on INITIAL_SESSION')
+                  session = refreshData.session
+                  setUser(session.user)
+                } else {
+                  // No refresh available, but we have user - proceed with profile fetch
+                  console.log('⚠️ AuthProvider: INITIAL_SESSION has user but no refresh available - proceeding anyway')
+                }
+              } catch (error) {
+                console.log('❌ AuthProvider: Error during INITIAL_SESSION refresh, proceeding anyway:', error)
+              }
+            } else if (!hasExpiresAt) {
+              // Session has no expires_at - might be valid, try profile fetch
+              console.log('⚠️ AuthProvider: INITIAL_SESSION has user but no expires_at - trying profile fetch anyway')
+            } else {
+              // Session is valid
+              console.log('✅ AuthProvider: INITIAL_SESSION has valid session')
+            }
+            
+            // ✅ CRITICAL: Always try to fetch profile if we have a user
+            // This ensures we don't lose the user profile even if session has issues
+            try {
+              const { data: profile, error } = await supabase
+                .from('users')
+                .select('*')
+                .eq('id', session.user.id)
+                .single()
+              
+              if (error) {
+                console.log('⚠️ AuthProvider: User profile not found:', error.message)
+                // Don't clear appUser immediately - might be temporary
+              } else {
+                console.log('✅ AuthProvider: User profile loaded successfully')
+                setAppUser(profile)
+              }
+            } catch (error) {
+              console.log('❌ AuthProvider: Error fetching user profile:', error)
+              // Don't clear appUser - might be network issue
+            }
+          } else {
+            // No user in INITIAL_SESSION - this is normal for logged-out users
+            console.log('ℹ️ AuthProvider: INITIAL_SESSION has no user (user not logged in)')
+            setUser(null)
+            setAppUser(null)
+          }
+          setLoading(false)
+          return // Don't process further for INITIAL_SESSION
+        }
+        
+        // Handle other events (SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED, etc.)
         setUser(session?.user ?? null)
         
         // Only process if session is valid and not expired
@@ -285,9 +355,68 @@ export function Providers({ children }: { children: React.ReactNode }) {
             console.log('❌ AuthProvider: Error fetching user profile:', error)
             setAppUser(null)
           }
-        } else {
-          console.log('⚠️ AuthProvider: No valid session - clearing app user')
+        } else if (session?.user && session.expires_at && new Date(session.expires_at * 1000) <= new Date()) {
+          // Session expired - try to refresh
+          console.log('⚠️ AuthProvider: Session expired, attempting refresh...')
+          try {
+            const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
+            if (refreshError) {
+              console.log('❌ AuthProvider: Session refresh failed:', refreshError.message)
+              setAppUser(null)
+            } else if (refreshData?.session) {
+              console.log('✅ AuthProvider: Session refreshed successfully')
+              setUser(refreshData.session.user)
+              // Fetch profile with refreshed session
+              try {
+                const { data: profile, error } = await supabase
+                  .from('users')
+                  .select('*')
+                  .eq('id', refreshData.session.user.id)
+                  .single()
+                
+                if (error) {
+                  console.log('⚠️ AuthProvider: User profile not found after refresh:', error.message)
+                  setAppUser(null)
+                } else {
+                  console.log('✅ AuthProvider: User profile loaded after refresh')
+                  setAppUser(profile)
+                }
+              } catch (error) {
+                console.log('❌ AuthProvider: Error fetching user profile after refresh:', error)
+                setAppUser(null)
+              }
+            }
+          } catch (error) {
+            console.log('❌ AuthProvider: Error refreshing session:', error)
+            setAppUser(null)
+          }
+        } else if (!session?.user) {
+          // No session at all - user is logged out
+          console.log('ℹ️ AuthProvider: No session - user is logged out')
           setAppUser(null)
+        } else {
+          // Session exists but no expires_at or other issue
+          console.log('⚠️ AuthProvider: Session exists but has issues - trying profile fetch anyway')
+          if (session.user) {
+            try {
+              const { data: profile, error } = await supabase
+                .from('users')
+                .select('*')
+                .eq('id', session.user.id)
+                .single()
+              
+              if (!error && profile) {
+                console.log('✅ AuthProvider: Profile fetched successfully despite session issues')
+                setAppUser(profile)
+              } else {
+                console.log('⚠️ AuthProvider: Could not fetch profile')
+                setAppUser(null)
+              }
+            } catch (error) {
+              console.log('❌ AuthProvider: Error fetching profile:', error)
+              setAppUser(null)
+            }
+          }
         }
         
         setLoading(false)
