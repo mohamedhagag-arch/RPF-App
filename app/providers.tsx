@@ -271,7 +271,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
             
             // Check if session is valid
             const hasExpiresAt = !!session.expires_at
-            const isExpired = hasExpiresAt ? new Date(session.expires_at * 1000) < new Date() : false
+            const isExpired = hasExpiresAt && session.expires_at ? new Date(session.expires_at * 1000) < new Date() : false
             
             if (isExpired) {
               console.log('⚠️ AuthProvider: INITIAL_SESSION expired, attempting refresh...')
