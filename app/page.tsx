@@ -9,16 +9,31 @@ import { checkReloadProtection } from '@/lib/reloadProtection'
 
 export default function Home() {
   const { user, loading } = useAuth()
-  const [mounted, setMounted] = useState(false)
-  const mountedRef = useRef(false)
   const router = useRouter()
   const pathname = usePathname()
   
-  // ✅ CRITICAL: Start with false and check immediately
-  // Calculate isHomePage synchronously if possible
-  // ✅ FIX: Always start with false to avoid hydration mismatch
-  // We'll check and update in useEffect which only runs on client
-  const [isHomePage, setIsHomePage] = useState(false)
+  // ✅ CRITICAL: All hooks must be called first (React rules)
+  const [mounted, setMounted] = useState(false)
+  const mountedRef = useRef(false)
+  
+  // ✅ CRITICAL: Check pathname in initial state (synchronously on client)
+  // This prevents the component from executing logic on non-home pages
+  const [isHomePage, setIsHomePage] = useState(() => {
+    // On client, check immediately
+    if (typeof window !== 'undefined') {
+      const currentPath = window.location.pathname
+      const isHome = currentPath === '/'
+      if (!isHome) {
+        console.log('🚫 Home component: Initial state - not on home route:', currentPath)
+      }
+      return isHome
+    }
+    // On server, always false to avoid hydration mismatch
+    return false
+  })
+  
+  // ✅ CRITICAL: Also check pathname hook value
+  const isPathnameHome = pathname === '/' || pathname === null || pathname === undefined
 
   // ✅ CRITICAL FIX: Check if we're actually on home page immediately
   // This runs on client after hydration, so no hydration mismatch
@@ -26,17 +41,17 @@ export default function Home() {
     if (typeof window === 'undefined') return
     
     const currentPath = window.location.pathname
-    const isHome = currentPath === '/' && (pathname === '/' || pathname === null || pathname === undefined)
+    const isHome = currentPath === '/' && isPathnameHome
     
     if (!isHome) {
-      console.log('🚫 Home page component loaded but not on home route:', currentPath)
+      console.log('🚫 Home page component loaded but not on home route:', currentPath, 'pathname:', pathname)
       setIsHomePage(false)
       return
     }
     
     console.log('✅ Confirmed we are on home page')
     setIsHomePage(true)
-  }, [pathname])
+  }, [pathname, isPathnameHome])
 
   useEffect(() => {
     if (!mountedRef.current) {
@@ -99,16 +114,29 @@ export default function Home() {
     }
   }, [user, mounted, loading, router, pathname, isHomePage])
 
-  // ✅ CRITICAL: Fix hydration mismatch
+  // ✅ CRITICAL: Fix hydration mismatch and ensure early exit
   // On server, always return null (SSR-safe)
-  // On client, check isHomePage before rendering
   if (typeof window === 'undefined') {
     // Server-side: return null to avoid hydration issues
     return null
   }
   
-  // Client-side: don't render if not on home page
+  // ✅ Client-side: Multiple checks to ensure we're on home page
+  // Check 1: pathname hook (if available)
+  if (!isPathnameHome) {
+    console.log('🚫 Home component: Render check - pathname is not home:', pathname)
+    return null
+  }
+  
+  // Check 2: window.location.pathname (double check)
+  if (window.location.pathname !== '/') {
+    console.log('🚫 Home component: Render check - window.location.pathname is not home:', window.location.pathname)
+    return null
+  }
+  
+  // Check 3: isHomePage state (triple check)
   if (!isHomePage) {
+    console.log('🚫 Home component: Render check - isHomePage is false')
     return null
   }
 
