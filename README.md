@@ -1,7 +1,8 @@
-# RPF Application - Clean Project
+# AlRabat RPF - Masters of Foundation Construction
 
-## Overview
-This is a clean, organized version of the RPF (Request for Proposal) application. The project has been cleaned up by removing excessive documentation files, debug files, and unnecessary clutter while preserving all essential functionality.
+🚀 **Live Demo**: <https://alrabat-rpf.vercel.app>
+
+**Masters of Foundation Construction** - Advanced project management system using Next.js and Supabase for managing projects, activities, and key performance indicators with real-time progress tracking and comprehensive reporting.
 
 ## Project Structure
 
@@ -35,47 +36,60 @@ This is a clean, organized version of the RPF (Request for Proposal) application
 - **`tailwind.config.js`** - Tailwind CSS configuration
 - **`tsconfig.json`** - TypeScript configuration
 
-## Key Features
+## 🚀 Features
 
-### 1. Project Management
-- Create and manage construction projects
-- Track project progress and status
-- Project type categorization
-- Activity management
+### 📊 **Smart BOQ Management**
 
-### 2. KPI Tracking
-- Record and track Key Performance Indicators
-- Smart form generation
-- Progress monitoring
-- Data visualization
+* Advanced Bill of Quantities management
+* Real-time progress tracking
+* Automated calculations and reporting
+* Smart form validation and auto-fill
 
-### 3. BOQ Management
-- Bill of Quantities management
-- Activity tracking
-- Progress calculation
-- Status monitoring
+### 📈 **KPI Tracking & Analytics**
 
-### 4. User Management
-- Role-based access control
-- Permission management
-- User profile management
-- Authentication system
+* Comprehensive KPI management
+* Real-time analytics and reporting
+* Smart KPI forms with global date selection
+* Batch submission and preview functionality
+* Enhanced start date calculation from planned KPIs
 
-### 5. Reporting
-- Generate project reports
-- Export data in various formats
-- Analytics and insights
-- Performance tracking
+### 🏗️ **Project Management System**
 
-## Technology Stack
+* Complete project lifecycle management
+* Activity timeline with smart date calculation
+* KPI day order display
+* Project analytics and reporting
+* Advanced sorting and filtering
 
-- **Frontend**: Next.js 14, React 18, TypeScript
-- **Styling**: Tailwind CSS
-- **Database**: Supabase (PostgreSQL)
-- **Authentication**: Supabase Auth
-- **UI Components**: Custom component library
-- **Charts**: Recharts
-- **Forms**: React Hook Form
+### 👥 **User Management & Permissions**
+
+* Role-based access control (Admin, Manager, Engineer, Viewer)
+* 54 granular permissions across 8 categories
+* User synchronization and management
+* Department and job title management
+
+### 📤 **Export/Import Functionality**
+
+* Export/Import for Departments, Job Titles, Divisions, and Currencies
+* Multiple formats (JSON, CSV, Excel)
+* Bulk operations and data integration
+* Data validation and error handling
+
+### 🎯 **Enhanced Activity Management**
+
+* Activity timeline with start/end dates and duration
+* Smart start date calculation from first planned KPI
+* KPI activity date and day order display
+* Multiple matching strategies for data integration
+
+## 🛠️ **Technology Stack**
+
+* **Frontend**: Next.js 14 (App Router), React 18, TypeScript
+* **Styling**: Tailwind CSS
+* **Backend**: Supabase (PostgreSQL)
+* **Authentication**: Supabase Auth
+* **Database**: PostgreSQL with Row Level Security (RLS)
+* **Deployment**: Vercel
 
 ## Getting Started
 
@@ -88,8 +102,8 @@ This is a clean, organized version of the RPF (Request for Proposal) application
 
 1. **Clone the repository**
    ```bash
-   git clone <repository-url>
-   cd rpf-app
+   git clone https://github.com/RPFGroup/RPF-App.git
+   cd RPF-App
    ```
 
 2. **Install dependencies**
@@ -98,9 +112,17 @@ This is a clean, organized version of the RPF (Request for Proposal) application
    ```
 
 3. **Environment Setup**
-   - Copy `env.example` to `.env.local`
-   - Configure your Supabase credentials
-   - Set up database connection
+   ```bash
+   cp .env.example .env.local
+   ```
+   Edit `.env.local` with your Supabase credentials:
+   ```
+   NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+   SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+   NEXT_PUBLIC_APP_URL=http://localhost:3000
+   SITE_URL=https://alrabat-rpf.vercel.app
+   ```
 
 4. **Database Setup**
    - Run database migration scripts from `Database/` folder
@@ -118,29 +140,94 @@ This is a clean, organized version of the RPF (Request for Proposal) application
 - `npm run start` - Start production server
 - `npm run lint` - Run ESLint
 - `npm run type-check` - TypeScript type checking
+- `npm run import-data` - Import initial data
+- `npm run setup-db` - Setup database with initial data
 
-## Project Cleanup Summary
+## 📊 **Database Schema**
 
-The following cleanup actions were performed:
+The system uses PostgreSQL with the following main tables:
 
-### Removed Files
-- **399+ documentation files** - Excessive .md files removed
-- **Debug files** - All debug-*.js files removed
-- **Test files** - Test-*.js and test-*.html files removed
-- **SQL files** - Standalone .sql files removed
-- **Batch files** - .bat files removed
-- **Temporary files** - Build cache and temporary files removed
+* `users` - User management and roles
+* `projects` - Project information
+* `boq_activities` - Bill of Quantities activities
+* `kpi_records` - Key Performance Indicators
+* `departments` - Department management
+* `job_titles` - Job title management
+* `divisions` - Division management
+* `currencies` - Currency management
 
-### Preserved Files
-- **Essential documentation** - README.md, LICENSE
-- **Core application code** - All React components and pages
-- **Database files** - Essential database schema and migrations
-- **Configuration files** - All necessary config files
-- **Scripts** - Utility scripts for data management
-- **Examples** - Template examples for data import
+## 🔐 **Security**
 
-### Backup
-- **backup_docs/** - Contains backed up essential documentation files
+* Row Level Security (RLS) enabled on all tables
+* Role-based access control
+* Granular permission system
+* Secure authentication with Supabase Auth
+* Data validation and sanitization
+
+## 📈 **Performance**
+
+* Optimized database queries
+* Lazy loading and pagination
+* Efficient state management
+* Smart caching strategies
+* Performance monitoring and analytics
+
+## 🚀 **Deployment**
+
+The application is deployed on Vercel with automatic deployments from the main branch.
+
+### **Production URL**
+
+<https://alrabat-rpf.vercel.app>
+
+### **Deployment Commands**
+
+```bash
+# Build for production
+npm run build
+
+# Start production server
+npm start
+
+# Run linting
+npm run lint
+
+# Type checking
+npm run type-check
+```
+
+## 📝 **Recent Updates**
+
+### **Version 3.0.14 (December 2024)**
+
+* Enhanced Start Date Calculation with Multiple Matching Strategies
+* Activity Timeline Display with Smart Date Calculation
+* KPI Activity Date and Day Order Display
+* Multiple Fallback System for Start Date
+* Comprehensive Logging for Debugging
+* Smart Date Sorting and Validation
+
+### **Version 3.0.13 (December 2024)**
+
+* Export/Import functionality for Departments, Job Titles, Divisions, and Currencies
+* Bulk operations and data integration
+* Enhanced user management and permissions
+* Improved UI/UX for data management
+
+### **Version 3.0.12 (December 2024)**
+
+* Smart KPI Form with global date selection
+* Batch submission and preview functionality
+* Submit protection and success messages
+* Enhanced form validation and user experience
+
+## 🤝 **Contributing**
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
 
 ## Development Guidelines
 
@@ -162,14 +249,16 @@ The following cleanup actions were performed:
 - Use Tailwind CSS for styling
 - Follow Next.js App Router patterns
 
-## Support
+## 📄 **License**
 
-For issues and questions:
-1. Check the project documentation
-2. Review the code structure
-3. Check database connections
-4. Verify environment configuration
+This project is proprietary software developed for AlRabat RPF.
 
-## License
+## 📞 **Support**
 
-This project is licensed under the terms specified in the LICENSE file.
+For support and questions, please contact the development team.
+
+---
+
+**Developed by:** AlRabat RPF Development Team  
+**Version:** 3.0.14  
+**Last Updated:** December 2024
