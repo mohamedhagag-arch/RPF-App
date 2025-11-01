@@ -33,7 +33,9 @@ export default function Home() {
   })
   
   // ✅ CRITICAL: Also check pathname hook value
-  const isPathnameHome = pathname === '/' || pathname === null || pathname === undefined
+  // Only consider it home if pathname is explicitly '/'
+  // null/undefined means we don't know yet, so assume false to be safe
+  const isPathnameHome = pathname === '/'
 
   // ✅ CRITICAL FIX: Check if we're actually on home page immediately
   // This runs on client after hydration, so no hydration mismatch
@@ -41,17 +43,22 @@ export default function Home() {
     if (typeof window === 'undefined') return
     
     const currentPath = window.location.pathname
-    const isHome = currentPath === '/' && isPathnameHome
+    // ✅ CRITICAL: Both must be '/' to confirm we're on home
+    const isHome = currentPath === '/' && pathname === '/'
     
     if (!isHome) {
-      console.log('🚫 Home page component loaded but not on home route:', currentPath, 'pathname:', pathname)
+      console.log('🚫 Home page component loaded but not on home route:', {
+        currentPath,
+        pathname,
+        isHomePage: false
+      })
       setIsHomePage(false)
       return
     }
     
     console.log('✅ Confirmed we are on home page')
     setIsHomePage(true)
-  }, [pathname, isPathnameHome])
+  }, [pathname])
 
   useEffect(() => {
     if (!mountedRef.current) {
@@ -76,8 +83,9 @@ export default function Home() {
     }
     
     // ✅ Double check: Also check pathname from hook
-    if (pathname !== '/' && pathname !== null && pathname !== undefined) {
-      console.log('🚫 Redirect prevented: pathname is', pathname)
+    // CRITICAL: Only proceed if pathname is explicitly '/'
+    if (pathname !== '/') {
+      console.log('🚫 Redirect prevented: pathname is', pathname, '(not home)')
       setIsHomePage(false)
       return
     }
@@ -157,7 +165,19 @@ export default function Home() {
     return <LoginForm />
   }
 
-  // Show loading while redirecting
+  // ✅ FINAL CHECK: Before showing "Redirecting", verify we're actually on home
+  // This prevents showing redirect message on other pages
+  const finalPathCheck = typeof window !== 'undefined' ? window.location.pathname : ''
+  if (finalPathCheck !== '/' || pathname !== '/') {
+    console.log('🚫 Home component: Final check failed - not on home:', {
+      finalPathCheck,
+      pathname,
+      isHomePage
+    })
+    return null
+  }
+
+  // Show loading while redirecting (only if ALL checks pass)
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
       <div className="text-center">
