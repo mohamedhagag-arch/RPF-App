@@ -4,7 +4,7 @@ import { useAuth } from './providers'
 import { LoginForm } from '@/components/auth/LoginForm'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { useEffect, useState, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { checkReloadProtection } from '@/lib/reloadProtection'
 
 export default function Home() {
@@ -12,6 +12,7 @@ export default function Home() {
   const [mounted, setMounted] = useState(false)
   const mountedRef = useRef(false)
   const router = useRouter()
+  const pathname = usePathname()
 
   useEffect(() => {
     if (!mountedRef.current) {
@@ -21,7 +22,13 @@ export default function Home() {
   }, [])
 
   // Redirect authenticated users to dashboard - with delay to prevent rapid redirects
+  // ✅ FIX: Only redirect if we're actually on the home page (pathname === '/')
   useEffect(() => {
+    // Only redirect if we're on the home page
+    if (pathname !== '/') {
+      return
+    }
+    
     if (user && mounted && !loading) {
       // فحص حماية من الـ reload المتكرر
       if (!checkReloadProtection()) {
@@ -45,7 +52,7 @@ export default function Home() {
       
       return () => clearTimeout(timer)
     }
-  }, [user, mounted, loading, router])
+  }, [user, mounted, loading, router, pathname])
 
   // Show loading while checking auth state
   if (!mounted || loading) {
