@@ -30,7 +30,9 @@ export function ProfileCompletionWrapper({ children }: ProfileCompletionWrapperP
     '/qr/', // QR code pages
   ]
   
-  const shouldCheckProfile = !alwaysAllowPages.some(path => pathname?.startsWith(path))
+  // ✅ CRITICAL: Handle pathname being null/undefined on initial render
+  const currentPath = pathname || (typeof window !== 'undefined' ? window.location.pathname : '')
+  const shouldCheckProfile = !alwaysAllowPages.some(path => currentPath?.startsWith(path))
 
   useEffect(() => {
     // Only check once when component mounts and user is available
