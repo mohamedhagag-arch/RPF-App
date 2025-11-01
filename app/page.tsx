@@ -3,57 +3,66 @@
 import { useAuth } from './providers'
 import { LoginForm } from '@/components/auth/LoginForm'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
-import { usePathname } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
+import { useEffect, useState, useRef } from 'react'
 
 /**
- * ✅ ROOT FIX: Simplified home page component
- * All redirect logic has been moved to middleware.ts
- * This component only handles rendering the login form
- * No client-side redirects here - middleware handles that
+ * ✅ CRITICAL FIX: Home page component with absolute path protection
  * 
- * CRITICAL: This component should ONLY be rendered on '/' route
+ * This component MUST only render on '/' route
+ * Uses multiple layers of protection to prevent interference with other routes
  */
 export default function Home() {
   const { user, loading } = useAuth()
   const pathname = usePathname()
+  const router = useRouter()
   const [shouldRender, setShouldRender] = useState(false)
+  const hasChecked = useRef(false)
   
-  // ✅ CRITICAL: Check pathname immediately on mount
+  // ✅ ULTIMATE PROTECTION: Early exit check before any hooks logic
   useEffect(() => {
+    if (hasChecked.current) return
+    hasChecked.current = true
+    
     if (typeof window === 'undefined') return
     
     const currentPath = window.location.pathname
-    const isHome = currentPath === '/' && (pathname === '/' || pathname === null)
     
-    if (!isHome) {
-      // Not on home page - don't render anything
-      console.log('🚫 Home component: Not on home route, skipping render:', {
-        currentPath,
-        pathname
-      })
+    // Absolute check: Only allow '/' exactly
+    if (currentPath !== '/') {
+      console.log('🚫 Home component: Immediate exit - not on home route:', currentPath)
       setShouldRender(false)
       return
     }
     
-    // Only set to render if we're actually on home page
+    // Double check with pathname hook
+    if (pathname && pathname !== '/') {
+      console.log('🚫 Home component: Pathname mismatch:', pathname)
+      setShouldRender(false)
+      return
+    }
+    
+    // Only set to render if we're absolutely sure we're on '/'
     setShouldRender(true)
+    console.log('✅ Home component: Confirmed on home route')
   }, [pathname])
   
-  // ✅ CRITICAL: Don't render anything on server or if not on home
+  // ✅ CRITICAL: Don't render anything on server
   if (typeof window === 'undefined') {
-    // Server-side: return null to avoid hydration mismatch
     return null
   }
   
-  // ✅ CRITICAL: Don't render if we haven't confirmed we're on home page
-  // OR if we're clearly not on home page
-  const currentPath = typeof window !== 'undefined' ? window.location.pathname : ''
-  if (currentPath !== '/' || (pathname && pathname !== '/')) {
+  // ✅ CRITICAL: Immediate exit if pathname doesn't match
+  if (pathname && pathname !== '/') {
     return null
   }
   
-  // Don't render until we've confirmed we're on home
+  // ✅ CRITICAL: Check window.location.pathname synchronously
+  if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+    return null
+  }
+  
+  // ✅ CRITICAL: Don't render until confirmed
   if (!shouldRender) {
     return null
   }
