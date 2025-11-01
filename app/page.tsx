@@ -13,6 +13,22 @@ export default function Home() {
   const mountedRef = useRef(false)
   const router = useRouter()
   const pathname = usePathname()
+  const [isHomePage, setIsHomePage] = useState(true)
+
+  // ✅ CRITICAL FIX: Check if we're actually on home page
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const currentPath = window.location.pathname
+      const isHome = currentPath === '/' && (pathname === '/' || pathname === null || pathname === undefined)
+      setIsHomePage(isHome)
+      
+      // If we're not on home page, don't do anything
+      if (!isHome) {
+        console.log('🚫 Home page component loaded but not on home route:', currentPath)
+        return
+      }
+    }
+  }, [pathname])
 
   useEffect(() => {
     if (!mountedRef.current) {
@@ -24,12 +40,21 @@ export default function Home() {
   // Redirect authenticated users to dashboard - with delay to prevent rapid redirects
   // ✅ FIX: Only redirect if we're actually on the home page (pathname === '/')
   useEffect(() => {
-    // Only redirect if we're on the home page
-    if (pathname !== '/') {
+    // ✅ CRITICAL: Don't execute if not on home page
+    if (!isHomePage) {
       return
     }
     
-    if (user && mounted && !loading) {
+    // ✅ Double check pathname inside effect as well
+    if (typeof window === 'undefined') return
+    
+    const currentPath = window.location.pathname
+    // Only redirect if we're on the home page
+    if (currentPath !== '/' || (pathname !== '/' && pathname !== null && pathname !== undefined)) {
+      return
+    }
+    
+    if (user && mounted && !loading && isHomePage) {
       // فحص حماية من الـ reload المتكرر
       if (!checkReloadProtection()) {
         console.warn('⚠️ Too many redirects, stopping automatic redirect')
@@ -52,7 +77,12 @@ export default function Home() {
       
       return () => clearTimeout(timer)
     }
-  }, [user, mounted, loading, router, pathname])
+  }, [user, mounted, loading, router, pathname, isHomePage])
+
+  // ✅ CRITICAL: Don't render anything if not on home page (important for Vercel)
+  if (!isHomePage) {
+    return null
+  }
 
   // Show loading while checking auth state
   if (!mounted || loading) {
