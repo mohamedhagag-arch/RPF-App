@@ -7,7 +7,13 @@ import { Providers } from './providers'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { DynamicTitle } from '@/components/ui/DynamicTitle'
 
-const inter = Inter({ subsets: ['latin'] })
+// ✅ Optimize font loading to prevent preload warnings
+const inter = Inter({ 
+  subsets: ['latin'],
+  display: 'swap', // Use swap for better performance
+  preload: true, // Enable preload
+  fallback: ['system-ui', 'arial'], // Fallback fonts
+})
 
 // استخدام العنوان الديناميكي بدلاً من العنوان الثابت
 export const metadata: Metadata = {
