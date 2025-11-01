@@ -16,28 +16,26 @@ export default function Home() {
   
   // ✅ CRITICAL: Start with false and check immediately
   // Calculate isHomePage synchronously if possible
-  const [isHomePage, setIsHomePage] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return window.location.pathname === '/'
-    }
-    // On server, assume false to be safe
-    return false
-  })
+  // ✅ FIX: Always start with false to avoid hydration mismatch
+  // We'll check and update in useEffect which only runs on client
+  const [isHomePage, setIsHomePage] = useState(false)
 
   // ✅ CRITICAL FIX: Check if we're actually on home page immediately
+  // This runs on client after hydration, so no hydration mismatch
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const currentPath = window.location.pathname
-      const isHome = currentPath === '/' && (pathname === '/' || pathname === null || pathname === undefined)
-      
-      if (!isHome) {
-        console.log('🚫 Home page component loaded but not on home route:', currentPath)
-        setIsHomePage(false)
-        return
-      }
-      
-      setIsHomePage(true)
+    if (typeof window === 'undefined') return
+    
+    const currentPath = window.location.pathname
+    const isHome = currentPath === '/' && (pathname === '/' || pathname === null || pathname === undefined)
+    
+    if (!isHome) {
+      console.log('🚫 Home page component loaded but not on home route:', currentPath)
+      setIsHomePage(false)
+      return
     }
+    
+    console.log('✅ Confirmed we are on home page')
+    setIsHomePage(true)
   }, [pathname])
 
   useEffect(() => {
@@ -101,12 +99,20 @@ export default function Home() {
     }
   }, [user, mounted, loading, router, pathname, isHomePage])
 
-  // ✅ CRITICAL: Don't render anything if not on home page (important for Vercel)
+  // ✅ CRITICAL: Fix hydration mismatch
+  // On server, always return null (SSR-safe)
+  // On client, check isHomePage before rendering
+  if (typeof window === 'undefined') {
+    // Server-side: return null to avoid hydration issues
+    return null
+  }
+  
+  // Client-side: don't render if not on home page
   if (!isHomePage) {
     return null
   }
 
-  // Show loading while checking auth state
+  // Show loading while checking auth state (only if on home page)
   if (!mounted || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
