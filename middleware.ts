@@ -4,6 +4,7 @@ import type { NextRequest } from 'next/server'
 
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next()
+  const pathname = req.nextUrl.pathname
   
   try {
     // Create Supabase client
@@ -23,7 +24,7 @@ export async function middleware(req: NextRequest) {
       res.headers.set('X-Reload-Detected', 'true')
     }
     
-    // فقط تحقق من الجلسة بدون إعادة توجيه
+    // ✅ CRITICAL: Check session
     const { data: { session } } = await supabase.auth.getSession()
     
     // Add session info to headers for client-side use
@@ -38,10 +39,18 @@ export async function middleware(req: NextRequest) {
     res.headers.set('Connection', 'keep-alive')
     res.headers.set('Keep-Alive', 'timeout=30, max=1000')
     
+    // ✅ ROOT FIX: Handle home page redirect at middleware level
+    // If user is authenticated and on home page, redirect to dashboard
+    if (pathname === '/' && session?.user) {
+      // User is authenticated and on login page - redirect to dashboard
+      console.log('✅ Middleware: Authenticated user on home page, redirecting to dashboard')
+      return NextResponse.redirect(new URL('/dashboard', req.url))
+    }
+    
     // ✅ FIX: Only redirect to login if user is trying to access protected routes without session
     // and it's NOT a reload
     const protectedRoutes = ['/dashboard', '/projects', '/boq', '/kpi', '/reports', '/settings', '/profile', '/directory']
-    const isProtectedRoute = protectedRoutes.some(route => req.nextUrl.pathname.startsWith(route))
+    const isProtectedRoute = protectedRoutes.some(route => pathname.startsWith(route))
     
     if (!session && !isReload && isProtectedRoute) {
       return NextResponse.redirect(new URL('/', req.url))
@@ -64,13 +73,14 @@ export async function middleware(req: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Match all request paths except for the ones starting with:
+     * Match all request paths including home page (/)
+     * This allows middleware to handle redirect for authenticated users on home page
+     * Excludes:
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - api (API routes)
-     * - / (login page)
      */
-    '/((?!_next/static|_next/image|favicon.ico|api|$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api).*)',
   ],
 }
