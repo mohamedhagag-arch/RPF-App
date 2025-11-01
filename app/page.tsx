@@ -13,20 +13,30 @@ export default function Home() {
   const mountedRef = useRef(false)
   const router = useRouter()
   const pathname = usePathname()
-  const [isHomePage, setIsHomePage] = useState(true)
+  
+  // ✅ CRITICAL: Start with false and check immediately
+  // Calculate isHomePage synchronously if possible
+  const [isHomePage, setIsHomePage] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.location.pathname === '/'
+    }
+    // On server, assume false to be safe
+    return false
+  })
 
-  // ✅ CRITICAL FIX: Check if we're actually on home page
+  // ✅ CRITICAL FIX: Check if we're actually on home page immediately
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const currentPath = window.location.pathname
       const isHome = currentPath === '/' && (pathname === '/' || pathname === null || pathname === undefined)
-      setIsHomePage(isHome)
       
-      // If we're not on home page, don't do anything
       if (!isHome) {
         console.log('🚫 Home page component loaded but not on home route:', currentPath)
+        setIsHomePage(false)
         return
       }
+      
+      setIsHomePage(true)
     }
   }, [pathname])
 
@@ -40,21 +50,33 @@ export default function Home() {
   // Redirect authenticated users to dashboard - with delay to prevent rapid redirects
   // ✅ FIX: Only redirect if we're actually on the home page (pathname === '/')
   useEffect(() => {
-    // ✅ CRITICAL: Don't execute if not on home page
-    if (!isHomePage) {
-      return
-    }
-    
-    // ✅ Double check pathname inside effect as well
+    // ✅ CRITICAL: Check pathname FIRST - before any other logic
     if (typeof window === 'undefined') return
     
     const currentPath = window.location.pathname
-    // Only redirect if we're on the home page
-    if (currentPath !== '/' || (pathname !== '/' && pathname !== null && pathname !== undefined)) {
+    
+    // ✅ IMMEDIATE CHECK: If not on home page, exit immediately
+    if (currentPath !== '/') {
+      console.log('🚫 Redirect prevented IMMEDIATELY: currentPath is', currentPath)
+      setIsHomePage(false)
       return
     }
     
-    if (user && mounted && !loading && isHomePage) {
+    // ✅ Double check: Also check pathname from hook
+    if (pathname !== '/' && pathname !== null && pathname !== undefined) {
+      console.log('🚫 Redirect prevented: pathname is', pathname)
+      setIsHomePage(false)
+      return
+    }
+    
+    // ✅ Triple check: Also check isHomePage state
+    if (!isHomePage) {
+      console.log('🚫 Redirect prevented: not on home page, isHomePage =', isHomePage)
+      return
+    }
+    
+    // Only proceed if ALL checks pass
+    if (user && mounted && !loading && isHomePage && currentPath === '/') {
       // فحص حماية من الـ reload المتكرر
       if (!checkReloadProtection()) {
         console.warn('⚠️ Too many redirects, stopping automatic redirect')
