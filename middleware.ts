@@ -116,7 +116,11 @@ export async function middleware(req: NextRequest) {
     // 4. NOT already on login page (to avoid redirect loop)
     if (!session && !isReload && isProtectedRoute && pathname !== '/') {
       // Check cookies one more time - if we have refresh token, allow access
-      const hasRefreshToken = req.cookies.has('sb-refresh-token')
+      const allCookies = req.cookies.getAll()
+      const hasRefreshToken = req.cookies.has('sb-refresh-token') || 
+                             allCookies.some(cookie => 
+                               cookie.name.includes('sb-') && cookie.name.includes('refresh-token')
+                             )
       
       if (!hasRefreshToken) {
         // No session and no refresh token - redirect to login
