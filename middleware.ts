@@ -62,11 +62,15 @@ export async function middleware(req: NextRequest) {
     // ✅ CRITICAL: If no session but we have cookies, try to refresh
     if (!session && !isReload) {
       // Check if we have auth cookies that might indicate an existing session
-      const hasAuthCookies = req.cookies.has('sb-access-token') || 
-                            req.cookies.has('sb-refresh-token') ||
-                            req.cookies.has('sb-') // Supabase cookies usually start with 'sb-'
+      // Supabase stores cookies with pattern: sb-<project-ref>-auth-token
+      const allCookies = req.cookies.getAll()
+      const hasAuthCookies = allCookies.some(cookie => 
+        cookie.name.includes('sb-') && cookie.name.includes('auth-token')
+      )
+      const hasRefreshToken = req.cookies.has('sb-refresh-token') || 
+                             allCookies.some(cookie => cookie.name.includes('refresh-token'))
       
-      if (hasAuthCookies) {
+      if (hasAuthCookies || hasRefreshToken) {
         console.log('🔄 Middleware: Found auth cookies but no session, attempting refresh...')
         try {
           const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession()
