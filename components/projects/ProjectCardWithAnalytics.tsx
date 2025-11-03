@@ -235,7 +235,7 @@ export function ProjectCardWithAnalytics({
         {/* Project Details */}
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div>
-            <p className="text-gray-500 dark:text-gray-400 text-xs">Type</p>
+            <p className="text-gray-500 dark:text-gray-400 text-xs">SCOPE</p>
             <p className="font-bold text-gray-900 dark:text-white truncate">{project.project_type || 'Not specified'}</p>
           </div>
           <div>

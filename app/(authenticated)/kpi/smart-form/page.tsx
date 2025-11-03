@@ -82,11 +82,40 @@ export default function SmartKPIPage() {
     try {
       console.log('📦 Creating KPI from Smart Form (ENHANCED):', kpiData)
       
+      // ✅ BLOCK: Check if this activity should be excluded (not worked on or zero quantity)
+      const notWorkedOn = kpiData.notWorkedOn === true || kpiData.hasWorked === false
+      const quantityRaw = kpiData['Quantity'] ?? kpiData.quantity ?? '0'
+      const quantityStr = String(quantityRaw).trim()
+      const quantityValue = parseFloat(quantityStr)
+      const hasZeroQuantity = (
+        isNaN(quantityValue) || 
+        quantityValue === 0 || 
+        quantityStr === '0' || 
+        quantityStr === '' || 
+        quantityRaw === 0 ||
+        quantityRaw === '0' ||
+        quantityRaw === null ||
+        quantityRaw === undefined
+      )
+      
+      if (notWorkedOn || hasZeroQuantity) {
+        console.error('🚫 BLOCKED: Attempted to create KPI for activity that should be excluded:', {
+          name: kpiData['Activity Name'] || kpiData.activity_name,
+          notWorkedOn: notWorkedOn,
+          hasZeroQuantity: hasZeroQuantity,
+          quantity: quantityValue,
+          quantityRaw: quantityRaw,
+          quantityStr: quantityStr
+        })
+        // DO NOT CREATE KPI - silently skip or throw error
+        throw new Error('Cannot create KPI: Activity was not worked on or has zero quantity')
+      }
+      
       // ✅ FIX: Use KPIConsistencyManager to ensure proper format
       // ✅ Calculate Value from Quantity × Rate (from activity)
       const finalProjectCode = kpiData['Project Full Code'] || kpiData.project_code
       const finalActivityName = kpiData['Activity Name'] || kpiData.activity_name
-      const finalQuantity = parseFloat(kpiData['Quantity'] || kpiData.quantity || '0')
+      const finalQuantity = quantityValue // Use the already parsed value
       
       // Find related activity to calculate Value
       let calculatedValue = kpiData['Value'] || kpiData.value || 0
@@ -201,47 +230,39 @@ export default function SmartKPIPage() {
       <DynamicTitle pageTitle="Smart KPI Form" />
       
       <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-purple-50/20 dark:from-gray-900 dark:via-gray-900 dark:to-gray-900">
-        {/* Header */}
+        {/* Header - Mobile Responsive */}
         <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10">
-          <div className="max-w-7xl mx-auto px-6 py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
+          <div className="w-full mx-auto px-3 sm:px-4 md:px-6 py-3 sm:py-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+              <div className="flex items-center gap-2 sm:gap-4 w-full sm:w-auto">
                 <Button
                   variant="ghost"
                   onClick={() => router.push('/kpi')}
-                  className="flex items-center gap-2 text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
+                  className="flex items-center gap-1 sm:gap-2 text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white shrink-0"
                 >
                   <ArrowLeft className="h-4 w-4" />
-                  Back to KPI
+                  <span className="hidden sm:inline">Back to KPI</span>
                 </Button>
                 
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-blue-600 rounded-full flex items-center justify-center">
-                    <Target className="w-5 h-5 text-white" />
+                <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-green-500 to-blue-600 rounded-full flex items-center justify-center shrink-0">
+                    <Target className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                   </div>
-                  <div>
-                    <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+                  <div className="min-w-0">
+                    <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-gray-900 dark:text-white truncate">
                       Smart KPI Form
                     </h1>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                    <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 hidden sm:block">
                       Intelligent form for site activities with guided workflow
                     </p>
                   </div>
                 </div>
               </div>
               
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => router.push('/kpi')}
-                  className="flex items-center gap-2 text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                  Back to KPI
-                </Button>
-                <div className="flex items-center gap-2 px-3 py-1 bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 rounded-full text-sm font-medium">
-                  <Sparkles className="h-4 w-4" />
-                  Enhanced
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end sm:justify-start">
+                <div className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 rounded-full text-xs sm:text-sm font-medium">
+                  <Sparkles className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span>Enhanced</span>
                 </div>
               </div>
             </div>
@@ -249,10 +270,10 @@ export default function SmartKPIPage() {
         </div>
 
         {/* Main Content */}
-        <div className="max-w-7xl mx-auto px-6 py-8">
+        <div className="w-full mx-auto px-3 sm:px-4 md:px-6 py-4 sm:py-6 md:py-8">
           {/* Info Card */}
-          <div className="mb-8">
-            <div className="bg-gradient-to-r from-blue-50 to-green-50 dark:from-blue-900/20 dark:to-green-900/20 p-6 rounded-lg border border-blue-200 dark:border-blue-700">
+          <div className="mb-4 sm:mb-6 md:mb-8">
+            <div className="bg-gradient-to-r from-blue-50 to-green-50 dark:from-blue-900/20 dark:to-green-900/20 p-4 sm:p-6 rounded-lg border border-blue-200 dark:border-blue-700">
               <div className="flex items-start gap-4">
                 <div className="flex-shrink-0">
                   <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-green-600 rounded-full flex items-center justify-center">
@@ -260,10 +281,10 @@ export default function SmartKPIPage() {
                   </div>
                 </div>
                 <div className="flex-1">
-                  <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
+                  <h2 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white mb-2">
                     Smart KPI Form Features
                   </h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-600 dark:text-gray-400">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 text-xs sm:text-sm text-gray-600 dark:text-gray-400">
                     <div>
                       <h3 className="font-semibold text-gray-900 dark:text-white mb-1">🎯 Guided Workflow</h3>
                       <p>Step-by-step process: Select project → Choose activities → Record work</p>
@@ -290,30 +311,30 @@ export default function SmartKPIPage() {
           <div className="text-center">
             <Button
               onClick={() => setShowForm(true)}
-              className="px-8 py-4 text-lg bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white shadow-lg hover:shadow-xl transition-all duration-300"
+              className="w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-4 text-base sm:text-lg bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white shadow-lg hover:shadow-xl transition-all duration-300"
             >
-              <Target className="h-5 w-5 mr-2" />
+              <Target className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
               Start Smart KPI Form
             </Button>
-            <p className="mt-4 text-sm text-gray-600 dark:text-gray-400">
+            <p className="mt-3 sm:mt-4 text-xs sm:text-sm text-gray-600 dark:text-gray-400 px-4">
               Click to begin the guided KPI recording process
             </p>
           </div>
 
           {/* Enhanced Smart Form - Display in center after button */}
           {showForm && (
-            <div className="mt-12 max-w-6xl mx-auto">
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-6">
-                <div className="flex items-center justify-between mb-6">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-blue-600 rounded-full flex items-center justify-center">
-                      <Target className="w-5 h-5 text-white" />
+            <div className="mt-6 sm:mt-8 md:mt-12 w-full mx-auto px-2 sm:px-4">
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-3 sm:p-4 md:p-6">
+                <div className="flex items-center justify-between mb-4 sm:mb-6">
+                  <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                    <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-green-500 to-blue-600 rounded-full flex items-center justify-center shrink-0">
+                      <Target className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                     </div>
-                    <div>
-                      <h3 className="text-xl font-bold text-gray-900 dark:text-white">
+                    <div className="min-w-0">
+                      <h3 className="text-base sm:text-lg md:text-xl font-bold text-gray-900 dark:text-white truncate">
                         Smart KPI Form
                       </h3>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                      <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 hidden sm:block">
                         Intelligent form for site activities with guided workflow
                       </p>
                     </div>
@@ -322,7 +343,7 @@ export default function SmartKPIPage() {
                     variant="ghost"
                     size="sm"
                     onClick={() => setShowForm(false)}
-                    className="text-gray-400 hover:text-gray-600"
+                    className="text-gray-400 hover:text-gray-600 shrink-0"
                   >
                     <X className="w-5 h-5" />
                   </Button>

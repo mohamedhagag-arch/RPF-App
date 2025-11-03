@@ -51,7 +51,9 @@ import {
   TrendingUp,
   Briefcase,
   Hash,
-  Clock
+  Clock,
+  Link,
+  Download
 } from 'lucide-react'
 
 interface IntelligentProjectFormProps {
@@ -85,6 +87,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
   const [areaManagerEmail, setAreaManagerEmail] = useState('')
   const [latitude, setLatitude] = useState('')
   const [longitude, setLongitude] = useState('')
+  const [mapUrl, setMapUrl] = useState('')
   const [contractStatus, setContractStatus] = useState('')
   const [workmanshipOnly, setWorkmanshipOnly] = useState('')
   const [advancePaymentRequired, setAdvancePaymentRequired] = useState('')
@@ -141,6 +144,70 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
       setTimeout(() => {
         setCopyFeedback({ type: null, message: '' })
       }, 3000)
+    }
+  }
+
+  // Extract coordinates from map URL
+  const extractCoordinatesFromUrl = (url: string): { lat: string | null; lng: string | null } => {
+    if (!url || !url.trim()) {
+      return { lat: null, lng: null }
+    }
+
+    try {
+      // Google Maps patterns:
+      // https://www.google.com/maps?q=25.2048,55.2708
+      // https://maps.google.com/?q=25.2048,55.2708
+      // https://www.google.com/maps/@25.2048,55.2708,15z
+      // https://www.google.com/maps/place/.../@25.2048,55.2708,15z
+      
+      // Pattern 1: ?q=lat,lng or ?q=lat,lng&...
+      let match = url.match(/[?&]q=([+-]?\d+\.?\d*),([+-]?\d+\.?\d*)/)
+      if (match && match[1] && match[2]) {
+        return { lat: match[1], lng: match[2] }
+      }
+
+      // Pattern 2: @lat,lng or @lat,lng,zoom
+      match = url.match(/@([+-]?\d+\.?\d*),([+-]?\d+\.?\d*)/)
+      if (match && match[1] && match[2]) {
+        return { lat: match[1], lng: match[2] }
+      }
+
+      // OpenStreetMap pattern: #map=zoom/lat/lng
+      match = url.match(/#map=\d+\/([+-]?\d+\.?\d*)\/([+-]?\d+\.?\d*)/)
+      if (match && match[1] && match[2]) {
+        return { lat: match[1], lng: match[2] }
+      }
+
+      // Bing Maps pattern: ...?cp=lat~lng
+      match = url.match(/[?&]cp=([+-]?\d+\.?\d*)~([+-]?\d+\.?\d*)/)
+      if (match && match[1] && match[2]) {
+        return { lat: match[1], lng: match[2] }
+      }
+
+      return { lat: null, lng: null }
+    } catch (error) {
+      console.error('❌ Error extracting coordinates:', error)
+      return { lat: null, lng: null }
+    }
+  }
+
+  // Handle extract coordinates from URL
+  const handleExtractFromUrl = () => {
+    if (!mapUrl || !mapUrl.trim()) {
+      setError('Please enter a map URL')
+      return
+    }
+
+    const coords = extractCoordinatesFromUrl(mapUrl.trim())
+    
+    if (coords.lat && coords.lng) {
+      setLatitude(coords.lat)
+      setLongitude(coords.lng)
+      setSuccess(`Coordinates extracted successfully: ${coords.lat}, ${coords.lng}`)
+      console.log('✅ Extracted coordinates:', coords)
+    } else {
+      setError('Could not extract coordinates from this URL. Please check the format.')
+      console.error('❌ Failed to extract coordinates from URL:', mapUrl)
     }
   }
   
@@ -629,13 +696,12 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
             />
           </div>
           
-          {/* Division & Project Scope */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Responsible Division */}
+          {/* Responsible Division */}
+          <div>
             <div className="relative division-dropdown-container">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 <Users className="inline h-4 w-4 mr-1" />
-                Responsible Division {responsibleDivisions.length > 0 && `(${responsibleDivisions.length} selected)`}
+                Responsible Division {responsibleDivisions.length > 0 && `(${responsibleDivisions.length} selected)`} <span className="text-red-500">*</span>
               </label>
               
               <div className="relative">
@@ -743,135 +809,6 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                 </div>
               )}
             </div>
-            
-            {/* Project Scope */}
-            <div className="relative project-type-dropdown-container">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                <Briefcase className="inline h-4 w-4 mr-1" />
-                Project Scope {projectTypes.length > 0 && `(${projectTypes.length} selected)`}
-              </label>
-              
-              <div className="relative">
-                <div 
-                  className="flex flex-wrap items-center gap-1 p-2 min-h-[42px] border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 cursor-text"
-                  onClick={() => {
-                    console.log('🖱️ Project scope container clicked, showing dropdown')
-                    setShowProjectTypeDropdown(true)
-                  }}
-                >
-                  {/* Selected Project Scopes */}
-                  {projectTypes.map((type, index) => (
-                    <span
-                      key={index}
-                      className="inline-flex items-center px-2 py-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-full"
-                    >
-                      {type}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleRemoveProjectScope(type)
-                        }}
-                        className="ml-1 hover:bg-blue-200 dark:hover:bg-blue-900/50 rounded-full p-0.5"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </span>
-                  ))}
-                  
-                  {/* Input Field */}
-                  <input
-                    type="text"
-                    value={projectTypeInput}
-                    onChange={(e) => {
-                      const value = e.target.value
-                      setProjectTypeInput(value)
-                      // إظهار القائمة فقط إذا كان النص أكثر من حرفين أو فارغ
-                      if (value.length >= 2 || value.length === 0) {
-                        setShowProjectTypeDropdown(true)
-                        console.log('✏️ Project scope input changed, showing dropdown')
-                      } else {
-                        setShowProjectTypeDropdown(false)
-                      }
-                    }}
-                    onFocus={() => {
-                      console.log('🎯 Project scope input focused, showing dropdown')
-                      setShowProjectTypeDropdown(true)
-                    }}
-                    onClick={() => {
-                      console.log('🖱️ Project scope input clicked, showing dropdown')
-                      setShowProjectTypeDropdown(true)
-                    }}
-                    placeholder={projectTypes.length === 0 ? "Type or select project scope..." : ""}
-                    disabled={loading}
-                    className="flex-1 min-w-[120px] bg-transparent border-none outline-none text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    console.log('🔽 Toggle project scope dropdown clicked')
-                    setShowProjectTypeDropdown(!showProjectTypeDropdown)
-                  }}
-                  className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
-                  disabled={loading}
-                >
-                  <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-              </div>
-              
-              {/* Project Scope Dropdown - Optimized */}
-              {showProjectTypeDropdown && (() => {
-                // تحسين الأداء: فلترة مسبقة مع تحسينات إضافية
-                const inputLower = projectTypeInput.toLowerCase()
-                const filteredSuggestions = projectTypeSuggestions
-                  .filter(type => {
-                    // فلترة سريعة
-                    if (projectTypeInput === '') return true
-                    if (inputLower.length < 2) return false
-                    return type.toLowerCase().includes(inputLower)
-                  })
-                  .filter(type => !projectTypes.includes(type)) // إخفاء النطاقات المختارة بالفعل
-                
-                // إظهار القائمة فقط إذا كان هناك نتائج أو يمكن إضافة نطاق جديد
-                const canAddNew = projectTypeInput.length >= 2 && 
-                  !projectTypeSuggestions.some(t => t.toLowerCase() === inputLower)
-                
-                const totalScopes = projectTypeSuggestions.length
-                const availableScopes = filteredSuggestions.length
-                
-                return (filteredSuggestions.length > 0 || canAddNew) && (
-                  <div className="absolute z-20 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                    <div className="p-2 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600 sticky top-0">
-                      <p className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                        📁 Select or add project scope from Project Scope Management ({projectTypeInput === '' ? `${totalScopes} total, ${availableScopes} available` : `${availableScopes} matching`} scopes)
-                      </p>
-                    </div>
-                    {filteredSuggestions.map((type, idx) => (
-                      <button
-                        key={`${type}-${idx}`} // مفتاح فريد أفضل
-                        type="button"
-                        onClick={() => handleProjectScopeSelect(type)}
-                        className="w-full px-4 py-2 text-left hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors text-gray-900 dark:text-white"
-                      >
-                        {type}
-                      </button>
-                    ))}
-                    {canAddNew && (
-                      <button
-                        type="button"
-                        onClick={() => handleProjectScopeSelect(projectTypeInput)}
-                        className="w-full px-4 py-2 text-left bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors text-green-700 dark:text-green-300 border-t border-green-200 dark:border-green-800"
-                      >
-                        ➕ Add "{projectTypeInput}" as new scope
-                      </button>
-                    )}
-                  </div>
-                )
-              })()}
-            </div>
           </div>
           
           
@@ -881,7 +818,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 <MapPin className="inline h-4 w-4 mr-1" />
-                Plot Number
+                Plot Number <span className="text-red-500">*</span>
               </label>
               <Input
                 value={plotNumber}
@@ -896,7 +833,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
               <div className="flex items-center justify-between mb-2">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                   <DollarSign className="inline h-4 w-4 mr-1" />
-                  Contract Amount ({selectedCurrency?.code || 'AED'})
+                  Contract Amount ({selectedCurrency?.code || 'AED'}) <span className="text-red-500">*</span>
                 </label>
                 <button
                   type="button"
@@ -958,62 +895,203 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
             </div>
           </div>
           
-          {/* Status & KPI Completed */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Project Status */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                <Calendar className="inline h-4 w-4 mr-1" />
-                Project Status
-              </label>
-              <select
-                value={projectStatus}
-                onChange={(e) => setProjectStatus(e.target.value as any)}
-                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
-                disabled={loading}
+          {/* Project Status */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <Calendar className="inline h-4 w-4 mr-1" />
+              Project Status <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={projectStatus}
+              onChange={(e) => setProjectStatus(e.target.value as any)}
+              className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+              disabled={loading}
+            >
+              {PROJECT_STATUSES.map((status) => (
+                <option key={status.value} value={status.value}>
+                  {status.label}
+                </option>
+              ))}
+            </select>
+            <div className="mt-2">
+              <ModernBadge
+                variant={PROJECT_STATUSES.find(s => s.value === projectStatus)?.color as any || 'gray'}
+                size="sm"
               >
-                {PROJECT_STATUSES.map((status) => (
-                  <option key={status.value} value={status.value}>
-                    {status.label}
-                  </option>
-                ))}
-              </select>
-              <div className="mt-2">
-                <ModernBadge
-                  variant={PROJECT_STATUSES.find(s => s.value === projectStatus)?.color as any || 'gray'}
-                  size="sm"
+                {PROJECT_STATUSES.find(s => s.value === projectStatus)?.label}
+              </ModernBadge>
+            </div>
+          </div>
+
+          {/* Stakeholder Information */}
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+              <Users className="h-5 w-5 text-blue-600" />
+              Stakeholder Information <span className="text-red-500">*</span>
+            </h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Client Name */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <Building2 className="inline h-4 w-4 mr-1" />
+                  Client Name <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  value={clientName}
+                  onChange={(e) => setClientName(e.target.value)}
+                  placeholder="Enter client name..."
+                  required
+                  disabled={loading}
+                />
+              </div>
+              
+              {/* First Party Name */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <Users className="inline h-4 w-4 mr-1" />
+                  First Party <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  value={firstPartyName}
+                  onChange={(e) => setFirstPartyName(e.target.value)}
+                  placeholder="Enter first party name..."
+                  required
+                  disabled={loading}
+                />
+              </div>
+              
+              {/* Consultant Name */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <Briefcase className="inline h-4 w-4 mr-1" />
+                  Consultant <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  value={consultantName}
+                  onChange={(e) => setConsultantName(e.target.value)}
+                  placeholder="Enter consultant name..."
+                  required
+                  disabled={loading}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Location Information */}
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+              <MapPin className="h-5 w-5 text-purple-600" />
+              Location Information <span className="text-red-500">*</span>
+            </h3>
+
+            {/* Map URL Input */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <Link className="inline h-4 w-4 mr-1" />
+                Map URL (Optional - Extract coordinates automatically)
+              </label>
+              <div className="flex gap-2">
+                <Input
+                  type="url"
+                  value={mapUrl}
+                  onChange={(e) => setMapUrl(e.target.value)}
+                  placeholder="https://www.google.com/maps?q=25.2048,55.2708"
+                  disabled={loading}
+                  className="flex-1 focus:ring-purple-500 focus:border-purple-500"
+                />
+                <ModernButton
+                  type="button"
+                  onClick={handleExtractFromUrl}
+                  disabled={loading || !mapUrl.trim()}
+                  className="shrink-0"
                 >
-                  {PROJECT_STATUSES.find(s => s.value === projectStatus)?.label}
-                </ModernBadge>
+                  <Download className="h-4 w-4 mr-1" />
+                  Extract
+                </ModernButton>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                💡 Supports Google Maps, OpenStreetMap, and Bing Maps URLs
+              </p>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Latitude */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <MapPin className="inline h-4 w-4 mr-1" />
+                  Latitude <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <Input
+                    value={latitude}
+                    onChange={(e) => setLatitude(e.target.value)}
+                    placeholder="e.g., 25.2048"
+                    required
+                    disabled={loading}
+                    className="focus:ring-purple-500 focus:border-purple-500 pr-10"
+                  />
+                  {latitude && (
+                    <button
+                      type="button"
+                      onClick={() => handleCopyCoordinate(latitude, 'latitude')}
+                      className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 text-gray-500 hover:text-purple-600 dark:text-gray-400 dark:hover:text-purple-400 transition-colors"
+                      title="Copy to clipboard"
+                    >
+                      📋
+                    </button>
+                  )}
+                </div>
+              </div>
+              
+              {/* Longitude */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <MapPin className="inline h-4 w-4 mr-1" />
+                  Longitude <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <Input
+                    value={longitude}
+                    onChange={(e) => setLongitude(e.target.value)}
+                    placeholder="e.g., 55.2708"
+                    required
+                    disabled={loading}
+                    className="focus:ring-purple-500 focus:border-purple-500 pr-10"
+                  />
+                  {longitude && (
+                    <button
+                      type="button"
+                      onClick={() => handleCopyCoordinate(longitude, 'longitude')}
+                      className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 text-gray-500 hover:text-purple-600 dark:text-gray-400 dark:hover:text-purple-400 transition-colors"
+                      title="Copy to clipboard"
+                    >
+                      📋
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
             
-            {/* KPI Completed */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                <CheckCircle2 className="inline h-4 w-4 mr-1" />
-                Project Completion
-              </label>
-              <ModernCard className={`p-4 cursor-pointer transition-all ${
-                kpiCompleted 
-                  ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' 
-                  : 'bg-gray-50 dark:bg-gray-700/50'
-              }`}>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    id="kpi-completed"
-                    checked={kpiCompleted}
-                    onChange={(e) => setKpiCompleted(e.target.checked)}
-                    className="w-5 h-5 text-green-600 bg-gray-100 border-gray-300 rounded focus:ring-green-500 dark:focus:ring-green-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
-                    disabled={loading}
-                  />
-                  <label htmlFor="kpi-completed" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
-                    All KPIs Completed
-                  </label>
-                </div>
-              </ModernCard>
-            </div>
+            {(latitude || longitude) && (
+              <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                <p className="text-sm text-blue-700 dark:text-blue-300">
+                  📍 Coordinates: {latitude && longitude ? `${latitude}, ${longitude}` : 'Incomplete coordinates'}
+                  {latitude && longitude && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url = `https://www.google.com/maps?q=${latitude},${longitude}`;
+                        window.open(url, '_blank');
+                      }}
+                      className="ml-2 text-xs bg-blue-100 hover:bg-blue-200 dark:bg-blue-800 dark:hover:bg-blue-700 text-blue-700 dark:text-blue-300 px-2 py-1 rounded transition-colors"
+                    >
+                      View on Map
+                    </button>
+                  )}
+                </p>
+              </div>
+            )}
           </div>
           
           {/* Additional Project Details Toggle */}
@@ -1060,57 +1138,161 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
           {/* Additional Project Details */}
           {showAdditionalDetails && (
             <div className="space-y-6">
+              {/* Project Scope - Optional */}
               <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                  <Users className="h-5 w-5 text-blue-600" />
-                  Stakeholder Information
+                  <Briefcase className="h-5 w-5 text-blue-600" />
+                  Project Scope
+                  <X className="h-4 w-4 text-red-500" />
                 </h3>
-              
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Client Name */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    <Building2 className="inline h-4 w-4 mr-1" />
-                    Client Name
-                  </label>
-                  <Input
-                    value={clientName}
-                    onChange={(e) => setClientName(e.target.value)}
-                    placeholder="Enter client name..."
-                    disabled={loading}
-                  />
-                </div>
-                
-                {/* First Party Name */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    <Users className="inline h-4 w-4 mr-1" />
-                    First Party
-                  </label>
-                  <Input
-                    value={firstPartyName}
-                    onChange={(e) => setFirstPartyName(e.target.value)}
-                    placeholder="Enter first party name..."
-                    disabled={loading}
-                  />
-                </div>
-                
-                {/* Consultant Name */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    <Briefcase className="inline h-4 w-4 mr-1" />
-                    Consultant
-                  </label>
-                  <Input
-                    value={consultantName}
-                    onChange={(e) => setConsultantName(e.target.value)}
-                    placeholder="Enter consultant name..."
-                    disabled={loading}
-                  />
+                <div className="relative project-type-dropdown-container">
+                  <div className="relative">
+                    <div 
+                      className="flex flex-wrap items-center gap-1 p-2 min-h-[42px] border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 cursor-text"
+                      onClick={() => {
+                        console.log('🖱️ Project scope container clicked, showing dropdown')
+                        setShowProjectTypeDropdown(true)
+                      }}
+                    >
+                      {/* Selected Project Scopes */}
+                      {projectTypes.map((type, index) => (
+                        <span
+                          key={index}
+                          className="inline-flex items-center px-2 py-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-full"
+                        >
+                          {type}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleRemoveProjectScope(type)
+                            }}
+                            className="ml-1 hover:bg-blue-200 dark:hover:bg-blue-900/50 rounded-full p-0.5"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                      
+                      {/* Input Field */}
+                      <input
+                        type="text"
+                        value={projectTypeInput}
+                        onChange={(e) => {
+                          const value = e.target.value
+                          setProjectTypeInput(value)
+                          if (value.length >= 2 || value.length === 0) {
+                            setShowProjectTypeDropdown(true)
+                            console.log('✏️ Project scope input changed, showing dropdown')
+                          } else {
+                            setShowProjectTypeDropdown(false)
+                          }
+                        }}
+                        onFocus={() => {
+                          console.log('🎯 Project scope input focused, showing dropdown')
+                          setShowProjectTypeDropdown(true)
+                        }}
+                        onClick={() => {
+                          console.log('🖱️ Project scope input clicked, showing dropdown')
+                          setShowProjectTypeDropdown(true)
+                        }}
+                        placeholder={projectTypes.length === 0 ? "Type or select project scope..." : ""}
+                        disabled={loading}
+                        className="flex-1 min-w-[120px] bg-transparent border-none outline-none text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        console.log('🔽 Toggle project scope dropdown clicked')
+                        setShowProjectTypeDropdown(!showProjectTypeDropdown)
+                      }}
+                      className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                      disabled={loading}
+                    >
+                      <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+                  </div>
+                  
+                  {/* Project Scope Dropdown */}
+                  {showProjectTypeDropdown && (() => {
+                    const inputLower = projectTypeInput.toLowerCase()
+                    const filteredSuggestions = projectTypeSuggestions
+                      .filter(type => {
+                        if (projectTypeInput === '') return true
+                        if (inputLower.length < 2) return false
+                        return type.toLowerCase().includes(inputLower)
+                      })
+                      .filter(type => !projectTypes.includes(type))
+                    
+                    const canAddNew = projectTypeInput.length >= 2 && 
+                      !projectTypeSuggestions.some(t => t.toLowerCase() === inputLower)
+                    
+                    const totalScopes = projectTypeSuggestions.length
+                    const availableScopes = filteredSuggestions.length
+                    
+                    return (filteredSuggestions.length > 0 || canAddNew) && (
+                      <div className="absolute z-20 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                        <div className="p-2 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600 sticky top-0">
+                          <p className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                            📁 Select or add project scope from Project Scope Management ({projectTypeInput === '' ? `${totalScopes} total, ${availableScopes} available` : `${availableScopes} matching`} scopes)
+                          </p>
+                        </div>
+                        {filteredSuggestions.map((type, idx) => (
+                          <button
+                            key={`${type}-${idx}`}
+                            type="button"
+                            onClick={() => handleProjectScopeSelect(type)}
+                            className="w-full px-4 py-2 text-left hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors text-gray-900 dark:text-white"
+                          >
+                            {type}
+                          </button>
+                        ))}
+                        {canAddNew && (
+                          <button
+                            type="button"
+                            onClick={() => handleProjectScopeSelect(projectTypeInput)}
+                            className="w-full px-4 py-2 text-left bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors text-green-700 dark:text-green-300 border-t border-green-200 dark:border-green-800"
+                          >
+                            ➕ Add "{projectTypeInput}" as new scope
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
               </div>
-            </div>
-            
+
+              {/* Project Completion - Optional */}
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <CheckCircle2 className="inline h-4 w-4 mr-1" />
+                  Project Completion
+                  <X className="inline h-4 w-4 ml-1 text-red-500" />
+                </label>
+                <ModernCard className={`p-4 cursor-pointer transition-all ${
+                  kpiCompleted 
+                    ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' 
+                    : 'bg-gray-50 dark:bg-gray-700/50'
+                }`}>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      id="kpi-completed"
+                      checked={kpiCompleted}
+                      onChange={(e) => setKpiCompleted(e.target.checked)}
+                      className="w-5 h-5 text-green-600 bg-gray-100 border-gray-300 rounded focus:ring-green-500 dark:focus:ring-green-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+                      disabled={loading}
+                    />
+                    <label htmlFor="kpi-completed" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
+                      All KPIs Completed
+                    </label>
+                  </div>
+                </ModernCard>
+              </div>
+
             {/* Management Team */}
             <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
@@ -1124,6 +1306,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     <Users className="inline h-4 w-4 mr-1" />
                     Project Manager Email
+                    <X className="inline h-4 w-4 ml-1 text-red-500" />
                   </label>
                   <Input
                     type="email"
@@ -1140,6 +1323,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     <Users className="inline h-4 w-4 mr-1" />
                     Area Manager Email
+                    <X className="inline h-4 w-4 ml-1 text-red-500" />
                   </label>
                   <Input
                     type="email"
@@ -1151,90 +1335,6 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                   />
                 </div>
               </div>
-            </div>
-            
-            {/* Location Information */}
-            <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                <MapPin className="h-5 w-5 text-purple-600" />
-                Location Information
-              </h3>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Latitude */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    <MapPin className="inline h-4 w-4 mr-1" />
-                    Latitude
-                  </label>
-                  <div className="relative">
-                    <Input
-                      value={latitude}
-                      onChange={(e) => setLatitude(e.target.value)}
-                      placeholder="e.g., 25.2048"
-                      disabled={loading}
-                      className="focus:ring-purple-500 focus:border-purple-500 pr-10"
-                    />
-                    {latitude && (
-                      <button
-                        type="button"
-                        onClick={() => handleCopyCoordinate(latitude, 'latitude')}
-                        className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 text-gray-500 hover:text-purple-600 dark:text-gray-400 dark:hover:text-purple-400 transition-colors"
-                        title="Copy to clipboard"
-                      >
-                        📋
-                      </button>
-                    )}
-                  </div>
-                </div>
-                
-                {/* Longitude */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    <MapPin className="inline h-4 w-4 mr-1" />
-                    Longitude
-                  </label>
-                  <div className="relative">
-                    <Input
-                      value={longitude}
-                      onChange={(e) => setLongitude(e.target.value)}
-                      placeholder="e.g., 55.2708"
-                      disabled={loading}
-                      className="focus:ring-purple-500 focus:border-purple-500 pr-10"
-                    />
-                    {longitude && (
-                      <button
-                        type="button"
-                        onClick={() => handleCopyCoordinate(longitude, 'longitude')}
-                        className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 text-gray-500 hover:text-purple-600 dark:text-gray-400 dark:hover:text-purple-400 transition-colors"
-                        title="Copy to clipboard"
-                      >
-                        📋
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-              
-              {(latitude || longitude) && (
-                <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                  <p className="text-sm text-blue-700 dark:text-blue-300">
-                    📍 Coordinates: {latitude && longitude ? `${latitude}, ${longitude}` : 'Incomplete coordinates'}
-                    {latitude && longitude && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const url = `https://www.google.com/maps?q=${latitude},${longitude}`;
-                          window.open(url, '_blank');
-                        }}
-                        className="ml-2 text-xs bg-blue-100 hover:bg-blue-200 dark:bg-blue-800 dark:hover:bg-blue-700 text-blue-700 dark:text-blue-300 px-2 py-1 rounded transition-colors"
-                      >
-                        View on Map
-                      </button>
-                    )}
-                  </p>
-                </div>
-              )}
             </div>
             
             {/* Contract Details */}
@@ -1250,6 +1350,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     <TrendingUp className="inline h-4 w-4 mr-1" />
                     Contract Status
+                    <X className="inline h-4 w-4 ml-1 text-red-500" />
                   </label>
                   <Input
                     value={contractStatus}
@@ -1295,6 +1396,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     <DollarSign className="inline h-4 w-4 mr-1" />
                     Virtual Material Value
+                    <X className="inline h-4 w-4 ml-1 text-red-500" />
                   </label>
                   <Input
                     value={virtualMaterialValue}

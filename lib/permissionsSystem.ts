@@ -38,6 +38,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: 'kpi.edit', name: 'Edit KPIs', category: 'kpi', description: 'Can edit KPI records', action: 'edit' },
   { id: 'kpi.delete', name: 'Delete KPIs', category: 'kpi', description: 'Can delete KPI records', action: 'delete' },
   { id: 'kpi.export', name: 'Export KPIs', category: 'kpi', description: 'Can export KPI data', action: 'export' },
+  { id: 'kpi.approve', name: 'Approve KPIs', category: 'kpi', description: 'Can approve Actual KPIs created by engineers. Users with this permission receive notifications when new KPIs are created and can approve them to appear on the main KPI page', action: 'approve' },
   
   // Reports Permissions
   { id: 'reports.view', name: 'View Reports', category: 'reports', description: 'Can view all reports', action: 'view' },
@@ -188,7 +189,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     // BOQ
     'boq.view', 'boq.create', 'boq.edit', 'boq.delete', 'boq.approve', 'boq.export',
     // KPI
-    'kpi.view', 'kpi.create', 'kpi.edit', 'kpi.delete', 'kpi.export',
+    'kpi.view', 'kpi.create', 'kpi.edit', 'kpi.delete', 'kpi.export', 'kpi.approve',
     // Reports
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly', 'reports.financial', 'reports.export', 'reports.print',
     'reports.lookahead', 'reports.critical', 'reports.performance', 'reports.custom',
@@ -255,6 +256,29 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'notifications.view', 'alerts.view', 'integrations.view',
     'workflow.view', 'automation.view', 'security.view', 'compliance.view',
     'database.view'
+  ],
+  
+  // Planner - قسم التخطيط - يمكنه الموافقة على Planned KPIs
+  planner: [
+    // Dashboard
+    'dashboard.view',
+    // Projects (view and export)
+    'projects.view', 'projects.export',
+    // BOQ (view and approve)
+    'boq.view', 'boq.approve', 'boq.export',
+    // KPI (view, approve planned KPIs)
+    'kpi.view', 'kpi.approve', 'kpi.export',
+    // Reports (view and export)
+    'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly', 'reports.export', 'reports.print',
+    'reports.lookahead', 'reports.critical', 'reports.performance',
+    // Settings (view only)
+    'settings.view', 'project_types.view', 'activities.view', 'departments.view', 'job_titles.view',
+    // Users (limited)
+    'directory.view', 'directory.search', 'profile.view', 'profile.edit',
+    // System (limited)
+    'system.search', 'data.export', 'data.templates', 'analytics.view', 'performance.view',
+    'notifications.view', 'alerts.view', 'workflow.view', 'automation.view',
+    'database.view', 'database.templates'
   ]
 }
 

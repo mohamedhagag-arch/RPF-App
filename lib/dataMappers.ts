@@ -47,7 +47,7 @@ export function mapProjectFromDB(row: any): Project {
  * Map application project to database format
  */
 export function mapProjectToDB(project: Partial<Project>): any {
-  return {
+  const dbData: any = {
     'Project Code': project.project_code,
     'Project Sub-Code': project.project_sub_code,
     'Project Name': project.project_name,
@@ -55,9 +55,27 @@ export function mapProjectToDB(project: Partial<Project>): any {
     'Responsible Division': project.responsible_division,
     'Plot Number': project.plot_number,
     'KPI Completed': project.kpi_completed ? 'TRUE' : 'FALSE',
-    'Project Status': project.project_status,
-    'Contract Amount': project.contract_amount?.toString()
+    'Project Status': project.project_status || 'active',
+    'Contract Amount': project.contract_amount?.toString() || '0'
   }
+  
+  // Add optional fields if they exist
+  if (project.client_name) dbData['Client Name'] = project.client_name
+  if (project.consultant_name) dbData['Consultant Name'] = project.consultant_name
+  if (project.first_party_name) dbData['First Party name'] = project.first_party_name
+  if (project.project_manager_email) dbData['Project Manager Email'] = project.project_manager_email
+  if (project.area_manager_email) dbData['Area Manager Email'] = project.area_manager_email
+  if (project.date_project_awarded) dbData['Date Project Awarded'] = project.date_project_awarded
+  if (project.work_programme) dbData['Work Programme'] = project.work_programme
+  if (project.latitude) dbData['Latitude'] = project.latitude
+  if (project.longitude) dbData['Longitude'] = project.longitude
+  if (project.contract_status) dbData['Contract Status'] = project.contract_status
+  if (project.currency) dbData['Currency'] = project.currency
+  if (project.workmanship_only) dbData['Workmanship only?'] = project.workmanship_only
+  if (project.advance_payment_required) dbData['Advnace Payment Required'] = project.advance_payment_required
+  if (project.virtual_material_value) dbData['Virtual Material Value'] = project.virtual_material_value
+  
+  return dbData
 }
 
 /**
@@ -128,6 +146,10 @@ export function mapBOQFromDB(row: any): any {
     remaining_work_value: parseNum(row['Remaining Work Value']),
     variance_works_value: parseNum(row['Variance Works Value']),
     total_drilling_meters: parseNum(row['Total Drilling Meters']),
+    // ✅ Activity Timing
+    activity_timing: row['Activity Timing'] || row['activity_timing'] || 'post-commencement',
+    has_value: row['Has Value'] === 'TRUE' || row['has_value'] === true || row['Has Value'] === true || true,
+    affects_timeline: row['Affects Timeline'] === 'TRUE' || row['affects_timeline'] === true || row['Affects Timeline'] === true || false,
     created_at: row.created_at || new Date().toISOString(),
     updated_at: row.updated_at || new Date().toISOString()
   }
@@ -170,7 +192,11 @@ export function mapBOQToDB(boq: any): any {
     'Project Status': boq.project_status,
     'Remaining Work Value': boq.remaining_work_value?.toString(),
     'Variance Works Value': boq.variance_works_value?.toString(),
-    'Total Drilling Meters': boq.total_drilling_meters?.toString()
+    'Total Drilling Meters': boq.total_drilling_meters?.toString(),
+    // ✅ Activity Timing
+    'Activity Timing': boq.activity_timing || 'post-commencement',
+    'Has Value': boq.has_value !== undefined ? (boq.has_value ? 'TRUE' : 'FALSE') : 'TRUE',
+    'Affects Timeline': boq.affects_timeline !== undefined ? (boq.affects_timeline ? 'TRUE' : 'FALSE') : 'FALSE'
   }
 }
 
@@ -264,7 +290,7 @@ export function mapKPIFromDB(row: any): any {
   // Calculate smart status based on value, not just quantity
   const statusCalc = calculateKPIStatus(plannedValue, actualValue)
   
-  return {
+  const mapped = {
     id: row.id,
     project_id: row.project_id || '',
     activity_id: row.activity_id || '',
@@ -283,15 +309,19 @@ export function mapKPIFromDB(row: any): any {
     // 💰 Financial
     value: value,
     
-    // 📅 Dates
+    // 📅 Dates - ✅ PRIORITY: Day column from database
     activity_date: row['Activity Date'] || row['Target Date'] || row['Actual Date'] || '',
     target_date: row['Target Date'] || '',
     actual_date: row['Actual Date'] || '',
     day: row['Day'] || '',
+    'Day': row['Day'] || '', // Keep both formats for compatibility
     
     // 📍 Location
     zone: row['Zone'] || row['Section'] || '',
     recorded_by: row['Recorded By'] || '',
+    
+    // ✅ Activity Timing (inherited from BOQ Activity)
+    activity_timing: row['Activity Timing'] || row['activity_timing'] || undefined,
     
     // Planned and Actual values (for backward compatibility)
     planned_value: plannedValue,
@@ -306,10 +336,20 @@ export function mapKPIFromDB(row: any): any {
     // Metadata
     completion_date: statusCalc.status === 'completed' ? (row.completion_date || new Date().toISOString()) : row.completion_date || '',
     notes: row['Notes'] || row.notes || '',
+    // Approval fields
+    approval_status: row['Approval Status'] || null,
+    'Approval Status': row['Approval Status'] || null, // Keep both for compatibility
+    approved_by: row['Approved By'] || null,
+    approval_date: row['Approval Date'] || null,
     created_at: row.created_at || new Date().toISOString(),
     updated_at: row.updated_at || new Date().toISOString(),
-    created_by: row.created_by || ''
+    created_by: row.created_by || '',
+    
+    // ✅ CRITICAL: Preserve raw database row for direct column access
+    raw: row
   }
+  
+  return mapped
 }
 
 /**
@@ -334,6 +374,8 @@ export function mapKPIToDB(kpi: any): any {
     'Actual Date': kpi.actual_date, // For Actual
     'Recorded By': kpi.recorded_by,
     'Notes': kpi.notes,
+    // ✅ Activity Timing
+    'Activity Timing': kpi.activity_timing || undefined,
     project_id: kpi.project_id,
     activity_id: kpi.activity_id,
     completion_date: kpi.completion_date,

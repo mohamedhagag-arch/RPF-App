@@ -26,7 +26,8 @@ import {
   BellOff,
   Building2,
   Briefcase,
-  DollarSign
+  DollarSign,
+  Target
 } from 'lucide-react'
 import { DivisionsManager } from './DivisionsManager'
 import { ProjectTypesManager } from './ProjectTypesManager'
@@ -34,6 +35,7 @@ import { CurrenciesManager } from './CurrenciesManager'
 import { SystemSettingsManager } from './SystemSettingsManager'
 import { UserPreferencesManager } from './UserPreferencesManager'
 import { NotificationSettingsManager } from './NotificationSettingsManager'
+import { KPINotificationSettings } from './KPINotificationSettings'
 import { ProfileManager } from './ProfileManager'
 import { DepartmentsJobTitlesManager } from './DepartmentsJobTitlesManager'
 import { ProjectTypeActivitiesManager } from './ProjectTypeActivitiesManager'
@@ -263,6 +265,7 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
     { id: 'profile', label: 'Profile', icon: User, roles: ['admin', 'manager', 'engineer', 'viewer'], permission: 'users.view' },
     { id: 'preferences', label: 'Preferences', icon: Settings, roles: ['admin', 'manager', 'engineer', 'viewer'], permission: 'users.view' },
     { id: 'notifications', label: 'Notifications', icon: Bell, roles: ['admin', 'manager', 'engineer', 'viewer'], permission: 'users.view' },
+    { id: 'kpi-notifications', label: 'KPI Notifications', icon: Target, roles: ['admin', 'manager', 'planner'], permission: 'settings.manage' },
     { id: 'appearance', label: 'Appearance', icon: Palette, roles: ['admin', 'manager', 'engineer', 'viewer'], permission: 'users.view' },
     { id: 'system', label: 'System Settings', icon: Shield, roles: ['admin'], permission: 'settings.manage' },
     { id: 'departments-titles', label: 'Departments & Titles', icon: Building2, roles: ['admin', 'manager'], permission: 'settings.divisions' },
@@ -280,6 +283,11 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
       return tab.roles.includes(userRole)
     }
     // إذا كانت العلامة للإعدادات المتقدمة، تحقق من الصلاحية
+    // KPI Notifications يحتاج settings.manage أو أن يكون المستخدم admin/manager/planner
+    if (tab.id === 'kpi-notifications') {
+      return guard.hasAccess('settings.manage') || 
+             ['admin', 'manager', 'planner'].includes(userRole || '')
+    }
     return guard.hasAccess(tab.permission)
   })
 
@@ -318,6 +326,24 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
 
       case 'notifications':
         return <NotificationSettingsManager />
+      
+      case 'kpi-notifications':
+        // Allow access for admin, manager, planner, or users with settings.manage permission
+        const canAccessKPINotifications = 
+          guard.hasAccess('settings.manage') || 
+          ['admin', 'manager', 'planner'].includes(userRole || '') ||
+          guard.isAdmin()
+        
+        if (!canAccessKPINotifications) {
+          return (
+            <div className="text-center py-12">
+              <Shield className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Access Denied</h3>
+              <p className="text-gray-600 dark:text-gray-400">You don't have permission to manage KPI notification settings.</p>
+            </div>
+          )
+        }
+        return <KPINotificationSettings />
 
       case 'appearance':
         return (

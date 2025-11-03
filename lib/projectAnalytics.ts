@@ -6,6 +6,7 @@
 
 import { Project, BOQActivity, KPIRecord } from './supabase'
 import { calculateProjectProgressFromValues, calculateProjectProgressFromKPI } from './boqValueCalculator'
+import { calculateActivityRate } from './rateCalculator'
 
 type KPIAggregate = {
   totalActual: number
@@ -191,7 +192,9 @@ export function calculateProjectAnalytics(
   
   // Group KPI data by activity
   for (const kpi of projectKPIs) {
-    const key = `${kpi.project_code}-${kpi.activity_name}`
+    // Use project_full_code if available, otherwise use project_code
+    const projectKey = kpi.project_full_code || kpi.project_code || project.project_code
+    const key = `${projectKey}-${kpi.activity_name}`
     if (!kpiData[key]) {
       kpiData[key] = {
         totalActual: 0,
@@ -202,27 +205,40 @@ export function calculateProjectAnalytics(
     }
     
     const quantityValue = parseFloat(kpi.quantity?.toString() || '0') || 0
-    let financialValue = parseFloat(kpi.value?.toString() || '0') || 0
     
-    // ✅ If Value is missing or zero, calculate from Quantity × Rate
-    // This fixes the issue where newly created KPIs don't have Value field
-    if (!financialValue || financialValue === 0) {
-      // Find the related activity to get the rate
-      const relatedActivity = projectActivities.find(a => 
-        a.activity_name === kpi.activity_name && 
-        (a.project_code === kpi.project_code || a.project_full_code === kpi.project_full_code)
-      )
+    // ✅ FIXED: Always calculate Planned Value = Rate × Quantity (not from kpi.value)
+    // Find the related activity to get the rate
+    const relatedActivity = projectActivities.find(a => {
+      // Match by activity name and project code
+      const activityMatch = a.activity_name === kpi.activity_name
+      if (!activityMatch) return false
       
-      if (relatedActivity && relatedActivity.rate && relatedActivity.rate > 0) {
-        financialValue = quantityValue * relatedActivity.rate
-      } else if (relatedActivity && relatedActivity.total_value && relatedActivity.total_units && relatedActivity.total_units > 0) {
-        // Calculate rate from activity total
-        const rate = relatedActivity.total_value / relatedActivity.total_units
+      // Match project codes - support both project_code and project_full_code
+      const kpiProjectCode = kpi.project_code || kpi.project_full_code
+      return (
+        a.project_code === kpiProjectCode ||
+        a.project_full_code === kpiProjectCode ||
+        a.project_code === kpi.project_full_code ||
+        a.project_full_code === kpi.project_full_code
+      )
+    })
+    
+    let financialValue = 0
+    if (relatedActivity) {
+      // ✅ Use calculateActivityRate for consistent rate calculation
+      const activityRate = calculateActivityRate(relatedActivity)
+      const rate = activityRate.rate
+      
+      // Calculate value = rate × quantity
+      if (rate > 0) {
         financialValue = quantityValue * rate
       } else {
-        // Last fallback: use quantity as value (1:1 ratio)
-        financialValue = quantityValue
+        // Last fallback: use existing value if rate not found
+        financialValue = parseFloat(kpi.value?.toString() || '0') || 0
       }
+    } else {
+      // If no activity found, use existing value as fallback
+      financialValue = parseFloat(kpi.value?.toString() || '0') || 0
     }
 
     if (kpi.input_type === 'Actual') {
@@ -236,49 +252,47 @@ export function calculateProjectAnalytics(
     }
   }
   
+  // ✅ FIXED: Calculate Planned Value from ALL BOQ activities
+  // Planned Value = القيمة الكلية المخططة من جميع الأنشطة في BOQ (بغض النظر عن KPIs)
+  let totalPlannedValueFromAllActivities = 0
   for (const activity of projectActivities) {
-    // Get KPI data for this activity
-    const kpiKey = `${activity.project_code}-${activity.activity_name}`
-    const kpiInfo: KPIAggregate = kpiData[kpiKey] || {
-      totalActual: 0,
-      totalPlanned: 0,
-      totalActualValue: 0,
-      totalPlannedValue: 0
+    let activityPlannedValue = 0
+    
+    // ✅ Use calculateActivityRate for consistent calculation
+    const activityRate = calculateActivityRate(activity)
+    const rate = activityRate.rate
+    
+    // Calculate planned value = rate × planned units
+    const plannedUnits = activity.planned_units || 0
+    if (rate > 0 && plannedUnits > 0) {
+      activityPlannedValue = plannedUnits * rate
+    } else if (activity.planned_value && activity.planned_value > 0) {
+      // Use planned_value directly if available
+      activityPlannedValue = activity.planned_value
+    } else if (activity.total_value && activity.total_value > 0) {
+      // Fallback: use total_value
+      activityPlannedValue = activity.total_value
     }
     
-    // Use KPI actual if available, otherwise use BOQ actual
-    const actualUnits = kpiInfo.totalActual > 0 ? kpiInfo.totalActual : (activity.actual_units || 0)
-    const plannedUnits = kpiInfo.totalPlanned > 0 ? kpiInfo.totalPlanned : (activity.planned_units || 0)
-    
-    let rate = 0
-    if ((activity.total_units || 0) > 0 && (activity.total_value || 0)) {
-      rate = (activity.total_value || 0) / (activity.total_units || 0)
-    } else if ((activity.planned_units || 0) > 0 && (activity.total_value || 0)) {
-      rate = (activity.total_value || 0) / (activity.planned_units || 0)
-    } else if (kpiInfo.totalPlannedValue > 0 && kpiInfo.totalPlanned > 0) {
-      rate = kpiInfo.totalPlannedValue / kpiInfo.totalPlanned
-    }
-    
-    let plannedValue = plannedUnits * rate
-    let earnedValue = actualUnits * rate
-
-    if (kpiInfo.totalPlannedValue > 0) {
-      plannedValue = kpiInfo.totalPlannedValue
-    }
-
-    if (kpiInfo.totalActualValue > 0) {
-      earnedValue = kpiInfo.totalActualValue
-    }
-    
-    totalPlannedValue += plannedValue
-    totalEarnedValue += earnedValue
+    totalPlannedValueFromAllActivities += activityPlannedValue
   }
   
-  if (totalPlannedValueFromKPIs > 0) {
-    totalPlannedValue = totalPlannedValueFromKPIs
-  }
+  // ✅ FIXED: Planned Value = مجموع Planned Values من جميع الأنشطة في BOQ
+  // Always use all BOQ activities to ensure complete coverage
+  totalPlannedValue = totalPlannedValueFromAllActivities
+  
+  // ✅ Calculate Earned Value from KPIs (more accurate), fallback to BOQ if no KPIs
   if (totalEarnedValueFromKPIs > 0) {
+    // Use KPIs if available (most accurate)
     totalEarnedValue = totalEarnedValueFromKPIs
+  } else {
+    // Calculate from BOQ activities if no KPIs
+    for (const activity of projectActivities) {
+      const activityRate = calculateActivityRate(activity)
+      const actualUnits = activity.actual_units || 0
+      const earnedValue = actualUnits * activityRate.rate
+      totalEarnedValue += earnedValue
+    }
   }
   
   const totalRemainingValue = totalPlannedValue - totalEarnedValue
@@ -287,10 +301,14 @@ export function calculateProjectAnalytics(
   // تقليل التسجيل لتجنب البطء
   if (Math.random() < 0.02) { // تسجيل 2% فقط من المشاريع
     console.log('💰 Financial Metrics:', {
-      totalPlannedValue,
+      totalPlannedValue: 'Always from ALL BOQ activities',
+      totalPlannedValueFromAllActivities,
+      totalPlannedValueFromKPIs: 'Used only for reference',
       totalEarnedValue,
+      totalEarnedValueFromKPIs: totalEarnedValueFromKPIs > 0 ? totalEarnedValueFromKPIs : 'Calculated from BOQ',
       totalRemainingValue,
-      financialProgress: financialProgress.toFixed(1) + '%'
+      financialProgress: financialProgress.toFixed(1) + '%',
+      note: 'Planned Value = sum of all BOQ activities planned values (regardless of KPIs)'
     })
   }
   
@@ -301,10 +319,15 @@ export function calculateProjectAnalytics(
   // Calculate project progress using earned values
   const projectProgress = calculateProjectProgressFromKPI(projectActivities, kpiData)
   
-  // Use the calculated progress
+  // Use the calculated progress for weighted and average
   const averageActivityProgress = projectProgress.progress
   const weightedProgress = projectProgress.progress
-  const overallProgress = projectProgress.progress
+  
+  // ✅ FIXED: Overall Progress = (Earned Value / Contract Value) × 100
+  // Calculate overall progress based on contract value (will be defined later)
+  // We'll use project.contract_amount directly here
+  const contractAmount = project.contract_amount || 0
+  const overallProgress = contractAmount > 0 ? (totalEarnedValue / contractAmount) * 100 : projectProgress.progress
   
   // KPI Metrics
   const totalKPIs = projectKPIs.length
@@ -374,13 +397,16 @@ export function calculateProjectAnalytics(
     riskLevel = 'critical'
   }
   
-  // ✅ Use contract_amount if available, otherwise use sum of planned values
-  const totalContractValue = project.contract_amount || totalPlannedValue || 0
+  // ✅ FIXED: Contract Value should always show the original contract amount entered when creating the project
+  // This is the total contract value that the user manually entered
+  const totalContractValue = project.contract_amount || 0
   
   console.log('💵 Contract Value:', {
     fromProject: project.contract_amount,
-    fromBOQ: totalPlannedValue,
-    final: totalContractValue
+    fromAllActivities: totalPlannedValueFromAllActivities,
+    fromKPIs: totalPlannedValue,
+    final: totalContractValue,
+    note: 'Contract Value always uses project.contract_amount (original value entered when creating project)'
   })
   
   return {

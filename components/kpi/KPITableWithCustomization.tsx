@@ -15,22 +15,23 @@ interface KPITableWithCustomizationProps {
   onBulkDelete?: (ids: string[]) => void
 }
 
-// Default column configuration for KPI - Enhanced Standard View with Advanced Analytics
+// Default column configuration for KPI
 const defaultKPIColumns: ColumnConfig[] = [
   { id: 'select', label: 'Select', visible: true, order: 0, fixed: true },
-  { id: 'project_info', label: 'Project Info', visible: true, order: 1 },
-  { id: 'activity_details', label: 'Activity Details', visible: true, order: 2 },
-  { id: 'quantity_analysis', label: 'Quantity Analysis', visible: true, order: 3 },
-  { id: 'financial_analysis', label: 'Financial Analysis', visible: true, order: 4 },
-  { id: 'timeline_analysis', label: 'Timeline Analysis', visible: true, order: 5 },
-  { id: 'progress_analysis', label: 'Progress Analysis', visible: true, order: 6 },
-  { id: 'performance_score', label: 'Performance Score', visible: true, order: 7 },
-  { id: 'efficiency_metrics', label: 'Efficiency Metrics', visible: true, order: 8 },
-  { id: 'risk_assessment', label: 'Risk Assessment', visible: true, order: 9 },
-  { id: 'quality_indicators', label: 'Quality Indicators', visible: true, order: 10 },
-  { id: 'smart_insights', label: 'Smart Insights', visible: true, order: 11 },
-  { id: 'recommendations', label: 'Recommendations', visible: true, order: 12 },
-  { id: 'actions', label: 'Actions', visible: true, order: 13, fixed: true }
+  { id: 'activity_details', label: 'Activity Details', visible: true, order: 1 },
+  { id: 'date', label: 'Date', visible: true, order: 2 },
+  { id: 'input_type', label: 'Input Type', visible: true, order: 3 },
+  { id: 'unit', label: 'Unit', visible: true, order: 4 },
+  { id: 'quantities', label: 'Quantities', visible: true, order: 5 },
+  { id: 'value', label: 'Value', visible: true, order: 6 },
+  { id: 'virtual_value', label: 'Virtual Value', visible: true, order: 7 },
+  { id: 'activity_commencement_relation', label: 'Activity Commencement Relation', visible: true, order: 8 },
+  { id: 'activity_division', label: 'Activity Division', visible: true, order: 9 },
+  { id: 'activity_scope', label: 'Activity Scope', visible: true, order: 10 },
+  { id: 'key_dates', label: 'Key Dates', visible: true, order: 11 },
+  { id: 'cumulative_quantity', label: 'Cumulative Quantity', visible: true, order: 12 },
+  { id: 'cumulative_value', label: 'Cumulative Value', visible: true, order: 13 },
+  { id: 'actions', label: 'Actions', visible: true, order: 14, fixed: true }
 ]
 
 export function KPITableWithCustomization({ 
@@ -318,13 +319,33 @@ export function KPITableWithCustomization({
   const formatDate = (dateString: string) => {
     if (!dateString) return 'N/A'
     try {
-      return new Date(dateString).toLocaleDateString('ar-SA')
+      return new Date(dateString).toLocaleDateString('en-US')
     } catch {
       return 'Invalid Date'
     }
   }
 
-  // Render cell content based on column - Enhanced Standard View with Advanced Analytics
+  // Access raw KPI data from database row if available
+  const getKPIField = (kpi: KPIRecord, fieldName: string): any => {
+    const raw = (kpi as any).raw || kpi
+    return raw[fieldName] || raw[fieldName.replace(/\s+/g, ' ')] || (kpi as any)[fieldName] || ''
+  }
+
+  // Helper to get week/month/year from date
+  const getDateParts = (dateString: string) => {
+    if (!dateString) return { week: 'N/A', month: 'N/A', year: 'N/A' }
+    try {
+      const date = new Date(dateString)
+      const week = Math.ceil(date.getDate() / 7)
+      const month = date.toLocaleString('en-US', { month: 'short' })
+      const year = date.getFullYear()
+      return { week: `Week ${week}`, month, year: year.toString() }
+    } catch {
+      return { week: 'N/A', month: 'N/A', year: 'N/A' }
+    }
+  }
+
+  // Render cell content based on column
   const renderCell = (kpi: KPIRecord, column: ColumnConfig) => {
     switch (column.id) {
       case 'select':
@@ -337,311 +358,151 @@ export function KPITableWithCustomization({
           />
         )
       
-      case 'project_info':
-        const project = projects.find(p => p.project_code === kpi.project_code)
-        return (
-          <div className="space-y-1">
-            <div className="font-medium text-gray-900 dark:text-white">
-              {kpi.project_code}
-            </div>
-            <div className="text-sm text-gray-600 dark:text-gray-400">
-              {getProjectName(kpi.project_code || '')}
-            </div>
-            <div className="text-xs text-gray-500 dark:text-gray-500">
-              {project?.project_type || 'N/A'}
-            </div>
-            <div className="text-xs text-gray-500 dark:text-gray-500">
-              {project?.responsible_division || 'N/A'}
-            </div>
-          </div>
-        )
-      
       case 'activity_details':
+        const project = projects.find(p => p.project_code === kpi.project_code)
+        const projectFullName = getProjectName(kpi.project_code || '') || kpi.project_full_code || kpi.project_code || 'N/A'
         return (
           <div className="space-y-1">
+            <div className="text-xs text-gray-600 dark:text-gray-400">Project: {projectFullName}</div>
             <div className="font-medium text-gray-900 dark:text-white text-sm">
-              {kpi.activity_name}
+              {kpi.activity_name || 'N/A'}
             </div>
             <div className="text-xs text-gray-600 dark:text-gray-400">
-              {kpi.activity || 'N/A'}
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="text-xs px-2 py-1 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-400">
-                {kpi.unit}
-              </span>
-              <span className="text-xs px-2 py-1 rounded bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400">
-                {kpi.quantity}
-              </span>
-            </div>
-            <div className="text-xs text-gray-500 dark:text-gray-500">
-              {kpi.section || 'N/A'} • {kpi.zone || 'N/A'}
+              Zone #: {kpi.zone || getKPIField(kpi, 'Zone') || getKPIField(kpi, 'Zone Number') || 'N/A'}
             </div>
           </div>
         )
       
-      case 'quantity_analysis':
+      case 'date':
+        const activityDate = kpi.activity_date || kpi.target_date || kpi.actual_date || ''
+        return (
+          <div className="text-sm text-gray-900 dark:text-white">
+            {activityDate ? formatDate(activityDate) : 'N/A'}
+          </div>
+        )
+      
+      case 'input_type':
+        return (
+          <div className="flex items-center gap-2">
+            {kpi.input_type === 'Planned' ? (
+              <span className="px-2 py-1 text-xs font-medium rounded bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-400">
+                Planned
+              </span>
+            ) : (
+              <span className="px-2 py-1 text-xs font-medium rounded bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400">
+                Actual
+              </span>
+            )}
+          </div>
+        )
+      
+      case 'unit':
+        return (
+          <div className="text-sm text-gray-900 dark:text-white">
+            {kpi.unit || 'N/A'}
+          </div>
+        )
+      
+      case 'quantities':
         return (
           <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-600 dark:text-gray-400">Quantity</span>
-              <span className="text-sm font-medium text-gray-900 dark:text-white">
-                {kpi.quantity}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-600 dark:text-gray-400">Unit</span>
-              <span className="text-sm font-medium text-gray-900 dark:text-white">
-                {kpi.unit}
-              </span>
-            </div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Quantity: {kpi.quantity || 0}</div>
             {kpi.drilled_meters && (
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-600 dark:text-gray-400">Drilled Meters</span>
-                <span className="text-sm font-medium text-gray-900 dark:text-white">
-                  {kpi.drilled_meters}m
-                </span>
-              </div>
+              <div className="text-xs text-gray-600 dark:text-gray-400">Drilled Meters: {kpi.drilled_meters}m</div>
             )}
-            <div className="text-xs text-gray-500 dark:text-gray-500">
-              {kpi.recorded_by ? `Recorded by: ${kpi.recorded_by}` : 'Auto recorded'}
-            </div>
           </div>
         )
       
-      case 'financial_analysis':
+      case 'value':
+        const kpiValue = kpi.value || kpi.actual_value || kpi.planned_value || 0
+        return (
+          <div className="text-sm text-gray-900 dark:text-white">
+            ${kpiValue.toLocaleString()}
+          </div>
+        )
+      
+      case 'virtual_value':
+        const virtualMaterialValue = getKPIField(kpi, 'Virtual Material Value') || getKPIField(kpi, 'Virtual Material') || 0
+        const baseValue = kpi.value || kpi.actual_value || kpi.planned_value || 0
+        const virtualMaterialValueNum = parseFloat(String(virtualMaterialValue).replace(/,/g, '')) || 0
+        const baseValueNum = parseFloat(String(baseValue).replace(/,/g, '')) || 0
+        const totalVirtualValue = virtualMaterialValueNum + baseValueNum
         return (
           <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-600 dark:text-gray-400">Planned</span>
-              <span className="text-sm font-medium text-gray-900 dark:text-white">
-                {kpi.planned_value ? `$${kpi.planned_value.toLocaleString()}` : 'N/A'}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-600 dark:text-gray-400">Actual</span>
-              <span className="text-sm font-medium text-gray-900 dark:text-white">
-                {kpi.actual_value ? `$${kpi.actual_value.toLocaleString()}` : 'N/A'}
-              </span>
-            </div>
-            {kpi.variance_percentage && (
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-600 dark:text-gray-400">Variance</span>
-                <span className={`text-sm font-medium ${
-                  kpi.variance_percentage >= 0 ? 'text-green-600' : 'text-red-600'
-                }`}>
-                  {kpi.variance_percentage.toFixed(1)}%
-                </span>
-              </div>
-            )}
-            <div className="text-xs text-gray-500 dark:text-gray-500">
-              {               kpi.variance_percentage && kpi.variance_percentage > 20 ? '🚨 Major budget overrun' :
-               kpi.variance_percentage && kpi.variance_percentage > 5 ? '⚠️ Budget overrun' :
-               kpi.variance_percentage && kpi.variance_percentage > -5 ? '✅ Within budget' : '💎 Budget savings'}
-            </div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Virtual Material: ${virtualMaterialValueNum.toLocaleString()}</div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Value: ${baseValueNum.toLocaleString()}</div>
+            <div className="text-sm font-medium text-gray-900 dark:text-white">Total: ${totalVirtualValue.toLocaleString()}</div>
           </div>
         )
       
-      case 'timeline_analysis':
+      case 'activity_commencement_relation':
+        const activityTiming = kpi.activity_timing || getKPIField(kpi, 'Activity Timing') || 'post-commencement'
+        return (
+          <div className="flex items-center gap-2">
+            <span className={`px-2 py-1 text-xs font-medium rounded ${
+              activityTiming === 'pre-commencement' 
+                ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-300' 
+                : activityTiming === 'post-completion'
+                ? 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300'
+                : 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300'
+            }`}>
+              {activityTiming === 'pre-commencement' ? 'Pre-Commencement' : 
+               activityTiming === 'post-completion' ? 'Post-Completion' : 'Post-Commencement'}
+            </span>
+          </div>
+        )
+      
+      case 'activity_division':
+        const activityDiv = kpi.activity || kpi.section || getKPIField(kpi, 'Activity Division') || 'N/A'
+        return (
+          <div className="text-sm text-gray-900 dark:text-white">
+            {activityDiv}
+          </div>
+        )
+      
+      case 'activity_scope':
+        const activityScope = getKPIField(kpi, 'Activity Scope') || getKPIField(kpi, 'Scope') || kpi.section || 'N/A'
+        return (
+          <div className="text-sm text-gray-900 dark:text-white">
+            {activityScope}
+          </div>
+        )
+      
+      case 'key_dates':
+        const dateForParts = kpi.activity_date || kpi.target_date || kpi.actual_date || ''
+        const dateParts = getDateParts(dateForParts)
         return (
           <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Calendar className="h-3 w-3 text-gray-400" />
-              <span className="text-xs text-gray-600 dark:text-gray-400">Target</span>
-              <span className="text-sm font-medium text-gray-900 dark:text-white">
-                {formatDate(kpi.target_date || '')}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Calendar className="h-3 w-3 text-gray-400" />
-              <span className="text-xs text-gray-600 dark:text-gray-400">Actual</span>
-              <span className="text-sm font-medium text-gray-900 dark:text-white">
-                {formatDate(kpi.actual_date || '')}
-              </span>
-            </div>
-            {kpi.target_date && kpi.actual_date && (
-              <div className="text-xs text-gray-500 dark:text-gray-500">
-                {(() => {
-                  const targetDate = new Date(kpi.target_date)
-                  const actualDate = new Date(kpi.actual_date)
-                  const daysDiff = Math.ceil((actualDate.getTime() - targetDate.getTime()) / (1000 * 60 * 60 * 24))
-                  return daysDiff > 0 ? `${daysDiff} days late` : `${Math.abs(daysDiff)} days early`
-                })()}
-              </div>
-            )}
-            <div className="text-xs text-gray-500 dark:text-gray-500">
-              {kpi.target_date && kpi.actual_date && (() => {
-                const targetDate = new Date(kpi.target_date)
-                const actualDate = new Date(kpi.actual_date)
-                const daysDiff = Math.ceil((actualDate.getTime() - targetDate.getTime()) / (1000 * 60 * 60 * 24))
-                return daysDiff > 30 ? '🚨 Major delay' : daysDiff > 7 ? '⚠️ Moderate delay' : daysDiff > 0 ? '📅 Minor delay' : '🎯 On time'
-              })()}
-            </div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Week: {dateParts.week}</div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Month: {dateParts.month}</div>
+            <div className="text-sm font-medium text-gray-900 dark:text-white">Year: {dateParts.year}</div>
           </div>
         )
       
-      case 'progress_analysis':
-        return (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Progress</span>
-              <span className="text-sm font-bold text-gray-900 dark:text-white">
-                {kpi.progress_percentage ? `${kpi.progress_percentage.toFixed(1)}%` : 'N/A'}
-              </span>
-            </div>
-            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-              <div 
-                className="h-2 rounded-full bg-blue-500"
-                style={{ width: `${kpi.progress_percentage || 0}%` }}
-              ></div>
-            </div>
-            <div className="text-xs text-gray-500 dark:text-gray-500">
-              {kpi.progress_percentage && kpi.progress_percentage >= 100 ? 'Completed' :
-               kpi.progress_percentage && kpi.progress_percentage >= 75 ? 'Near completion' :
-               kpi.progress_percentage && kpi.progress_percentage >= 50 ? 'In progress' :
-               kpi.progress_percentage && kpi.progress_percentage >= 25 ? 'Started' : 'Not started'}
-            </div>
-          </div>
-        )
-      
-      case 'performance_score':
-        const performanceScore = calculateAdvancedPerformanceScore(kpi)
-        return (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Performance Score</span>
-              <span className={`text-sm font-bold ${
-                performanceScore >= 80 ? 'text-green-600' :
-                performanceScore >= 60 ? 'text-yellow-600' : 'text-red-600'
-              }`}>
-                {performanceScore.toFixed(0)}
-              </span>
-            </div>
-            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-              <div 
-                className={`h-2 rounded-full ${
-                  performanceScore >= 80 ? 'bg-green-500' :
-                  performanceScore >= 60 ? 'bg-yellow-500' : 'bg-red-500'
-                }`}
-                style={{ width: `${performanceScore}%` }}
-              ></div>
-            </div>
-            <div className="text-xs text-gray-500 dark:text-gray-500">
-              {performanceScore >= 80 ? 'Excellent' : performanceScore >= 60 ? 'Good' : 'Needs improvement'}
-            </div>
-          </div>
-        )
-      
-      case 'efficiency_metrics':
-        const efficiencyScore = calculateAdvancedEfficiency(kpi)
-        return (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Efficiency</span>
-              <span className={`text-sm font-bold ${
-                efficiencyScore >= 80 ? 'text-green-600' :
-                efficiencyScore >= 60 ? 'text-yellow-600' : 'text-red-600'
-              }`}>
-                {efficiencyScore.toFixed(0)}
-              </span>
-            </div>
-            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-              <div 
-                className={`h-2 rounded-full ${
-                  efficiencyScore >= 80 ? 'bg-green-500' :
-                  efficiencyScore >= 60 ? 'bg-yellow-500' : 'bg-red-500'
-                }`}
-                style={{ width: `${efficiencyScore}%` }}
-              ></div>
-            </div>
-            <div className="text-xs text-gray-500 dark:text-gray-500">
-              {efficiencyScore >= 80 ? 'High efficiency' : efficiencyScore >= 60 ? 'Good efficiency' : 'Low efficiency'}
-            </div>
-          </div>
-        )
-      
-      case 'risk_assessment':
-        const riskLevel = calculateAdvancedRiskLevel(kpi)
+      case 'cumulative_quantity':
+        const dailyCumulative = getKPIField(kpi, 'Daily Cumulative') || getKPIField(kpi, 'Daily Cumulative Quantity') || 0
+        const weeklyCumulative = getKPIField(kpi, 'Weekly Cumulative') || getKPIField(kpi, 'Weekly Cumulative Quantity') || 0
+        const monthlyCumulative = getKPIField(kpi, 'Monthly Cumulative') || getKPIField(kpi, 'Monthly Cumulative Quantity') || 0
         return (
           <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <div className={`w-3 h-3 rounded-full ${
-                riskLevel.color === 'red' ? 'bg-red-500' :
-                riskLevel.color === 'yellow' ? 'bg-yellow-500' :
-                riskLevel.color === 'green' ? 'bg-green-500' : 'bg-blue-500'
-              }`}></div>
-              <span className={`text-sm font-medium capitalize ${
-                riskLevel.color === 'red' ? 'text-red-600' :
-                riskLevel.color === 'yellow' ? 'text-yellow-600' :
-                riskLevel.color === 'green' ? 'text-green-600' : 'text-blue-600'
-              }`}>
-                {riskLevel.level === 'high' ? 'High risk' :
-                 riskLevel.level === 'medium' ? 'Medium risk' :
-                 riskLevel.level === 'low' ? 'Low risk' : 'Minimal risk'}
-              </span>
-            </div>
-            <div className="text-xs text-gray-500 dark:text-gray-500">
-              Risk score: {riskLevel.score.toFixed(0)}%
-            </div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Daily: {dailyCumulative}</div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Weekly: {weeklyCumulative}</div>
+            <div className="text-sm font-medium text-gray-900 dark:text-white">Monthly: {monthlyCumulative}</div>
           </div>
         )
       
-      case 'quality_indicators':
+      case 'cumulative_value':
+        const dailyCumulativeValue = getKPIField(kpi, 'Daily Cumulative Value') || 0
+        const weeklyCumulativeValue = getKPIField(kpi, 'Weekly Cumulative Value') || 0
+        const monthlyCumulativeValue = getKPIField(kpi, 'Monthly Cumulative Value') || 0
+        const dailyCumulativeValueNum = parseFloat(String(dailyCumulativeValue).replace(/,/g, '')) || 0
+        const weeklyCumulativeValueNum = parseFloat(String(weeklyCumulativeValue).replace(/,/g, '')) || 0
+        const monthlyCumulativeValueNum = parseFloat(String(monthlyCumulativeValue).replace(/,/g, '')) || 0
         return (
           <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              {kpi.progress_percentage && kpi.progress_percentage >= 90 ? (
-                <CheckCircle className="h-4 w-4 text-green-500" />
-              ) : kpi.progress_percentage && kpi.progress_percentage >= 75 ? (
-                <Clock className="h-4 w-4 text-yellow-500" />
-              ) : (
-                <AlertCircle className="h-4 w-4 text-red-500" />
-              )}
-              <span className="text-sm font-medium text-gray-900 dark:text-white">
-                {kpi.progress_percentage && kpi.progress_percentage >= 90 ? 'Excellent' :
-                 kpi.progress_percentage && kpi.progress_percentage >= 75 ? 'Good' :
-                 kpi.progress_percentage && kpi.progress_percentage >= 50 ? 'Average' : 'Needs improvement'}
-              </span>
-            </div>
-            <div className="text-xs text-gray-500 dark:text-gray-500">
-              {kpi.notes || 'No notes'}
-            </div>
-            <div className="text-xs text-gray-500 dark:text-gray-500">
-              {kpi.progress_percentage && kpi.progress_percentage >= 90 ? '⭐ High quality' :
-               kpi.progress_percentage && kpi.progress_percentage >= 75 ? '📊 Good quality' :
-               kpi.progress_percentage && kpi.progress_percentage >= 50 ? '⚠️ Average quality' : '🚨 Low quality'}
-            </div>
-          </div>
-        )
-      
-      case 'smart_insights':
-        const insights = getSmartInsights(kpi)
-        return (
-          <div className="space-y-1 max-w-xs">
-            {insights.map((insight, index) => (
-              <div key={index} className={`text-xs px-2 py-1 rounded ${
-                insight.type === 'success' ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200' :
-                insight.type === 'warning' ? 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200' :
-                insight.type === 'error' ? 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200' :
-                'bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200'
-              }`}>
-                {insight.icon} {insight.message}
-              </div>
-            ))}
-          </div>
-        )
-      
-      case 'recommendations':
-        const recommendations = getSmartRecommendations(kpi)
-        return (
-          <div className="space-y-1 max-w-xs">
-            {recommendations.map((rec, index) => (
-              <div key={index} className={`text-xs px-2 py-1 rounded ${
-                rec.type === 'action' ? 'bg-orange-50 dark:bg-orange-900/20 text-orange-800 dark:text-orange-200' :
-                'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200'
-              }`}>
-                {rec.icon} {rec.message}
-              </div>
-            ))}
+            <div className="text-xs text-gray-600 dark:text-gray-400">Daily: ${dailyCumulativeValueNum.toLocaleString()}</div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Weekly: ${weeklyCumulativeValueNum.toLocaleString()}</div>
+            <div className="text-sm font-medium text-gray-900 dark:text-white">Monthly: ${monthlyCumulativeValueNum.toLocaleString()}</div>
           </div>
         )
       
@@ -669,8 +530,8 @@ export function KPITableWithCustomization({
       
       default:
         return (
-          <span className="text-gray-500 dark:text-gray-400">
-            {kpi[column.id as keyof KPIRecord] as string}
+          <span className="text-gray-500 dark:text-gray-400 text-sm">
+            N/A
           </span>
         )
     }
@@ -726,7 +587,7 @@ export function KPITableWithCustomization({
               {visibleColumns.map((column) => (
                 <th
                   key={column.id}
-                  className="px-4 py-3 text-left text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800"
+                  className="px-6 py-4 text-left text-base font-semibold text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 min-w-[120px]"
                 >
                   {column.label}
                 </th>
@@ -742,7 +603,7 @@ export function KPITableWithCustomization({
                 {visibleColumns.map((column) => (
                   <td
                     key={column.id}
-                    className="px-4 py-3 text-sm"
+                    className="px-6 py-4 text-base"
                   >
                     {renderCell(kpi, column)}
                   </td>

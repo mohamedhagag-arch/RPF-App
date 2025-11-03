@@ -41,38 +41,18 @@ export default function AuthenticatedLayout({
   }, [])
 
   useEffect(() => {
-    // ✅ FIX: More tolerant session handling - don't redirect immediately
+    // ✅ FIXED: Faster timeout - 5 seconds max wait
     if (mounted && !loading && !user) {
-      // Check if this is a reload scenario
-      const isReload = typeof window !== 'undefined' && (
-        window.performance?.navigation?.type === 1 || 
-        sessionStorage.getItem('auth_reload_check') === 'true' ||
-        document.referrer === window.location.href ||
-        window.location.href.includes('localhost:3000') ||
-        window.location.href.includes('127.0.0.1')
-      )
+      console.log('🔄 Layout: No user found, waiting 5 seconds for session recovery...')
       
-      if (isReload) {
-        console.log('🔄 Layout: Detected reload, waiting for session recovery...')
-        // Clear the reload flag
-        sessionStorage.removeItem('auth_reload_check')
-        // Wait longer for session to recover
-        setTimeout(() => {
-          if (!user) {
-            console.log('⚠️ Layout: No session found after reload, redirecting to login')
-            router.push('/')
-          }
-        }, 45000) // Increased timeout to 45 seconds
-      } else {
-        // For new tabs or navigation, wait a bit before redirecting
-        console.log('🔄 Layout: New navigation detected, waiting for session...')
-        setTimeout(() => {
-          if (!user) {
-            console.log('⚠️ Layout: No session found, redirecting to login')
-            router.push('/')
-          }
-        }, 20000) // Wait 20 seconds before redirecting
-      }
+      const timeoutId = setTimeout(() => {
+        if (!user) {
+          console.log('⚠️ Layout: No session found after 5 seconds, redirecting to login')
+          router.push('/')
+        }
+      }, 5000) // ✅ FIXED: Reduced from 45s/20s to 5 seconds
+      
+      return () => clearTimeout(timeoutId)
     }
   }, [user, loading, mounted, router])
 

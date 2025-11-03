@@ -631,7 +631,11 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         'Total Drilling Meters': activityData.total_drilling_meters?.toString() || '0',
         'Calendar Duration': activityData.calendar_duration?.toString() || '0',
         'Project Full Name': activityData.project_full_name || '',
-        'Project Status': activityData.project_status || 'upcoming'
+        'Project Status': activityData.project_status || 'upcoming',
+        // ✅ Activity Timing
+        'Activity Timing': activityData.activity_timing || 'post-commencement',
+        'Has Value': activityData.has_value !== undefined ? (activityData.has_value ? 'TRUE' : 'FALSE') : 'TRUE',
+        'Affects Timeline': activityData.affects_timeline !== undefined ? (activityData.affects_timeline ? 'TRUE' : 'FALSE') : 'FALSE'
       }
 
       console.log('📦 Database Format:', JSON.stringify(dbData, null, 2))
@@ -1011,48 +1015,6 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
             </div>
             <p className="text-gray-600 dark:text-gray-300 mt-2">Manage and track project activities and quantities</p>
           </div>
-          
-          {/* Rate-based Performance Summary */}
-          {activityRates.length > 0 && (
-            <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-lg p-6 border border-green-200 dark:border-green-700">
-              <div className="flex items-center gap-2 mb-4">
-                <ClipboardList className="h-5 w-5 text-green-600" />
-                <h3 className="text-lg font-semibold text-green-900 dark:text-green-100">Rate-Based Performance</h3>
-              </div>
-              
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-green-900 dark:text-green-100">
-                    ${activityRates.reduce((sum, rate) => sum + rate.plannedValue, 0).toLocaleString()}
-                  </div>
-                  <div className="text-sm text-green-700 dark:text-green-300">Total Planned Value</div>
-                </div>
-                
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                    ${activityRates.reduce((sum, rate) => sum + rate.earnedValue, 0).toLocaleString()}
-                  </div>
-                  <div className="text-sm text-green-700 dark:text-green-300">Total Earned Value</div>
-                </div>
-                
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
-                    {activityRates.length > 0 
-                      ? (activityRates.reduce((sum, rate) => sum + rate.progress, 0) / activityRates.length).toFixed(1)
-                      : 0}%
-                  </div>
-                  <div className="text-sm text-green-700 dark:text-green-300">Average Progress</div>
-                </div>
-                
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
-                    {activityRates.filter(rate => rate.progress >= 80).length}/{activityRates.length}
-                  </div>
-                  <div className="text-sm text-green-700 dark:text-green-300">High Progress (≥80%)</div>
-                </div>
-              </div>
-            </div>
-          )}
           
           {/* Add New Activity Button */}
           {guard.hasAccess('boq.create') && (

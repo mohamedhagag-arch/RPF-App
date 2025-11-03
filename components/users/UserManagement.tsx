@@ -388,7 +388,18 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
 
       if (error) throw error
 
+      // ✅ تحديث فوري للـ state قبل إعادة الجلب
+      setUsers(prevUsers => 
+        prevUsers.map(user => 
+          user.id === id 
+            ? { ...user, ...userData }
+            : user
+        )
+      )
+
       setEditingUser(null)
+      
+      // إعادة جلب البيانات للتأكد من التزامن
       fetchUsers()
     } catch (error: any) {
       setError(error.message)
@@ -459,6 +470,24 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
       console.log('📋 Updated permissions data:', data[0]?.permissions)
       console.log('📊 Permissions count:', data[0]?.permissions?.length)
       console.log('🔍 Updated user full data:', data[0])
+
+      // ✅ تحديث فوري للـ state
+      if (data && data[0]) {
+        setUsers(prevUsers => 
+          prevUsers.map(user => 
+            user.id === userId 
+              ? { ...user, permissions: permissions, custom_permissions_enabled: customEnabled, updated_at: data[0].updated_at }
+              : user
+          )
+        )
+        
+        // تحديث managingPermissionsUser إذا كان نفس المستخدم
+        setManagingPermissionsUser(prev => 
+          prev && prev.id === userId
+            ? { ...prev, permissions: permissions, custom_permissions_enabled: customEnabled, updated_at: data[0].updated_at }
+            : prev
+        )
+      }
       console.log('🔍 Updated user custom_permissions_enabled:', data[0]?.custom_permissions_enabled)
       console.log('🔍 Updated user updated_at:', data[0]?.updated_at)
       
@@ -1038,15 +1067,51 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
               const newRoleKey = roleData.name.toLowerCase().replace(/\s+/g, '_')
               DEFAULT_ROLE_PERMISSIONS[newRoleKey] = roleData.permissions
               
-              console.log('✅ New role added successfully:', {
+              // ✅ Save to database using Supabase
+              const roleDbData = {
+                role_key: newRoleKey,
+                role_name: roleData.name,
+                description: roleData.description,
+                permissions: roleData.permissions,
+                created_by: appUser?.id || null
+              }
+
+              // Check if role already exists
+              const { data: existingRole } = await (supabase as any)
+                .from('custom_roles')
+                .select('id')
+                .eq('role_key', newRoleKey)
+                .single()
+
+              if (existingRole) {
+                // Update existing role
+                const { error } = await (supabase as any)
+                  .from('custom_roles')
+                  .update({
+                    role_name: roleData.name,
+                    description: roleData.description,
+                    permissions: roleData.permissions,
+                    updated_at: new Date().toISOString()
+                  })
+                  .eq('role_key', newRoleKey)
+
+                if (error) throw error
+              } else {
+                // Insert new role
+                const { error } = await (supabase as any)
+                  .from('custom_roles')
+                  .insert([roleDbData])
+
+                if (error) throw error
+              }
+              
+              console.log('✅ New role saved to database successfully:', {
                 key: newRoleKey,
                 name: roleData.name,
                 description: roleData.description,
-                permissionsCount: roleData.permissions.length
+                permissionsCount: roleData.permissions.length,
+                savedToDatabase: true
               })
-              
-              // TODO: Save to database if needed
-              // You can add database save logic here
               
             } catch (error) {
               console.error('❌ Error adding role:', error)

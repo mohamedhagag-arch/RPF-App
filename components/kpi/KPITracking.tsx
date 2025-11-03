@@ -18,7 +18,6 @@ import { EnhancedSmartActualKPIForm } from '@/components/kpi/EnhancedSmartActual
 import { OptimizedKPITable } from '@/components/kpi/OptimizedKPITable'
 import { KPITableWithCustomization } from '@/components/kpi/KPITableWithCustomization'
 import { syncBOQFromKPI } from '@/lib/boqKpiSync'
-import { calculateActivityRate, ActivityRate } from '@/lib/rateCalculator'
 import { calculateActivityProgress, ActivityProgress } from '@/lib/progressCalculator'
 import { autoSaveOnKPIUpdate } from '@/lib/autoCalculationSaver'
 import { UnifiedFilter, FilterState } from '@/components/ui/UnifiedFilter'
@@ -46,7 +45,6 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   const [kpis, setKpis] = useState<ProcessedKPI[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [activities, setActivities] = useState<BOQActivity[]>([])
-  const [activityRates, setActivityRates] = useState<ActivityRate[]>([])
   const [activityProgresses, setActivityProgresses] = useState<ActivityProgress[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -71,6 +69,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([])
   const [currentPage, setCurrentPage] = useState(1)
   const [totalKPICount, setTotalKPICount] = useState(0)
+  const [pendingKPICount, setPendingKPICount] = useState(0) // Count of KPIs pending approval
   const itemsPerPage = 50 // Show 50 KPIs per page
   
   const supabase = getSupabaseClient()
@@ -85,6 +84,72 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     if (newFilters.project !== filters.project) {
       console.log('🔄 Project filter changed to:', newFilters.project || 'none')
       fetchData(newFilters.project)
+    }
+  }
+
+  // Fetch count of KPIs pending approval
+  const fetchPendingKPICount = async () => {
+    try {
+      // Fetch ALL Actual KPIs to count those without approval
+      let allData: any[] = []
+      let offset = 0
+      const chunkSize = 1000
+      let hasMore = true
+      
+      while (hasMore) {
+        const { data: chunkData, error: chunkError } = await supabase
+          .from(TABLES.KPI)
+          .select('*')
+          .eq('Input Type', 'Actual')
+          .order('created_at', { ascending: false })
+          .range(offset, offset + chunkSize - 1)
+        
+        if (chunkError) {
+          console.error('Error fetching pending KPIs count:', chunkError)
+          break
+        }
+        
+        if (!chunkData || chunkData.length === 0) {
+          hasMore = false
+          break
+        }
+        
+        allData = [...allData, ...chunkData]
+        
+        if (chunkData.length < chunkSize) {
+          hasMore = false
+        } else {
+          offset += chunkSize
+        }
+      }
+      
+      // Filter to only those that need approval
+      const pendingCount = allData.filter((row: any) => {
+        const approvalStatus = row['Approval Status']
+        const notes = row['Notes'] || ''
+        
+        // Normalize approval status
+        let approvalStatusStr = ''
+        if (approvalStatus !== null && approvalStatus !== undefined && approvalStatus !== '') {
+          approvalStatusStr = String(approvalStatus).toLowerCase().trim()
+        }
+        
+        // Check Notes field for approval status (fallback)
+        const notesStr = String(notes)
+        const notesHasApproved = notesStr.includes('APPROVED:') && notesStr.includes(':approved:')
+        
+        // Exclude if explicitly approved
+        const isExplicitlyApproved = (approvalStatusStr === 'approved') || notesHasApproved
+        
+        // Include if NOT approved
+        return !isExplicitlyApproved
+      }).length
+      
+      setPendingKPICount(pendingCount)
+      console.log(`📊 Pending KPIs count: ${pendingCount}`)
+    } catch (err: any) {
+      console.error('Error fetching pending KPIs count:', err)
+      setPendingKPICount(0)
     }
   }
 
@@ -229,38 +294,81 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       
       // Map and process KPI data
       const mappedKPIs = (kpisData || []).map(mapKPIFromDB)
-      const processedKPIs = mappedKPIs.map(processKPIRecord)
+      
+      // ✅ Filter: For Actual KPIs, only show approved ones (or old ones without approval status)
+      // New Actual KPIs must be approved to appear in main KPI page
+      // Planned KPIs always show (they don't need approval to view)
+      const dateThreshold = new Date()
+      dateThreshold.setDate(dateThreshold.getDate() - 90)
+      
+      const filteredKPIs = mappedKPIs.filter((kpi: any) => {
+        // If it's Planned KPI, always show (no approval needed to view)
+        if (kpi.input_type === 'Planned') return true
+        
+        // For Actual KPIs: Check if this is a new KPI (created in last 90 days)
+        const createdAt = new Date(kpi.created_at || '2000-01-01')
+        const isNewKPI = createdAt >= dateThreshold
+        
+        if (isNewKPI) {
+          // New Actual KPIs: Only show if approved
+          // ✅ IMPORTANT: Check raw row data for Approval Status (mapKPIFromDB doesn't include it)
+          const rawRow = (kpisData || []).find((r: any) => r.id === kpi.id)
+          if (!rawRow) {
+            console.warn(`⚠️ Could not find raw row for KPI ${kpi.id} - showing anyway`)
+            return true // Show if we can't find raw row
+          }
+          
+          // Check Approval Status column from raw row
+          const dbApprovalStatus = rawRow['Approval Status']
+          let approvalStatusStr = ''
+          if (dbApprovalStatus !== null && dbApprovalStatus !== undefined && dbApprovalStatus !== '') {
+            approvalStatusStr = String(dbApprovalStatus).toLowerCase().trim()
+          }
+          
+          // Check Notes field for approval status (fallback)
+          const notes = rawRow['Notes'] || kpi.notes || ''
+          const notesStr = String(notes)
+          const notesHasApproved = notesStr.includes('APPROVED:') && notesStr.includes(':approved:')
+          
+          // Approved if Approval Status = 'approved' OR Notes contains 'APPROVED:approved:'
+          const isApproved = (approvalStatusStr === 'approved') || notesHasApproved
+          
+          if (!isApproved) {
+            console.log(`🚫 Filtering out unapproved KPI ${kpi.id} (Status: ${approvalStatusStr || 'null'}, Notes: ${notesHasApproved ? 'has approval' : 'no approval'})`)
+          }
+          
+          return isApproved
+        } else {
+          // Old Actual KPIs: Show all (they were created before approval system)
+          return true
+        }
+      })
+      
+      const processedKPIs = filteredKPIs.map(processKPIRecord)
       
       console.log('📊 Setting KPIs:', processedKPIs.length)
       console.log('🔍 KPI IDs:', processedKPIs.map((k: any) => k.id))
       
       setKpis(processedKPIs)
       
-      // Calculate Rate-based metrics for activities
+      // Calculate progress for all activities
       try {
-        console.log('📊 Calculating Rate-based metrics for activities...')
-        
-        // Calculate rates for all activities
-        const rates = activities.map(activity => 
-          calculateActivityRate(activity)
-        )
-        setActivityRates(rates)
-        
-        // Calculate progress for all activities
         const progresses = activities.map(activity => 
           calculateActivityProgress(activity, processedKPIs)
         )
         setActivityProgresses(progresses)
-        
-        console.log('✅ Rate-based metrics calculated successfully')
-      } catch (rateError) {
-        console.log('⚠️ Rate calculation not available:', rateError)
+        console.log('✅ Activity progress calculated successfully')
+      } catch (progressError) {
+        console.log('⚠️ Progress calculation not available:', progressError)
       }
       
       // Verify KPIs were set
       setTimeout(() => {
         console.log('🔍 Verification: KPIs set successfully, count:', processedKPIs.length)
       }, 100)
+      
+      // Fetch pending KPIs count
+      fetchPendingKPICount()
     } catch (error: any) {
       console.error('❌ KPITracking: Error:', error)
       setError(error.message)
@@ -299,6 +407,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       // إعادة تحميل البيانات إذا كان الجدول ذو صلة
       if (tableName === TABLES.KPI) {
         console.log(`🔄 KPI: Reloading KPIs due to ${tableName} update...`)
+        fetchPendingKPICount() // Update pending count
         if (selectedProjects.length > 0) {
           fetchData(selectedProjects)
         } else {
@@ -334,6 +443,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     async function fetchInitialData() {
       try {
         await getTotalCount()
+        await fetchPendingKPICount() // Fetch pending KPIs count
         await fetchData() // Fetch projects/activities/KPIs - has its own finally block
       } catch (error) {
         console.error('❌ Error in KPI initial load:', error)
@@ -373,7 +483,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       
       // If Value is not provided, calculate it from activity rate
       if (!calculatedValue || calculatedValue === 0) {
-        // Find related activity to get rate
+        // Find related activity to get rate and activity_timing
         const relatedActivity = activities.find((a: any) => 
           a.activity_name === activityName && 
           (a.project_code === projectCode || a.project_full_code === projectCode)
@@ -391,6 +501,11 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
             calculatedValue = quantity * rate
             console.log(`💰 Calculated Value: ${quantity} × ${rate} = ${calculatedValue}`)
           }
+          
+          // ✅ Copy Activity Timing from BOQ Activity to KPI
+          if (relatedActivity.activity_timing) {
+            console.log(`⏰ Copying Activity Timing from BOQ: ${relatedActivity.activity_timing}`)
+          }
         }
         
         // If still no value, use quantity as fallback (1:1 ratio)
@@ -401,14 +516,16 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       }
       
       // Map to database format (WITH Input Type in unified table)
-      const dbData = {
+      const inputType = kpiData['Input Type'] || kpiData.input_type || 'Planned'
+      
+      const dbData: any = {
         'Project Full Code': projectCode,
         'Project Code': kpiData['Project Code'] || kpiData.project_code || '',
         'Project Sub Code': kpiData['Project Sub Code'] || kpiData.project_sub_code || '',
         'Activity Name': activityName,
         'Quantity': quantity.toString(),
         'Value': calculatedValue.toString(), // ✅ Include calculated Value
-        'Input Type': kpiData['Input Type'] || kpiData.input_type || 'Planned', // ✅ Required in unified table
+        'Input Type': inputType, // ✅ Required in unified table
         'Target Date': kpiData['Target Date'] || kpiData.target_date || '',
         'Actual Date': kpiData['Actual Date'] || kpiData.actual_date || '',
         'Activity Date': kpiData['Activity Date'] || kpiData.activity_date || kpiData['Target Date'] || kpiData['Actual Date'] || kpiData.target_date || kpiData.actual_date || '',
@@ -417,6 +534,27 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         'Zone Number': kpiData['Zone Number'] || kpiData.zone_number || '',
         'Day': kpiData['Day'] || kpiData.day || '',
         'Drilled Meters': kpiData['Drilled Meters'] || kpiData.drilled_meters?.toString() || '0'
+      }
+      
+      // ✅ Find related activity to copy Activity Timing if not provided
+      if (!dbData['Activity Timing'] && !kpiData['Activity Timing'] && !kpiData.activity_timing) {
+        const relatedActivity = activities.find((a: any) => 
+          (a['Activity Name'] || a.activity_name) === activityName && 
+          ((a['Project Code'] || a.project_code) === projectCode || (a['Project Full Code'] || a.project_full_code) === projectCode)
+        )
+        
+        if (relatedActivity && relatedActivity.activity_timing) {
+          dbData['Activity Timing'] = relatedActivity.activity_timing
+          console.log(`✅ Copied Activity Timing from BOQ Activity: ${dbData['Activity Timing']}`)
+        }
+      } else if (kpiData['Activity Timing'] || kpiData.activity_timing) {
+        dbData['Activity Timing'] = kpiData['Activity Timing'] || kpiData.activity_timing
+      }
+      
+      // ✅ AUTO-APPROVE: If this is a Planned KPI, automatically set Approval Status to 'approved'
+      if (inputType === 'Planned') {
+        dbData['Approval Status'] = 'approved'
+        console.log('✅ Auto-approving Planned KPI on creation')
       }
 
       console.log('📦 Database format:', dbData)
@@ -433,6 +571,28 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       }
       
       console.log('Created data:', data)
+      
+      // 🔔 SEND NOTIFICATIONS: Notify Planning department when KPI is created
+      if (kpiData['Input Type'] === 'Actual' || kpiData.input_type === 'Actual') {
+        try {
+          const { kpiNotificationService } = await import('@/lib/kpiNotificationService')
+          await kpiNotificationService.notifyKPICreated(
+            {
+              id: (data as any).id,
+              project_code: kpiData['Project Code'] || kpiData.project_code,
+              project_full_code: kpiData['Project Full Code'] || kpiData.project_full_code,
+              activity_name: kpiData['Activity Name'] || kpiData.activity_name,
+              quantity: quantity,
+              input_type: inputType
+            },
+            guard.user?.id || ''
+          )
+          console.log('✅ KPI notifications sent')
+        } catch (notifError) {
+          console.error('⚠️ Error sending KPI notifications:', notifError)
+          // Don't fail the KPI creation if notification fails
+        }
+      }
       
       // 🔄 AUTO-SYNC: If this is Actual, update BOQ
       if (kpiData['Input Type'] === 'Actual' || kpiData.input_type === 'Actual') {
@@ -903,8 +1063,62 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   // Total quantities
   const totalPlannedQty = plannedKPIs.reduce((sum: number, k: ProcessedKPI) => sum + k.quantity, 0)
   const totalActualQty = actualKPIs.reduce((sum: number, k: ProcessedKPI) => sum + k.quantity, 0)
-  const totalPlannedValue = plannedKPIs.reduce((sum: number, k: ProcessedKPI) => sum + (k.planned_value ?? (k.input_type === 'Planned' ? k.value ?? 0 : 0)), 0)
-  const totalActualValue = actualKPIs.reduce((sum: number, k: ProcessedKPI) => sum + (k.actual_value ?? (k.input_type === 'Actual' ? k.value ?? 0 : 0)), 0)
+  
+  // ✅ FIXED: Calculate Planned Value = Rate × Quantity for each Planned KPI
+  const totalPlannedValue = plannedKPIs.reduce((sum: number, k: ProcessedKPI) => {
+    // Find the related activity to get the rate
+    const relatedActivity = activities.find((a: BOQActivity) => 
+      a.activity_name === k.activity_name &&
+      (a.project_code === k.project_full_code || a.project_full_code === k.project_full_code)
+    )
+    
+    // Calculate rate directly from activity
+    let rate = 0
+    if (relatedActivity) {
+      if (relatedActivity.rate && relatedActivity.rate > 0) {
+        rate = relatedActivity.rate
+      } else if (relatedActivity.total_value && relatedActivity.total_units && relatedActivity.total_units > 0) {
+        rate = relatedActivity.total_value / relatedActivity.total_units
+      }
+    }
+    
+    // If we have a rate, calculate value = rate × quantity
+    if (rate > 0) {
+      const kpiValue = rate * k.quantity
+      return sum + kpiValue
+    }
+    
+    // Fallback: use existing value if rate not found
+    return sum + (k.planned_value ?? (k.input_type === 'Planned' ? k.value ?? 0 : 0))
+  }, 0)
+  
+  // ✅ FIXED: Calculate Actual Value = Rate × Quantity for each Actual KPI
+  const totalActualValue = actualKPIs.reduce((sum: number, k: ProcessedKPI) => {
+    // Find the related activity to get the rate
+    const relatedActivity = activities.find((a: BOQActivity) => 
+      a.activity_name === k.activity_name &&
+      (a.project_code === k.project_full_code || a.project_full_code === k.project_full_code)
+    )
+    
+    // Calculate rate directly from activity
+    let rate = 0
+    if (relatedActivity) {
+      if (relatedActivity.rate && relatedActivity.rate > 0) {
+        rate = relatedActivity.rate
+      } else if (relatedActivity.total_value && relatedActivity.total_units && relatedActivity.total_units > 0) {
+        rate = relatedActivity.total_value / relatedActivity.total_units
+      }
+    }
+    
+    // If we have a rate, calculate value = rate × quantity
+    if (rate > 0) {
+      const kpiValue = rate * k.quantity
+      return sum + kpiValue
+    }
+    
+    // Fallback: use existing value if rate not found
+    return sum + (k.actual_value ?? (k.input_type === 'Actual' ? k.value ?? 0 : 0))
+  }, 0)
   const valueAchievementRate = totalPlannedValue > 0 ? (totalActualValue / totalPlannedValue) * 100 : 0
   const achievementRate = totalPlannedValue > 0 ? valueAchievementRate : 0
   
@@ -1031,48 +1245,6 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
             <p className="text-gray-600 dark:text-gray-300 mt-2">Monitor and track KPIs for projects and activities</p>
           </div>
           
-          {/* Rate-based Performance Summary */}
-          {activityRates.length > 0 && (
-            <div className="bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 rounded-lg p-6 border border-purple-200 dark:border-purple-700">
-              <div className="flex items-center gap-2 mb-4">
-                <BarChart3 className="h-5 w-5 text-purple-600" />
-                <h3 className="text-lg font-semibold text-purple-900 dark:text-purple-100">Rate-Based Performance</h3>
-              </div>
-              
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-purple-900 dark:text-purple-100">
-                    ${activityRates.reduce((sum, rate) => sum + rate.plannedValue, 0).toLocaleString()}
-                  </div>
-                  <div className="text-sm text-purple-700 dark:text-purple-300">Total Planned Value</div>
-                </div>
-                
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-green-600 dark:text-green-400">
-                    ${activityRates.reduce((sum, rate) => sum + rate.earnedValue, 0).toLocaleString()}
-                  </div>
-                  <div className="text-sm text-purple-700 dark:text-purple-300">Total Earned Value</div>
-                </div>
-                
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                    {activityRates.length > 0 
-                      ? (activityRates.reduce((sum, rate) => sum + rate.progress, 0) / activityRates.length).toFixed(1)
-                      : 0}%
-                  </div>
-                  <div className="text-sm text-purple-700 dark:text-purple-300">Average Progress</div>
-                </div>
-                
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
-                    {activityRates.filter(rate => rate.progress >= 80).length}/{activityRates.length}
-                  </div>
-                  <div className="text-sm text-purple-700 dark:text-purple-300">High Progress (≥80%)</div>
-                </div>
-              </div>
-            </div>
-          )}
-          
                  {/* Add New KPI Buttons */}
                  {guard.hasAccess('kpi.create') && (
                    <div className="flex flex-col sm:flex-row gap-2">
@@ -1104,16 +1276,35 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
                        <Target className="h-4 w-4" />
                        <span>Legacy Site Form</span>
                      </Button>
-                     <Button 
-                       onClick={() => setUseCustomizedTable(!useCustomizedTable)}
-                       variant="outline"
-                       className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
-                     >
-                       <Filter className="h-4 w-4" />
-                       <span>{useCustomizedTable ? 'Standard View' : 'Customize Columns'}</span>
-                     </Button>
-                   </div>
-                 )}
+                    <Button 
+                      onClick={() => setUseCustomizedTable(!useCustomizedTable)}
+                      variant="outline"
+                      className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
+                    >
+                      <Filter className="h-4 w-4" />
+                      <span>{useCustomizedTable ? 'Standard View' : 'Customize Columns'}</span>
+                    </Button>
+                  </div>
+                )}
+                
+                {/* Need to Submit Button - Show for admin or users with kpi.view permission - Outside kpi.create condition */}
+                {(guard.isAdmin() || guard.hasAccess('kpi.view') || guard.hasAccess('kpi.approve')) && (
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <Button 
+                      onClick={() => router.push('/kpi/pending-approval')}
+                      variant="outline"
+                      className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap bg-yellow-50 hover:bg-yellow-100 border-yellow-300 text-yellow-700 dark:bg-yellow-900/20 dark:border-yellow-700 dark:text-yellow-300 relative"
+                    >
+                      <Clock className="h-4 w-4" />
+                      <span>Need to Submit</span>
+                      {pendingKPICount > 0 && (
+                        <span className="ml-2 px-2 py-0.5 text-xs font-bold rounded-full bg-red-500 text-white">
+                          {pendingKPICount}
+                        </span>
+                      )}
+                    </Button>
+                  </div>
+                )}
         </div>
         
         {/* Action Buttons */}

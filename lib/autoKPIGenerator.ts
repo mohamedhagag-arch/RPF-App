@@ -170,6 +170,7 @@ export async function saveGeneratedKPIs(kpis: GeneratedKPI[], cleanupFirst: bool
     }
     
     // Convert to database format
+    // ✅ AUTO-APPROVE: All Planned KPIs are automatically approved on creation
     const dbKPIs = kpis.map(kpi => ({
       'Project Full Code': kpi.project_full_code,
       'Project Code': kpi.project_code,
@@ -181,7 +182,8 @@ export async function saveGeneratedKPIs(kpis: GeneratedKPI[], cleanupFirst: bool
       'Activity Date': kpi.activity_date,
       'Unit': kpi.unit,
       'Section': kpi.section,
-      'Day': kpi.day
+      'Day': kpi.day,
+      'Approval Status': 'approved' // ✅ Auto-approve Planned KPIs
     }))
     
     console.log('📦 Database format sample:', JSON.stringify(dbKPIs[0], null, 2))

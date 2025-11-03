@@ -82,6 +82,85 @@ export function Providers({ children }: { children: React.ReactNode }) {
     }
   }, [user?.id])
 
+  // ✅ FIXED: Function to manually check session (for tab focus/visibility)
+  const checkSessionManually = async (forceCheck: boolean = false) => {
+    if (!mounted.current) return
+    
+    try {
+      console.log('🔄 AuthProvider: Manually checking session...', { forceCheck, hasUser: !!user })
+      
+      // ✅ FIXED: If we already have a user, don't check again unnecessarily
+      if (user && !forceCheck) {
+        console.log('✅ AuthProvider: User already set, skipping manual check')
+        if (mounted.current) {
+          setLoading(false)
+        }
+        return
+      }
+      
+      const { data: { session }, error } = await supabase.auth.getSession()
+      
+      if (error) {
+        console.log('⚠️ AuthProvider: Manual session check error:', error.message)
+        if (forceCheck && mounted.current) {
+          setLoading(false)
+        }
+        return
+      }
+      
+      if (session?.user) {
+        // Only update if different or if we don't have a user
+        if (!user || user.id !== session.user.id) {
+          console.log('✅ AuthProvider: Session found on manual check:', session.user.email)
+          setUser(session.user)
+          setLoading(false)
+          
+          // Fetch profile only if we don't have it
+          if (!appUser || appUser.id !== session.user.id) {
+            ;(async () => {
+              try {
+                const { data: profile, error } = await supabase
+                  .from('users')
+                  .select('*')
+                  .eq('id', session.user.id)
+                  .single()
+                
+                if (!error && profile && mounted.current) {
+                  console.log('✅ AuthProvider: Profile loaded on manual check')
+                  setAppUser(profile)
+                }
+              } catch (error) {
+                console.log('❌ AuthProvider: Error fetching profile on manual check:', error)
+              }
+            })()
+          } else {
+            setLoading(false)
+          }
+        } else {
+          // User already matches, just ensure loading is false
+          if (mounted.current) {
+            setLoading(false)
+          }
+        }
+      } else {
+        // No session - only update if we currently have a user
+        if (user) {
+          console.log('⚠️ AuthProvider: Session lost on manual check')
+          setUser(null)
+          setAppUser(null)
+        }
+        if (forceCheck && mounted.current) {
+          setLoading(false)
+        }
+      }
+    } catch (error) {
+      console.log('❌ AuthProvider: Error in manual session check:', error)
+      if (forceCheck && mounted.current) {
+        setLoading(false)
+      }
+    }
+  }
+
   useEffect(() => {
     mounted.current = true
 
@@ -91,143 +170,211 @@ export function Providers({ children }: { children: React.ReactNode }) {
     }
     initialized.current = true
 
+    // ✅ CRITICAL: Set up auth state change listener FIRST (before anything else)
+    // This ensures we catch SIGNED_IN events that happen early
+    console.log('🔧 AuthProvider: Setting up onAuthStateChange listener FIRST...')
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log('🔔 AuthProvider: onAuthStateChange triggered!', event, session?.user?.email || 'no user')
+        
+        if (!mounted.current) {
+          console.log('⚠️ AuthProvider: Component not mounted, ignoring event')
+          return
+        }
+        
+        console.log('🔄 AuthProvider: Auth state changed:', event, session?.user?.email)
+        
+        // ✅ CRITICAL FIX: Handle SIGNED_IN event FIRST - this is the key event!
+        if (event === 'SIGNED_IN') {
+          console.log('🎯 AuthProvider: SIGNED_IN handler triggered!', {
+            hasSession: !!session,
+            hasUser: !!user,
+            sessionUserId: session?.user?.id,
+            currentUserId: user?.id
+          })
+          
+          if (session?.user) {
+            console.log('✅ AuthProvider: SIGNED_IN event received with session:', session.user.email)
+            setUser(session.user)
+            setLoading(false) // ✅ CRITICAL: Set loading to false immediately
+            
+            // Fetch profile
+            ;(async () => {
+              try {
+                const { data: profile, error } = await supabase
+                  .from('users')
+                  .select('*')
+                  .eq('id', session.user.id)
+                  .single()
+                
+                if (!error && profile && mounted.current) {
+                  console.log('✅ AuthProvider: User profile loaded from SIGNED_IN')
+                  setAppUser(profile)
+                } else if (error) {
+                  console.log('⚠️ AuthProvider: Profile error:', error.message)
+                }
+              } catch (error) {
+                console.log('❌ AuthProvider: Error fetching profile from SIGNED_IN:', error)
+              }
+            })()
+          } else {
+            // SIGNED_IN but no session in event - try to get it manually
+            console.log('⚠️ AuthProvider: SIGNED_IN event but no session in event, fetching...')
+            setTimeout(async () => {
+              try {
+                const { data: { session: fetchedSession }, error } = await supabase.auth.getSession()
+                console.log('🔍 AuthProvider: Fetched session after SIGNED_IN:', {
+                  hasSession: !!fetchedSession,
+                  hasError: !!error,
+                  error: error?.message
+                })
+                
+                if (!error && fetchedSession?.user && mounted.current) {
+                  console.log('✅ AuthProvider: Session fetched after SIGNED_IN:', fetchedSession.user.email)
+                  setUser(fetchedSession.user)
+                  setLoading(false)
+                  
+                  // Fetch profile
+                  const { data: profile, error: profileError } = await supabase
+                    .from('users')
+                    .select('*')
+                    .eq('id', fetchedSession.user.id)
+                    .single()
+                  
+                  if (!profileError && profile && mounted.current) {
+                    console.log('✅ AuthProvider: Profile loaded after SIGNED_IN fetch')
+                    setAppUser(profile)
+                  }
+                } else if (error) {
+                  console.log('❌ AuthProvider: Error fetching session:', error.message)
+                  setLoading(false) // Still set loading to false
+                }
+              } catch (error) {
+                console.log('❌ AuthProvider: Error fetching session after SIGNED_IN:', error)
+                setLoading(false) // Still set loading to false
+              }
+            }, 100)
+          }
+          
+          // ✅ CRITICAL: Always set loading to false for SIGNED_IN
+          setLoading(false)
+          return // Don't process further
+        }
+
+        // ✅ FIXED: Handle INITIAL_SESSION event - this confirms/updates session state
+        if (event === 'INITIAL_SESSION') {
+          console.log('✅ AuthProvider: INITIAL_SESSION event received', {
+            hasSession: !!session?.user,
+            currentUser: !!user,
+            tabVisible: !document.hidden
+          })
+          
+          // Only update if we don't already have a user, or if session changed
+          if (session?.user) {
+            // Update user if different or if we don't have one
+            if (!user || user.id !== session.user.id) {
+              console.log('✅ AuthProvider: Updating user from INITIAL_SESSION:', session.user.email)
+              setUser(session.user)
+              setLoading(false)
+              
+              // Fetch profile if we don't have it yet
+              if (!appUser || appUser.id !== session.user.id) {
+                ;(async () => {
+                  try {
+                    const { data: profile, error } = await supabase
+                      .from('users')
+                      .select('*')
+                      .eq('id', session.user.id)
+                      .single()
+                    
+                    if (!error && profile && mounted.current) {
+                      console.log('✅ AuthProvider: User profile loaded from INITIAL_SESSION')
+                      setAppUser(profile)
+                    }
+                  } catch (error) {
+                    console.log('❌ AuthProvider: Error fetching profile:', error)
+                  }
+                })()
+              }
+            } else {
+              // User already set, just ensure loading is false
+              if (mounted.current) {
+                setLoading(false)
+              }
+            }
+          } else {
+            // No session - only update if we currently have a user
+            if (user) {
+              console.log('⚠️ AuthProvider: Session lost in INITIAL_SESSION')
+              setUser(null)
+              setAppUser(null)
+            }
+            // Always set loading to false
+            if (mounted.current) {
+              setLoading(false)
+            }
+          }
+          return // Don't process further for INITIAL_SESSION
+        }
+        
+        // Handle other events (SIGNED_OUT, TOKEN_REFRESHED, etc.)
+        setUser(session?.user ?? null)
+        setLoading(false)
+      }
+    )
+
     const initializeAuth = async () => {
       try {
         console.log('🔄 AuthProvider: Initializing authentication...')
         
-        // Check if we're in a reload scenario by looking at multiple indicators
-        const isReload = typeof window !== 'undefined' && (
-          window.performance?.navigation?.type === 1 || 
-          sessionStorage.getItem('auth_reload_check') === 'true' ||
-          document.referrer === window.location.href ||
-          (window.performance?.getEntriesByType('navigation')[0] as any)?.type === 'reload' ||
-          window.location.href.includes('localhost:3000') || // Allow localhost reloads
-          window.location.href.includes('127.0.0.1') // Allow localhost reloads
-        )
-        
-        if (isReload) {
-          console.log('🔄 AuthProvider: Detected page reload, waiting for session recovery...')
-          // Set reload flag in sessionStorage to help with detection
-          if (typeof window !== 'undefined') {
-            sessionStorage.setItem('auth_reload_check', 'true')
-          }
-          // Wait longer for session to recover on reload
-          await new Promise(resolve => setTimeout(resolve, 3000))
-        } else {
-          // For new tabs, wait a bit for storage to sync
-          if (typeof window !== 'undefined') {
-            await new Promise(resolve => setTimeout(resolve, 500))
-          }
-        }
-        
-        // First try to get session with retry mechanism
-        let session = null
-        let retries = isReload ? 15 : 5 // Increased retries for better session recovery
-        
-        while (retries > 0) {
-          try {
-            const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession()
+        // ✅ CRITICAL FIX: Check session IMMEDIATELY (don't wait for events)
+        // This ensures the page loads even if INITIAL_SESSION doesn't fire
+        try {
+          const { data: { session }, error } = await supabase.auth.getSession()
+          
+          if (error) {
+            console.log('⚠️ AuthProvider: Session check error:', error.message)
+            if (mounted.current) {
+              setLoading(false)
+            }
+          } else if (session?.user) {
+            console.log('✅ AuthProvider: Session found immediately:', session.user.email)
+            setUser(session.user)
+            setLoading(false) // ✅ CRITICAL: Set loading to false IMMEDIATELY
             
-            if (sessionError) {
-              console.log('⚠️ AuthProvider: Session error:', sessionError.message)
-              retries--
-              if (retries > 0) {
-                await new Promise(resolve => setTimeout(resolve, isReload ? 1000 : 2000))
-                continue
-              }
-            } else {
-              session = currentSession
-              break
-            }
-          } catch (error) {
-            console.log('⚠️ AuthProvider: Session fetch error:', error)
-            retries--
-            if (retries > 0) {
-              await new Promise(resolve => setTimeout(resolve, isReload ? 1000 : 2000))
-              continue
-            }
-          }
-        }
-        
-        console.log('📊 AuthProvider: Session status:', {
-          hasSession: !!session,
-          userEmail: session?.user?.email,
-          expiresAt: session?.expires_at,
-          isExpired: session?.expires_at ? new Date(session.expires_at * 1000) < new Date() : false,
-          isReload,
-          timeUntilExpiry: session?.expires_at ? Math.floor((session.expires_at * 1000 - Date.now()) / 1000 / 60) : 0
-        })
-        
-        if (mounted.current) {
-          setUser(session?.user ?? null)
-          
-          // Only try to fetch profile if user exists and session is valid
-          if (session?.user && session.expires_at && new Date(session.expires_at * 1000) > new Date()) {
-            console.log('✅ AuthProvider: Valid session found, fetching user profile...')
-            try {
-              const { data: profile, error } = await supabase
-                .from('users')
-                .select('*')
-                .eq('id', session.user.id)
-                .single()
-              
-              if (error) {
-                console.log('⚠️ AuthProvider: User profile not found:', error.message)
-                setAppUser(null)
-              } else {
-                console.log('✅ AuthProvider: User profile loaded successfully')
-                setAppUser(profile)
-              }
-            } catch (error) {
-              console.log('❌ AuthProvider: Error fetching user profile:', error)
-              setAppUser(null)
-            }
-          } else if (session?.user && session.expires_at && new Date(session.expires_at * 1000) <= new Date()) {
-            console.log('⚠️ AuthProvider: Session expired, attempting to refresh...')
-            try {
-              const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
-              if (refreshError) {
-                console.log('❌ AuthProvider: Session refresh failed:', refreshError.message)
-                setAppUser(null)
-              } else if (refreshData.session) {
-                console.log('✅ AuthProvider: Session refreshed successfully')
-                setUser(refreshData.session.user)
-                // Try to fetch profile with refreshed session
-                try {
-                  const { data: profile, error } = await supabase
-                    .from('users')
-                    .select('*')
-                    .eq('id', refreshData.session.user.id)
-                    .single()
-                  
-                  if (error) {
-                    console.log('⚠️ AuthProvider: User profile not found after refresh:', error.message)
-                    setAppUser(null)
-                  } else {
-                    console.log('✅ AuthProvider: User profile loaded after refresh')
-                    setAppUser(profile)
-                  }
-                } catch (error) {
-                  console.log('❌ AuthProvider: Error fetching user profile after refresh:', error)
-                  setAppUser(null)
+            // Fetch profile asynchronously (don't block)
+            ;(async () => {
+              try {
+                const { data: profile, error } = await supabase
+                  .from('users')
+                  .select('*')
+                  .eq('id', session.user.id)
+                  .single()
+                
+                if (!error && profile && mounted.current) {
+                  console.log('✅ AuthProvider: User profile loaded')
+                  setAppUser(profile)
                 }
+              } catch (error) {
+                console.log('❌ AuthProvider: Error fetching profile:', error)
               }
-            } catch (error) {
-              console.log('❌ AuthProvider: Error refreshing session:', error)
-              setAppUser(null)
-            }
+            })()
           } else {
-            console.log('⚠️ AuthProvider: No valid session - but not redirecting immediately')
-            setAppUser(null)
+            console.log('ℹ️ AuthProvider: No session found')
+            if (mounted.current) {
+              setUser(null)
+              setAppUser(null)
+              setLoading(false) // ✅ CRITICAL: Set loading to false even if no session
+            }
           }
-          
-          setLoading(false)
-          
-          // Clear reload flag after successful initialization
-          if (typeof window !== 'undefined' && isReload) {
-            sessionStorage.removeItem('auth_reload_check')
+        } catch (error) {
+          console.log('❌ AuthProvider: Error checking session:', error)
+          if (mounted.current) {
+            setLoading(false)
           }
         }
+        
+        console.log('✅ AuthProvider: Session check complete, listening for auth changes...')
       } catch (error) {
         console.log('❌ AuthProvider: Error initializing auth:', error)
         if (mounted.current) {
@@ -248,181 +395,33 @@ export function Providers({ children }: { children: React.ReactNode }) {
       initialized.current = true
     }
 
-    // Set up auth state change listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (!mounted.current) return
-        
-        console.log('🔄 AuthProvider: Auth state changed:', event, session?.user?.email)
-        console.log('📊 AuthProvider: Session details:', {
-          event,
-          hasSession: !!session,
-          userEmail: session?.user?.email,
-          expiresAt: session?.expires_at,
-          isExpired: session?.expires_at ? new Date(session.expires_at * 1000) < new Date() : false
-        })
-        
-        // ✅ CRITICAL FIX: Handle INITIAL_SESSION event specially
-        // INITIAL_SESSION may have session but it might need refresh or has missing expires_at
-        if (event === 'INITIAL_SESSION') {
-          if (session?.user) {
-            // We have a user - always try to fetch profile first
-            setUser(session.user) // Set user immediately
-            
-            // Check if session is valid
-            const hasExpiresAt = !!session.expires_at
-            const isExpired = hasExpiresAt && session.expires_at ? new Date(session.expires_at * 1000) < new Date() : false
-            
-            if (isExpired) {
-              console.log('⚠️ AuthProvider: INITIAL_SESSION expired, attempting refresh...')
-              try {
-                // Try to refresh the session
-                const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
-                
-                if (refreshError) {
-                  console.log('⚠️ AuthProvider: Session refresh failed, but trying profile fetch anyway:', refreshError.message)
-                  // Don't clear appUser - try to fetch profile with current session
-                } else if (refreshData?.session) {
-                  console.log('✅ AuthProvider: Session refreshed on INITIAL_SESSION')
-                  session = refreshData.session
-                  setUser(session.user)
-                } else {
-                  // No refresh available, but we have user - proceed with profile fetch
-                  console.log('⚠️ AuthProvider: INITIAL_SESSION has user but no refresh available - proceeding anyway')
-                }
-              } catch (error) {
-                console.log('❌ AuthProvider: Error during INITIAL_SESSION refresh, proceeding anyway:', error)
-              }
-            } else if (!hasExpiresAt) {
-              // Session has no expires_at - might be valid, try profile fetch
-              console.log('⚠️ AuthProvider: INITIAL_SESSION has user but no expires_at - trying profile fetch anyway')
-            } else {
-              // Session is valid
-              console.log('✅ AuthProvider: INITIAL_SESSION has valid session')
-            }
-            
-            // ✅ CRITICAL: Always try to fetch profile if we have a user
-            // This ensures we don't lose the user profile even if session has issues
-            try {
-              const { data: profile, error } = await supabase
-                .from('users')
-                .select('*')
-                .eq('id', session.user.id)
-                .single()
-              
-              if (error) {
-                console.log('⚠️ AuthProvider: User profile not found:', error.message)
-                // Don't clear appUser immediately - might be temporary
-              } else {
-                console.log('✅ AuthProvider: User profile loaded successfully')
-                setAppUser(profile)
-              }
-            } catch (error) {
-              console.log('❌ AuthProvider: Error fetching user profile:', error)
-              // Don't clear appUser - might be network issue
-            }
-          } else {
-            // No user in INITIAL_SESSION - this is normal for logged-out users
-            console.log('ℹ️ AuthProvider: INITIAL_SESSION has no user (user not logged in)')
-            setUser(null)
-            setAppUser(null)
-          }
-          setLoading(false)
-          return // Don't process further for INITIAL_SESSION
-        }
-        
-        // Handle other events (SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED, etc.)
-        setUser(session?.user ?? null)
-        
-        // Only process if session is valid and not expired
-        if (session?.user && session.expires_at && new Date(session.expires_at * 1000) > new Date()) {
-          console.log('✅ AuthProvider: Valid session, fetching profile...')
-          try {
-            const { data: profile, error } = await supabase
-              .from('users')
-              .select('*')
-              .eq('id', session.user.id)
-              .single()
-            
-            if (error) {
-              console.log('⚠️ AuthProvider: User profile not found:', error.message)
-              setAppUser(null)
-            } else {
-              console.log('✅ AuthProvider: User profile loaded successfully')
-              setAppUser(profile)
-            }
-          } catch (error) {
-            console.log('❌ AuthProvider: Error fetching user profile:', error)
-            setAppUser(null)
-          }
-        } else if (session?.user && session.expires_at && new Date(session.expires_at * 1000) <= new Date()) {
-          // Session expired - try to refresh
-          console.log('⚠️ AuthProvider: Session expired, attempting refresh...')
-          try {
-            const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
-            if (refreshError) {
-              console.log('❌ AuthProvider: Session refresh failed:', refreshError.message)
-              setAppUser(null)
-            } else if (refreshData?.session) {
-              console.log('✅ AuthProvider: Session refreshed successfully')
-              setUser(refreshData.session.user)
-              // Fetch profile with refreshed session
-              try {
-                const { data: profile, error } = await supabase
-                  .from('users')
-                  .select('*')
-                  .eq('id', refreshData.session.user.id)
-                  .single()
-                
-                if (error) {
-                  console.log('⚠️ AuthProvider: User profile not found after refresh:', error.message)
-                  setAppUser(null)
-                } else {
-                  console.log('✅ AuthProvider: User profile loaded after refresh')
-                  setAppUser(profile)
-                }
-              } catch (error) {
-                console.log('❌ AuthProvider: Error fetching user profile after refresh:', error)
-                setAppUser(null)
-              }
-            }
-          } catch (error) {
-            console.log('❌ AuthProvider: Error refreshing session:', error)
-            setAppUser(null)
-          }
-        } else if (!session?.user) {
-          // No session at all - user is logged out
-          console.log('ℹ️ AuthProvider: No session - user is logged out')
-          setAppUser(null)
-        } else {
-          // Session exists but no expires_at or other issue
-          console.log('⚠️ AuthProvider: Session exists but has issues - trying profile fetch anyway')
-          if (session.user) {
-            try {
-              const { data: profile, error } = await supabase
-                .from('users')
-                .select('*')
-                .eq('id', session.user.id)
-                .single()
-              
-              if (!error && profile) {
-                console.log('✅ AuthProvider: Profile fetched successfully despite session issues')
-                setAppUser(profile)
-              } else {
-                console.log('⚠️ AuthProvider: Could not fetch profile')
-                setAppUser(null)
-              }
-            } catch (error) {
-              console.log('❌ AuthProvider: Error fetching profile:', error)
-              setAppUser(null)
-            }
-          }
-        }
-        
-        setLoading(false)
+    // ✅ FIXED: Listen for visibility changes (tab focus/blur)
+    const handleVisibilityChange = () => {
+      if (!document.hidden && mounted.current) {
+        console.log('🔄 AuthProvider: Tab became visible, checking session...')
+        // Small delay to ensure tab is fully active
+        setTimeout(() => {
+          checkSessionManually()
+        }, 100)
       }
-    )
+    }
 
+    // ✅ FIXED: Listen for window focus (switching back to tab)
+    const handleFocus = () => {
+      if (mounted.current) {
+        console.log('🔄 AuthProvider: Window focused, checking session...')
+        setTimeout(() => {
+          checkSessionManually()
+        }, 100)
+      }
+    }
+
+    if (typeof window !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange)
+      window.addEventListener('focus', handleFocus)
+    }
+
+    // Cleanup function
     return () => {
       mounted.current = false
       subscription.unsubscribe()
@@ -430,6 +429,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
       authPersistenceManager.destroy()
       // Clean up session persistence manager
       sessionPersistenceManager.destroy()
+      if (typeof window !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange)
+        window.removeEventListener('focus', handleFocus)
+      }
     }
     // ✅ FIXED: Remove supabase from dependencies to prevent infinite loop
     // eslint-disable-next-line react-hooks/exhaustive-deps

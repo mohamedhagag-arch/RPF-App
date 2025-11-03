@@ -28,7 +28,8 @@ import { ProjectDetailsPanel } from './ProjectDetailsPanel'
 import { ProjectsTableWithCustomization } from './ProjectsTableWithCustomization'
 import { AdvancedSorting, SortOption, FilterOption } from '@/components/ui/AdvancedSorting'
 import { Pagination } from '@/components/ui/Pagination'
-import { Plus, Search, Building, Calendar, DollarSign, Percent, Hash, CheckCircle, Clock, AlertCircle, Folder, BarChart3, Grid } from 'lucide-react'
+import { Plus, Search, Building, Calendar, DollarSign, Percent, Hash, CheckCircle, Clock, AlertCircle, Folder, BarChart3, Grid, MapPin } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { Input } from '@/components/ui/Input'
 import { SmartFilter } from '@/components/ui/SmartFilter'
 import { ExportButton } from '@/components/ui/ExportButton'
@@ -48,6 +49,7 @@ interface ProjectsListProps {
 export function ProjectsList({ globalSearchTerm = '', globalFilters = { project: '', status: '', division: '', dateRange: '' } }: ProjectsListProps = {}) {
   const { appUser } = useAuth()
   const guard = usePermissionGuard()
+  const router = useRouter()
   
   const [projects, setProjects] = useState<Project[]>([])
   const [totalCount, setTotalCount] = useState(0)
@@ -57,6 +59,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
   const [projectProgresses, setProjectProgresses] = useState<ProjectProgress[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   // ✅ Standard View is always the default - Force to true on mount
@@ -270,11 +273,19 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
         .select('*', { count: 'exact', head: true })
       
       // Fetch paginated projects with timeout protection
+      // ✅ FIXED: ALWAYS use created_at for database ordering to avoid column name issues
+      // We'll sort the data client-side if needed for other columns
+      // Never use project_code or any column with spaces in .order()!
+      const orderColumn = 'created_at' // ✅ ALWAYS use created_at - safe column without spaces
+      const ascending = false // Always descending for newest first
+      
+      console.log('🔍 Order column (forced to created_at):', orderColumn, 'ascending:', ascending, 'currentSort:', currentSort)
+      
       const { data: projectsData, error: projectsError } = await Promise.race([
         supabase
           .from(TABLES.PROJECTS)
           .select('*')
-          .order('project_code', { ascending: false }) // ✅ Sort by project code descending (P5096, P5095, ...)
+          .order(orderColumn, { ascending }) // ✅ ALWAYS use created_at - never project_code!
           .range(from, to),
         timeoutPromise
       ]) as any
@@ -288,7 +299,62 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
       } else {
         console.log(`✅ Fetched ${projectsData?.length || 0} projects (page ${page})`)
         
-        const mappedProjects = (projectsData || []).map(mapProjectFromDB)
+        let mappedProjects = (projectsData || []).map(mapProjectFromDB)
+        
+        // ✅ FIXED: Apply client-side sorting for ALL columns except created_at/updated_at
+        // This ensures we never use columns with spaces in database queries
+        if (currentSort) {
+          if (currentSort.key === 'created_at' || currentSort.key === 'updated_at') {
+            // Already sorted by database, just ensure direction is correct
+            if (currentSort.direction === 'asc') {
+              mappedProjects.reverse()
+            }
+          } else {
+            // Client-side sorting for all other columns (including project_code)
+            mappedProjects.sort((a: Project, b: Project) => {
+              const aValue = a[currentSort.key as keyof Project]
+              const bValue = b[currentSort.key as keyof Project]
+              
+              if (aValue === null || aValue === undefined) return 1
+              if (bValue === null || bValue === undefined) return -1
+              
+              if (typeof aValue === 'string' && typeof bValue === 'string') {
+                return currentSort.direction === 'asc' 
+                  ? aValue.localeCompare(bValue)
+                  : bValue.localeCompare(aValue)
+              }
+              
+              if (typeof aValue === 'number' && typeof bValue === 'number') {
+                return currentSort.direction === 'asc' 
+                  ? aValue - bValue
+                  : bValue - aValue
+              }
+              
+              return 0
+            })
+          }
+        } else {
+          // Default: sort by project_code descending (newest projects first)
+          mappedProjects.sort((a: Project, b: Project) => {
+            const aCode = (a.project_code || '').toString().trim()
+            const bCode = (b.project_code || '').toString().trim()
+            
+            // Extract numeric part for numeric comparison
+            const aMatch = aCode.match(/(\d+)/)
+            const bMatch = bCode.match(/(\d+)/)
+            
+            if (aMatch && bMatch) {
+              const aNum = parseInt(aMatch[1], 10)
+              const bNum = parseInt(bMatch[1], 10)
+              // Descending order: higher numbers first (P5096 before P5095)
+              return bNum - aNum
+            }
+            
+            // Fallback to alphabetical comparison if no numbers found
+            return bCode.localeCompare(aCode)
+          })
+        }
+        
         setProjects(mappedProjects)
         setTotalCount(count || 0)
         
@@ -324,100 +390,116 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
           console.log('⚠️ Rate calculation not available:', rateError)
         }
         
-        // Only load activities and KPIs if analytics are needed
-        console.log('🔍 View mode:', viewMode, 'shouldLoadCardAnalytics:', shouldLoadCardAnalytics(viewMode))
-        if (shouldLoadCardAnalytics(viewMode) && mappedProjects.length > 0) {
+        // ✅ Always load activities and KPIs - needed for both table and card views
+        console.log('🔍 View mode:', viewMode, 'useCustomizedTable:', useCustomizedTable, 'shouldLoadCardAnalytics:', shouldLoadCardAnalytics(viewMode))
+        if (mappedProjects.length > 0) {
           console.log('📊 Loading activities and KPIs for enhanced cards...')
           
           // 🔧 PERFORMANCE: Add loading indicator
           setLoading(true)
           
           // Get project codes for current page
-          const projectCodes = mappedProjects.map((p: any) => p.project_code)
+          const projectCodes = mappedProjects.map((p: any) => p.project_code).filter(Boolean)
           
-          // 🔧 FIX: Use the same approach as ProjectDetailsPanel
-          const [activitiesResult, kpisResult] = await Promise.all([
-            // For activities - try both Project Code and Project Full Code
-            supabase
-              .from(TABLES.BOQ_ACTIVITIES)
-              .select('*')
-              .or(projectCodes.map((code: any) => `Project Code.eq.${code},Project Full Code.like.${code}%`).join(',')),
-            // For KPIs - try Project Full Code first, then Project Code
-            supabase
-              .from(TABLES.KPI)
-              .select('*')
-              .or(projectCodes.map((code: any) => `Project Full Code.eq.${code},Project Code.eq.${code},Project Full Code.like.${code}%`).join(','))
-          ])
-          
-          console.log('🔍 Activities query result:', activitiesResult)
-          console.log('🔍 KPIs query result:', kpisResult)
-          
-          // 🔍 DEBUG: Check for errors
-          if (activitiesResult.error) {
-            console.error('❌ Activities query error:', activitiesResult.error)
-          }
-          if (kpisResult.error) {
-            console.error('❌ KPIs query error:', kpisResult.error)
-          }
-          
-          const mappedActivities = (activitiesResult.data || []).map(mapBOQFromDB)
-          const mappedKPIs = (kpisResult.data || []).map(mapKPIFromDB)
-          
-          setAllActivities(mappedActivities)
-          setAllKPIs(mappedKPIs)
-          
-          console.log(`✅ Loaded ${mappedActivities.length} activities and ${mappedKPIs.length} KPIs`)
-          console.log('🔍 Setting allActivities and allKPIs state...')
-          
-          // 🔧 PERFORMANCE: Stop loading indicator
-          setLoading(false)
-          
-          // 🔍 DEBUG: Verify state was set
-          setTimeout(() => {
-            console.log('🔍 State verification (after 100ms):', {
-              allActivitiesLength: allActivities.length,
-              allKPIsLength: allKPIs.length
+          if (projectCodes.length > 0) {
+            // 🔧 FIX: Use comprehensive query to get ALL data for ALL projects
+            const [activitiesResult, kpisResult] = await Promise.all([
+              // For activities - try multiple matching strategies
+              supabase
+                .from(TABLES.BOQ_ACTIVITIES)
+                .select('*')
+                .or(projectCodes.map((code: any) => 
+                  `Project Code.eq.${code},Project Full Code.eq.${code},Project Full Code.like.${code}%,Project Code.like.${code}%`
+                ).join(',')),
+              // For KPIs - try all possible project code variations
+              supabase
+                .from(TABLES.KPI)
+                .select('*')
+                .or(projectCodes.map((code: any) => 
+                  `Project Full Code.eq.${code},Project Code.eq.${code},Project Full Code.like.${code}%,Project Code.like.${code}%`
+                ).join(','))
+            ])
+            
+            console.log('🔍 Activities query result:', {
+              count: activitiesResult.data?.length || 0,
+              error: activitiesResult.error,
+              projectCodes: projectCodes.slice(0, 5)
             })
-          }, 100)
-          console.log('🔍 Sample activities:', mappedActivities.slice(0, 2))
-          console.log('🔍 Sample KPIs:', mappedKPIs.slice(0, 2))
-          console.log('🔍 Project codes:', projectCodes)
-          
-          // 🔍 DEBUG: Check if we have data for the current projects
-          projectCodes.forEach((code: any) => {
-            const projectActivities = mappedActivities.filter((a: any) => 
-              a.project_code === code || a.project_full_code?.startsWith(code)
-            )
-            const projectKPIs = mappedKPIs.filter((k: any) => 
-              k.project_code === code || k.project_full_code?.startsWith(code)
-            )
-            console.log(`🔍 Project ${code}: ${projectActivities.length} activities, ${projectKPIs.length} KPIs`)
-          })
-        }
-        }
-      } catch (error: any) {
-      console.error('❌ Exception:', error)
-        setError('Failed to fetch data. Please check your connection.')
-        setProjects([])
-        
-        // ✅ Try to reconnect if connection failed
-        console.log('🔄 Connection error detected, attempting to reconnect...')
-        const { resetClient } = await import('@/lib/simpleConnectionManager')
-        resetClient()
-        console.log('✅ Client reset, retrying data fetch...')
-        // Retry the fetch after reset
-        setTimeout(() => {
-          if (isMountedRef.current) {
-            fetchProjects(page)
+            console.log('🔍 KPIs query result:', {
+              count: kpisResult.data?.length || 0,
+              error: kpisResult.error,
+              projectCodes: projectCodes.slice(0, 5)
+            })
+            
+            // 🔍 DEBUG: Check for errors
+            if (activitiesResult.error) {
+              console.error('❌ Activities query error:', activitiesResult.error)
+            }
+            if (kpisResult.error) {
+              console.error('❌ KPIs query error:', kpisResult.error)
+            }
+            
+            const mappedActivities = (activitiesResult.data || []).map(mapBOQFromDB)
+            const mappedKPIs = (kpisResult.data || []).map(mapKPIFromDB)
+            
+            console.log(`✅ Loaded ${mappedActivities.length} activities and ${mappedKPIs.length} KPIs for ${projectCodes.length} project(s)`)
+            if (mappedActivities.length > 0) {
+              console.log('🔍 Sample activity project codes:', mappedActivities.slice(0, 5).map((a: any) => a.project_code || a['Project Code'] || 'N/A'))
+            }
+            if (mappedKPIs.length > 0) {
+              console.log('🔍 Sample KPI project codes:', mappedKPIs.slice(0, 5).map((k: any) => k.project_code || k['Project Code'] || k.project_full_code || k['Project Full Code'] || 'N/A'))
+              // 🔍 DEBUG: Check Day column in KPIs
+              console.log('📅 Sample KPI Day values:', mappedKPIs.slice(0, 5).map((k: any) => ({
+                day: k.day,
+                'Day': k['Day'],
+                rawDay: k.raw?.['Day'],
+                inputType: k.input_type || k['Input Type'],
+                projectCode: k.project_code || k['Project Code']
+              })))
+            }
+            
+            // ✅ Merge with existing data to accumulate across pages
+            setAllActivities(prev => {
+              const merged = [...prev, ...mappedActivities]
+              const unique = Array.from(new Map(merged.map((a: any) => [a.id, a])).values())
+              console.log(`📊 Activities: ${prev.length} existing + ${mappedActivities.length} new = ${unique.length} total`)
+              return unique
+            })
+            setAllKPIs(prev => {
+              const merged = [...prev, ...mappedKPIs]
+              const unique = Array.from(new Map(merged.map((k: any) => [k.id, k])).values())
+              console.log(`📊 KPIs: ${prev.length} existing + ${mappedKPIs.length} new = ${unique.length} total`)
+              return unique
+            })
+            
+            // 🔧 PERFORMANCE: Stop loading indicator
+            setLoading(false)
           }
-        }, 1000)
-        return
+        }
+      }
+    } catch (error: any) {
+      console.error('❌ Exception:', error)
+      setError('Failed to fetch data. Please check your connection.')
+      setProjects([])
+      
+      // ✅ Try to reconnect if connection failed
+      console.log('🔄 Connection error detected, attempting to reconnect...')
+      const { resetClient } = await import('@/lib/simpleConnectionManager')
+      resetClient()
+      console.log('✅ Client reset, retrying data fetch...')
+      // Retry the fetch after reset
+      setTimeout(() => {
+        if (isMountedRef.current) {
+          fetchProjects(page)
+        }
+      }, 1000)
+      return
     } finally {
-        // ✅ ALWAYS stop loading (React handles unmounted safely)
-        stopSmartLoading(setLoading)
+      // ✅ ALWAYS stop loading (React handles unmounted safely)
+      stopSmartLoading(setLoading)
       console.log('🟡 Projects: Loading finished')
     }
-  }, [itemsPerPage, viewMode]) // ✅ FIXED: Removed supabase to prevent infinite loop
+  }, [itemsPerPage, viewMode, currentSort]) // ✅ FIXED: Added currentSort to dependencies
 
   useEffect(() => {
     isMountedRef.current = true
@@ -458,7 +540,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
           supabase
             .from(TABLES.PROJECTS)
             .select('*')
-            .order('created_at', { ascending: false }),
+            .order('created_at', { ascending: false }), // ✅ FIXED: Always use created_at, never project_code
           supabase
             .from(TABLES.BOQ_ACTIVITIES)
             .select('*'),
@@ -576,10 +658,77 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
 
       if (error) throw error
       
+      // ✅ Success! Project created successfully
+      console.log('✅ Project created successfully:', data)
+      
+      // Show success message
+      const projectName = data?.['Project Name'] || projectData.project_name || 'Project'
+      setSuccessMessage(`✅ Project "${projectName}" created successfully!`)
+      setError('') // Clear any previous errors
+      
+      // Add the new project to the list immediately (optimistic update)
+      const newProject = mapProjectFromDB(data)
+      setProjects(prev => {
+        const updated = [newProject, ...prev]
+        // Sort by project_code descending
+        return updated.sort((a: Project, b: Project) => {
+          const aCode = (a.project_code || '').toString().trim()
+          const bCode = (b.project_code || '').toString().trim()
+          const aMatch = aCode.match(/(\d+)/)
+          const bMatch = bCode.match(/(\d+)/)
+          if (aMatch && bMatch) {
+            return parseInt(bMatch[1], 10) - parseInt(aMatch[1], 10)
+          }
+          return bCode.localeCompare(aCode)
+        })
+      })
+      setTotalCount(prev => prev + 1)
+      
       setShowForm(false)
-      // Reload current page
-      fetchProjects(currentPage)
+      
+      // Clear success message after 5 seconds
+      setTimeout(() => {
+        setSuccessMessage('')
+      }, 5000)
+      
+      // ✅ Reload projects in background safely (using created_at only)
+      // This ensures we have the latest data without errors
+      setTimeout(async () => {
+        try {
+          // Reset currentSort to null to force using created_at
+          setCurrentSort(null)
+          
+          // Fetch fresh data using safe created_at ordering
+          const { data: freshProjects, error: fetchError } = await supabase
+            .from(TABLES.PROJECTS)
+            .select('*')
+            .order('created_at', { ascending: false }) // ✅ ALWAYS use created_at - safe!
+          
+          if (!fetchError && freshProjects) {
+            const mappedProjects = freshProjects.map(mapProjectFromDB)
+            
+            // Sort by project_code descending on client-side
+            mappedProjects.sort((a: Project, b: Project) => {
+              const aCode = (a.project_code || '').toString().trim()
+              const bCode = (b.project_code || '').toString().trim()
+              const aMatch = aCode.match(/(\d+)/)
+              const bMatch = bCode.match(/(\d+)/)
+              if (aMatch && bMatch) {
+                return parseInt(bMatch[1], 10) - parseInt(aMatch[1], 10)
+              }
+              return bCode.localeCompare(aCode)
+            })
+            
+            setProjects(mappedProjects)
+            setTotalCount(mappedProjects.length)
+            console.log('✅ Projects reloaded successfully after creation')
+          }
+        } catch (reloadError) {
+          console.warn('⚠️ Background reload failed (not critical):', reloadError)
+        }
+      }, 500) // Small delay to ensure database consistency
     } catch (error: any) {
+      console.error('❌ Error creating project:', error)
       setError(error.message)
     }
   }
@@ -763,6 +912,18 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
             <p className="text-gray-600 dark:text-gray-400 mt-2">Masters of Foundation Construction - Manage and track all projects with smart analytics</p>
           </div>
           
+          {/* Action Buttons */}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => router.push('/projects/zones')}
+              className="flex items-center gap-2"
+            >
+              <MapPin className="h-4 w-4" />
+              Manage Zones
+            </Button>
+          </div>
+          
           {/* Rate-based Performance Summary */}
           {projectRates.length > 0 && (
             <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-lg p-6 border border-blue-200 dark:border-blue-700">
@@ -914,6 +1075,12 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
           {error}
         </Alert>
       )}
+      
+      {successMessage && (
+        <Alert variant="success">
+          {successMessage}
+        </Alert>
+      )}
 
       <Card className="card-modern transition-opacity duration-300">
         <CardHeader>
@@ -972,6 +1139,8 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
                 projects={filteredProjects}
                 onEdit={setEditingProject}
                 onDelete={handleDeleteProject}
+                allKPIs={allKPIs}
+                allActivities={allActivities}
               />
             ) : (
               // Card View

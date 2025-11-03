@@ -61,7 +61,7 @@ export function EnhancedProjectCard({
         {/* Project Details */}
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1">
-            <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Type</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">SCOPE</p>
             <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">
               {project.project_type || 'Not specified'}
             </p>

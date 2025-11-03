@@ -15,22 +15,18 @@ interface BOQTableWithCustomizationProps {
   onBulkDelete?: (ids: string[]) => void
 }
 
-// Default column configuration for BOQ - Enhanced Standard View with Advanced Analytics
+// Default column configuration for BOQ Activities
 const defaultBOQColumns: ColumnConfig[] = [
   { id: 'select', label: 'Select', visible: true, order: 0, fixed: true },
-  { id: 'project_info', label: 'Project Info', visible: true, order: 1 },
-  { id: 'activity_details', label: 'Activity Details', visible: true, order: 2 },
-  { id: 'quantity_analysis', label: 'Quantity Analysis', visible: true, order: 3 },
-  { id: 'financial_analysis', label: 'Financial Analysis', visible: true, order: 4 },
-  { id: 'timeline_analysis', label: 'Timeline Analysis', visible: true, order: 5 },
-  { id: 'progress_analysis', label: 'Progress Analysis', visible: true, order: 6 },
-  { id: 'performance_score', label: 'Performance Score', visible: true, order: 7 },
-  { id: 'efficiency_metrics', label: 'Efficiency Metrics', visible: true, order: 8 },
-  { id: 'risk_assessment', label: 'Risk Assessment', visible: true, order: 9 },
-  { id: 'quality_indicators', label: 'Quality Indicators', visible: true, order: 10 },
-  { id: 'smart_insights', label: 'Smart Insights', visible: true, order: 11 },
-  { id: 'recommendations', label: 'Recommendations', visible: true, order: 12 },
-  { id: 'actions', label: 'Actions', visible: true, order: 13, fixed: true }
+  { id: 'activity_details', label: 'Activity Details', visible: true, order: 1 },
+  { id: 'quantities', label: 'Quantities', visible: true, order: 2 },
+  { id: 'activity_value', label: 'Activity Value', visible: true, order: 3 },
+  { id: 'planned_dates', label: 'Planned Dates', visible: true, order: 4 },
+  { id: 'actual_dates', label: 'Actual Dates', visible: true, order: 5 },
+  { id: 'progress_summary', label: 'Progress Summary', visible: true, order: 6 },
+  { id: 'work_value_status', label: 'Work Value Status', visible: true, order: 7 },
+  { id: 'activity_status', label: 'Activity Status', visible: true, order: 8 },
+  { id: 'actions', label: 'Actions', visible: true, order: 9, fixed: true }
 ]
 
 export function BOQTableWithCustomization({ 
@@ -340,8 +336,17 @@ export function BOQTableWithCustomization({
     }
   }
 
-  // Render cell content based on column - Enhanced Standard View with Advanced Analytics
+  // Access raw activity data from database row if available
+  const getActivityField = (activity: BOQActivity, fieldName: string): any => {
+    const raw = (activity as any).raw || activity
+    return raw[fieldName] || raw[fieldName.replace(/\s+/g, ' ')] || (activity as any)[fieldName] || ''
+  }
+
+  // Render cell content based on column
   const renderCell = (activity: BOQActivity, column: ColumnConfig) => {
+    const project = projects.find(p => p.project_code === activity.project_code)
+    const projectFullName = getProjectName(activity.project_code) || activity.project_full_code || activity.project_code
+    
     switch (column.id) {
       case 'select':
         return (
@@ -353,295 +358,132 @@ export function BOQTableWithCustomization({
           />
         )
       
-      case 'project_info':
-        const project = projects.find(p => p.project_code === activity.project_code)
-        return (
-          <div className="space-y-1">
-            <div className="font-medium text-gray-900 dark:text-white">
-              {activity.project_code}
-            </div>
-            <div className="text-sm text-gray-600 dark:text-gray-400">
-              {getProjectName(activity.project_code || '')}
-            </div>
-            <div className="text-xs text-gray-500 dark:text-gray-500">
-              {project?.project_type || 'N/A'}
-            </div>
-            <div className="text-xs text-gray-500 dark:text-gray-500">
-              {project?.responsible_division || 'N/A'}
-            </div>
-          </div>
-        )
-      
       case 'activity_details':
         return (
           <div className="space-y-1">
+            <div className="text-xs text-gray-600 dark:text-gray-400">Project: {projectFullName}</div>
             <div className="font-medium text-gray-900 dark:text-white text-sm">
-              {activity.activity_name}
+              {activity.activity_name || 'N/A'}
             </div>
             <div className="text-xs text-gray-600 dark:text-gray-400">
-              {activity.activity || 'N/A'}
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="text-xs px-2 py-1 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-400">
-                {activity.unit}
-              </span>
-              <span className="text-xs px-2 py-1 rounded bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400">
-                {activity.total_units}
-              </span>
-            </div>
-            <div className="text-xs text-gray-500 dark:text-gray-500">
-              {activity.activity_division || 'N/A'} • {(activity.zone_ref && activity.zone_ref !== 'Enabling Division') ? activity.zone_ref : 'N/A'}
+              Zone #: {activity.zone_number || activity.zone_ref || 'N/A'}
             </div>
           </div>
         )
       
-      case 'quantity_analysis':
+      case 'quantities':
+        const remainingQuantity = (activity.planned_units || 0) - (activity.actual_units || 0)
         return (
           <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-600 dark:text-gray-400">Total</span>
-              <span className="text-sm font-medium text-gray-900 dark:text-white">
-                {activity.total_units}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-600 dark:text-gray-400">Planned</span>
-              <span className="text-sm font-medium text-gray-900 dark:text-white">
-                {activity.planned_units}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-600 dark:text-gray-400">Actual</span>
-              <span className="text-sm font-medium text-gray-900 dark:text-white">
-                {activity.actual_units}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-600 dark:text-gray-400">Variance</span>
-              <span className={`text-sm font-medium ${
-                activity.variance_units >= 0 ? 'text-green-600' : 'text-red-600'
-              }`}>
-                {activity.variance_units}
-              </span>
-            </div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Total: {activity.total_units || 0}</div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Planned: {activity.planned_units || 0}</div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Actual: {activity.actual_units || 0}</div>
+            <div className="text-sm font-medium text-gray-900 dark:text-white">Remaining: {Math.max(0, remainingQuantity)}</div>
           </div>
         )
       
-      case 'financial_analysis':
+      case 'activity_value':
+        const unitRate = activity.rate || (activity.total_value && activity.planned_units && activity.planned_units > 0 
+          ? activity.total_value / activity.planned_units 
+          : 0)
         return (
           <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-600 dark:text-gray-400">Planned Value</span>
-              <span className="text-sm font-medium text-gray-900 dark:text-white">
-                {activity.planned_value ? `$${activity.planned_value.toLocaleString()}` : 'N/A'}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-600 dark:text-gray-400">Earned Value</span>
-              <span className="text-sm font-medium text-gray-900 dark:text-white">
-                {activity.earned_value ? `$${activity.earned_value.toLocaleString()}` : 'N/A'}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-600 dark:text-gray-400">Variance</span>
-              <span className={`text-sm font-medium ${
-                activity.variance_works_value >= 0 ? 'text-green-600' : 'text-red-600'
-              }`}>
-                {activity.variance_works_value ? `$${activity.variance_works_value.toLocaleString()}` : 'N/A'}
-              </span>
-            </div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Total Value: ${(activity.total_value || 0).toLocaleString()}</div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Unit: {activity.unit || 'N/A'}</div>
+            <div className="text-sm font-medium text-gray-900 dark:text-white">Unit Rate: ${unitRate.toLocaleString()}</div>
           </div>
         )
       
-      case 'timeline_analysis':
+      case 'planned_dates':
+        const plannedStart = activity.planned_activity_start_date || activity.activity_planned_start_date || ''
+        const plannedEnd = activity.deadline || activity.activity_planned_completion_date || ''
+        const plannedDuration = activity.calendar_duration || 0
         return (
           <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Calendar className="h-3 w-3 text-gray-400" />
-              <span className="text-xs text-gray-600 dark:text-gray-400">Start Date</span>
-              <span className="text-sm font-medium text-gray-900 dark:text-white">
-                {formatDate(activity.activity_planned_start_date || '')}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Calendar className="h-3 w-3 text-gray-400" />
-              <span className="text-xs text-gray-600 dark:text-gray-400">End Date</span>
-              <span className="text-sm font-medium text-gray-900 dark:text-white">
-                {formatDate(activity.activity_planned_completion_date || '')}
-              </span>
-            </div>
-            <div className="text-xs text-gray-500 dark:text-gray-500">
-              Duration: {activity.calendar_duration || 0} days
-            </div>
-            <div className="text-xs text-gray-500 dark:text-gray-500">
-              {activity.activity_delayed ? '🚨 Delayed' : activity.activity_on_track ? '✅ On Track' : '⚠️ At Risk'}
-            </div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Start: {plannedStart ? formatDate(plannedStart) : 'N/A'}</div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Completion: {plannedEnd ? formatDate(plannedEnd) : 'N/A'}</div>
+            <div className="text-sm font-medium text-gray-900 dark:text-white">Duration: {plannedDuration} days</div>
           </div>
         )
       
-      case 'progress_analysis':
+      case 'actual_dates':
+        const actualStart = getActivityField(activity, 'Actual Start Date') || getActivityField(activity, 'Actual Start') || ''
+        const actualCompletion = getActivityField(activity, 'Actual Completion Date') || getActivityField(activity, 'Actual Completion') || ''
+        let actualDuration = 0
+        if (actualStart && actualCompletion) {
+          const start = new Date(actualStart)
+          const end = new Date(actualCompletion)
+          actualDuration = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
+        }
+        return (
+          <div className="space-y-1">
+            <div className="text-xs text-gray-600 dark:text-gray-400">Start: {actualStart ? formatDate(actualStart) : 'N/A'}</div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Completion: {actualCompletion ? formatDate(actualCompletion) : 'N/A'}</div>
+            <div className="text-sm font-medium text-gray-900 dark:text-white">Duration: {actualDuration || 'N/A'} {actualDuration > 0 ? 'days' : ''}</div>
+          </div>
+        )
+      
+      case 'progress_summary':
+        const plannedProgress = activity.planned_progress_percentage || 0
+        const actualProgress = activity.activity_progress_percentage || 0
+        const varianceProgress = actualProgress - plannedProgress
         return (
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Progress</span>
-              <span className="text-sm font-bold text-gray-900 dark:text-white">
-                {activity.activity_progress_percentage ? `${activity.activity_progress_percentage.toFixed(1)}%` : 'N/A'}
-              </span>
-            </div>
-            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-              <div 
-                className="h-2 rounded-full bg-blue-500"
-                style={{ width: `${activity.activity_progress_percentage || 0}%` }}
-              ></div>
-            </div>
-            <div className="text-xs text-gray-500 dark:text-gray-500">
-              {activity.activity_progress_percentage && activity.activity_progress_percentage >= 100 ? 'Completed' :
-               activity.activity_progress_percentage && activity.activity_progress_percentage >= 75 ? 'Near completion' :
-               activity.activity_progress_percentage && activity.activity_progress_percentage >= 50 ? 'In progress' :
-               activity.activity_progress_percentage && activity.activity_progress_percentage >= 25 ? 'Started' : 'Not started'}
-            </div>
-          </div>
-        )
-      
-      case 'performance_score':
-        const performanceScore = calculateAdvancedPerformanceScore(activity)
-        return (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Performance Score</span>
-              <span className={`text-sm font-bold ${
-                performanceScore >= 80 ? 'text-green-600' :
-                performanceScore >= 60 ? 'text-yellow-600' : 'text-red-600'
-              }`}>
-                {performanceScore.toFixed(0)}
-              </span>
-            </div>
-            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-              <div 
-                className={`h-2 rounded-full ${
-                  performanceScore >= 80 ? 'bg-green-500' :
-                  performanceScore >= 60 ? 'bg-yellow-500' : 'bg-red-500'
-                }`}
-                style={{ width: `${performanceScore}%` }}
-              ></div>
-            </div>
-            <div className="text-xs text-gray-500 dark:text-gray-500">
-              {performanceScore >= 80 ? 'Excellent' : performanceScore >= 60 ? 'Good' : 'Needs improvement'}
-            </div>
-          </div>
-        )
-      
-      case 'efficiency_metrics':
-        const efficiencyScore = calculateAdvancedEfficiency(activity)
-        return (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Efficiency</span>
-              <span className={`text-sm font-bold ${
-                efficiencyScore >= 80 ? 'text-green-600' :
-                efficiencyScore >= 60 ? 'text-yellow-600' : 'text-red-600'
-              }`}>
-                {efficiencyScore.toFixed(0)}
-              </span>
-            </div>
-            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-              <div 
-                className={`h-2 rounded-full ${
-                  efficiencyScore >= 80 ? 'bg-green-500' :
-                  efficiencyScore >= 60 ? 'bg-yellow-500' : 'bg-red-500'
-                }`}
-                style={{ width: `${efficiencyScore}%` }}
-              ></div>
-            </div>
-            <div className="text-xs text-gray-500 dark:text-gray-500">
-              {efficiencyScore >= 80 ? 'High efficiency' : efficiencyScore >= 60 ? 'Good efficiency' : 'Low efficiency'}
-            </div>
-          </div>
-        )
-      
-      case 'risk_assessment':
-        const riskLevel = calculateAdvancedRiskLevel(activity)
-        return (
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <div className={`w-3 h-3 rounded-full ${
-                riskLevel.color === 'red' ? 'bg-red-500' :
-                riskLevel.color === 'yellow' ? 'bg-yellow-500' :
-                riskLevel.color === 'green' ? 'bg-green-500' : 'bg-blue-500'
-              }`}></div>
-              <span className={`text-sm font-medium capitalize ${
-                riskLevel.color === 'red' ? 'text-red-600' :
-                riskLevel.color === 'yellow' ? 'text-yellow-600' :
-                riskLevel.color === 'green' ? 'text-green-600' : 'text-blue-600'
-              }`}>
-                {riskLevel.level === 'high' ? 'High Risk' :
-                 riskLevel.level === 'medium' ? 'Medium Risk' :
-                 riskLevel.level === 'low' ? 'Low Risk' : 'Minimal Risk'}
-              </span>
-            </div>
-            <div className="text-xs text-gray-500 dark:text-gray-500">
-              Risk Score: {riskLevel.score.toFixed(0)}%
-            </div>
-          </div>
-        )
-      
-      case 'quality_indicators':
-        return (
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              {activity.activity_progress_percentage && activity.activity_progress_percentage >= 90 ? (
-                <CheckCircle className="h-4 w-4 text-green-500" />
-              ) : activity.activity_progress_percentage && activity.activity_progress_percentage >= 75 ? (
-                <Clock className="h-4 w-4 text-yellow-500" />
-              ) : (
-                <AlertCircle className="h-4 w-4 text-red-500" />
-              )}
-              <span className="text-sm font-medium text-gray-900 dark:text-white">
-                {activity.activity_progress_percentage && activity.activity_progress_percentage >= 90 ? 'Excellent' :
-                 activity.activity_progress_percentage && activity.activity_progress_percentage >= 75 ? 'Good' :
-                 activity.activity_progress_percentage && activity.activity_progress_percentage >= 50 ? 'Average' : 'Needs improvement'}
-              </span>
-            </div>
-            <div className="text-xs text-gray-500 dark:text-gray-500">
-              {activity.activity_planned_status || 'No status'}
-            </div>
-            <div className="text-xs text-gray-500 dark:text-gray-500">
-              {activity.activity_progress_percentage && activity.activity_progress_percentage >= 90 ? '⭐ High quality' :
-               activity.activity_progress_percentage && activity.activity_progress_percentage >= 75 ? '📊 Good quality' :
-               activity.activity_progress_percentage && activity.activity_progress_percentage >= 50 ? '⚠️ Average quality' : '🚨 Low quality'}
-            </div>
-          </div>
-        )
-      
-      case 'smart_insights':
-        const insights = getSmartInsights(activity)
-        return (
-          <div className="space-y-1 max-w-xs">
-            {insights.map((insight, index) => (
-              <div key={index} className={`text-xs px-2 py-1 rounded ${
-                insight.type === 'success' ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200' :
-                insight.type === 'warning' ? 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200' :
-                insight.type === 'error' ? 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200' :
-                'bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200'
-              }`}>
-                {insight.icon} {insight.message}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-600 dark:text-gray-400">Planned</span>
+                <span className="font-medium">{plannedProgress.toFixed(1)}%</span>
               </div>
-            ))}
+              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                <div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, Math.max(0, plannedProgress))}%` }}></div>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-600 dark:text-gray-400">Actual</span>
+                <span className="font-medium">{actualProgress.toFixed(1)}%</span>
+              </div>
+              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                <div className="bg-green-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, Math.max(0, actualProgress))}%` }}></div>
+              </div>
+            </div>
+            <div className="text-xs font-medium text-gray-900 dark:text-white">
+              Variance: {varianceProgress >= 0 ? '+' : ''}{varianceProgress.toFixed(1)}%
+            </div>
           </div>
         )
       
-      case 'recommendations':
-        const recommendations = getSmartRecommendations(activity)
+      case 'work_value_status':
+        const plannedWorkValueAct = activity.planned_value || 0
+        const workDoneValueAct = activity.earned_value || 0
+        const varianceWorkValueAct = workDoneValueAct - plannedWorkValueAct
         return (
-          <div className="space-y-1 max-w-xs">
-            {recommendations.map((rec, index) => (
-              <div key={index} className={`text-xs px-2 py-1 rounded ${
-                rec.type === 'action' ? 'bg-orange-50 dark:bg-orange-900/20 text-orange-800 dark:text-orange-200' :
-                'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200'
-              }`}>
-                {rec.icon} {rec.message}
-              </div>
-            ))}
+          <div className="space-y-1">
+            <div className="text-xs text-gray-600 dark:text-gray-400">Planned: ${plannedWorkValueAct.toLocaleString()}</div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Done: ${workDoneValueAct.toLocaleString()}</div>
+            <div className={`text-sm font-medium ${varianceWorkValueAct >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              Variance: ${varianceWorkValueAct >= 0 ? '+' : ''}${varianceWorkValueAct.toLocaleString()}
+            </div>
+          </div>
+        )
+      
+      case 'activity_status':
+        return (
+          <div className="flex items-center gap-2">
+            {activity.activity_completed ? (
+              <CheckCircle className="h-4 w-4 text-green-500" />
+            ) : activity.activity_delayed ? (
+              <AlertCircle className="h-4 w-4 text-red-500" />
+            ) : activity.activity_on_track ? (
+              <Clock className="h-4 w-4 text-blue-500" />
+            ) : (
+              <Clock className="h-4 w-4 text-gray-500" />
+            )}
+            <span className="text-sm font-medium text-gray-900 dark:text-white">
+              {activity.activity_completed ? 'Completed' :
+               activity.activity_delayed ? 'Delayed' :
+               activity.activity_on_track ? 'On Track' : 'Not Started'}
+            </span>
           </div>
         )
       
@@ -669,8 +511,8 @@ export function BOQTableWithCustomization({
       
       default:
         return (
-          <span className="text-gray-500 dark:text-gray-400">
-            {activity[column.id as keyof BOQActivity] as string}
+          <span className="text-gray-500 dark:text-gray-400 text-sm">
+            N/A
           </span>
         )
     }
@@ -726,7 +568,7 @@ export function BOQTableWithCustomization({
               {visibleColumns.map((column) => (
                 <th
                   key={column.id}
-                  className="px-4 py-3 text-left text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800"
+                  className="px-6 py-4 text-left text-base font-semibold text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 min-w-[120px]"
                 >
                   {column.label}
                 </th>
@@ -742,7 +584,7 @@ export function BOQTableWithCustomization({
                 {visibleColumns.map((column) => (
                   <td
                     key={column.id}
-                    className="px-4 py-3 text-sm"
+                    className="px-6 py-4 text-base"
                   >
                     {renderCell(activity, column)}
                   </td>

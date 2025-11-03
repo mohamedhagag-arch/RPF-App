@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
+import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -58,7 +59,8 @@ import {
   Copy,
   RotateCcw,
   Check,
-  X
+  X,
+  Bell
 } from 'lucide-react'
 
 interface EnhancedPermissionsManagerProps {
@@ -96,6 +98,7 @@ const ACTION_COLORS = {
 
 export function EnhancedPermissionsManager({ user, onUpdate, onClose, onAddRole, onEditUser }: EnhancedPermissionsManagerProps) {
   const guard = usePermissionGuard()
+  const supabase = getSupabaseClient()
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>(() => {
     // Always use user.permissions if available, regardless of custom_permissions_enabled
     const initialPermissions = user.permissions && user.permissions.length > 0
@@ -144,7 +147,11 @@ export function EnhancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
   // Role management states
   const [showRoleManager, setShowRoleManager] = useState(false)
   const [newRoleName, setNewRoleName] = useState('')
+  const [showSaveAsRoleModal, setShowSaveAsRoleModal] = useState(false)
+  const [newRoleNameForSave, setNewRoleNameForSave] = useState('')
+  const [newRoleDescriptionForSave, setNewRoleDescriptionForSave] = useState('')
   const [newRoleDescription, setNewRoleDescription] = useState('')
+  const [rolesVersion, setRolesVersion] = useState(0) // Force re-render of availableRoles
 
   // Get unique categories and actions
   const categories = useMemo(() => {
@@ -283,10 +290,274 @@ export function EnhancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
     setSelectedPermissions([])
   }
 
-  const handleResetToRole = () => {
-    setSelectedPermissions(DEFAULT_ROLE_PERMISSIONS[user.role] || [])
+  const handleResetToRole = (roleName?: string) => {
+    const role = roleName || user.role
+    const roleKey = role.toLowerCase().replace(/\s+/g, '_')
+    
+    // Get permissions from default roles or custom roles
+    let permissions: string[] = []
+    let roleDisplayName = roleKey
+    
+    // Check default roles first
+    if (DEFAULT_ROLE_PERMISSIONS[roleKey]) {
+      permissions = DEFAULT_ROLE_PERMISSIONS[roleKey]
+      roleDisplayName = roleKey
+    } else if (DEFAULT_ROLE_PERMISSIONS[role]) {
+      permissions = DEFAULT_ROLE_PERMISSIONS[role]
+      roleDisplayName = role
+    } else if (customRoles[roleKey]) {
+      // Check custom roles from database
+      permissions = customRoles[roleKey].permissions
+      roleDisplayName = customRoles[roleKey].name
+    } else if (customRoles[role]) {
+      permissions = customRoles[role].permissions
+      roleDisplayName = customRoles[role].name
+    }
+    
+    setSelectedPermissions(permissions)
     setCustomEnabled(false)
+    setSuccess(`Reset to "${roleDisplayName}" role with ${permissions.length} permissions`)
   }
+
+  // ✅ Apply role completely - update user.role in database and apply permissions
+  const handleApplyRole = async (roleKey: string) => {
+    try {
+      setLoading(true)
+      setError('')
+      
+      // Get permissions from default roles or custom roles
+      let permissions: string[] = []
+      let roleDisplayName = roleKey
+      
+      // Check default roles first
+      if (DEFAULT_ROLE_PERMISSIONS[roleKey]) {
+        permissions = DEFAULT_ROLE_PERMISSIONS[roleKey]
+        roleDisplayName = roleKey
+      } else if (customRoles[roleKey]) {
+        // Check custom roles from database
+        permissions = customRoles[roleKey].permissions
+        roleDisplayName = customRoles[roleKey].name
+      } else {
+        setError(`Role "${roleKey}" not found`)
+        setLoading(false)
+        return
+      }
+
+      // Update user role in database using onEditUser callback
+      if (onEditUser) {
+        await onEditUser({
+          full_name: user.full_name,
+          email: user.email,
+          role: roleKey, // ✅ Update to new role key
+          division: user.division || '',
+          is_active: user.is_active !== false
+        })
+      }
+
+      // Update permissions
+      await onUpdate(permissions, false) // false = disable custom_permissions_enabled
+
+      // Update local state
+      setSelectedPermissions(permissions)
+      setCustomEnabled(false)
+
+      setSuccess(`✅ Role "${roleDisplayName}" applied successfully! User role updated and ${permissions.length} permissions applied.`)
+      setLoading(false)
+      
+      // Show success message for 3 seconds
+      setTimeout(() => {
+        setSuccess('')
+      }, 3000)
+    } catch (error: any) {
+      console.error('Error applying role:', error)
+      setError(error.message || 'Failed to apply role')
+      setLoading(false)
+    }
+  }
+
+  const handleSaveAsRole = async () => {
+    if (!newRoleNameForSave.trim()) {
+      setError('Role name is required')
+      return
+    }
+
+    const roleKey = newRoleNameForSave.toLowerCase().replace(/\s+/g, '_')
+    
+    // Check if role already exists
+    if (DEFAULT_ROLE_PERMISSIONS[roleKey]) {
+      if (!confirm(`Role "${newRoleNameForSave}" already exists. Do you want to overwrite it?`)) {
+        return
+      }
+    }
+
+    try {
+      setLoading(true)
+      setError('')
+      
+      // ✅ Save to database using Supabase
+      const roleData = {
+        role_key: roleKey,
+        role_name: newRoleNameForSave,
+        description: newRoleDescriptionForSave || `Custom role with ${selectedPermissions.length} permissions`,
+        permissions: selectedPermissions,
+        created_by: user.id
+      }
+
+      // Check if role already exists
+      const { data: existingRole } = await (supabase as any)
+        .from('custom_roles')
+        .select('id')
+        .eq('role_key', roleKey)
+        .single()
+
+      let result
+      if (existingRole) {
+        // Update existing role
+        const { data, error } = await (supabase as any)
+          .from('custom_roles')
+          .update({
+            role_name: newRoleNameForSave,
+            description: newRoleDescriptionForSave || `Custom role with ${selectedPermissions.length} permissions`,
+            permissions: selectedPermissions,
+            updated_at: new Date().toISOString()
+          })
+          .eq('role_key', roleKey)
+          .select()
+          .single()
+
+        if (error) throw error
+        result = data
+      } else {
+        // Insert new role
+        const { data, error } = await (supabase as any)
+          .from('custom_roles')
+          .insert([roleData])
+          .select()
+          .single()
+
+        if (error) throw error
+        result = data
+      }
+
+      // Update local state
+      setCustomRoles(prev => ({
+        ...prev,
+        [roleKey]: {
+          name: newRoleNameForSave,
+          permissions: selectedPermissions
+        }
+      }))
+
+      // Also add to DEFAULT_ROLE_PERMISSIONS for immediate use
+      DEFAULT_ROLE_PERMISSIONS[roleKey] = [...selectedPermissions]
+      
+      // Call onAddRole callback if provided
+      if (onAddRole) {
+        await onAddRole({
+          name: newRoleNameForSave,
+          description: newRoleDescriptionForSave || `Custom role with ${selectedPermissions.length} permissions`,
+          permissions: selectedPermissions
+        })
+      }
+
+      setSuccess(`Role "${newRoleNameForSave}" saved successfully to database!`)
+      setShowSaveAsRoleModal(false)
+      setNewRoleNameForSave('')
+      setNewRoleDescriptionForSave('')
+      setLoading(false)
+      
+      // Force update availableRoles by incrementing version
+      setRolesVersion(prev => prev + 1)
+      
+      // Reload custom roles from database to ensure sync
+      await loadCustomRoles()
+      
+      // Show success message for 3 seconds
+      setTimeout(() => {
+        setSuccess('')
+      }, 3000)
+    } catch (error: any) {
+      console.error('Error saving role to database:', error)
+      
+      // Check if table doesn't exist
+      if (error.code === 'PGRST116' || error.message?.includes('does not exist')) {
+        setError('Custom roles table does not exist. Please run the SQL script: Database/create-custom-roles-table.sql')
+      } else {
+        setError(error.message || 'Failed to save role to database')
+      }
+      setLoading(false)
+    }
+  }
+
+  // State for custom roles from database
+  const [customRoles, setCustomRoles] = useState<Record<string, { name: string; permissions: string[] }>>({})
+  const [loadingRoles, setLoadingRoles] = useState(false)
+
+  // Load custom roles from database
+  const loadCustomRoles = async () => {
+    try {
+      setLoadingRoles(true)
+      const { data, error } = await (supabase as any)
+        .from('custom_roles')
+        .select('role_key, role_name, permissions')
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        console.error('Error loading custom roles:', error)
+        // If table doesn't exist, return empty (will be handled gracefully)
+        if (error.code === 'PGRST116') {
+          console.warn('Custom roles table does not exist yet. Run the SQL script to create it.')
+          return
+        }
+        throw error
+      }
+
+      // Convert array to object for easy lookup
+      const rolesMap: Record<string, { name: string; permissions: string[] }> = {}
+      if (data) {
+        data.forEach((role: any) => {
+          rolesMap[role.role_key] = {
+            name: role.role_name,
+            permissions: role.permissions || []
+          }
+        })
+      }
+
+      setCustomRoles(rolesMap)
+      console.log('✅ Loaded custom roles from database:', Object.keys(rolesMap).length)
+    } catch (error: any) {
+      console.error('Error loading custom roles:', error)
+    } finally {
+      setLoadingRoles(false)
+    }
+  }
+
+  // Load custom roles on mount
+  useEffect(() => {
+    loadCustomRoles()
+  }, [])
+
+  // Get all available roles (including custom roles from database)
+  const availableRoles = useMemo(() => {
+    // Merge default roles with custom roles from database
+    const allRoles: Record<string, string[]> = { ...DEFAULT_ROLE_PERMISSIONS }
+    
+    // Add custom roles
+    Object.keys(customRoles).forEach(key => {
+      allRoles[key] = customRoles[key].permissions
+    })
+    
+    return Object.keys(allRoles).map(key => ({
+      key,
+      name: customRoles[key]?.name || key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' ')
+    })).sort((a, b) => {
+      // Sort: default roles first, then custom roles
+      const isDefaultA = DEFAULT_ROLE_PERMISSIONS[a.key] ? 0 : 1
+      const isDefaultB = DEFAULT_ROLE_PERMISSIONS[b.key] ? 0 : 1
+      if (isDefaultA !== isDefaultB) return isDefaultA - isDefaultB
+      return a.name.localeCompare(b.name)
+    })
+  }, [customRoles, rolesVersion]) // Re-compute when customRoles or rolesVersion changes
 
   const handleSave = async () => {
     try {
@@ -519,14 +790,49 @@ export function EnhancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
                   <X className="h-4 w-4 mr-2" />
                   Select None
                 </Button>
+                <div className="space-y-2">
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Select Role to Apply
+                  </label>
+                  <select
+                    onChange={async (e) => {
+                      if (e.target.value && e.target.value !== user.role) {
+                        // Apply the new role completely (update user.role + permissions)
+                        await handleApplyRole(e.target.value)
+                      } else if (e.target.value === user.role) {
+                        // Just reset permissions to current role
+                        handleResetToRole(e.target.value)
+                      }
+                    }}
+                    value={user.role}
+                    disabled={loading}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {availableRoles.map(role => (
+                      <option key={role.key} value={role.key}>
+                        {role.name}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    variant="outline"
+                    onClick={() => handleResetToRole()}
+                    disabled={loading}
+                    size="sm"
+                    className="w-full justify-start"
+                  >
+                    <RotateCcw className="h-4 w-4 mr-2" />
+                    Reset Permissions Only
+                  </Button>
+                </div>
                 <Button
                   variant="outline"
-                  onClick={handleResetToRole}
+                  onClick={() => setShowSaveAsRoleModal(true)}
                   size="sm"
                   className="w-full justify-start"
                 >
-                  <RotateCcw className="h-4 w-4 mr-2" />
-                  Reset to Role
+                  <Save className="h-4 w-4 mr-2" />
+                  Save As Role
                 </Button>
                 <Button
                   variant="primary"
@@ -653,6 +959,23 @@ export function EnhancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
                   
                   {isExpanded && (
                     <CardContent>
+                      {/* KPI Notifications Info */}
+                      {categoryId === 'kpi' && (
+                        <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg">
+                          <div className="flex items-start gap-2">
+                            <Bell className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+                            <div>
+                              <p className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">
+                                KPI Notifications System
+                              </p>
+                              <p className="text-xs text-blue-700 dark:text-blue-300">
+                                Users with <strong>kpi.approve</strong> permission will receive notifications when engineers create new Actual KPIs. Configure notification recipients in <strong>Settings → KPI Notifications</strong>.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      
                       {viewMode === 'grid' ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                           {permissions.map(permission => (
@@ -695,6 +1018,22 @@ export function EnhancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
                         </div>
                       ) : (
                         <div className="space-y-2">
+                          {/* KPI Notifications Info for List View */}
+                          {categoryId === 'kpi' && (
+                            <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg">
+                              <div className="flex items-start gap-2">
+                                <Bell className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+                                <div>
+                                  <p className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">
+                                    KPI Notifications System
+                                  </p>
+                                  <p className="text-xs text-blue-700 dark:text-blue-300">
+                                    Users with <strong>kpi.approve</strong> permission will receive notifications when engineers create new Actual KPIs. Configure notification recipients in <strong>Settings → KPI Notifications</strong>.
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
                           {permissions.map(permission => (
                             <div
                               key={permission.id}
@@ -808,6 +1147,96 @@ export function EnhancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
           </div>
         </div>
       </div>
+
+      {/* Save As Role Modal */}
+      {showSaveAsRoleModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]">
+        <Card className="w-full max-w-md mx-4">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Save className="h-5 w-5" />
+              Save Permissions as New Role
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {error && (
+              <Alert className="bg-red-50 border-red-200 text-red-800">
+                <AlertTriangle className="h-4 w-4" />
+                {error}
+              </Alert>
+            )}
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Role Name *
+              </label>
+              <Input
+                type="text"
+                value={newRoleNameForSave}
+                onChange={(e) => setNewRoleNameForSave(e.target.value)}
+                placeholder="e.g., Custom Manager, Project Lead"
+                className="w-full"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Will be saved as: {newRoleNameForSave.toLowerCase().replace(/\s+/g, '_') || '...'}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Description (Optional)
+              </label>
+              <textarea
+                value={newRoleDescriptionForSave}
+                onChange={(e) => setNewRoleDescriptionForSave(e.target.value)}
+                placeholder="Describe this role's purpose and responsibilities"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                rows={3}
+              />
+            </div>
+
+            <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-md">
+              <p className="text-sm text-blue-800 dark:text-blue-300">
+                <strong>{selectedPermissions.length}</strong> permissions will be saved with this role.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowSaveAsRoleModal(false)
+                  setNewRoleNameForSave('')
+                  setNewRoleDescriptionForSave('')
+                  setError('')
+                }}
+                disabled={loading}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleSaveAsRole}
+                disabled={loading || !newRoleNameForSave.trim()}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                {loading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4 mr-2" />
+                    Save Role
+                  </>
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+        </div>
+      )}
     </div>
   )
 }

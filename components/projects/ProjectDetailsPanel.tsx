@@ -796,7 +796,7 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                   <CardContent>
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
-                        <span className="text-gray-600 dark:text-gray-400">Type:</span>
+                        <span className="text-gray-600 dark:text-gray-400">SCOPE:</span>
                         <span className="font-medium">{project.project_type || 'N/A'}</span>
                       </div>
                       <div className="flex justify-between">

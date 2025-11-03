@@ -75,21 +75,24 @@ export function ModernProjectCard({
         console.log(`🚀 Loading analytics for ${project.project_code}...`)
       }
       
-      // 🔧 FIX: Fetch data directly for this project with timeout
+      // ✅ SPEED: Reduced timeout for faster failure detection
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Request timeout')), 10000)
+        setTimeout(() => reject(new Error('Request timeout')), 5000)
       )
       
+      // ✅ FIXED: Use select('*') to get all fields needed by mapBOQFromDB and mapKPIFromDB
       const [activitiesResult, kpisResult] = await Promise.race([
         Promise.all([
           supabase
             .from(TABLES.BOQ_ACTIVITIES)
             .select('*')
-            .or(`Project Code.eq.${project.project_code},Project Full Code.like.${project.project_code}%`),
+            .or(`Project Code.eq.${project.project_code},Project Full Code.like.${project.project_code}%`)
+            .limit(1000), // ✅ SPEED: Limit results to prevent huge queries
           supabase
             .from(TABLES.KPI)
             .select('*')
             .or(`Project Full Code.eq.${project.project_code},Project Code.eq.${project.project_code},Project Full Code.like.${project.project_code}%`)
+            .limit(1000) // ✅ SPEED: Limit results to prevent huge queries
         ]),
         timeoutPromise
       ]) as any
@@ -188,7 +191,8 @@ export function ModernProjectCard({
   return (
     <Card className="card-modern group overflow-hidden" style={{
       borderLeftColor: getBorderColor(progress),
-      borderLeftWidth: '4px'
+      borderLeftWidth: '4px',
+      minHeight: '400px' // ✅ FIX: Prevent layout shift when analytics load
     }}>
       {/* Header */}
       <CardHeader className="pb-4 bg-gradient-to-r from-gray-50 to-white dark:from-gray-800 dark:to-gray-700">
@@ -212,15 +216,15 @@ export function ModernProjectCard({
       
       <CardContent className="p-6 space-y-6">
         {/* Progress Section */}
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl p-4">
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl p-4 min-h-[85px]">
           <div className="flex justify-between items-center mb-3">
             <div className="flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-blue-600 dark:text-blue-400" />
               <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Overall Progress</span>
             </div>
-            <span className="text-2xl font-bold text-gray-900 dark:text-white">
+            <span className="text-2xl font-bold text-gray-900 dark:text-white min-w-[70px] text-right">
               {loading ? (
-                <div className="animate-pulse bg-gray-300 dark:bg-gray-600 h-8 w-16 rounded"></div>
+                <div className="inline-block animate-pulse bg-gray-300 dark:bg-gray-600 h-8 w-16 rounded"></div>
               ) : error ? (
                 <span className="text-red-500">Error</span>
               ) : (
@@ -229,13 +233,15 @@ export function ModernProjectCard({
             </span>
           </div>
           
-          <div className="relative">
+          <div className="relative h-3">
             <div className="bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
               <div 
-                className={`${getProgressColor(progress)} h-3 rounded-full transition-all duration-1000 ease-out relative`}
-                style={{ width: `${Math.min(progress, 100)}%` }}
+                className={`${getProgressColor(progress)} h-3 rounded-full transition-all duration-500 ease-out relative`}
+                style={{ width: loading ? '0%' : `${Math.min(progress, 100)}%` }}
               >
-                <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
+                {!loading && (
+                  <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
+                )}
               </div>
             </div>
           </div>
@@ -243,16 +249,16 @@ export function ModernProjectCard({
 
         {/* Stats Grid */}
         <div className="grid grid-cols-2 gap-4">
-          <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 rounded-lg p-4">
+          <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 rounded-lg p-4 min-h-[75px]">
             <div className="flex items-center gap-3">
               <div className="icon-circle cyan">
                 <Activity className="w-5 h-5 text-white" />
               </div>
-              <div>
+              <div className="flex-1">
                 <p className="text-xs text-gray-600 dark:text-gray-400 font-medium">Activities</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                <p className="text-2xl font-bold text-gray-900 dark:text-white min-h-[32px] flex items-center">
                   {loading ? (
-                    <div className="animate-pulse bg-gray-300 dark:bg-gray-600 h-8 w-8 rounded"></div>
+                    <div className="animate-pulse bg-gray-300 dark:bg-gray-600 h-8 w-12 rounded"></div>
                   ) : error ? (
                     <span className="text-red-500">-</span>
                   ) : (
@@ -263,16 +269,16 @@ export function ModernProjectCard({
             </div>
           </div>
 
-          <div className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20 rounded-lg p-4">
+          <div className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20 rounded-lg p-4 min-h-[75px]">
             <div className="flex items-center gap-3">
               <div className="icon-circle purple">
                 <Target className="w-5 h-5 text-white" />
               </div>
-              <div>
+              <div className="flex-1">
                 <p className="text-xs text-gray-600 dark:text-gray-400 font-medium">KPIs</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                <p className="text-2xl font-bold text-gray-900 dark:text-white min-h-[32px] flex items-center">
                   {loading ? (
-                    <div className="animate-pulse bg-gray-300 dark:bg-gray-600 h-8 w-8 rounded"></div>
+                    <div className="animate-pulse bg-gray-300 dark:bg-gray-600 h-8 w-12 rounded"></div>
                   ) : error ? (
                     <span className="text-red-500">-</span>
                   ) : (
@@ -287,7 +293,7 @@ export function ModernProjectCard({
         {/* Project Details */}
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1">
-            <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Type</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">SCOPE</p>
             <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">
               {project.project_type || 'Not specified'}
             </p>
@@ -414,15 +420,8 @@ export function ModernProjectCard({
           )}
         </div>
 
-        {/* Loading State */}
-        {loading && (
-          <div className="absolute inset-0 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm flex items-center justify-center">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">Loading analytics...</p>
-            </div>
-          </div>
-        )}
+        {/* ✅ FIXED: Removed full-screen loading overlay - causes layout shift */}
+        {/* Loading is now handled inline with skeleton placeholders above */}
 
         {/* Error State */}
         {error && (

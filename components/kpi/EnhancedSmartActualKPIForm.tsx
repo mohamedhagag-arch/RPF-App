@@ -524,29 +524,62 @@ export function EnhancedSmartActualKPIForm({
   const handleWorkTodayQuestion = (activityId: string, hasWork: boolean) => {
     console.log('🔍 handleWorkTodayQuestion called:', { activityId, hasWork })
     
+    const activity = projectActivities.find(a => a.id === activityId)
+    if (!activity) {
+      console.error('❌ Activity not found:', activityId)
+      return
+    }
+    
     // Update the activity status
     setProjectActivities(prev => 
-      prev.map(activity => 
-        activity.id === activityId 
-          ? { ...activity, hasWorkToday: hasWork }
-          : activity
+      prev.map(act => 
+        act.id === activityId 
+          ? { ...act, hasWorkToday: hasWork }
+          : act
       )
     )
 
     if (hasWork) {
       console.log('✅ User said YES - showing form for activity:', activityId)
       // If user says yes, show the form for this activity
-      const activity = projectActivities.find(a => a.id === activityId)
-      if (activity) {
-        console.log('📝 Found activity, calling handleActivitySelect:', activity.activity_name)
-        handleActivitySelect(activity)
-      } else {
-        console.error('❌ Activity not found:', activityId)
-      }
+      console.log('📝 Found activity, calling handleActivitySelect:', activity.activity_name)
+      handleActivitySelect(activity)
     } else {
       console.log('❌ User said NO - marking as completed without data:', activityId)
-      // If user says no, mark as completed without data
+      
+      // Use global date if available
+      const finalDate = globalDate || new Date().toISOString().split('T')[0]
+      
+      // Store "not worked on" data in completedActivitiesData
+      const notWorkedData: any = {
+        'Project Full Code': selectedProject?.project_code || '',
+        'Project Code': selectedProject?.project_code || '',
+        'Project Sub Code': selectedProject?.project_sub_code || '',
+        'Activity Name': activity.activity_name || '',
+        'Quantity': '0',
+        'Unit': activity.unit || '',
+        'Input Type': 'Actual',
+        'Actual Date': finalDate,
+        'Activity Date': finalDate,
+        'Target Date': finalDate || '',
+        'Drilled Meters': '0',
+        'Section': activity.zone_ref || '',
+        'Zone': activity.zone_ref || activity.zone_number || '',
+        'Recorded By': 'Engineer',
+        'hasWorked': false, // Flag to indicate this activity was not worked on
+        'notWorkedOn': true // Additional flag for clarity
+      }
+      
+      // Store in completedActivitiesData
+      setCompletedActivitiesData(prev => {
+        const newMap = new Map(prev)
+        newMap.set(activityId, notWorkedData)
+        return newMap
+      })
+      
+      // Mark as completed (even though no work was done)
       setCompletedActivities(prev => new Set([...Array.from(prev), activityId]))
+      
       // Go back to activities list
       setCurrentStep('activities')
     }
@@ -559,6 +592,12 @@ export function EnhancedSmartActualKPIForm({
     try {
       console.log('📝 Saving KPI data temporarily:', formData)
       
+      // ✅ VALIDATE: Check quantity before saving
+      const quantityValue = parseFloat(formData.quantity || '0')
+      if (isNaN(quantityValue) || quantityValue <= 0) {
+        throw new Error('Quantity must be greater than 0')
+      }
+      
       // Use global date if available, otherwise use actualDate
       const finalDate = globalDate || actualDate
       
@@ -569,7 +608,7 @@ export function EnhancedSmartActualKPIForm({
         'Project Code': selectedProject?.project_code || formData.project_code,
         'Project Sub Code': selectedProject?.project_sub_code || '',
         'Activity Name': selectedActivity?.activity_name || formData.activity_name,
-        'Quantity': formData.quantity?.toString() || '0',
+        'Quantity': quantityValue.toString(), // Use validated quantity
         'Unit': formData.unit || selectedActivity?.unit || '',
         'Input Type': 'Actual',
         'Actual Date': finalDate,
@@ -583,7 +622,10 @@ export function EnhancedSmartActualKPIForm({
         // ❌ Removed 'Zone Number' - use 'Zone' instead
         // ❌ Removed 'Activity Division' - not a column in unified KPI table
         // ❌ Removed 'Project Full Name' - not a column in unified KPI table
-        'Recorded By': formData.recorded_by || ''
+        'Recorded By': formData.recorded_by || '',
+        // ✅ Add flags to track if this was worked on
+        'hasWorked': true, // This form is only for activities that were worked on
+        'notWorkedOn': false
       }
       
       // ✅ Calculate Value from Quantity × Rate if available
@@ -667,19 +709,114 @@ export function EnhancedSmartActualKPIForm({
     setSuccess('🚀 Starting to submit all activities to database...')
     
     try {
-      console.log('📤 Submitting all activities to database:', Array.from(completedActivitiesData.values()))
+      const allActivitiesBeforeFilter = Array.from(completedActivitiesData.values())
+      console.log('📤 All activities before filtering:', allActivitiesBeforeFilter.length)
+      console.log('📤 Raw data:', JSON.stringify(allActivitiesBeforeFilter, null, 2))
       
-      // Convert Map to Array and submit all data
-      const allData = Array.from(completedActivitiesData.values())
+      // Convert Map to Array and filter out activities that were not worked on
+      const allData = allActivitiesBeforeFilter.filter((data: any) => {
+        // STRICT FILTERING - Exclude if ANY of these conditions are true
+        
+        // 1. Check flags first
+        const notWorkedOnFlag = data.notWorkedOn === true
+        const hasWorkedFalse = data.hasWorked === false
+        const isNotWorkedOn = notWorkedOnFlag || hasWorkedFalse
+        
+        // 2. Get quantity in all possible formats
+        const quantityRaw = data['Quantity'] ?? data.quantity ?? '0'
+        const quantityStr = String(quantityRaw).trim()
+        const quantity = parseFloat(quantityStr)
+        
+        // 3. Check quantity - be EXTREMELY strict
+        const isZero = quantity === 0
+        const isZeroString = quantityStr === '0'
+        const isEmpty = quantityStr === ''
+        const isNaN = Number.isNaN(quantity)
+        const isNull = quantityRaw === null || quantity === null
+        const isUndefined = quantityRaw === undefined || quantity === undefined
+        
+        const hasZeroQuantity = isZero || isZeroString || isEmpty || isNaN || isNull || isUndefined
+        
+        // 4. Final exclusion decision
+        const shouldExclude = isNotWorkedOn || hasZeroQuantity
+        
+        if (shouldExclude) {
+          console.log('⏭️ ❌ EXCLUDING activity from submission:', {
+            name: data['Activity Name'] || data.activity_name,
+            reason: isNotWorkedOn ? 'marked as not worked on' : 'has zero quantity',
+            quantity: quantity,
+            quantityRaw: quantityRaw,
+            quantityStr: quantityStr,
+            notWorkedOn: data.notWorkedOn,
+            hasWorked: data.hasWorked,
+            fullData: data
+          })
+        } else {
+          console.log('✅ INCLUDING activity in submission:', {
+            name: data['Activity Name'] || data.activity_name,
+            quantity: quantity,
+            quantityRaw: quantityRaw,
+            quantityStr: quantityStr
+          })
+        }
+        
+        return !shouldExclude
+      })
       
       if (allData.length === 0) {
         setError('No activities to submit. Please complete some activities first.')
+        setIsSubmitting(false)
         return
       }
       
-      // Submit all data at once
+      console.log(`✅ Filtered to ${allData.length} activities to submit (excluding ${Array.from(completedActivitiesData.values()).length - allData.length} not worked on)`)
+      
+      // Submit all data at once - with final validation before each submit
       for (let i = 0; i < allData.length; i++) {
-        await onSubmit(allData[i])
+        const activityData = allData[i]
+        
+        // Final validation - double check before submitting
+        const finalQuantityRaw = activityData['Quantity'] ?? activityData.quantity ?? '0'
+        const finalQuantityStr = String(finalQuantityRaw).trim()
+        const finalQuantity = parseFloat(finalQuantityStr)
+        const isNotWorkedOn = activityData.notWorkedOn === true || activityData.hasWorked === false
+        const hasZeroQty = isNaN(finalQuantity) || finalQuantity === 0 || finalQuantityStr === '0' || finalQuantityStr === ''
+        
+        console.log('🔍 Validating activity before submit:', {
+          name: activityData['Activity Name'] || activityData.activity_name,
+          quantity: finalQuantity,
+          quantityRaw: finalQuantityRaw,
+          quantityStr: finalQuantityStr,
+          notWorkedOn: activityData.notWorkedOn,
+          hasWorked: activityData.hasWorked,
+          isNotWorkedOn: isNotWorkedOn,
+          hasZeroQty: hasZeroQty,
+          fullDataKeys: Object.keys(activityData)
+        })
+        
+        if (isNotWorkedOn || hasZeroQty) {
+          console.error('🚫 BLOCKED: Attempted to submit activity that should be excluded:', {
+            name: activityData['Activity Name'] || activityData.activity_name,
+            quantity: finalQuantity,
+            quantityRaw: finalQuantityRaw,
+            quantityStr: finalQuantityStr,
+            notWorkedOn: isNotWorkedOn,
+            hasZeroQty: hasZeroQty,
+            fullData: activityData
+          })
+          // Skip this activity - do NOT submit it
+          alert(`⚠️ Skipping activity: ${activityData['Activity Name'] || activityData.activity_name}\nReason: ${isNotWorkedOn ? 'Not worked on' : 'Zero quantity'}`)
+          continue
+        }
+        
+        console.log('🚀 ✅ APPROVED: Submitting activity:', {
+          name: activityData['Activity Name'] || activityData.activity_name,
+          quantity: finalQuantity,
+          quantityRaw: finalQuantityRaw,
+          quantityStr: finalQuantityStr
+        })
+        
+        await onSubmit(activityData)
         
         // Show progress message
         if (i < allData.length - 1) {
@@ -834,10 +971,10 @@ export function EnhancedSmartActualKPIForm({
     const remainingActivities = getRemainingActivities()
     
     return (
-      <div className="w-full max-w-7xl mx-auto">
-        <div className="flex gap-6">
+      <div className="w-full mx-auto px-2 sm:px-4">
+        <div className="flex flex-col lg:flex-row gap-3 lg:gap-4">
           {/* Sidebar - Activities List */}
-          <div className="w-1/3 min-w-80">
+          <div className="w-full lg:w-[38%] lg:min-w-[350px]">
             <ModernCard className="w-full h-fit">
               <div className="p-6">
                 {/* Header */}
@@ -1020,8 +1157,8 @@ export function EnhancedSmartActualKPIForm({
                   )}
                 </div>
 
-                {/* Activities List */}
-                <div className="space-y-3 max-h-96 overflow-y-auto">
+                {/* Activities List - Compact Design */}
+                <div className="space-y-2 max-h-[50vh] sm:max-h-[60vh] overflow-y-auto pr-2">
                   {getFilteredActivities().map((activity, index) => {
                     const isCompleted = completedActivities.has(activity.id)
                     const isCurrent = projectActivities.findIndex(a => a.id === activity.id) === currentActivityIndex
@@ -1029,7 +1166,7 @@ export function EnhancedSmartActualKPIForm({
                     return (
                       <div
                         key={activity.id}
-                        className={`p-4 rounded-lg border-2 transition-all duration-200 cursor-pointer ${
+                        className={`p-2 sm:p-3 rounded-md border-2 transition-all duration-200 cursor-pointer ${
                           isCompleted 
                             ? 'bg-green-50 border-green-300 dark:bg-green-900/20 dark:border-green-600' 
                             : isCurrent
@@ -1038,41 +1175,43 @@ export function EnhancedSmartActualKPIForm({
                         }`}
                         onClick={() => handleActivitySelect(activity)}
                       >
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-2">
-                              {isCompleted ? (
-                                <CheckCircle className="w-4 h-4 text-green-600" />
-                              ) : isCurrent ? (
-                                <Play className="w-4 h-4 text-blue-600" />
-                              ) : (
-                                <Clock className="w-4 h-4 text-gray-400" />
-                              )}
-                              <span className={`text-xs font-medium ${
-                                isCompleted ? 'text-green-700' : 
-                                isCurrent ? 'text-blue-700' : 'text-gray-600'
-                              }`}>
-                                {isCompleted ? 'Completed' : 
-                                 isCurrent ? 'Current' : 'Pending'}
-                              </span>
-                            </div>
-                            <h3 className="font-semibold text-gray-900 dark:text-white mb-1 text-sm">
-                              {activity.activity_name}
-                            </h3>
-                            <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
-                              {activity.activity}
-                            </p>
-                            {activity.zone_ref && activity.zone_ref !== 'Enabling Division' && (
-                              <div className="flex items-center gap-3 text-xs">
-                                <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full font-medium">
-                                  Zone: {activity.zone_ref}
-                                </span>
-                              </div>
+                        <div className="flex items-center justify-between gap-1.5 sm:gap-2">
+                          <div className="flex items-center gap-1.5 sm:gap-2 flex-1 min-w-0">
+                            {isCompleted ? (
+                              <CheckCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-green-600 flex-shrink-0" />
+                            ) : isCurrent ? (
+                              <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600 flex-shrink-0" />
+                            ) : (
+                              <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400 flex-shrink-0" />
                             )}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 sm:gap-2 mb-0.5 sm:mb-1 flex-wrap">
+                                <span className={`text-xs font-medium flex-shrink-0 ${
+                                  isCompleted ? 'text-green-700' : 
+                                  isCurrent ? 'text-blue-700' : 'text-gray-600'
+                                }`}>
+                                  {isCompleted ? 'Done' : 
+                                   isCurrent ? 'Now' : 'Pending'}
+                                </span>
+                                {activity.zone_ref && activity.zone_ref !== 'Enabling Division' && (
+                                  <span className="px-1.5 py-0.5 bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200 rounded text-xs font-medium truncate max-w-[120px] sm:max-w-none">
+                                    {activity.zone_ref}
+                                  </span>
+                                )}
+                              </div>
+                              <h3 className="font-semibold text-gray-900 dark:text-white text-xs sm:text-sm truncate" title={activity.activity_name}>
+                                {activity.activity_name}
+                              </h3>
+                              {activity.activity && (
+                                <p className="text-xs text-gray-500 dark:text-gray-400 truncate hidden sm:block" title={activity.activity}>
+                                  {activity.activity}
+                                </p>
+                              )}
+                            </div>
                           </div>
                           {isCompleted && (
-                            <div className="ml-2 flex items-center gap-2">
-                              <CheckCircle2 className="w-5 h-5 text-green-600" />
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-green-600 hidden sm:block" />
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation()
@@ -1081,7 +1220,7 @@ export function EnhancedSmartActualKPIForm({
                                 className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded transition-colors"
                                 title="Edit completed activity"
                               >
-                                <Edit className="w-4 h-4" />
+                                <Edit className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                               </button>
                             </div>
                           )}
@@ -1141,10 +1280,10 @@ export function EnhancedSmartActualKPIForm({
     console.log('🔍 Form step - currentActivity:', currentActivity?.activity_name, 'selectedActivity:', selectedActivity?.activity_name)
     
     return (
-      <div className="w-full max-w-7xl mx-auto">
-        <div className="flex gap-6">
+      <div className="w-full mx-auto px-2 sm:px-4">
+        <div className="flex flex-col lg:flex-row gap-3 lg:gap-4">
           {/* Sidebar - Activities List (Always Visible) */}
-          <div className="w-1/3 min-w-80">
+          <div className="w-full lg:w-[38%] lg:min-w-[350px]">
             <ModernCard className="w-full h-fit">
               <div className="p-6">
                 {/* Header */}
@@ -1171,12 +1310,12 @@ export function EnhancedSmartActualKPIForm({
                 </div>
 
                 {/* Progress Bar */}
-                <div className="mb-6">
+                <div className="mb-4 sm:mb-6">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    <span className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300">
                       Progress: {completedActivities.size} / {projectActivities.length}
                     </span>
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    <span className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300">
                       {Math.round((completedActivities.size / projectActivities.length) * 100)}%
                     </span>
                   </div>
@@ -1265,8 +1404,8 @@ export function EnhancedSmartActualKPIForm({
                   )}
                 </div>
 
-                {/* Activities List */}
-                <div className="space-y-3 max-h-96 overflow-y-auto">
+                {/* Activities List - Compact Design */}
+                <div className="space-y-2 max-h-[50vh] sm:max-h-[60vh] overflow-y-auto pr-2">
                   {projectActivities.map((activity, index) => {
                     const isCompleted = completedActivities.has(activity.id)
                     const isCurrent = index === currentActivityIndex
@@ -1274,7 +1413,7 @@ export function EnhancedSmartActualKPIForm({
                     return (
                       <div
                         key={activity.id}
-                        className={`p-4 rounded-lg border-2 transition-all duration-200 cursor-pointer ${
+                        className={`p-2 sm:p-3 rounded-md border-2 transition-all duration-200 cursor-pointer ${
                           isCompleted 
                             ? 'bg-green-50 border-green-300 dark:bg-green-900/20 dark:border-green-600' 
                             : isCurrent
@@ -1283,41 +1422,43 @@ export function EnhancedSmartActualKPIForm({
                         }`}
                         onClick={() => handleActivitySelect(activity)}
                       >
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-2">
-                              {isCompleted ? (
-                                <CheckCircle className="w-4 h-4 text-green-600" />
-                              ) : isCurrent ? (
-                                <Play className="w-4 h-4 text-blue-600" />
-                              ) : (
-                                <Clock className="w-4 h-4 text-gray-400" />
-                              )}
-                              <span className={`text-xs font-medium ${
-                                isCompleted ? 'text-green-700' : 
-                                isCurrent ? 'text-blue-700' : 'text-gray-600'
-                              }`}>
-                                {isCompleted ? 'Completed' : 
-                                 isCurrent ? 'Current' : 'Pending'}
-                              </span>
-                            </div>
-                            <h3 className="font-semibold text-gray-900 dark:text-white mb-1 text-sm">
-                              {activity.activity_name}
-                            </h3>
-                            <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
-                              {activity.activity}
-                            </p>
-                            {activity.zone_ref && activity.zone_ref !== 'Enabling Division' && (
-                              <div className="flex items-center gap-3 text-xs">
-                                <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full font-medium">
-                                  Zone: {activity.zone_ref}
-                                </span>
-                              </div>
+                        <div className="flex items-center justify-between gap-1.5 sm:gap-2">
+                          <div className="flex items-center gap-1.5 sm:gap-2 flex-1 min-w-0">
+                            {isCompleted ? (
+                              <CheckCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-green-600 flex-shrink-0" />
+                            ) : isCurrent ? (
+                              <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600 flex-shrink-0" />
+                            ) : (
+                              <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400 flex-shrink-0" />
                             )}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 sm:gap-2 mb-0.5 sm:mb-1 flex-wrap">
+                                <span className={`text-xs font-medium flex-shrink-0 ${
+                                  isCompleted ? 'text-green-700' : 
+                                  isCurrent ? 'text-blue-700' : 'text-gray-600'
+                                }`}>
+                                  {isCompleted ? 'Done' : 
+                                   isCurrent ? 'Now' : 'Pending'}
+                                </span>
+                                {activity.zone_ref && activity.zone_ref !== 'Enabling Division' && (
+                                  <span className="px-1.5 py-0.5 bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200 rounded text-xs font-medium truncate max-w-[120px] sm:max-w-none">
+                                    {activity.zone_ref}
+                                  </span>
+                                )}
+                              </div>
+                              <h3 className="font-semibold text-gray-900 dark:text-white text-xs sm:text-sm truncate" title={activity.activity_name}>
+                                {activity.activity_name}
+                              </h3>
+                              {activity.activity && (
+                                <p className="text-xs text-gray-500 dark:text-gray-400 truncate hidden sm:block" title={activity.activity}>
+                                  {activity.activity}
+                                </p>
+                              )}
+                            </div>
                           </div>
                           {isCompleted && (
-                            <div className="ml-2 flex items-center gap-2">
-                              <CheckCircle2 className="w-5 h-5 text-green-600" />
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-green-600 hidden sm:block" />
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation()
@@ -1326,7 +1467,7 @@ export function EnhancedSmartActualKPIForm({
                                 className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded transition-colors"
                                 title="Edit completed activity"
                               >
-                                <Edit className="w-4 h-4" />
+                                <Edit className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                               </button>
                             </div>
                           )}
@@ -1400,7 +1541,7 @@ export function EnhancedSmartActualKPIForm({
           </div>
 
           {/* Main Content - Form or Preview */}
-          <div className="flex-1">
+          <div className="w-full lg:flex-1">
             {completedActivities.size === projectActivities.length && projectActivities.length > 0 ? (
               // Preview Section
               <ModernCard className="w-full">
@@ -1432,6 +1573,19 @@ export function EnhancedSmartActualKPIForm({
                         </div>
                       </div>
                     </div>
+                    <div className="bg-gradient-to-r from-orange-50 to-red-50 dark:from-orange-900/20 dark:to-red-900/20 p-4 rounded-lg border border-orange-200 dark:border-orange-700">
+                      <div className="flex items-center">
+                        <X className="w-8 h-8 text-orange-600 mr-3" />
+                        <div>
+                          <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                            {projectActivities.length - completedActivities.size}
+                          </div>
+                          <div className="text-sm text-gray-600 dark:text-gray-400">
+                            Activities Not Worked On
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                     <div className="bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-700">
                       <div className="flex items-center">
                         <Calendar className="w-8 h-8 text-blue-600 mr-3" />
@@ -1448,22 +1602,9 @@ export function EnhancedSmartActualKPIForm({
                         </div>
                       </div>
                     </div>
-                    <div className="bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 p-4 rounded-lg border border-purple-200 dark:border-purple-700">
-                      <div className="flex items-center">
-                        <Target className="w-8 h-8 text-purple-600 mr-3" />
-                        <div>
-                          <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                            {Array.from(completedActivitiesData.values()).reduce((sum, data) => sum + (data.quantity || 0), 0)}
-                          </div>
-                          <div className="text-sm text-gray-600 dark:text-gray-400">
-                            Total Quantity
-                          </div>
-                        </div>
-                      </div>
-                    </div>
                   </div>
 
-                  {/* Completed Activities Table */}
+                  {/* All Activities Table */}
                   <div className="mb-6">
                     <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
                       <div className="overflow-x-auto">
@@ -1491,53 +1632,121 @@ export function EnhancedSmartActualKPIForm({
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                            {Array.from(completedActivitiesData.entries()).map(([activityId, data], index) => {
-                              const activity = projectActivities.find(a => a.id === activityId)
+                            {projectActivities.map((activity) => {
+                              const hasData = completedActivitiesData.has(activity.id)
+                              const data = completedActivitiesData.get(activity.id)
+                              const isNotWorkedOn = data?.notWorkedOn === true || data?.hasWorked === false
+                              const hasWorked = hasData && !isNotWorkedOn
+                              
                               return (
-                                <tr key={activityId} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                                <tr 
+                                  key={activity.id} 
+                                  className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 ${
+                                    isNotWorkedOn ? 'bg-orange-50/50 dark:bg-orange-900/20' : 
+                                    !hasData ? 'bg-gray-50/30 dark:bg-gray-800/30' : ''
+                                  }`}
+                                >
                                   <td className="px-4 py-4">
                                     <div className="flex items-center">
-                                      <CheckCircle className="w-4 h-4 text-green-600 mr-2" />
+                                      {hasWorked ? (
+                                        <CheckCircle className="w-4 h-4 text-green-600 mr-2 flex-shrink-0" />
+                                      ) : isNotWorkedOn ? (
+                                        <X className="w-4 h-4 text-orange-600 mr-2 flex-shrink-0" />
+                                      ) : (
+                                        <Clock className="w-4 h-4 text-gray-400 mr-2 flex-shrink-0" />
+                                      )}
                                       <div>
                                         <div className="text-sm font-medium text-gray-900 dark:text-white">
-                                          {activity?.activity_name}
+                                          {activity.activity_name}
                                         </div>
                                         <div className="text-xs text-gray-500 dark:text-gray-400">
-                                          {activity?.activity}
+                                          {activity.activity}
                                         </div>
                                       </div>
                                     </div>
                                   </td>
                                   <td className="px-4 py-4">
-                                    <div className="text-sm text-gray-900 dark:text-white">
-                                      <span className="font-medium">{data['Quantity'] || data.quantity || 0}</span>
-                                      <span className="text-gray-500 dark:text-gray-400 ml-1">{data['Unit'] || data.unit || ''}</span>
-                                    </div>
+                                    {hasWorked ? (
+                                      <div className="text-sm text-gray-900 dark:text-white">
+                                        <span className="font-medium">{data['Quantity'] || data.quantity || 0}</span>
+                                        <span className="text-gray-500 dark:text-gray-400 ml-1">{data['Unit'] || data.unit || ''}</span>
+                                      </div>
+                                    ) : isNotWorkedOn ? (
+                                      <div className="text-sm text-orange-600 dark:text-orange-400 italic font-medium">
+                                        Not Worked On
+                                      </div>
+                                    ) : (
+                                      <div className="text-sm text-gray-400 dark:text-gray-500 italic">
+                                        Not Handled
+                                      </div>
+                                    )}
                                   </td>
                                   <td className="px-4 py-4">
-                                    <div className="text-sm text-gray-900 dark:text-white">
-                                      {data['Actual Date'] || data.actual_date ? new Date(data['Actual Date'] || data.actual_date).toLocaleDateString('en-US', {
-                                        weekday: 'short',
-                                        month: 'short',
-                                        day: 'numeric'
-                                      }) : 'N/A'}
-                                    </div>
+                                    {hasWorked ? (
+                                      <div className="text-sm text-gray-900 dark:text-white">
+                                        {data['Actual Date'] || data.actual_date ? new Date(data['Actual Date'] || data.actual_date).toLocaleDateString('en-US', {
+                                          weekday: 'short',
+                                          month: 'short',
+                                          day: 'numeric'
+                                        }) : 'N/A'}
+                                      </div>
+                                    ) : isNotWorkedOn ? (
+                                      <div className="text-sm text-orange-600 dark:text-orange-400 italic">
+                                        -
+                                      </div>
+                                    ) : (
+                                      <div className="text-sm text-gray-400 dark:text-gray-500 italic">
+                                        -
+                                      </div>
+                                    )}
                                   </td>
                                   <td className="px-4 py-4">
-                                    <div className="text-sm text-gray-900 dark:text-white">
-                                      {data['Drilled Meters'] || data.drilled_meters ? `${data['Drilled Meters'] || data.drilled_meters}m` : 'N/A'}
-                                    </div>
+                                    {hasWorked ? (
+                                      <div className="text-sm text-gray-900 dark:text-white">
+                                        {data['Drilled Meters'] || data.drilled_meters ? `${data['Drilled Meters'] || data.drilled_meters}m` : 'N/A'}
+                                      </div>
+                                    ) : (
+                                      <div className={`text-sm italic ${
+                                        isNotWorkedOn 
+                                          ? 'text-orange-600 dark:text-orange-400' 
+                                          : 'text-gray-400 dark:text-gray-500'
+                                      }`}>
+                                        -
+                                      </div>
+                                    )}
                                   </td>
                                   <td className="px-4 py-4">
-                                    <div className="text-sm text-gray-900 dark:text-white">
-                                      {data['Drilled Meters'] || data.drilled_meters ? `${data['Drilled Meters'] || data.drilled_meters}m` : 'N/A'}
-                                    </div>
+                                    {hasWorked ? (
+                                      <div className="text-sm text-gray-900 dark:text-white">
+                                        {data['Drilled Meters'] || data.drilled_meters ? `${data['Drilled Meters'] || data.drilled_meters}m` : 'N/A'}
+                                      </div>
+                                    ) : (
+                                      <div className={`text-sm italic ${
+                                        isNotWorkedOn 
+                                          ? 'text-orange-600 dark:text-orange-400' 
+                                          : 'text-gray-400 dark:text-gray-500'
+                                      }`}>
+                                        -
+                                      </div>
+                                    )}
                                   </td>
                                   <td className="px-4 py-4">
-                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
-                                      <CheckCircle className="w-3 h-3 mr-1" />
-                                      Completed
-                                    </span>
+                                    {hasWorked ? (
+                                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
+                                        <CheckCircle className="w-3 h-3 mr-1" />
+                                        Completed
+                                      </span>
+                                    ) : isNotWorkedOn ? (
+                                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300">
+                                        <X className="w-3 h-3 mr-1" />
+                                        Not Worked On
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+                                        <Clock className="w-3 h-3 mr-1" />
+                                        Pending
+                                      </span>
+                                    )}
                                   </td>
                                 </tr>
                               )
@@ -1592,20 +1801,20 @@ export function EnhancedSmartActualKPIForm({
             ) : (
               // Select Activity Message or Form Section
               <ModernCard className="w-full">
-                <div className="p-6">
+                <div className="p-3 sm:p-4 md:p-6">
                   {!selectedActivity && completedActivities.size < projectActivities.length ? (
                     // Select Activity Message - Only show when not all activities are completed
-                    <div className="text-center py-12">
-                      <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <Activity className="w-8 h-8 text-white" />
+                    <div className="text-center py-6 sm:py-8 md:py-12">
+                      <div className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-3 sm:mb-4">
+                        <Activity className="w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 text-white" />
                       </div>
-                      <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                      <h2 className="text-lg sm:text-xl md:text-2xl font-bold text-gray-900 dark:text-white mb-2">
                         Select an Activity
                       </h2>
-                      <p className="text-gray-600 dark:text-gray-400 mb-4">
+                      <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400 mb-3 sm:mb-4 px-4">
                         Click on an activity from the sidebar to start recording KPI data
                       </p>
-                      <div className="text-sm text-gray-500 dark:text-gray-400">
+                      <div className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
                         {projectActivities.filter(activity => !completedActivities.has(activity.id)).length} activities remaining
                       </div>
                     </div>
@@ -1629,18 +1838,18 @@ export function EnhancedSmartActualKPIForm({
                     // Form Section
                     <>
                       {/* Header */}
-            <div className="mb-6">
+            <div className="mb-4 sm:mb-6">
               {/* Header with back button */}
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-600 rounded-full flex items-center justify-center">
-                    <Target className="w-6 h-6 text-white" />
+              <div className="flex items-center justify-between mb-3 sm:mb-4">
+                <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-purple-500 to-pink-600 rounded-full flex items-center justify-center shrink-0">
+                    <Target className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
                   </div>
-                  <div>
-                    <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+                  <div className="min-w-0">
+                    <h2 className="text-base sm:text-lg md:text-xl font-bold text-gray-900 dark:text-white truncate">
                       Activity Details
                     </h2>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                    <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 truncate">
                       Project: {selectedProject?.project_code}
                     </p>
                   </div>
@@ -1649,25 +1858,25 @@ export function EnhancedSmartActualKPIForm({
                   variant="ghost"
                   size="sm"
                   onClick={() => setCurrentStep('activities')}
-                  className="text-gray-400 hover:text-gray-600"
+                  className="text-gray-400 hover:text-gray-600 shrink-0"
                 >
-                  <ArrowLeft className="w-5 h-5" />
+                  <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
                 </Button>
               </div>
 
               {/* Activity Information Card */}
-              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-700">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-lg p-3 sm:p-4 border border-blue-200 dark:border-blue-700">
+                <div className="flex flex-col sm:flex-row items-start justify-between gap-3">
+                  <div className="flex-1 w-full">
+                    <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white mb-2 break-words">
                       {currentActivity.activity_name}
                     </h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                    <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mb-3 break-words">
                       {currentActivity.activity}
                     </p>
                     
                     {/* Activity Details Grid */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                       <div className="space-y-2">
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Unit:</span>
@@ -1785,15 +1994,15 @@ export function EnhancedSmartActualKPIForm({
             )}
 
             {/* Work Today Question */}
-            <div className="mb-8 p-6 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-lg border border-blue-200 dark:border-blue-700">
+            <div className="mb-6 sm:mb-8 p-4 sm:p-6 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-lg border border-blue-200 dark:border-blue-700">
               <div className="text-center">
-                <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Activity className="w-8 h-8 text-white" />
+                <div className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-3 sm:mb-4">
+                  <Activity className="w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 text-white" />
                 </div>
-                <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
+                <h3 className="text-base sm:text-lg md:text-xl font-bold text-gray-900 dark:text-white mb-2 px-2">
                   Did you work on this activity today?
                 </h3>
-                <p className="text-gray-600 dark:text-gray-400 mb-6">
+                <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400 mb-4 sm:mb-6 px-2 break-words">
                   {currentActivity.activity_name}
                   {currentActivity.zone_ref && currentActivity.zone_ref !== 'Enabling Division' && (
                     <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
@@ -1804,28 +2013,28 @@ export function EnhancedSmartActualKPIForm({
                 
                 {/* Edit Mode Notice */}
                 {completedActivities.has(currentActivity.id) && (
-                  <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <div className="mb-4 p-2 sm:p-3 bg-yellow-50 border border-yellow-200 rounded-lg mx-2">
                     <div className="flex items-center gap-2 text-yellow-800">
-                      <Edit className="w-4 h-4" />
-                      <span className="text-sm font-medium">Edit Mode: This activity was previously completed</span>
+                      <Edit className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                      <span className="text-xs sm:text-sm font-medium">Edit Mode: This activity was previously completed</span>
                     </div>
                   </div>
                 )}
                 
-                <div className="flex gap-4 justify-center">
+                <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center px-2">
                   <Button
                     onClick={() => handleWorkTodayQuestion(currentActivity.id, true)}
-                    className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 text-lg"
+                    className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white px-6 sm:px-8 py-2.5 sm:py-3 text-sm sm:text-base"
                   >
-                    <CheckCircle className="w-5 h-5 mr-2" />
+                    <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
                     Yes, I worked on it
                   </Button>
                   <Button
                     onClick={() => handleWorkTodayQuestion(currentActivity.id, false)}
                     variant="outline"
-                    className="border-red-300 text-red-600 hover:bg-red-50 px-8 py-3 text-lg"
+                    className="w-full sm:w-auto border-red-300 text-red-600 hover:bg-red-50 px-6 sm:px-8 py-2.5 sm:py-3 text-sm sm:text-base"
                   >
-                    <X className="w-5 h-5 mr-2" />
+                    <X className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
                     No, I didn't work on it
                   </Button>
                 </div>
@@ -1833,8 +2042,8 @@ export function EnhancedSmartActualKPIForm({
             </div>
 
             {/* Form Fields */}
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-4 sm:space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Quantity
@@ -1894,7 +2103,7 @@ export function EnhancedSmartActualKPIForm({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Drilled Meters
@@ -1959,11 +2168,11 @@ export function EnhancedSmartActualKPIForm({
                 Back to Activities
               </Button>
 
-              <div className="flex gap-3">
+              <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
                 <Button
                   variant="outline"
                   onClick={onCancel}
-                  className="text-gray-600 hover:text-gray-800"
+                  className="w-full sm:w-auto text-gray-600 hover:text-gray-800"
                 >
                   Cancel
                 </Button>
@@ -1978,7 +2187,7 @@ export function EnhancedSmartActualKPIForm({
                     recorded_by: 'Engineer'
                   })}
                   disabled={loading || !quantity || !unit}
-                  className="bg-green-600 hover:bg-green-700 text-white"
+                  className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
                 >
                   {loading ? (
                     <>

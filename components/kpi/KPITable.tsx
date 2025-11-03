@@ -92,6 +92,9 @@ export function KPITable({ kpis, projects, activities, onEdit, onDelete }: KPITa
               Status
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+              Activity Timing
+            </th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
               Actions
             </th>
           </tr>
@@ -204,6 +207,31 @@ export function KPITable({ kpis, projects, activities, onEdit, onDelete }: KPITa
                     </div>
                   )}
                 </td>
+                
+                {/* Activity Timing */}
+                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                  {kpi.activity_timing ? (
+                    <div className="flex items-center gap-2">
+                      <span className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full ${
+                        kpi.activity_timing === 'pre-commencement' 
+                          ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-300' 
+                          : kpi.activity_timing === 'post-completion'
+                          ? 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300'
+                          : 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300'
+                      }`}>
+                        {kpi.activity_timing === 'pre-commencement' ? '⏰ Pre' : 
+                         kpi.activity_timing === 'post-completion' ? '🔧 Post-Comp' : '🚀 Post'}
+                      </span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        {kpi.activity_timing === 'pre-commencement' ? 'Before Start' : 
+                         kpi.activity_timing === 'post-completion' ? 'After End' : 'With Start'}
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-gray-400 dark:text-gray-600 text-xs">Not set</span>
+                  )}
+                </td>
+                
                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                   <div className="flex space-x-2 ">
                     <Button

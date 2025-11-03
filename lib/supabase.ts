@@ -135,6 +135,9 @@ export interface KPIRecord {
   zone?: string                     // Zone/Area
   recorded_by?: string              // Who recorded the data (for Actual only)
   
+  // ✅ Activity Timing (inherited from BOQ Activity)
+  activity_timing?: 'pre-commencement' | 'post-commencement' | 'post-completion'
+  
   // Calculated Fields
   planned_value?: number
   actual_value?: number
