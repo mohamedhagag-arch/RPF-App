@@ -38,7 +38,7 @@ export function useColumnCustomization({
           }
           
           // If structure changed significantly (more than 30% difference), reset to defaults
-          const intersection = new Set([...defaultIds].filter(id => savedIds.has(id)))
+          const intersection = new Set(Array.from(defaultIds).filter(id => savedIds.has(id)))
           const similarity = intersection.size / Math.max(defaultIds.size, savedIds.size)
           
           if (similarity < 0.7 || parsedColumns.length === 0) {
