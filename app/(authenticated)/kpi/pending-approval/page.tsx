@@ -600,9 +600,9 @@ export default function PendingApprovalKPIPage() {
   if (loading && pendingKPIs.length === 0) {
     return (
       <PermissionPage 
-        permission="kpi.approve"
-        accessDeniedTitle="Approval Access Required"
-        accessDeniedMessage="You need permission to approve KPIs. Please contact your administrator."
+        permission="kpi.need_to_submit"
+        accessDeniedTitle="Access Required"
+        accessDeniedMessage="You need permission to view KPIs pending submission. Please contact your administrator."
       >
         <DynamicTitle pageTitle="Pending Approval KPIs" />
         <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
@@ -617,9 +617,9 @@ export default function PendingApprovalKPIPage() {
 
   return (
     <PermissionPage 
-      permission="kpi.approve"
-      accessDeniedTitle="Approval Access Required"
-      accessDeniedMessage="You need permission to approve KPIs. Please contact your administrator."
+      permission="kpi.need_to_submit"
+      accessDeniedTitle="Access Required"
+      accessDeniedMessage="You need permission to view KPIs pending submission. Please contact your administrator."
     >
       <DynamicTitle pageTitle="Pending Approval KPIs" />
       

@@ -1313,7 +1313,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
                 
                 {/* Need to Submit Button - Protected by permissions */}
                 <PermissionButton
-                  permission="kpi.approve"
+                  permission="kpi.need_to_submit"
                   onClick={() => router.push('/kpi/pending-approval')}
                   variant="outline"
                   className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap bg-yellow-50 hover:bg-yellow-100 border-yellow-300 text-yellow-700 dark:bg-yellow-900/20 dark:border-yellow-700 dark:text-yellow-300 relative"

@@ -46,6 +46,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: 'kpi.import', name: 'Import KPIs', category: 'kpi', description: 'Can import KPI records from files', action: 'manage' },
   { id: 'kpi.print', name: 'Print KPIs', category: 'kpi', description: 'Can print KPI reports', action: 'export' },
   { id: 'kpi.approve', name: 'Approve KPIs', category: 'kpi', description: 'Can approve Actual KPIs created by engineers. Users with this permission receive notifications when new KPIs are created and can approve them to appear on the main KPI page', action: 'approve' },
+  { id: 'kpi.need_to_submit', name: 'Need to Submit', category: 'kpi', description: 'Can access the "Need to Submit" feature to view and manage KPIs pending approval. This permission allows viewing pending KPIs that need to be submitted for approval', action: 'approve' },
   
   // Reports Permissions
   { id: 'reports.view', name: 'View Reports', category: 'reports', description: 'Can view all reports', action: 'view' },
@@ -197,7 +198,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     // BOQ
     'boq.view', 'boq.create', 'boq.edit', 'boq.delete', 'boq.approve', 'boq.export', 'boq.import', 'boq.print',
     // KPI
-    'kpi.view', 'kpi.create', 'kpi.edit', 'kpi.delete', 'kpi.export', 'kpi.import', 'kpi.print', 'kpi.approve',
+    'kpi.view', 'kpi.create', 'kpi.edit', 'kpi.delete', 'kpi.export', 'kpi.import', 'kpi.print', 'kpi.approve', 'kpi.need_to_submit',
     // Reports
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly', 'reports.financial', 'reports.export', 'reports.print',
     'reports.lookahead', 'reports.critical', 'reports.performance', 'reports.custom',
@@ -275,7 +276,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     // BOQ (view and approve)
     'boq.view', 'boq.approve', 'boq.export',
     // KPI (view, approve planned KPIs)
-    'kpi.view', 'kpi.approve', 'kpi.export',
+    'kpi.view', 'kpi.approve', 'kpi.need_to_submit', 'kpi.export',
     // Reports (view and export)
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly', 'reports.export', 'reports.print',
     'reports.lookahead', 'reports.critical', 'reports.performance',
