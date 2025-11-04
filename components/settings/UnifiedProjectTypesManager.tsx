@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
+import { getDivisionNames } from '@/lib/divisionsManager'
 import { ModernCard } from '@/components/ui/ModernCard'
 import { ModernButton } from '@/components/ui/ModernButton'
 import { ModernBadge } from '@/components/ui/ModernBadge'
@@ -105,6 +106,13 @@ export function UnifiedProjectTypesManager() {
   const [showExportMenu, setShowExportMenu] = useState(false)
   const [showImportMenu, setShowImportMenu] = useState(false)
   
+  // Units and Divisions for dropdowns
+  const [availableUnits] = useState<string[]>([
+    'No.', 'Meter', 'Running Meter', 'Square Meter', 'Cubic Meter', 
+    'm²', 'm³', 'Lump Sum', 'Ton', 'Kilogram', 'Day', 'Week', 'Month', 'Set', 'Linear Meter'
+  ])
+  const [availableDivisions, setAvailableDivisions] = useState<string[]>([])
+  
   // Form State - Project Scope
   const [scopeFormData, setScopeFormData] = useState({
     name: '',
@@ -129,6 +137,21 @@ export function UnifiedProjectTypesManager() {
   // Load Data
   useEffect(() => {
     loadData()
+  }, [])
+  
+  // Load Divisions for dropdown
+  useEffect(() => {
+    const loadDivisions = async () => {
+      try {
+        const divisions = await getDivisionNames()
+        setAvailableDivisions(divisions)
+      } catch (error) {
+        console.error('Error loading divisions:', error)
+        // Fallback to default divisions
+        setAvailableDivisions(['Enabling Division', 'Soil Improvement Division', 'Infrastructure Division', 'Marine Division'])
+      }
+    }
+    loadDivisions()
   }, [])
 
   // Close dropdowns when clicking outside
@@ -1772,24 +1795,20 @@ export function UnifiedProjectTypesManager() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Category
-                  </label>
-                  <Input
-                    value={activityFormData.category}
-                    onChange={(e) => setActivityFormData({ ...activityFormData, category: e.target.value })}
-                    placeholder="e.g., Piling"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Default Unit
                   </label>
-                  <Input
+                  <select
                     value={activityFormData.default_unit}
                     onChange={(e) => setActivityFormData({ ...activityFormData, default_unit: e.target.value })}
-                    placeholder="e.g., Meter"
-                  />
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                  >
+                    <option value="">Select Unit...</option>
+                    {availableUnits.map((unit) => (
+                      <option key={unit} value={unit}>
+                        {unit}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>
@@ -1821,11 +1840,18 @@ export function UnifiedProjectTypesManager() {
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Division
                   </label>
-                  <Input
+                  <select
                     value={activityFormData.division}
                     onChange={(e) => setActivityFormData({ ...activityFormData, division: e.target.value })}
-                    placeholder="e.g., Civil Division"
-                  />
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                  >
+                    <option value="">Select Division...</option>
+                    {availableDivisions.map((division) => (
+                      <option key={division} value={division}>
+                        {division}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>

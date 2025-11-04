@@ -5,6 +5,8 @@ import { KPIRecord, Project } from '@/lib/supabase'
 import { ColumnCustomizer, ColumnConfig } from '@/components/ui/ColumnCustomizer'
 import { useColumnCustomization } from '@/lib/useColumnCustomization'
 import { Button } from '@/components/ui/Button'
+import { PermissionButton } from '@/components/ui/PermissionButton'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { CheckCircle, Clock, AlertCircle, Calendar, Building, Activity, TrendingUp, Target, Info, Filter, X } from 'lucide-react'
 
 interface KPITableWithCustomizationProps {
@@ -13,25 +15,25 @@ interface KPITableWithCustomizationProps {
   onEdit: (kpi: KPIRecord) => void
   onDelete: (id: string) => void
   onBulkDelete?: (ids: string[]) => void
+  allActivities?: any[] // ✅ Add activities to get Rate from BOQ
 }
 
 // Default column configuration for KPI
 const defaultKPIColumns: ColumnConfig[] = [
-  { id: 'select', label: 'Select', visible: true, order: 0, fixed: true },
-  { id: 'activity_details', label: 'Activity Details', visible: true, order: 1 },
-  { id: 'date', label: 'Date', visible: true, order: 2 },
-  { id: 'input_type', label: 'Input Type', visible: true, order: 3 },
-  { id: 'unit', label: 'Unit', visible: true, order: 4 },
-  { id: 'quantities', label: 'Quantities', visible: true, order: 5 },
-  { id: 'value', label: 'Value', visible: true, order: 6 },
-  { id: 'virtual_value', label: 'Virtual Value', visible: true, order: 7 },
-  { id: 'activity_commencement_relation', label: 'Activity Commencement Relation', visible: true, order: 8 },
-  { id: 'activity_division', label: 'Activity Division', visible: true, order: 9 },
-  { id: 'activity_scope', label: 'Activity Scope', visible: true, order: 10 },
-  { id: 'key_dates', label: 'Key Dates', visible: true, order: 11 },
-  { id: 'cumulative_quantity', label: 'Cumulative Quantity', visible: true, order: 12 },
-  { id: 'cumulative_value', label: 'Cumulative Value', visible: true, order: 13 },
-  { id: 'actions', label: 'Actions', visible: true, order: 14, fixed: true }
+  { id: 'select', label: 'Select', visible: true, order: 0, fixed: true, width: '60px' },
+  { id: 'activity_details', label: 'Activity Details', visible: true, order: 1, width: '250px' },
+  { id: 'date', label: 'Date', visible: true, order: 2, width: '120px' },
+  { id: 'input_type', label: 'Input Type', visible: true, order: 3, width: '130px' },
+  { id: 'quantities', label: 'Quantities', visible: true, order: 4, width: '180px' },
+  { id: 'value', label: 'Value', visible: true, order: 5, width: '180px' },
+  { id: 'virtual_value', label: 'Virtual Value', visible: true, order: 6, width: '180px' },
+  { id: 'activity_commencement_relation', label: 'Activity Commencement Relation', visible: true, order: 7, width: '220px' },
+  { id: 'activity_division', label: 'Activity Division', visible: true, order: 8, width: '180px' },
+  { id: 'activity_scope', label: 'Activity Scope', visible: true, order: 9, width: '180px' },
+  { id: 'key_dates', label: 'Key Dates', visible: true, order: 10, width: '150px' },
+  { id: 'cumulative_quantity', label: 'Cumulative Quantity', visible: true, order: 11, width: '180px' },
+  { id: 'cumulative_value', label: 'Cumulative Value', visible: true, order: 12, width: '180px' },
+  { id: 'actions', label: 'Actions', visible: true, order: 13, fixed: true, width: '150px' }
 ]
 
 export function KPITableWithCustomization({ 
@@ -39,8 +41,10 @@ export function KPITableWithCustomization({
   projects, 
   onEdit, 
   onDelete, 
-  onBulkDelete 
+  onBulkDelete,
+  allActivities = [] // ✅ Add activities prop
 }: KPITableWithCustomizationProps) {
+  const guard = usePermissionGuard()
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [showCustomizer, setShowCustomizer] = useState(false)
   
@@ -336,7 +340,13 @@ export function KPITableWithCustomization({
     if (!dateString) return { week: 'N/A', month: 'N/A', year: 'N/A' }
     try {
       const date = new Date(dateString)
-      const week = Math.ceil(date.getDate() / 7)
+      if (isNaN(date.getTime())) return { week: 'N/A', month: 'N/A', year: 'N/A' }
+      
+      // Calculate week number properly (ISO week)
+      const startOfYear = new Date(date.getFullYear(), 0, 1)
+      const days = Math.floor((date.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000))
+      const week = Math.ceil((days + startOfYear.getDay() + 1) / 7)
+      
       const month = date.toLocaleString('en-US', { month: 'short' })
       const year = date.getFullYear()
       return { week: `Week ${week}`, month, year: year.toString() }
@@ -361,6 +371,18 @@ export function KPITableWithCustomization({
       case 'activity_details':
         const project = projects.find(p => p.project_code === kpi.project_code)
         const projectFullName = getProjectName(kpi.project_code || '') || kpi.project_full_code || kpi.project_code || 'N/A'
+        
+        // Get Zone from multiple sources
+        const rawKPIDetails = (kpi as any).raw || {}
+        const zoneValue = kpi.zone || 
+                         getKPIField(kpi, 'Zone') || 
+                         getKPIField(kpi, 'Zone Number') ||
+                         rawKPIDetails['Zone'] ||
+                         rawKPIDetails['Zone Number'] ||
+                         rawKPIDetails['Section'] ||
+                         kpi.section ||
+                         'N/A'
+        
         return (
           <div className="space-y-1">
             <div className="text-xs text-gray-600 dark:text-gray-400">Project: {projectFullName}</div>
@@ -368,16 +390,41 @@ export function KPITableWithCustomization({
               {kpi.activity_name || 'N/A'}
             </div>
             <div className="text-xs text-gray-600 dark:text-gray-400">
-              Zone #: {kpi.zone || getKPIField(kpi, 'Zone') || getKPIField(kpi, 'Zone Number') || 'N/A'}
+              Zone {zoneValue}
             </div>
           </div>
         )
       
       case 'date':
-        const activityDate = kpi.activity_date || kpi.target_date || kpi.actual_date || ''
+        // ✅ Get date from multiple sources (Priority: Day, Actual Date, Target Date, Activity Date)
+        const rawKPIDate = (kpi as any).raw || {}
+        
+        // Priority 1: Day column (if available and formatted)
+        const dayValue = kpi.day || rawKPIDate['Day'] || ''
+        
+        // Priority 2: Actual Date (for Actual KPIs) or Target Date (for Planned KPIs)
+        const actualDateValue = kpi.actual_date || rawKPIDate['Actual Date'] || ''
+        const targetDateValue = kpi.target_date || rawKPIDate['Target Date'] || ''
+        
+        // Priority 3: Activity Date
+        const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
+        
+        // Determine which date to use based on Input Type
+        let dateToDisplay = ''
+        if (kpi.input_type === 'Actual' && actualDateValue) {
+          dateToDisplay = actualDateValue
+        } else if (kpi.input_type === 'Planned' && targetDateValue) {
+          dateToDisplay = targetDateValue
+        } else if (dayValue) {
+          // If Day is available, try to use it or fallback to Activity Date
+          dateToDisplay = activityDateValue || dayValue
+        } else {
+          dateToDisplay = activityDateValue || actualDateValue || targetDateValue
+        }
+        
         return (
           <div className="text-sm text-gray-900 dark:text-white">
-            {activityDate ? formatDate(activityDate) : 'N/A'}
+            {dateToDisplay ? formatDate(dateToDisplay) : 'N/A'}
           </div>
         )
       
@@ -396,41 +443,214 @@ export function KPITableWithCustomization({
           </div>
         )
       
-      case 'unit':
-        return (
-          <div className="text-sm text-gray-900 dark:text-white">
-            {kpi.unit || 'N/A'}
-          </div>
-        )
-      
       case 'quantities':
+        // ✅ Get quantities and unit from multiple sources (Priority: raw data, then mapped data)
+        const rawKPIQuantities = (kpi as any).raw || {}
+        
+        // Get Quantity from raw data first (most accurate)
+        let quantityValue = parseFloat(String(rawKPIQuantities['Quantity'] || '0').replace(/,/g, '')) || 0
+        if (quantityValue === 0) {
+          quantityValue = kpi.quantity || 0
+        }
+        
+        // Get Unit from raw data first
+        const unitValue = kpi.unit || rawKPIQuantities['Unit'] || 'N/A'
+        
+        // Get Drilled Meters from raw data first
+        let drilledMetersValue = parseFloat(String(rawKPIQuantities['Drilled Meters'] || '0').replace(/,/g, '')) || 0
+        if (drilledMetersValue === 0) {
+          drilledMetersValue = kpi.drilled_meters || 0
+        }
+        
         return (
           <div className="space-y-1">
-            <div className="text-xs text-gray-600 dark:text-gray-400">Quantity: {kpi.quantity || 0}</div>
-            {kpi.drilled_meters && (
-              <div className="text-xs text-gray-600 dark:text-gray-400">Drilled Meters: {kpi.drilled_meters}m</div>
+            <div className="text-sm font-medium text-gray-900 dark:text-white">
+              {quantityValue.toLocaleString()} {unitValue !== 'N/A' ? unitValue : ''}
+            </div>
+            {drilledMetersValue > 0 && (
+              <div className="text-xs text-gray-600 dark:text-gray-400">Drilled Meters: {drilledMetersValue.toLocaleString()}m</div>
             )}
           </div>
         )
       
       case 'value':
-        const kpiValue = kpi.value || kpi.actual_value || kpi.planned_value || 0
+        // ✅ Value = Quantity × Rate (Rate from BOQ Activity)
+        // Display: Total Value + Rate (Value per Unit)
+        const rawKPIValue = (kpi as any).raw || {}
+        
+        // Get Quantity from raw data first, then fallback to mapped data
+        let quantityForValue = parseFloat(String(rawKPIValue['Quantity'] || '0').replace(/,/g, '')) || 0
+        if (quantityForValue === 0) {
+          quantityForValue = kpi.quantity || 0
+        }
+        
+        // ✅ Get Rate from BOQ Activity (Priority: BOQ Activity Rate)
+        let rateForValue = 0
+        
+        // Priority 1: Find related BOQ Activity and get Rate from it
+        if (allActivities.length > 0) {
+          const relatedActivity = allActivities.find((activity: any) => {
+            const activityNameMatch = (
+              activity.activity_name?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim() ||
+              activity.activity?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim()
+            )
+            
+            const projectCodeMatch = (
+              activity.project_code === kpi.project_code ||
+              activity.project_full_code === kpi.project_code ||
+              activity.project_code === kpi.project_full_code ||
+              activity.project_full_code === kpi.project_full_code
+            )
+            
+            return activityNameMatch && projectCodeMatch
+          })
+          
+          if (relatedActivity) {
+            const rawActivity = (relatedActivity as any).raw || {}
+            // Try to get rate from activity
+            rateForValue = relatedActivity.rate || 
+                          parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+                          0
+            
+            // If rate is 0, calculate from Total Value / Total Units
+            if (rateForValue === 0) {
+              const totalValue = relatedActivity.total_value || 
+                               parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                               0
+              const totalUnits = relatedActivity.total_units || 
+                              relatedActivity.planned_units ||
+                              parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                              0
+              
+              if (totalUnits > 0 && totalValue > 0) {
+                rateForValue = totalValue / totalUnits
+              }
+            }
+          }
+        }
+        
+        // Priority 2: Fallback to KPI raw data Rate
+        if (rateForValue === 0) {
+          rateForValue = parseFloat(String(rawKPIValue['Rate'] || '0').replace(/,/g, '')) || 0
+        }
+        
+        // Priority 3: Fallback to Activity Rate in raw KPI data
+        if (rateForValue === 0) {
+          rateForValue = parseFloat(String(rawKPIValue['Activity Rate'] || '0').replace(/,/g, '')) || 0
+        }
+        
+        // Calculate Total Value = Quantity × Rate
+        const totalValue = quantityForValue * rateForValue
+        
         return (
-          <div className="text-sm text-gray-900 dark:text-white">
-            ${kpiValue.toLocaleString()}
+          <div className="space-y-1">
+            <div className="text-sm font-medium text-gray-900 dark:text-white">
+              Total: ${totalValue.toLocaleString()}
+            </div>
+            {rateForValue > 0 && (
+              <div className="text-xs text-gray-600 dark:text-gray-400">
+                Rate: ${rateForValue.toLocaleString()}/unit
+              </div>
+            )}
           </div>
         )
       
       case 'virtual_value':
-        const virtualMaterialValue = getKPIField(kpi, 'Virtual Material Value') || getKPIField(kpi, 'Virtual Material') || 0
-        const baseValue = kpi.value || kpi.actual_value || kpi.planned_value || 0
-        const virtualMaterialValueNum = parseFloat(String(virtualMaterialValue).replace(/,/g, '')) || 0
-        const baseValueNum = parseFloat(String(baseValue).replace(/,/g, '')) || 0
-        const totalVirtualValue = virtualMaterialValueNum + baseValueNum
+        // ✅ Get Virtual Material Value from project (not from KPI)
+        const rawKPIVirtual = (kpi as any).raw || {}
+        
+        // Get Virtual Material Value from project
+        const projectForVirtual = projects.find(p => 
+          p.project_code === kpi.project_code || 
+          p.project_sub_code === kpi.project_code ||
+          p.project_code === kpi.project_full_code
+        )
+        
+        // Priority 1: Get Virtual Material Value from project
+        let virtualMaterialValue = 0
+        if (projectForVirtual) {
+          virtualMaterialValue = parseFloat(String(projectForVirtual.virtual_material_value || '0').replace(/,/g, '')) || 0
+        }
+        
+        // Priority 2: Fallback to raw KPI data if project value not found
+        if (virtualMaterialValue === 0) {
+          virtualMaterialValue = parseFloat(String(
+            rawKPIVirtual['Virtual Material Value'] || 
+            getKPIField(kpi, 'Virtual Material Value') || 
+            getKPIField(kpi, 'Virtual Material') || 
+            '0'
+          ).replace(/,/g, '')) || 0
+        }
+        
+        // Get Base Value (KPI Value) - Value = Quantity × Rate (Rate from BOQ Activity)
+        let quantityForVirtual = parseFloat(String(rawKPIVirtual['Quantity'] || '0').replace(/,/g, '')) || 0
+        if (quantityForVirtual === 0) {
+          quantityForVirtual = kpi.quantity || 0
+        }
+        
+        // ✅ Get Rate from BOQ Activity (same logic as value column)
+        let rateForVirtual = 0
+        
+        // Priority 1: Find related BOQ Activity and get Rate from it
+        if (allActivities.length > 0) {
+          const relatedActivityVirtual = allActivities.find((activity: any) => {
+            const activityNameMatch = (
+              activity.activity_name?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim() ||
+              activity.activity?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim()
+            )
+            
+            const projectCodeMatch = (
+              activity.project_code === kpi.project_code ||
+              activity.project_full_code === kpi.project_code ||
+              activity.project_code === kpi.project_full_code ||
+              activity.project_full_code === kpi.project_full_code
+            )
+            
+            return activityNameMatch && projectCodeMatch
+          })
+          
+          if (relatedActivityVirtual) {
+            const rawActivityVirtual = (relatedActivityVirtual as any).raw || {}
+            rateForVirtual = relatedActivityVirtual.rate || 
+                            parseFloat(String(rawActivityVirtual['Rate'] || '0').replace(/,/g, '')) || 
+                            0
+            
+            // If rate is 0, calculate from Total Value / Total Units
+            if (rateForVirtual === 0) {
+              const totalValueVirtual = relatedActivityVirtual.total_value || 
+                                       parseFloat(String(rawActivityVirtual['Total Value'] || '0').replace(/,/g, '')) || 
+                                       0
+              const totalUnitsVirtual = relatedActivityVirtual.total_units || 
+                                      relatedActivityVirtual.planned_units ||
+                                      parseFloat(String(rawActivityVirtual['Total Units'] || rawActivityVirtual['Planned Units'] || '0').replace(/,/g, '')) || 
+                                      0
+              
+              if (totalUnitsVirtual > 0 && totalValueVirtual > 0) {
+                rateForVirtual = totalValueVirtual / totalUnitsVirtual
+              }
+            }
+          }
+        }
+        
+        // Priority 2: Fallback to KPI raw data Rate
+        if (rateForVirtual === 0) {
+          rateForVirtual = parseFloat(String(rawKPIVirtual['Rate'] || '0').replace(/,/g, '')) || 0
+        }
+        
+        // Priority 3: Fallback to Activity Rate in raw KPI data
+        if (rateForVirtual === 0) {
+          rateForVirtual = parseFloat(String(rawKPIVirtual['Activity Rate'] || '0').replace(/,/g, '')) || 0
+        }
+        
+        // Calculate Base Value = Quantity × Rate
+        const baseValue = quantityForVirtual * rateForVirtual
+        
+        const totalVirtualValue = virtualMaterialValue + baseValue
+        
         return (
           <div className="space-y-1">
-            <div className="text-xs text-gray-600 dark:text-gray-400">Virtual Material: ${virtualMaterialValueNum.toLocaleString()}</div>
-            <div className="text-xs text-gray-600 dark:text-gray-400">Value: ${baseValueNum.toLocaleString()}</div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Virtual Material: ${virtualMaterialValue.toLocaleString()}</div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Value: ${baseValue.toLocaleString()}</div>
             <div className="text-sm font-medium text-gray-900 dark:text-white">Total: ${totalVirtualValue.toLocaleString()}</div>
           </div>
         )
@@ -453,7 +673,49 @@ export function KPITableWithCustomization({
         )
       
       case 'activity_division':
-        const activityDiv = kpi.activity || kpi.section || getKPIField(kpi, 'Activity Division') || 'N/A'
+        // ✅ Get Activity Division from BOQ Activity (not from KPI)
+        const rawKPIDivision = (kpi as any).raw || {}
+        let activityDiv = 'N/A'
+        
+        // Priority 1: Find related BOQ Activity and get Activity Division from it
+        if (allActivities.length > 0) {
+          const relatedActivityDivision = allActivities.find((activity: any) => {
+            const activityNameMatch = (
+              activity.activity_name?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim() ||
+              activity.activity?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim()
+            )
+            
+            const projectCodeMatch = (
+              activity.project_code === kpi.project_code ||
+              activity.project_full_code === kpi.project_code ||
+              activity.project_code === kpi.project_full_code ||
+              activity.project_full_code === kpi.project_full_code
+            )
+            
+            return activityNameMatch && projectCodeMatch
+          })
+          
+          if (relatedActivityDivision) {
+            const rawActivityDivision = (relatedActivityDivision as any).raw || {}
+            // Get Activity Division from BOQ Activity
+            activityDiv = relatedActivityDivision.activity_division || 
+                         rawActivityDivision['Activity Division'] ||
+                         relatedActivityDivision.activity ||
+                         rawActivityDivision['Activity'] ||
+                         'N/A'
+          }
+        }
+        
+        // Priority 2: Fallback to KPI data if BOQ Activity not found
+        if (activityDiv === 'N/A' || !activityDiv) {
+          activityDiv = kpi.activity || 
+                       kpi.section || 
+                       getKPIField(kpi, 'Activity Division') ||
+                       rawKPIDivision['Activity Division'] ||
+                       rawKPIDivision['Section'] ||
+                       'N/A'
+        }
+        
         return (
           <div className="text-sm text-gray-900 dark:text-white">
             {activityDiv}
@@ -461,7 +723,104 @@ export function KPITableWithCustomization({
         )
       
       case 'activity_scope':
-        const activityScope = getKPIField(kpi, 'Activity Scope') || getKPIField(kpi, 'Scope') || kpi.section || 'N/A'
+        // ✅ Get Activity Scope from Project (project_type / Scope of Works)
+        const rawKPIScope = (kpi as any).raw || {}
+        let activityScope = 'N/A'
+        
+        // Priority 1: Get from Project (project_type / Scope of Works)
+        const projectForScope = projects.find(p => 
+          p.project_code === kpi.project_code || 
+          p.project_sub_code === kpi.project_code ||
+          p.project_code === kpi.project_full_code
+        )
+        
+        if (projectForScope) {
+          // Get from project.project_type (Scope of Works)
+          activityScope = projectForScope.project_type || 
+                        (projectForScope as any)['Scope of Works'] ||
+                        (projectForScope as any).scope_of_works ||
+                        'N/A'
+          
+          // If project_type contains multiple scopes (comma-separated), try to match with activity
+          if (activityScope && activityScope !== 'N/A' && activityScope.includes(',')) {
+            // If we have activity division, try to match it with one of the scopes
+            if (allActivities.length > 0) {
+              const relatedActivityForScope = allActivities.find((activity: any) => {
+                const activityNameMatch = (
+                  activity.activity_name?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim() ||
+                  activity.activity?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim()
+                )
+                
+                const projectCodeMatch = (
+                  activity.project_code === kpi.project_code ||
+                  activity.project_full_code === kpi.project_code ||
+                  activity.project_code === kpi.project_full_code ||
+                  activity.project_full_code === kpi.project_full_code
+                )
+                
+                return activityNameMatch && projectCodeMatch
+              })
+              
+              if (relatedActivityForScope) {
+                const activityDivision = relatedActivityForScope.activity_division || 
+                                       (relatedActivityForScope as any).raw?.['Activity Division'] ||
+                                       ''
+                
+                if (activityDivision) {
+                  // Try to find matching scope from project_type
+                  const scopesList = activityScope.split(',').map((s: string) => s.trim())
+                  const matchedScope = scopesList.find((scope: string) => 
+                    scope.toLowerCase().includes(activityDivision.toLowerCase()) ||
+                    activityDivision.toLowerCase().includes(scope.toLowerCase())
+                  )
+                  
+                  if (matchedScope) {
+                    activityScope = matchedScope
+                  }
+                }
+              }
+            }
+          }
+        }
+        
+        // Priority 2: Fallback to BOQ Activity if project scope not found
+        if ((activityScope === 'N/A' || !activityScope) && allActivities.length > 0) {
+          const relatedActivityScope = allActivities.find((activity: any) => {
+            const activityNameMatch = (
+              activity.activity_name?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim() ||
+              activity.activity?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim()
+            )
+            
+            const projectCodeMatch = (
+              activity.project_code === kpi.project_code ||
+              activity.project_full_code === kpi.project_code ||
+              activity.project_code === kpi.project_full_code ||
+              activity.project_full_code === kpi.project_full_code
+            )
+            
+            return activityNameMatch && projectCodeMatch
+          })
+          
+          if (relatedActivityScope) {
+            const rawActivityScope = (relatedActivityScope as any).raw || {}
+            activityScope = rawActivityScope['Activity Scope'] ||
+                          rawActivityScope['Scope'] ||
+                          relatedActivityScope.activity_scope ||
+                          relatedActivityScope.scope ||
+                          'N/A'
+          }
+        }
+        
+        // Priority 3: Fallback to KPI data
+        if (activityScope === 'N/A' || !activityScope) {
+          activityScope = getKPIField(kpi, 'Activity Scope') || 
+                         getKPIField(kpi, 'Scope') || 
+                         rawKPIScope['Activity Scope'] ||
+                         rawKPIScope['Scope'] ||
+                         kpi.section || 
+                         'N/A'
+        }
+        
         return (
           <div className="text-sm text-gray-900 dark:text-white">
             {activityScope}
@@ -469,7 +828,25 @@ export function KPITableWithCustomization({
         )
       
       case 'key_dates':
-        const dateForParts = kpi.activity_date || kpi.target_date || kpi.actual_date || ''
+        // ✅ Get date from multiple sources (same priority as date column)
+        const rawKPIKeyDates = (kpi as any).raw || {}
+        const dayValueKeyDates = kpi.day || rawKPIKeyDates['Day'] || ''
+        const actualDateValueKeyDates = kpi.actual_date || rawKPIKeyDates['Actual Date'] || ''
+        const targetDateValueKeyDates = kpi.target_date || rawKPIKeyDates['Target Date'] || ''
+        const activityDateValueKeyDates = kpi.activity_date || rawKPIKeyDates['Activity Date'] || ''
+        
+        // Determine which date to use based on Input Type
+        let dateForParts = ''
+        if (kpi.input_type === 'Actual' && actualDateValueKeyDates) {
+          dateForParts = actualDateValueKeyDates
+        } else if (kpi.input_type === 'Planned' && targetDateValueKeyDates) {
+          dateForParts = targetDateValueKeyDates
+        } else if (dayValueKeyDates) {
+          dateForParts = activityDateValueKeyDates || dayValueKeyDates
+        } else {
+          dateForParts = activityDateValueKeyDates || actualDateValueKeyDates || targetDateValueKeyDates
+        }
+        
         const dateParts = getDateParts(dateForParts)
         return (
           <div className="space-y-1">
@@ -480,24 +857,299 @@ export function KPITableWithCustomization({
         )
       
       case 'cumulative_quantity':
-        const dailyCumulative = getKPIField(kpi, 'Daily Cumulative') || getKPIField(kpi, 'Daily Cumulative Quantity') || 0
-        const weeklyCumulative = getKPIField(kpi, 'Weekly Cumulative') || getKPIField(kpi, 'Weekly Cumulative Quantity') || 0
-        const monthlyCumulative = getKPIField(kpi, 'Monthly Cumulative') || getKPIField(kpi, 'Monthly Cumulative Quantity') || 0
+        // ✅ Calculate cumulative quantities from KPIs (same project + activity + input type)
+        const rawKPICumQty = (kpi as any).raw || {}
+        
+        // Get current KPI date and quantity
+        const currentKPIDate = kpi.actual_date || kpi.target_date || kpi.activity_date || kpi.day || ''
+        const currentQuantity = kpi.quantity || parseFloat(String(rawKPICumQty['Quantity'] || '0').replace(/,/g, '')) || 0
+        
+        // Parse current KPI date
+        const parseDateForCumulative = (dateStr: string | null | undefined): Date | null => {
+          if (!dateStr) return null
+          try {
+            // Handle "Day N" format
+            if (typeof dateStr === 'string' && dateStr.toLowerCase().startsWith('day')) {
+              const dayMatch = dateStr.match(/\d+/)
+              if (dayMatch) {
+                const dayNum = parseInt(dayMatch[0])
+                // Use a base date (e.g., project start date or current date minus days)
+                const baseDate = new Date()
+                baseDate.setDate(baseDate.getDate() - dayNum)
+                return baseDate
+              }
+            }
+            const date = new Date(dateStr)
+            return isNaN(date.getTime()) ? null : date
+          } catch {
+            return null
+          }
+        }
+        
+        const currentDate = parseDateForCumulative(currentKPIDate)
+        
+        // Filter KPIs for same project + activity + input type
+        const relatedKPIs = kpis.filter((otherKPI: any) => {
+          const sameProject = (
+            otherKPI.project_code === kpi.project_code ||
+            otherKPI.project_full_code === kpi.project_code ||
+            otherKPI.project_code === kpi.project_full_code ||
+            otherKPI.project_full_code === kpi.project_full_code
+          )
+          const sameActivity = (
+            otherKPI.activity_name?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim()
+          )
+          const sameInputType = otherKPI.input_type === kpi.input_type
+          
+          return sameProject && sameActivity && sameInputType
+        })
+        
+        // Calculate daily cumulative (same day)
+        let dailyCumulativeNum = 0
+        if (currentDate) {
+          relatedKPIs.forEach((otherKPI: any) => {
+            const otherDateStr = otherKPI.actual_date || otherKPI.target_date || otherKPI.activity_date || otherKPI.day || ''
+            const otherDate = parseDateForCumulative(otherDateStr)
+            if (otherDate && 
+                otherDate.getDate() === currentDate.getDate() &&
+                otherDate.getMonth() === currentDate.getMonth() &&
+                otherDate.getFullYear() === currentDate.getFullYear()) {
+              const otherQuantity = otherKPI.quantity || parseFloat(String((otherKPI as any).raw?.['Quantity'] || '0').replace(/,/g, '')) || 0
+              dailyCumulativeNum += otherQuantity
+            }
+          })
+        }
+        
+        // Calculate weekly cumulative (same week)
+        let weeklyCumulativeNum = 0
+        if (currentDate) {
+          const currentWeek = Math.ceil((currentDate.getDate() + new Date(currentDate.getFullYear(), 0, 1).getDay()) / 7)
+          const currentYear = currentDate.getFullYear()
+          
+          relatedKPIs.forEach((otherKPI: any) => {
+            const otherDateStr = otherKPI.actual_date || otherKPI.target_date || otherKPI.activity_date || otherKPI.day || ''
+            const otherDate = parseDateForCumulative(otherDateStr)
+            if (otherDate) {
+              const otherWeek = Math.ceil((otherDate.getDate() + new Date(otherDate.getFullYear(), 0, 1).getDay()) / 7)
+              const otherYear = otherDate.getFullYear()
+              
+              if (otherWeek === currentWeek && otherYear === currentYear) {
+                const otherQuantity = otherKPI.quantity || parseFloat(String((otherKPI as any).raw?.['Quantity'] || '0').replace(/,/g, '')) || 0
+                weeklyCumulativeNum += otherQuantity
+              }
+            }
+          })
+        }
+        
+        // Calculate monthly cumulative (same month)
+        let monthlyCumulativeNum = 0
+        if (currentDate) {
+          const currentMonth = currentDate.getMonth()
+          const currentYear = currentDate.getFullYear()
+          
+          relatedKPIs.forEach((otherKPI: any) => {
+            const otherDateStr = otherKPI.actual_date || otherKPI.target_date || otherKPI.activity_date || otherKPI.day || ''
+            const otherDate = parseDateForCumulative(otherDateStr)
+            if (otherDate && 
+                otherDate.getMonth() === currentMonth &&
+                otherDate.getFullYear() === currentYear) {
+              const otherQuantity = otherKPI.quantity || parseFloat(String((otherKPI as any).raw?.['Quantity'] || '0').replace(/,/g, '')) || 0
+              monthlyCumulativeNum += otherQuantity
+            }
+          })
+        }
+        
+        // Fallback to raw data if calculated values are 0
+        if (dailyCumulativeNum === 0 && weeklyCumulativeNum === 0 && monthlyCumulativeNum === 0) {
+          const dailyCumulative = getKPIField(kpi, 'Daily Cumulative') || 
+                                  getKPIField(kpi, 'Daily Cumulative Quantity') || 
+                                  rawKPICumQty['Daily Cumulative'] ||
+                                  rawKPICumQty['Daily Cumulative Quantity'] ||
+                                  0
+          const weeklyCumulative = getKPIField(kpi, 'Weekly Cumulative') || 
+                                  getKPIField(kpi, 'Weekly Cumulative Quantity') || 
+                                  rawKPICumQty['Weekly Cumulative'] ||
+                                  rawKPICumQty['Weekly Cumulative Quantity'] ||
+                                  0
+          const monthlyCumulative = getKPIField(kpi, 'Monthly Cumulative') || 
+                                   getKPIField(kpi, 'Monthly Cumulative Quantity') || 
+                                   rawKPICumQty['Monthly Cumulative'] ||
+                                   rawKPICumQty['Monthly Cumulative Quantity'] ||
+                                   0
+          
+          dailyCumulativeNum = parseFloat(String(dailyCumulative).replace(/,/g, '')) || 0
+          weeklyCumulativeNum = parseFloat(String(weeklyCumulative).replace(/,/g, '')) || 0
+          monthlyCumulativeNum = parseFloat(String(monthlyCumulative).replace(/,/g, '')) || 0
+        }
+        
         return (
           <div className="space-y-1">
-            <div className="text-xs text-gray-600 dark:text-gray-400">Daily: {dailyCumulative}</div>
-            <div className="text-xs text-gray-600 dark:text-gray-400">Weekly: {weeklyCumulative}</div>
-            <div className="text-sm font-medium text-gray-900 dark:text-white">Monthly: {monthlyCumulative}</div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Daily: {dailyCumulativeNum.toLocaleString()}</div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Weekly: {weeklyCumulativeNum.toLocaleString()}</div>
+            <div className="text-sm font-medium text-gray-900 dark:text-white">Monthly: {monthlyCumulativeNum.toLocaleString()}</div>
           </div>
         )
       
       case 'cumulative_value':
-        const dailyCumulativeValue = getKPIField(kpi, 'Daily Cumulative Value') || 0
-        const weeklyCumulativeValue = getKPIField(kpi, 'Weekly Cumulative Value') || 0
-        const monthlyCumulativeValue = getKPIField(kpi, 'Monthly Cumulative Value') || 0
-        const dailyCumulativeValueNum = parseFloat(String(dailyCumulativeValue).replace(/,/g, '')) || 0
-        const weeklyCumulativeValueNum = parseFloat(String(weeklyCumulativeValue).replace(/,/g, '')) || 0
-        const monthlyCumulativeValueNum = parseFloat(String(monthlyCumulativeValue).replace(/,/g, '')) || 0
+        // ✅ Calculate cumulative values from KPIs (same project + activity + input type)
+        const rawKPICumValue = (kpi as any).raw || {}
+        
+        // Get current KPI date
+        const currentKPIDateValue = kpi.actual_date || kpi.target_date || kpi.activity_date || kpi.day || ''
+        
+        // Parse current KPI date (reuse same function)
+        const parseDateForCumulativeValue = (dateStr: string | null | undefined): Date | null => {
+          if (!dateStr) return null
+          try {
+            if (typeof dateStr === 'string' && dateStr.toLowerCase().startsWith('day')) {
+              const dayMatch = dateStr.match(/\d+/)
+              if (dayMatch) {
+                const dayNum = parseInt(dayMatch[0])
+                const baseDate = new Date()
+                baseDate.setDate(baseDate.getDate() - dayNum)
+                return baseDate
+              }
+            }
+            const date = new Date(dateStr)
+            return isNaN(date.getTime()) ? null : date
+          } catch {
+            return null
+          }
+        }
+        
+        const currentDateValue = parseDateForCumulativeValue(currentKPIDateValue)
+        
+        // Filter KPIs for same project + activity + input type
+        const relatedKPIsValue = kpis.filter((otherKPI: any) => {
+          const sameProject = (
+            otherKPI.project_code === kpi.project_code ||
+            otherKPI.project_full_code === kpi.project_code ||
+            otherKPI.project_code === kpi.project_full_code ||
+            otherKPI.project_full_code === kpi.project_full_code
+          )
+          const sameActivity = (
+            otherKPI.activity_name?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim()
+          )
+          const sameInputType = otherKPI.input_type === kpi.input_type
+          
+          return sameProject && sameActivity && sameInputType
+        })
+        
+        // Helper to get value from KPI (Quantity × Rate)
+        const getKPIValue = (kpiRecord: any): number => {
+          const rawKPI = (kpiRecord as any).raw || {}
+          const quantity = kpiRecord.quantity || parseFloat(String(rawKPI['Quantity'] || '0').replace(/,/g, '')) || 0
+          
+          // Get rate from BOQ Activity if available
+          let rate = 0
+          if (allActivities.length > 0) {
+            const relatedActivity = allActivities.find((activity: any) => {
+              const activityNameMatch = (
+                activity.activity_name?.toLowerCase().trim() === kpiRecord.activity_name?.toLowerCase().trim()
+              )
+              const projectCodeMatch = (
+                activity.project_code === kpiRecord.project_code ||
+                activity.project_full_code === kpiRecord.project_code ||
+                activity.project_code === kpiRecord.project_full_code ||
+                activity.project_full_code === kpiRecord.project_full_code
+              )
+              return activityNameMatch && projectCodeMatch
+            })
+            
+            if (relatedActivity) {
+              const rawActivity = (relatedActivity as any).raw || {}
+              rate = relatedActivity.rate || parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
+              
+              if (rate === 0) {
+                const totalValue = relatedActivity.total_value || parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 0
+                const totalUnits = relatedActivity.total_units || relatedActivity.planned_units || parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 0
+                if (totalUnits > 0 && totalValue > 0) {
+                  rate = totalValue / totalUnits
+                }
+              }
+            }
+          }
+          
+          // Fallback to KPI value or calculate
+          if (rate === 0) {
+            const valueFromKPI = kpiRecord.value || parseFloat(String(rawKPI['Value'] || '0').replace(/,/g, '')) || 0
+            if (valueFromKPI > 0) {
+              return valueFromKPI
+            }
+          }
+          
+          return quantity * rate
+        }
+        
+        // Calculate daily cumulative value (same day)
+        let dailyCumulativeValueNum = 0
+        if (currentDateValue) {
+          relatedKPIsValue.forEach((otherKPI: any) => {
+            const otherDateStr = otherKPI.actual_date || otherKPI.target_date || otherKPI.activity_date || otherKPI.day || ''
+            const otherDate = parseDateForCumulativeValue(otherDateStr)
+            if (otherDate && 
+                otherDate.getDate() === currentDateValue.getDate() &&
+                otherDate.getMonth() === currentDateValue.getMonth() &&
+                otherDate.getFullYear() === currentDateValue.getFullYear()) {
+              dailyCumulativeValueNum += getKPIValue(otherKPI)
+            }
+          })
+        }
+        
+        // Calculate weekly cumulative value (same week)
+        let weeklyCumulativeValueNum = 0
+        if (currentDateValue) {
+          const currentWeek = Math.ceil((currentDateValue.getDate() + new Date(currentDateValue.getFullYear(), 0, 1).getDay()) / 7)
+          const currentYear = currentDateValue.getFullYear()
+          
+          relatedKPIsValue.forEach((otherKPI: any) => {
+            const otherDateStr = otherKPI.actual_date || otherKPI.target_date || otherKPI.activity_date || otherKPI.day || ''
+            const otherDate = parseDateForCumulativeValue(otherDateStr)
+            if (otherDate) {
+              const otherWeek = Math.ceil((otherDate.getDate() + new Date(otherDate.getFullYear(), 0, 1).getDay()) / 7)
+              const otherYear = otherDate.getFullYear()
+              
+              if (otherWeek === currentWeek && otherYear === currentYear) {
+                weeklyCumulativeValueNum += getKPIValue(otherKPI)
+              }
+            }
+          })
+        }
+        
+        // Calculate monthly cumulative value (same month)
+        let monthlyCumulativeValueNum = 0
+        if (currentDateValue) {
+          const currentMonth = currentDateValue.getMonth()
+          const currentYear = currentDateValue.getFullYear()
+          
+          relatedKPIsValue.forEach((otherKPI: any) => {
+            const otherDateStr = otherKPI.actual_date || otherKPI.target_date || otherKPI.activity_date || otherKPI.day || ''
+            const otherDate = parseDateForCumulativeValue(otherDateStr)
+            if (otherDate && 
+                otherDate.getMonth() === currentMonth &&
+                otherDate.getFullYear() === currentYear) {
+              monthlyCumulativeValueNum += getKPIValue(otherKPI)
+            }
+          })
+        }
+        
+        // Fallback to raw data if calculated values are 0
+        if (dailyCumulativeValueNum === 0 && weeklyCumulativeValueNum === 0 && monthlyCumulativeValueNum === 0) {
+          const dailyCumulativeValue = getKPIField(kpi, 'Daily Cumulative Value') || 
+                                      rawKPICumValue['Daily Cumulative Value'] ||
+                                      0
+          const weeklyCumulativeValue = getKPIField(kpi, 'Weekly Cumulative Value') || 
+                                       rawKPICumValue['Weekly Cumulative Value'] ||
+                                       0
+          const monthlyCumulativeValue = getKPIField(kpi, 'Monthly Cumulative Value') || 
+                                        rawKPICumValue['Monthly Cumulative Value'] ||
+                                        0
+          
+          dailyCumulativeValueNum = parseFloat(String(dailyCumulativeValue).replace(/,/g, '')) || 0
+          weeklyCumulativeValueNum = parseFloat(String(weeklyCumulativeValue).replace(/,/g, '')) || 0
+          monthlyCumulativeValueNum = parseFloat(String(monthlyCumulativeValue).replace(/,/g, '')) || 0
+        }
+        
         return (
           <div className="space-y-1">
             <div className="text-xs text-gray-600 dark:text-gray-400">Daily: ${dailyCumulativeValueNum.toLocaleString()}</div>
@@ -509,22 +1161,24 @@ export function KPITableWithCustomization({
       case 'actions':
         return (
           <div className="flex items-center gap-2">
-            <Button
+            <PermissionButton
+              permission="kpi.edit"
               variant="outline"
               size="sm"
               onClick={() => onEdit(kpi)}
               className="text-blue-600 hover:text-blue-700"
             >
               Edit
-            </Button>
-            <Button
+            </PermissionButton>
+            <PermissionButton
+              permission="kpi.delete"
               variant="outline"
               size="sm"
               onClick={() => onDelete(kpi.id)}
               className="text-red-600 hover:text-red-700"
             >
               Delete
-            </Button>
+            </PermissionButton>
           </div>
         )
       
@@ -538,6 +1192,11 @@ export function KPITableWithCustomization({
   }
 
   const visibleColumns = columns.filter(col => col.visible).sort((a, b) => a.order - b.order)
+
+  // ✅ Check permission before rendering the entire table
+  if (!guard.hasAccess('kpi.view')) {
+    return null
+  }
 
   return (
     <div className="space-y-4">
@@ -553,21 +1212,23 @@ export function KPITableWithCustomization({
                 {selectedIds.length} selected
               </span>
               {onBulkDelete && (
-                <Button
+                <PermissionButton
+                  permission="kpi.delete"
                   variant="outline"
                   size="sm"
                   onClick={handleBulkDelete}
                   className="text-red-600 hover:text-red-700"
                 >
                   Delete Selected
-                </Button>
+                </PermissionButton>
               )}
             </div>
           )}
         </div>
         
         <div className="flex items-center gap-2">
-          <Button
+          <PermissionButton
+            permission="kpi.view"
             variant="outline"
             size="sm"
             onClick={() => setShowCustomizer(true)}
@@ -575,21 +1236,42 @@ export function KPITableWithCustomization({
           >
             <Filter className="h-4 w-4" />
             Customize Columns
-          </Button>
+          </PermissionButton>
         </div>
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto max-h-[calc(100vh-300px)] overflow-y-auto">
         <table className="w-full border-collapse">
-          <thead>
+          <thead className="sticky top-0 z-10">
             <tr className="border-b border-gray-200 dark:border-gray-700">
               {visibleColumns.map((column) => (
                 <th
                   key={column.id}
-                  className="px-6 py-4 text-left text-base font-semibold text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 min-w-[120px]"
+                  className="px-4 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800"
+                  style={{
+                    width: column.width || 'auto',
+                    minWidth: column.width || '120px',
+                    maxWidth: column.width || 'none',
+                    position: 'sticky',
+                    top: 0,
+                    zIndex: 10
+                  }}
                 >
-                  {column.label}
+                  {column.id === 'select' ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.length === kpis.length && kpis.length > 0}
+                        onChange={(e) => handleSelectAll(e.target.checked)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        title="Select All"
+                      />
+                      <span>{column.label}</span>
+                    </div>
+                  ) : (
+                    column.label
+                  )}
                 </th>
               ))}
             </tr>
@@ -603,7 +1285,12 @@ export function KPITableWithCustomization({
                 {visibleColumns.map((column) => (
                   <td
                     key={column.id}
-                    className="px-6 py-4 text-base"
+                    className="px-4 py-3 text-sm"
+                    style={{
+                      width: column.width || 'auto',
+                      minWidth: column.width || '120px',
+                      maxWidth: column.width || 'none'
+                    }}
                   >
                     {renderCell(kpi, column)}
                   </td>
@@ -615,7 +1302,7 @@ export function KPITableWithCustomization({
       </div>
 
       {/* Column Customizer Modal */}
-      {showCustomizer && (
+      {showCustomizer && guard.hasAccess('kpi.view') && (
         <ColumnCustomizer
           columns={columns}
           onColumnsChange={saveConfiguration}

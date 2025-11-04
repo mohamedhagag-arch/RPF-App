@@ -1,11 +1,15 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Project } from '@/lib/supabase'
 import { ColumnCustomizer, ColumnConfig } from '@/components/ui/ColumnCustomizer'
 import { useColumnCustomization } from '@/lib/useColumnCustomization'
 import { Button } from '@/components/ui/Button'
+import { PermissionButton } from '@/components/ui/PermissionButton'
+import { usePermissionGuard } from '@/lib/permissionGuard'
+import { PermissionGuard } from '@/components/common/PermissionGuard'
 import { CheckCircle, Clock, AlertCircle, Calendar, Building, Activity, TrendingUp, Target, Info, Filter, X, RotateCcw } from 'lucide-react'
+import { calculateProjectAnalytics, ProjectAnalytics } from '@/lib/projectAnalytics'
 
 interface ProjectsTableWithCustomizationProps {
   projects: Project[]
@@ -18,26 +22,28 @@ interface ProjectsTableWithCustomizationProps {
 
 // Default column configuration for Projects
 const defaultProjectsColumns: ColumnConfig[] = [
-  { id: 'select', label: 'Select', visible: true, order: 0, fixed: true },
-  { id: 'project_info_merged', label: 'Project Info', visible: true, order: 1 },
-  { id: 'responsible_divisions', label: 'Responsible Divisions', visible: true, order: 2 },
-  { id: 'scope_of_works', label: 'Scope of Works', visible: true, order: 3 },
-  { id: 'kpi_added', label: 'KPI Added?', visible: true, order: 4 },
-  { id: 'project_status', label: 'Project Status', visible: true, order: 5 },
-  { id: 'contract_durations', label: 'Contract Durations', visible: true, order: 6 },
-  { id: 'planned_dates', label: 'Planned Dates', visible: true, order: 7 },
-  { id: 'actual_dates', label: 'Actual Dates', visible: true, order: 8 },
-  { id: 'progress_summary', label: 'Progress Summary', visible: true, order: 9 },
-  { id: 'work_value_status', label: 'Work Value Status', visible: true, order: 10 },
-  { id: 'contract_amount', label: 'Contract Amount', visible: true, order: 11 },
-  { id: 'divisions_contract_amount', label: 'Divisions Contract Amount', visible: true, order: 12 },
-  { id: 'temporary_material', label: 'Temporary Material', visible: true, order: 13 },
-  { id: 'project_location', label: 'Project Location', visible: true, order: 14 },
-  { id: 'project_parties', label: 'Project Parties', visible: true, order: 15 },
-  { id: 'project_staff', label: 'Project Staff', visible: true, order: 16 },
-  { id: 'project_award_date', label: 'Project Award Date', visible: true, order: 17 },
-  { id: 'workmanship', label: 'Workmanship', visible: true, order: 18 },
-  { id: 'actions', label: 'Actions', visible: true, order: 19, fixed: true }
+  { id: 'select', label: 'Select', visible: true, order: 0, fixed: true, width: '60px' },
+  { id: 'project_code', label: 'Project Code', visible: true, order: 1, width: '150px' },
+  { id: 'project_name', label: 'Project Name', visible: true, order: 2, width: '250px' },
+  { id: 'plot_number', label: 'Plot No.', visible: true, order: 3, width: '120px' },
+  { id: 'responsible_divisions', label: 'Responsible Divisions', visible: true, order: 4, width: '180px' },
+  { id: 'scope_of_works', label: 'Scope of Works', visible: true, order: 5, width: '250px' },
+  { id: 'kpi_added', label: 'KPI Added?', visible: true, order: 6, width: '120px' },
+  { id: 'project_status', label: 'Project Status', visible: true, order: 7, width: '150px' },
+  { id: 'contract_durations', label: 'Contract Durations', visible: true, order: 8, width: '180px' },
+  { id: 'planned_dates', label: 'Planned Dates', visible: true, order: 9, width: '180px' },
+  { id: 'actual_dates', label: 'Actual Dates', visible: true, order: 10, width: '180px' },
+  { id: 'progress_summary', label: 'Progress Summary', visible: true, order: 11, width: '180px' },
+  { id: 'work_value_status', label: 'Work Value Status', visible: true, order: 12, width: '200px' },
+  { id: 'contract_amount', label: 'Contract Amount', visible: true, order: 13, width: '150px' },
+  { id: 'divisions_contract_amount', label: 'Divisions Contract Amount', visible: true, order: 14, width: '220px' },
+  { id: 'temporary_material', label: 'Temporary Material', visible: true, order: 15, width: '150px' },
+  { id: 'project_location', label: 'Project Location', visible: true, order: 16, width: '180px' },
+  { id: 'project_parties', label: 'Project Parties', visible: true, order: 17, width: '200px' },
+  { id: 'project_staff', label: 'Project Staff', visible: true, order: 18, width: '200px' },
+  { id: 'project_award_date', label: 'Project Award Date', visible: true, order: 19, width: '150px' },
+  { id: 'workmanship', label: 'Workmanship', visible: true, order: 20, width: '130px' },
+  { id: 'actions', label: 'Actions', visible: true, order: 21, fixed: true, width: '150px' }
 ]
 
 export function ProjectsTableWithCustomization({ 
@@ -48,8 +54,12 @@ export function ProjectsTableWithCustomization({
   allKPIs = [],
   allActivities = []
 }: ProjectsTableWithCustomizationProps) {
+  const guard = usePermissionGuard()
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [showCustomizer, setShowCustomizer] = useState(false)
+  const [expandedScopes, setExpandedScopes] = useState<Set<string>>(new Set()) // Track expanded scopes per project
+  const [expandedDivisions, setExpandedDivisions] = useState<Set<string>>(new Set()) // Track expanded divisions per project
+  const [copiedPlotNumber, setCopiedPlotNumber] = useState<string | null>(null) // Track copied plot number for feedback
   
   const { 
     columns, 
@@ -60,6 +70,75 @@ export function ProjectsTableWithCustomization({
     storageKey: 'projects' 
   })
 
+  // ✅ Calculate analytics for all projects (same as Cards use) - OPTIMIZED for performance
+  const projectsAnalytics = useMemo(() => {
+    if (!projects.length || (!allActivities.length && !allKPIs.length)) {
+      return new Map<string, ProjectAnalytics>()
+    }
+    
+    // ✅ PERFORMANCE: Only log in development mode and reduce frequency
+    if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
+      console.log(`📊 ProjectsTable: Calculating analytics for ${projects.length} projects`, {
+        allActivitiesCount: allActivities.length,
+        allKPIsCount: allKPIs.length
+      })
+    }
+    
+    // ✅ PERFORMANCE: Use Map for O(1) lookups and batch calculation
+    const analyticsMap = new Map<string, ProjectAnalytics>()
+    
+    // ✅ PERFORMANCE: Pre-filter activities and KPIs by project codes to reduce iterations
+    const projectCodesSet = new Set(projects.map(p => p.project_code).filter(Boolean))
+    const projectFullCodesSet = new Set(
+      projects.flatMap(p => [
+        p.project_code,
+        p.project_sub_code,
+        `${p.project_code}${p.project_sub_code || ''}`
+      ]).filter(Boolean)
+    )
+    
+    // Pre-filter activities and KPIs that might match any project
+    const potentiallyRelevantActivities = allActivities.filter((a: any) => {
+      const code = a.project_code || a['Project Code'] || (a as any).raw?.['Project Code'] || ''
+      const fullCode = a.project_full_code || a['Project Full Code'] || (a as any).raw?.['Project Full Code'] || ''
+      return projectCodesSet.has(code) || 
+             projectFullCodesSet.has(fullCode) ||
+             projectCodesSet.has(fullCode) ||
+             Array.from(projectCodesSet).some(pc => fullCode.startsWith(pc))
+    })
+    
+    const potentiallyRelevantKPIs = allKPIs.filter((k: any) => {
+      const code = k.project_code || k['Project Code'] || (k as any).raw?.['Project Code'] || ''
+      const fullCode = k.project_full_code || k['Project Full Code'] || (k as any).raw?.['Project Full Code'] || ''
+      return projectCodesSet.has(code) || 
+             projectFullCodesSet.has(fullCode) ||
+             projectCodesSet.has(fullCode) ||
+             Array.from(projectCodesSet).some(pc => fullCode.startsWith(pc))
+    })
+    
+    // ✅ PERFORMANCE: Calculate analytics only for visible/relevant data
+    projects.forEach(project => {
+      try {
+        // Use pre-filtered data instead of all data
+        const analytics = calculateProjectAnalytics(project, potentiallyRelevantActivities, potentiallyRelevantKPIs)
+        analyticsMap.set(project.id, analytics)
+      } catch (error) {
+        // Only log errors in development
+        if (process.env.NODE_ENV === 'development') {
+          console.error(`Error calculating analytics for ${project.project_code}:`, error)
+        }
+      }
+    })
+    
+    return analyticsMap
+  }, [projects, allActivities, allKPIs])
+
+  // ✅ Helper: Get analytics for a project (with fallback)
+  const getProjectAnalytics = (project: Project): ProjectAnalytics | null => {
+    return projectsAnalytics.get(project.id) || null
+  }
+
+  // Selection handlers
   const handleSelectOne = (id: string, checked: boolean) => {
     if (checked) {
       setSelectedIds(prev => [...prev, id])
@@ -83,18 +162,1322 @@ export function ProjectsTableWithCustomization({
     }
   }
 
-  // Enhanced Analysis Functions with Advanced Calculations
-  const getProjectStatusColor = (status: string) => {
-    switch (status) {
-      case 'completed': return 'green'
-      case 'on-going': return 'blue'
-      case 'on-hold': return 'yellow'
-      case 'cancelled': return 'red'
-      case 'upcoming': return 'gray'
-      default: return 'gray'
+  // Helper: Get project field from raw data - OPTIMIZED with useCallback
+  const getProjectField = useCallback((project: Project, fieldName: string): any => {
+    try {
+      const raw = (project as any).raw || project
+      return raw[fieldName] || raw[fieldName.replace(/\s+/g, ' ')] || (project as any)[fieldName] || ''
+    } catch {
+      return ''
+    }
+  }, [])
+
+  // Helper: Normalize project code for matching - OPTIMIZED with useCallback
+  const normalizeCode = useCallback((code: any): string => {
+    if (!code) return ''
+    return String(code).trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
+  }, [])
+
+  // ✅ EXPANDED: Check if item matches project (comprehensive matching for all projects) - OPTIMIZED with useCallback
+  const matchesProject = useCallback((item: any, project: Project): boolean => {
+    if (!project?.project_code || !item) return false
+    
+    try {
+      // Get all project code variations
+      const projectCode = normalizeCode(project.project_code)
+      const projectSubCode = normalizeCode(project.project_sub_code || '')
+      const projectFullCodeFromProject = getProjectField(project, 'Project Full Code') || ''
+      const projectFullCode = normalizeCode(projectFullCodeFromProject) || (projectSubCode ? `${projectCode}${projectSubCode}` : projectCode)
+      
+      // Get item codes from all possible sources (EXPANDED)
+      const rawItem = (item as any).raw || {}
+      
+      const getCode = (field: string): string => {
+        const variations = [
+          item[field],
+          item[field.toLowerCase()],
+          item[field.replace(/\s+/g, '')],
+          item[field.replace(/\s+/g, '_')],
+          rawItem[field],
+          rawItem[field.replace(/\s+/g, ' ')],
+          rawItem[field.replace(/\s+/g, '')],
+          rawItem[field.replace(/\s+/g, '_')]
+        ]
+        
+        for (const val of variations) {
+          const normalized = normalizeCode(val)
+          if (normalized) return normalized
+        }
+        return ''
+      }
+      
+      const itemProjectCode = getCode('Project Code') || getCode('project_code')
+      const itemProjectFullCode = getCode('Project Full Code') || getCode('project_full_code')
+      const itemProjectSubCode = getCode('Project Sub Code') || getCode('project_sub_code')
+      const itemFullCode = itemProjectSubCode ? `${itemProjectCode}${itemProjectSubCode}` : (itemProjectFullCode || itemProjectCode)
+      
+      // ✅ STRATEGY 1: Exact matches (case-insensitive)
+      if (itemProjectCode === projectCode || itemProjectFullCode === projectCode || itemFullCode === projectCode) {
+        return true
+      }
+      if (projectFullCode && (itemProjectFullCode === projectFullCode || itemFullCode === projectFullCode || itemProjectCode === projectFullCode)) {
+        return true
+      }
+      
+      // ✅ STRATEGY 2: Contains/Partial matches (more flexible)
+      if (itemProjectCode && projectCode.includes(itemProjectCode)) {
+        return true
+      }
+      if (itemProjectCode && itemProjectCode.includes(projectCode)) {
+        return true
+      }
+      if (itemProjectFullCode && projectCode.includes(itemProjectFullCode)) {
+        return true
+      }
+      if (itemProjectFullCode && itemProjectFullCode.includes(projectCode)) {
+        return true
+      }
+      if (projectFullCode && itemProjectFullCode && projectFullCode.includes(itemProjectFullCode)) {
+        return true
+      }
+      if (projectFullCode && itemProjectFullCode && itemProjectFullCode.includes(projectFullCode)) {
+        return true
+      }
+      
+      // ✅ STRATEGY 3: Numeric match (e.g., P5011 matches P5011-01, P5011-02, etc.)
+      const projectNum = projectCode.match(/(\d+)/)?.[0]
+      if (projectNum) {
+        const itemNum = itemProjectCode.match(/(\d+)/)?.[0]
+        if (itemNum === projectNum) {
+          return true
+        }
+        const itemFullNum = itemProjectFullCode.match(/(\d+)/)?.[0]
+        if (itemFullNum === projectNum) {
+          return true
+        }
+      }
+      
+      // ✅ STRATEGY 4: Fuzzy match - check if codes share common prefix/suffix
+      if (itemProjectCode.length >= 3 && projectCode.length >= 3) {
+        const commonPrefix = itemProjectCode.substring(0, 3) === projectCode.substring(0, 3)
+        const commonSuffix = itemProjectCode.slice(-3) === projectCode.slice(-3)
+        if (commonPrefix || commonSuffix) {
+          // Additional check: numeric part should match
+          const projectNumeric = projectCode.match(/\d+/)?.[0]
+          const itemNumeric = itemProjectCode.match(/\d+/)?.[0]
+          if (projectNumeric && itemNumeric && projectNumeric === itemNumeric) {
+            return true
+          }
+        }
+      }
+      
+      return false
+    } catch (error) {
+      console.error('Error in matchesProject:', error)
+      return false
+    }
+  }, [normalizeCode, getProjectField])
+
+  // Helper: Format date
+  const formatDate = (dateString: string | null | undefined): string => {
+    if (!dateString) return 'N/A'
+    try {
+      const date = new Date(dateString)
+      if (isNaN(date.getTime())) return 'N/A'
+      return date.toLocaleDateString('en-US')
+    } catch {
+      return 'N/A'
     }
   }
 
+  // ✅ EXPANDED: Parse date string (handles ALL possible formats from Supabase)
+  const parseDateString = (dateStr: string | null | undefined): Date | null => {
+    if (!dateStr || dateStr === '' || dateStr === 'N/A' || dateStr === 'null' || dateStr === 'undefined') {
+      return null
+    }
+    
+    try {
+      const str = String(dateStr).trim()
+      
+      // ✅ PRIORITY 1: Try ISO format first (most common in Supabase)
+      const isoDate = new Date(str)
+      if (!isNaN(isoDate.getTime()) && isoDate.getFullYear() > 1900 && isoDate.getFullYear() < 2100) {
+        return isoDate
+      }
+      
+      // ✅ PRIORITY 2: Try "DD-Mon-YY" format (e.g., "23-Feb-24", "15-Jan-25")
+      const dateMatch = str.match(/(\d{1,2})[-/](\w+)[-/](\d{2,4})/)
+      if (dateMatch) {
+        const day = parseInt(dateMatch[1], 10)
+        const monthName = dateMatch[2]
+        let year = parseInt(dateMatch[3], 10)
+        
+        const monthMap: { [key: string]: number } = {
+          'jan': 0, 'january': 0, 'feb': 1, 'february': 1, 'mar': 2, 'march': 2,
+          'apr': 3, 'april': 3, 'may': 4, 'jun': 5, 'june': 5,
+          'jul': 6, 'july': 6, 'aug': 7, 'august': 7, 'sep': 8, 'september': 8, 'sept': 8,
+          'oct': 9, 'october': 9, 'nov': 10, 'november': 10, 'dec': 11, 'december': 11
+        }
+        
+        const monthNameLower = monthName.toLowerCase()
+        const month = monthMap[monthNameLower] !== undefined 
+          ? monthMap[monthNameLower]
+          : monthMap[monthNameLower.substring(0, 3)]
+        
+        if (month !== undefined) {
+          // Handle 2-digit years
+          if (year < 100) {
+            year = year < 50 ? 2000 + year : 1900 + year
+          }
+          const parsedDate = new Date(year, month, day)
+          if (!isNaN(parsedDate.getTime()) && parsedDate.getFullYear() > 1900 && parsedDate.getFullYear() < 2100) {
+            return parsedDate
+          }
+        }
+      }
+      
+      // ✅ PRIORITY 3: Try "YYYY-MM-DD" format (PostgreSQL date format)
+      const ymdMatch = str.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/)
+      if (ymdMatch) {
+        const year = parseInt(ymdMatch[1], 10)
+        const month = parseInt(ymdMatch[2], 10) - 1 // JavaScript months are 0-indexed
+        const day = parseInt(ymdMatch[3], 10)
+        const parsedDate = new Date(year, month, day)
+        if (!isNaN(parsedDate.getTime()) && parsedDate.getFullYear() > 1900 && parsedDate.getFullYear() < 2100) {
+          return parsedDate
+        }
+      }
+      
+      // ✅ PRIORITY 4: Try "DD/MM/YYYY" or "MM/DD/YYYY" format
+      const dmyMatch = str.match(/(\d{1,2})[-/](\d{1,2})[-/](\d{4})/)
+      if (dmyMatch) {
+        const first = parseInt(dmyMatch[1], 10)
+        const second = parseInt(dmyMatch[2], 10)
+        const year = parseInt(dmyMatch[3], 10)
+        
+        // Try both DD/MM/YYYY and MM/DD/YYYY
+        let parsedDate = new Date(year, second - 1, first) // DD/MM/YYYY
+        if (!isNaN(parsedDate.getTime()) && parsedDate.getFullYear() > 1900 && parsedDate.getFullYear() < 2100) {
+          return parsedDate
+        }
+        
+        parsedDate = new Date(year, first - 1, second) // MM/DD/YYYY
+        if (!isNaN(parsedDate.getTime()) && parsedDate.getFullYear() > 1900 && parsedDate.getFullYear() < 2100) {
+          return parsedDate
+        }
+      }
+      
+      // ✅ PRIORITY 5: Try timestamp (milliseconds or seconds)
+      const timestamp = parseInt(str, 10)
+      if (!isNaN(timestamp)) {
+        // If timestamp is in seconds (less than year 2100 in seconds), convert to milliseconds
+        const date = timestamp > 1000000000000 ? new Date(timestamp) : new Date(timestamp * 1000)
+        if (!isNaN(date.getTime()) && date.getFullYear() > 1900 && date.getFullYear() < 2100) {
+          return date
+        }
+      }
+      
+    } catch (error) {
+      // Ignore errors, return null
+    }
+    
+    return null
+  }
+
+  // ✅ EXPANDED Helper: Get planned dates from KPIs (وسع النطاق ليشمل كل المشاريع)
+  // المنطق: 
+  // 1. يذهب إلى جدول KPI
+  // 2. يبحث عن المشروع (باستخدام منطق matching شامل)
+  // 3. يبحث عن تاريخ أول نشاط KPI (أول Planned KPI) = Start
+  // 4. يبحث عن آخر تاريخ نشاط KPI (آخر Planned KPI) = Completion
+  const getPlannedDatesFromKPIs = (project: Project): { start: string | null, completion: string | null } => {
+    if (!project.project_code) {
+      return { start: null, completion: null }
+    }
+
+    try {
+      // ✅ USE ANALYTICS FIRST (SAME AS CARDS) - analytics.kpis contains filtered KPIs
+      const analytics = getProjectAnalytics(project)
+      let plannedKPIs: any[] = []
+      
+      // ✅ Priority 1: Use KPIs from analytics (same filtering as Cards)
+      if (analytics && analytics.kpis && analytics.kpis.length > 0) {
+        plannedKPIs = analytics.kpis.filter((kpi: any) => {
+          const inputType = String(
+            kpi.input_type || 
+            kpi['Input Type'] || 
+            (kpi as any).raw?.['Input Type'] || 
+            (kpi as any).raw?.['input_type'] ||
+            ''
+          ).trim()
+          return inputType.toLowerCase() === 'planned' || inputType === 'Planned'
+        })
+      }
+      
+      // ✅ Priority 2: Fallback to allKPIs if analytics not available or no KPIs found
+      if (plannedKPIs.length === 0) {
+        plannedKPIs = allKPIs.filter((kpi: any) => {
+        // Get Input Type from multiple sources (EXPANDED)
+        const inputType = String(
+          kpi.input_type || 
+          kpi['Input Type'] || 
+          (kpi as any).raw?.['Input Type'] || 
+          (kpi as any).raw?.['input_type'] ||
+          ''
+        ).trim()
+        
+        // Check if it's Planned (case-insensitive)
+        const isPlanned = inputType.toLowerCase() === 'planned' || inputType === 'Planned'
+        
+        // ✅ EXPANDED: Check if matches project (multiple strategies)
+        const matches = matchesProject(kpi, project)
+        
+        return matches && isPlanned
+      })
+      }
+
+      // ✅ Fallback: If still no Planned KPIs found, try all KPIs
+      if (plannedKPIs.length === 0) {
+        // ✅ EXPANDED: Try fallback - search in all KPIs (not just Planned) if no Planned found
+        // Sometimes KPIs might not have Input Type set correctly
+        const allProjectKPIs = allKPIs.filter((kpi: any) => matchesProject(kpi, project))
+        
+        if (allProjectKPIs.length > 0) {
+          // Try to find any KPIs with dates for this project
+          const datesFromAllKPIs = allProjectKPIs
+            .map((kpi: any) => {
+              const rawKpi = (kpi as any).raw || {}
+              
+              let dateStr = rawKpi['Activity Date'] || rawKpi.activity_date || 
+                           kpi.activity_date || kpi['Activity Date'] ||
+                           rawKpi['Target Date'] || rawKpi.target_date ||
+                           kpi.target_date || kpi['Target Date'] ||
+                           rawKpi['Day'] || rawKpi.day ||
+                           kpi.day || kpi['Day'] || ''
+              
+              const parsed = parseDateString(dateStr)
+              return parsed ? { date: parsed, kpi, dateStr } : null
+            })
+            .filter((item): item is { date: Date, kpi: any, dateStr: string } => item !== null)
+            .sort((a, b) => a.date.getTime() - b.date.getTime())
+          
+          if (datesFromAllKPIs.length > 0) {
+            return {
+              start: datesFromAllKPIs[0].date.toISOString(),
+              completion: datesFromAllKPIs[datesFromAllKPIs.length - 1].date.toISOString()
+            }
+          }
+        }
+        
+        return { start: null, completion: null }
+      }
+
+      // ✅ EXPANDED: Extract dates - تاريخ نشاط KPI من جدول KPI (وسع البحث ليشمل جميع الحقول)
+      // Start = تاريخ أول نشاط Planned KPI
+      // Completion = تاريخ آخر نشاط Planned KPI
+      const datesWithKPIs = plannedKPIs
+        .map((kpi: any) => {
+          const rawKpi = (kpi as any).raw || {}
+          
+          // ✅ EXPANDED PRIORITY 1: Activity Date (تاريخ النشاط) - جميع الاختلافات
+          let dateStr = rawKpi['Activity Date'] ||
+                       rawKpi.activity_date ||
+                       rawKpi['activity_date'] ||
+                       rawKpi['ActivityDate'] ||
+                       rawKpi.ActivityDate ||
+                       ''
+          
+          // ✅ EXPANDED PRIORITY 2: من المابيد object (Activity Date) - جميع الاختلافات
+          if (!dateStr || dateStr === '' || dateStr === 'N/A' || dateStr === 'null') {
+            dateStr = kpi.activity_date ||
+                     kpi['Activity Date'] ||
+                     kpi['activity_date'] ||
+                     kpi['ActivityDate'] ||
+                     kpi.ActivityDate ||
+                     ''
+          }
+          
+          // ✅ EXPANDED PRIORITY 3: Target Date (للـ Planned KPIs) - جميع الاختلافات
+          if (!dateStr || dateStr === '' || dateStr === 'N/A' || dateStr === 'null') {
+            dateStr = rawKpi['Target Date'] ||
+                     rawKpi.target_date ||
+                     rawKpi['target_date'] ||
+                     rawKpi['TargetDate'] ||
+                     rawKpi.TargetDate ||
+                     kpi.target_date ||
+                     kpi['Target Date'] ||
+                     kpi['target_date'] ||
+                     kpi['TargetDate'] ||
+                     kpi.TargetDate ||
+                     ''
+          }
+          
+          // ✅ EXPANDED PRIORITY 4: Day column - جميع الاختلافات
+          if (!dateStr || dateStr === '' || dateStr === 'N/A' || dateStr === 'null') {
+            dateStr = rawKpi['Day'] || 
+                     rawKpi.day ||
+                     rawKpi['day'] ||
+                     rawKpi.Day ||
+                     kpi.day || 
+                     kpi['Day'] ||
+                     kpi['day'] ||
+                     kpi.Day ||
+                     ''
+          }
+          
+          // ✅ EXPANDED PRIORITY 5: Other date fields - جميع الاختلافات
+          if (!dateStr || dateStr === '' || dateStr === 'N/A' || dateStr === 'null') {
+            dateStr = rawKpi.date ||
+                     rawKpi['date'] ||
+                     rawKpi.Date ||
+                     rawKpi['Date'] ||
+                     kpi.date ||
+                     kpi['date'] ||
+                     kpi.Date ||
+                     kpi['Date'] ||
+                     ''
+          }
+          
+          // ✅ PRIORITY 6: created_at as last resort
+          if (!dateStr || dateStr === '' || dateStr === 'N/A' || dateStr === 'null') {
+            dateStr = kpi.created_at ||
+                     rawKpi.created_at ||
+                     kpi['created_at'] ||
+                     rawKpi['created_at'] ||
+                     ''
+          }
+          
+          // Parse the date string
+          const parsed = parseDateString(dateStr)
+          
+          return parsed ? { date: parsed, kpi, dateStr } : null
+        })
+        .filter((item): item is { date: Date, kpi: any, dateStr: string } => item !== null)
+        .sort((a, b) => a.date.getTime() - b.date.getTime())
+
+      if (datesWithKPIs.length === 0) {
+        return { start: null, completion: null }
+      }
+
+      // ✅ 3. تاريخ أول نشاط Planned KPI = Start
+      // ✅ 4. تاريخ آخر نشاط Planned KPI = Completion
+      return {
+        start: datesWithKPIs[0].date.toISOString(),
+        completion: datesWithKPIs[datesWithKPIs.length - 1].date.toISOString()
+      }
+    } catch (error) {
+      console.error(`❌ Error getting planned dates from KPIs for ${project.project_code}:`, error)
+      return { start: null, completion: null }
+    }
+  }
+
+  // ✅ EXPANDED Helper: Get actual dates from KPIs - OPTIMIZED with useCallback
+  const getActualDatesFromKPIs = useCallback((project: Project): { start: string | null, completion: string | null } => {
+    if (!project.project_code) {
+      return { start: null, completion: null }
+    }
+
+    try {
+      // ✅ USE ANALYTICS FIRST (SAME AS CARDS) - analytics.kpis contains filtered KPIs
+      const analytics = getProjectAnalytics(project)
+      let actualKPIs: any[] = []
+      
+      // ✅ Priority 1: Use KPIs from analytics (same filtering as Cards)
+      if (analytics && analytics.kpis && analytics.kpis.length > 0) {
+        actualKPIs = analytics.kpis.filter((kpi: any) => {
+          const inputType = String(
+            kpi.input_type || 
+            kpi['Input Type'] || 
+            (kpi as any).raw?.['Input Type'] || 
+            (kpi as any).raw?.['input_type'] ||
+            ''
+          ).trim()
+          return inputType.toLowerCase() === 'actual' || inputType === 'Actual'
+        })
+      }
+      
+      // ✅ Priority 2: Fallback to allKPIs if analytics not available or no KPIs found
+      if (actualKPIs.length === 0) {
+        actualKPIs = allKPIs.filter((kpi: any) => {
+        // Get Input Type from multiple sources (EXPANDED)
+        const inputType = String(
+          kpi.input_type || 
+          kpi['Input Type'] || 
+          (kpi as any).raw?.['Input Type'] || 
+          (kpi as any).raw?.['input_type'] ||
+          ''
+        ).trim()
+        
+        // Check if it's Actual (case-insensitive)
+        const isActual = inputType.toLowerCase() === 'actual' || inputType === 'Actual'
+        
+        // ✅ EXPANDED: Check if matches project (multiple strategies)
+        const matches = matchesProject(kpi, project)
+        
+        return matches && isActual
+      })
+      }
+
+      // ✅ EXPANDED: Extract dates with comprehensive field search
+      const datesWithKPIs = actualKPIs
+        .map((kpi: any) => {
+          const rawKpi = (kpi as any).raw || {}
+          
+          // ✅ EXPANDED PRIORITY 1: Actual Date - جميع الاختلافات
+          let dateStr = rawKpi['Actual Date'] ||
+                       rawKpi.actual_date ||
+                       rawKpi['actual_date'] ||
+                       rawKpi['ActualDate'] ||
+                       rawKpi.ActualDate ||
+                       ''
+          
+          // ✅ EXPANDED PRIORITY 2: من المابيد object (Actual Date)
+          if (!dateStr || dateStr === '' || dateStr === 'N/A' || dateStr === 'null') {
+            dateStr = kpi.actual_date ||
+                     kpi['Actual Date'] ||
+                     kpi['actual_date'] ||
+                     kpi['ActualDate'] ||
+                     kpi.ActualDate ||
+                     ''
+          }
+          
+          // ✅ EXPANDED PRIORITY 3: Activity Date - جميع الاختلافات
+          if (!dateStr || dateStr === '' || dateStr === 'N/A' || dateStr === 'null') {
+            dateStr = rawKpi['Activity Date'] ||
+                     rawKpi.activity_date ||
+                     rawKpi['activity_date'] ||
+                     rawKpi['ActivityDate'] ||
+                     rawKpi.ActivityDate ||
+                     kpi.activity_date ||
+                     kpi['Activity Date'] ||
+                     kpi['activity_date'] ||
+                     kpi['ActivityDate'] ||
+                     kpi.ActivityDate ||
+                     ''
+          }
+          
+          // ✅ EXPANDED PRIORITY 4: Day column - جميع الاختلافات
+          if (!dateStr || dateStr === '' || dateStr === 'N/A' || dateStr === 'null') {
+            dateStr = rawKpi['Day'] || 
+                     rawKpi.day ||
+                     rawKpi['day'] ||
+                     rawKpi.Day ||
+                     kpi.day || 
+                     kpi['Day'] ||
+                     kpi['day'] ||
+                     kpi.Day ||
+                     ''
+          }
+          
+          // ✅ EXPANDED PRIORITY 5: Other date fields - جميع الاختلافات
+          if (!dateStr || dateStr === '' || dateStr === 'N/A' || dateStr === 'null') {
+            dateStr = rawKpi.date ||
+                     rawKpi['date'] ||
+                     rawKpi.Date ||
+                     rawKpi['Date'] ||
+                     kpi.date ||
+                     kpi['date'] ||
+                     kpi.Date ||
+                     kpi['Date'] ||
+                     ''
+          }
+          
+          // ✅ PRIORITY 6: created_at as last resort
+          if (!dateStr || dateStr === '' || dateStr === 'N/A' || dateStr === 'null') {
+            dateStr = kpi.created_at ||
+                     rawKpi.created_at ||
+                     kpi['created_at'] ||
+                     rawKpi['created_at'] ||
+                     ''
+          }
+          
+          const parsed = parseDateString(dateStr)
+          return parsed ? { date: parsed, kpi, dateStr } : null
+        })
+        .filter((item): item is { date: Date, kpi: any, dateStr: string } => item !== null)
+        .sort((a, b) => a.date.getTime() - b.date.getTime())
+
+      if (datesWithKPIs.length === 0) {
+        // ✅ EXPANDED: Try fallback - search in all KPIs (not just Actual) if no Actual found
+        const allProjectKPIs = allKPIs.filter((kpi: any) => matchesProject(kpi, project))
+        
+        if (allProjectKPIs.length > 0) {
+          const datesFromAllKPIs = allProjectKPIs
+            .map((kpi: any) => {
+              const rawKpi = (kpi as any).raw || {}
+              
+              let dateStr = rawKpi['Actual Date'] || rawKpi.actual_date ||
+                           kpi.actual_date || kpi['Actual Date'] ||
+                           rawKpi['Activity Date'] || rawKpi.activity_date ||
+                           kpi.activity_date || kpi['Activity Date'] ||
+                           rawKpi['Day'] || rawKpi.day ||
+                           kpi.day || kpi['Day'] || ''
+              
+              const parsed = parseDateString(dateStr)
+              return parsed ? { date: parsed, kpi, dateStr } : null
+            })
+            .filter((item): item is { date: Date, kpi: any, dateStr: string } => item !== null)
+            .sort((a, b) => a.date.getTime() - b.date.getTime())
+          
+          if (datesFromAllKPIs.length > 0) {
+            return {
+              start: datesFromAllKPIs[0].date.toISOString(),
+              completion: datesFromAllKPIs[datesFromAllKPIs.length - 1].date.toISOString()
+            }
+          }
+        }
+        
+        return { start: null, completion: null }
+      }
+
+      return {
+        start: datesWithKPIs[0].date.toISOString(),
+        completion: datesWithKPIs[datesWithKPIs.length - 1].date.toISOString()
+      }
+    } catch (error) {
+      console.error(`❌ Error getting actual dates from KPIs for ${project.project_code}:`, error)
+      return { start: null, completion: null }
+    }
+  }, [allKPIs, matchesProject, getProjectAnalytics])
+
+  // ✅ SMART Helper: Calculate progress summary with intelligent fallbacks
+  const calculateProgressSummary = (project: Project): { planned: number, actual: number, source: string } => {
+    let plannedProgress = 0
+    let actualProgress = 0
+    let source = 'none'
+    
+    if (!project.project_code) {
+      return { planned: 0, actual: 0, source: 'none' }
+    }
+
+    try {
+      // ✅ METHOD 1: From BOQ Activities (Primary Source - Most Accurate)
+      if (allActivities.length > 0) {
+        const projectActivities = allActivities.filter((activity: any) => matchesProject(activity, project))
+        
+        if (projectActivities.length > 0) {
+          // Weighted average by activity value (more valuable activities count more)
+          let totalPlannedProgress = 0
+          let totalActualProgress = 0
+          let totalWeight = 0
+          let activityCount = 0
+          
+          projectActivities.forEach((activity: any) => {
+            const plannedValue = activity.planned_progress_percentage || 0
+            const actualValue = activity.activity_progress_percentage || 0
+            const activityValue = activity.planned_value || activity.total_value || activity.earned_value || 1
+            
+            // Weight by activity value for more accurate calculation
+            const weight = activityValue > 0 ? activityValue : 1
+            
+            if (plannedValue > 0 || actualValue > 0) {
+              totalPlannedProgress += plannedValue * weight
+              totalActualProgress += actualValue * weight
+              totalWeight += weight
+              activityCount++
+            }
+          })
+          
+          if (activityCount > 0 && totalWeight > 0) {
+            plannedProgress = totalPlannedProgress / totalWeight
+            actualProgress = totalActualProgress / totalWeight
+            source = 'activities'
+          } else {
+            // Simple average if no weights available
+            let simplePlanned = 0
+            let simpleActual = 0
+            let simpleCount = 0
+            
+            projectActivities.forEach((activity: any) => {
+              const plannedValue = activity.planned_progress_percentage || 0
+              const actualValue = activity.activity_progress_percentage || 0
+              
+              if (plannedValue > 0 || actualValue > 0) {
+                simplePlanned += plannedValue
+                simpleActual += actualValue
+                simpleCount++
+              }
+            })
+            
+            if (simpleCount > 0) {
+              plannedProgress = simplePlanned / simpleCount
+              actualProgress = simpleActual / simpleCount
+              source = 'activities'
+            }
+          }
+        }
+      }
+      
+      // ✅ METHOD 2: Calculate from Work Value (if progress not available but work value is)
+      if (plannedProgress === 0 && actualProgress === 0 && allActivities.length > 0) {
+        const projectActivities = allActivities.filter((activity: any) => matchesProject(activity, project))
+        
+        if (projectActivities.length > 0) {
+          let totalPlannedValue = 0
+          let totalEarnedValue = 0
+          
+          projectActivities.forEach((activity: any) => {
+            const planned = activity.planned_value || 0
+            const earned = activity.earned_value || 0
+            
+            totalPlannedValue += planned
+            totalEarnedValue += earned
+          })
+          
+          if (totalPlannedValue > 0) {
+            actualProgress = (totalEarnedValue / totalPlannedValue) * 100
+            plannedProgress = 100 // Assuming 100% planned if we have planned value
+            source = 'work_value'
+          }
+        }
+      }
+      
+      // ✅ METHOD 3: Calculate from KPIs (Quantity-based)
+      if (plannedProgress === 0 && actualProgress === 0 && allKPIs.length > 0) {
+        const projectKPIs = allKPIs.filter((kpi: any) => matchesProject(kpi, project))
+        
+        if (projectKPIs.length > 0) {
+          let totalPlannedQty = 0
+          let totalActualQty = 0
+          let totalPlannedValue = 0
+          let totalActualValue = 0
+          
+          projectKPIs.forEach((kpi: any) => {
+            const inputType = String(kpi.input_type || kpi['Input Type'] || '').trim()
+            const quantity = kpi.quantity || 0
+            const value = kpi.value || 0
+            
+            if (inputType === 'Planned') {
+              totalPlannedQty += quantity
+              totalPlannedValue += value
+            } else if (inputType === 'Actual') {
+              totalActualQty += quantity
+              totalActualValue += value
+            }
+          })
+          
+          // Use value-based if available, otherwise quantity-based
+          if (totalPlannedValue > 0) {
+            actualProgress = (totalActualValue / totalPlannedValue) * 100
+            plannedProgress = 100
+            source = 'kpi_value'
+          } else if (totalPlannedQty > 0) {
+            actualProgress = (totalActualQty / totalPlannedQty) * 100
+            plannedProgress = 100
+            source = 'kpi_quantity'
+          }
+        }
+      }
+      
+      // ✅ METHOD 4: Time-based calculation (Smart estimation)
+      if (plannedProgress === 0 && actualProgress === 0) {
+        const plannedDates = getPlannedDatesFromKPIs(project)
+        const actualDates = getActualDatesFromKPIs(project)
+        
+        // Try planned dates from multiple sources
+        const plannedStart = plannedDates.start || 
+                            getProjectField(project, 'Planned Start Date') || 
+                            getProjectField(project, 'Planned Start') ||
+                            getProjectField(project, 'Project Start Date') ||
+                            ''
+        const plannedCompletion = plannedDates.completion || 
+                                 getProjectField(project, 'Planned Completion Date') || 
+                                 getProjectField(project, 'Planned Completion') ||
+                                 getProjectField(project, 'Project End Date') ||
+                                 ''
+        
+        // For actual progress, use actual dates if available
+        const actualStart = actualDates.start || 
+                           getProjectField(project, 'Actual Start Date') || 
+                           getProjectField(project, 'Actual Start') ||
+                           ''
+        
+        if (plannedStart && plannedCompletion) {
+          const startDate = new Date(plannedStart)
+          const endDate = new Date(plannedCompletion)
+          const today = new Date()
+          
+          if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+            const totalDuration = endDate.getTime() - startDate.getTime()
+            const elapsedDuration = today.getTime() - startDate.getTime()
+            
+            if (totalDuration > 0) {
+              plannedProgress = Math.min(100, Math.max(0, (elapsedDuration / totalDuration) * 100))
+              
+              // Calculate actual progress if actual start date is available
+              if (actualStart) {
+                const actualStartDate = new Date(actualStart)
+                if (!isNaN(actualStartDate.getTime())) {
+                  const actualElapsed = today.getTime() - actualStartDate.getTime()
+                  const actualTotalDuration = endDate.getTime() - actualStartDate.getTime()
+                  
+                  if (actualTotalDuration > 0) {
+                    actualProgress = Math.min(100, Math.max(0, (actualElapsed / actualTotalDuration) * 100))
+                  }
+                }
+              } else {
+                actualProgress = plannedProgress // If no actual start, assume same as planned
+              }
+              
+              source = 'time_based'
+            }
+          }
+        }
+      }
+      
+      // ✅ METHOD 5: From project fields (Final fallback)
+      if (actualProgress === 0) {
+        actualProgress = parseFloat(String(
+          getProjectField(project, 'Actual Progress') || 
+          getProjectField(project, 'Progress') || 
+          getProjectField(project, 'Overall Progress') ||
+          getProjectField(project, 'Current Progress') ||
+          '0'
+        ).replace(/,/g, '')) || 0
+        
+        if (actualProgress > 0) {
+          source = 'project_field'
+        }
+      }
+      
+      if (plannedProgress === 0) {
+        plannedProgress = parseFloat(String(
+          getProjectField(project, 'Planned Progress') || 
+          getProjectField(project, 'Expected Progress') ||
+          getProjectField(project, 'Target Progress') ||
+          '0'
+        ).replace(/,/g, '')) || 0
+        
+        if (plannedProgress > 0) {
+          source = 'project_field'
+        }
+      }
+      
+      // Ensure values are within valid range
+      plannedProgress = Math.min(100, Math.max(0, plannedProgress))
+      actualProgress = Math.min(100, Math.max(0, actualProgress))
+      
+    } catch (error) {
+      console.error('Error calculating progress:', error)
+    }
+    
+    return { planned: plannedProgress, actual: actualProgress, source }
+  }
+
+  // ✅ SMART Helper: Calculate work value status with intelligent calculations
+  const calculateWorkValueStatus = (project: Project): { planned: number, done: number, source: string } => {
+    let plannedValue = 0
+    let doneValue = 0
+    let source = 'none'
+    
+    if (!project.project_code) {
+      return { planned: 0, done: 0, source: 'none' }
+    }
+
+    try {
+      // ✅ METHOD 1: From BOQ Activities - Direct values (Most Accurate)
+      if (allActivities.length > 0) {
+        const projectActivities = allActivities.filter((activity: any) => matchesProject(activity, project))
+        
+        if (projectActivities.length > 0) {
+          projectActivities.forEach((activity: any) => {
+            const planned = activity.planned_value || 0
+            const earned = activity.earned_value || 0
+            
+            plannedValue += planned
+            doneValue += earned
+          })
+          
+          if (plannedValue > 0 || doneValue > 0) {
+            source = 'activities_direct'
+          }
+          
+          // ✅ METHOD 1B: Calculate from Units × Rate (if direct values not available)
+          if (plannedValue === 0 && doneValue === 0) {
+            projectActivities.forEach((activity: any) => {
+              const plannedUnits = activity.planned_units || 0
+              const actualUnits = activity.actual_units || 0
+              const rate = activity.rate || 0
+              
+              // Also try total_value / total_units to get rate if rate not available
+              let effectiveRate = rate
+              if (effectiveRate === 0) {
+                const totalValue = activity.total_value || 0
+                const totalUnits = activity.total_units || 0
+                if (totalUnits > 0 && totalValue > 0) {
+                  effectiveRate = totalValue / totalUnits
+                }
+              }
+              
+              if (effectiveRate > 0) {
+                if (plannedUnits > 0) {
+                  plannedValue += plannedUnits * effectiveRate
+                }
+                if (actualUnits > 0) {
+                  doneValue += actualUnits * effectiveRate
+                }
+              }
+            })
+            
+            if (plannedValue > 0 || doneValue > 0) {
+              source = 'activities_calculated'
+            }
+          }
+          
+          // ✅ METHOD 1C: Use total_value as fallback
+          if (plannedValue === 0 && doneValue === 0) {
+            projectActivities.forEach((activity: any) => {
+              const totalValue = activity.total_value || 0
+              
+              // If no planned/earned, assume total_value is planned and calculate done from progress
+              if (totalValue > 0) {
+                plannedValue += totalValue
+                
+                const progress = activity.activity_progress_percentage || 0
+                if (progress > 0) {
+                  doneValue += (totalValue * progress) / 100
+                }
+              }
+            })
+            
+            if (plannedValue > 0 || doneValue > 0) {
+              source = 'activities_total'
+            }
+          }
+        }
+      }
+      
+      // ✅ METHOD 2: From KPIs (Value + Quantity × Rate)
+      if (plannedValue === 0 && doneValue === 0 && allKPIs.length > 0) {
+        const projectKPIs = allKPIs.filter((kpi: any) => matchesProject(kpi, project))
+        
+        if (projectKPIs.length > 0) {
+          projectKPIs.forEach((kpi: any) => {
+            const inputType = String(kpi.input_type || kpi['Input Type'] || '').trim()
+            const quantity = kpi.quantity || 0
+            const rate = kpi.rate || 0
+            const value = kpi.value || 0
+            
+            // Prioritize value, then calculate from quantity × rate
+            let kpiValue = value
+            if (kpiValue === 0 && rate > 0 && quantity > 0) {
+              kpiValue = quantity * rate
+            }
+            
+            // Also try to find rate from related activity if not in KPI
+            if (kpiValue === 0 && quantity > 0 && allActivities.length > 0) {
+              const relatedActivity = allActivities.find((activity: any) => {
+                if (!matchesProject(activity, project)) return false
+                const kpiActivityName = kpi.activity_name || kpi['Activity Name'] || ''
+                const activityName = activity.activity_name || activity['Activity Name'] || ''
+                return kpiActivityName && activityName && kpiActivityName.toLowerCase() === activityName.toLowerCase()
+              })
+              
+              if (relatedActivity) {
+                const activityRate = relatedActivity.rate || 0
+                if (activityRate === 0) {
+                  const totalValue = relatedActivity.total_value || 0
+                  const totalUnits = relatedActivity.total_units || 0
+                  if (totalUnits > 0 && totalValue > 0) {
+                    kpiValue = quantity * (totalValue / totalUnits)
+                  }
+                } else {
+                  kpiValue = quantity * activityRate
+                }
+              }
+            }
+            
+            if (inputType === 'Planned') {
+              plannedValue += kpiValue
+            } else if (inputType === 'Actual') {
+              doneValue += kpiValue
+            }
+          })
+          
+          if (plannedValue > 0 || doneValue > 0) {
+            source = 'kpis'
+          }
+        }
+      }
+      
+      // ✅ METHOD 3: Calculate from Contract Amount × Progress (Smart estimation)
+      if (plannedValue === 0 && doneValue === 0) {
+        const contractAmt = parseFloat(String(
+          project.contract_amount || 
+          getProjectField(project, 'Contract Amount') || 
+          '0'
+        ).replace(/,/g, '')) || 0
+        
+        if (contractAmt > 0) {
+          plannedValue = contractAmt
+          
+          // Estimate done value from progress
+          const progress = parseFloat(String(
+            getProjectField(project, 'Actual Progress') || 
+            getProjectField(project, 'Progress') || 
+            '0'
+          ).replace(/,/g, '')) || 0
+          
+          if (progress > 0) {
+            doneValue = (contractAmt * progress) / 100
+            source = 'contract_estimated'
+          } else {
+            // Use time-based estimation
+            const plannedDates = getPlannedDatesFromKPIs(project)
+            const plannedStart = plannedDates.start || getProjectField(project, 'Planned Start Date') || ''
+            const plannedCompletion = plannedDates.completion || getProjectField(project, 'Planned Completion Date') || ''
+            const actualStart = getActualDatesFromKPIs(project).start || getProjectField(project, 'Actual Start Date') || ''
+            
+            if (plannedStart && plannedCompletion) {
+              const startDate = new Date(plannedStart)
+              const endDate = new Date(plannedCompletion)
+              const today = new Date()
+              
+              if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+                const totalDuration = endDate.getTime() - startDate.getTime()
+                const elapsedDuration = actualStart 
+                  ? (today.getTime() - new Date(actualStart).getTime())
+                  : (today.getTime() - startDate.getTime())
+                
+                if (totalDuration > 0) {
+                  const timeProgress = Math.min(100, Math.max(0, (elapsedDuration / totalDuration) * 100))
+                  doneValue = (contractAmt * timeProgress) / 100
+                  source = 'contract_time_estimated'
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      // ✅ METHOD 4: From project fields (Final fallback)
+      if (plannedValue === 0 && doneValue === 0) {
+        plannedValue = parseFloat(String(
+          getProjectField(project, 'Planned Work Value') || 
+          getProjectField(project, 'Value of Planned Work') ||
+          getProjectField(project, 'Planned Value') ||
+          getProjectField(project, 'Budget Amount') ||
+          '0'
+        ).replace(/,/g, '')) || 0
+        
+        doneValue = parseFloat(String(
+          getProjectField(project, 'Work Done Value') || 
+          getProjectField(project, 'Value of Work Done') ||
+          getProjectField(project, 'Earned Value') ||
+          getProjectField(project, 'Actual Work Value') ||
+          '0'
+        ).replace(/,/g, '')) || 0
+        
+        if (plannedValue > 0 || doneValue > 0) {
+          source = 'project_fields'
+        }
+      }
+      
+    } catch (error) {
+      console.error('Error calculating work value:', error)
+    }
+    
+    return { planned: plannedValue, done: doneValue, source }
+  }
+
+  // ✅ SMART Helper: Get planned dates from multiple intelligent sources - OPTIMIZED with useCallback
+  const getPlannedDatesFromActivities = useCallback((project: Project): { start: string | null, completion: string | null, duration: number, source: string } => {
+    let plannedStart: string | null = null
+    let plannedCompletion: string | null = null
+    let duration = 0
+    let source = 'none'
+    
+    if (!project.project_code) {
+      return { start: null, completion: null, duration: 0, source: 'none' }
+    }
+
+    try {
+      // ✅ METHOD 1: From BOQ Activities (Primary Source)
+      if (allActivities.length > 0) {
+        // ✅ PERFORMANCE: Only log in development mode and very rarely
+        if (process.env.NODE_ENV === 'development' && Math.random() < 0.01) {
+          console.log(`🔍 [${project.project_code}] getPlannedDatesFromActivities - BEFORE filtering:`, {
+            allActivitiesCount: allActivities.length,
+            projectCode: project.project_code,
+            projectSubCode: project.project_sub_code,
+            firstFewActivities: allActivities.slice(0, 3).map((a: any) => ({
+              projectCode: a.project_code || a['Project Code'] || a.raw?.['Project Code'],
+              projectFullCode: a.project_full_code || a['Project Full Code'] || a.raw?.['Project Full Code'],
+              activityName: a.activity_name,
+              hasRaw: !!a.raw,
+              rawKeys: a.raw ? Object.keys(a.raw).slice(0, 10) : []
+            }))
+          })
+        }
+        
+        const projectActivities = allActivities.filter((activity: any) => {
+          const matches = matchesProject(activity, project)
+          return matches
+        })
+        
+        // ✅ PERFORMANCE: Only log in development mode and very rarely
+        if (process.env.NODE_ENV === 'development' && Math.random() < 0.01) {
+          console.log(`🔍 [${project.project_code}] Matching Activities - AFTER filtering:`, {
+            allActivitiesCount: allActivities.length,
+            projectActivitiesCount: projectActivities.length,
+            projectCode: project.project_code,
+            projectSubCode: project.project_sub_code,
+            sampleProjectActivity: projectActivities[0] ? {
+              projectCode: projectActivities[0].project_code || projectActivities[0]['Project Code'],
+              projectFullCode: projectActivities[0].project_full_code || projectActivities[0]['Project Full Code'],
+              activityName: projectActivities[0].activity_name,
+              plannedStart: projectActivities[0].planned_activity_start_date || projectActivities[0]['Planned Activity Start Date'],
+              deadline: projectActivities[0].deadline || projectActivities[0]['Deadline'],
+              rawPlannedStart: projectActivities[0].raw?.['Planned Activity Start Date'],
+              rawDeadline: projectActivities[0].raw?.['Deadline'],
+              allRawKeys: projectActivities[0].raw ? Object.keys(projectActivities[0].raw).filter(k => 
+                k.toLowerCase().includes('date') || k.toLowerCase().includes('deadline') || k.toLowerCase().includes('start') || k.toLowerCase().includes('completion')
+              ) : []
+            } : null
+          })
+        }
+        
+        if (projectActivities.length > 0) {
+          const activitiesWithDates = projectActivities
+            .map((activity: any) => {
+              // Try all possible field variations
+              const rawActivity = (activity as any).raw || {}
+              
+              // ✅ EXPANDED: Try ALL possible field names for start date (PRIORITY ORDER)
+              // Priority 1: From mapped fields (snake_case)
+              let start = activity.planned_activity_start_date || 
+                           activity.activity_planned_start_date || 
+                           activity.planned_start_date ||
+                           ''
+              
+              // Priority 2: From raw database row (with spaces - EXACT MATCH)
+              if (!start || start === '' || start === 'N/A' || start === 'null') {
+                start = rawActivity['Planned Activity Start Date'] ||
+                       rawActivity['PlannedActivityStartDate'] ||
+                       rawActivity['Activity Planned Start Date'] ||
+                       rawActivity['ActivityPlannedStartDate'] ||
+                       ''
+              }
+              
+              // Priority 3: From activity object with bracket notation
+              if (!start || start === '' || start === 'N/A' || start === 'null') {
+                start = activity['Planned Activity Start Date'] ||
+                       activity['PlannedActivityStartDate'] ||
+                       activity['Activity Planned Start Date'] ||
+                       activity['ActivityPlannedStartDate'] ||
+                       activity['Planned Start Date'] ||
+                       activity['Start Date'] ||
+                       ''
+              }
+              
+              // ✅ EXPANDED: Try ALL possible field names for end date (PRIORITY ORDER)
+              // Priority 1: From mapped fields (snake_case)
+              let end = activity.deadline || 
+                         activity.activity_planned_completion_date || 
+                         activity.planned_completion_date ||
+                       activity.completion_date ||
+                       ''
+              
+              // Priority 2: From raw database row (with spaces - EXACT MATCH)
+              if (!end || end === '' || end === 'N/A' || end === 'null') {
+                end = rawActivity['Deadline'] ||
+                     rawActivity['Activity Planned Completion Date'] ||
+                     rawActivity['ActivityPlannedCompletionDate'] ||
+                     rawActivity['Activity Actual Completion Date'] ||
+                     rawActivity['ActivityActualCompletionDate'] ||
+                     rawActivity['Planned Completion Date'] ||
+                     rawActivity['Completion Date'] ||
+                     ''
+              }
+              
+              // Priority 3: From activity object with bracket notation
+              if (!end || end === '' || end === 'N/A' || end === 'null') {
+                end = activity['Deadline'] ||
+                     activity['Activity Planned Completion Date'] ||
+                     activity['ActivityPlannedCompletionDate'] ||
+                     activity['Activity Actual Completion Date'] ||
+                     activity['ActivityActualCompletionDate'] ||
+                     activity['Planned Completion Date'] ||
+                     activity['Completion Date'] ||
+                     activity['End Date'] ||
+                     ''
+              }
+              
+              const dur = activity.calendar_duration || 
+                         rawActivity['Calendar Duration'] ||
+                         activity['CalendarDuration'] ||
+                         0
+              
+              // ✅ PERFORMANCE: Only log in development mode and very rarely
+              if (process.env.NODE_ENV === 'development' && Math.random() < 0.01 && project.project_code === 'P9999') {
+                console.log(`🔍 [${project.project_code}] Activity Date Extraction for "${activity.activity_name}":`, {
+                  activityName: activity.activity_name,
+                  projectCode: activity.project_code,
+                  projectFullCode: activity.project_full_code,
+                  rawFields: {
+                    'planned_activity_start_date': activity.planned_activity_start_date,
+                    'Planned Activity Start Date': activity['Planned Activity Start Date'],
+                    'deadline': activity.deadline,
+                    'Deadline': activity['Deadline'],
+                    'raw.Planned Activity Start Date': rawActivity['Planned Activity Start Date'],
+                    'raw.Deadline': rawActivity['Deadline'],
+                    'raw keys': Object.keys(rawActivity).filter(k => k.toLowerCase().includes('date') || k.toLowerCase().includes('deadline'))
+                  },
+                  extractedStart: start,
+                  extractedEnd: end,
+                  hasStart: !!(start && start !== ''),
+                  hasEnd: !!(end && end !== '')
+                })
+              }
+              
+              // ✅ CRITICAL: Return activity even if dates are empty (for debugging)
+              // We'll filter later after checking if we extracted anything
+              return { start, end, duration: dur, hasValue: activity.has_value !== false, activity: activity }
+            })
+            // ✅ Only filter out activities with NO dates at all (after extraction attempts)
+            .filter(item => {
+              const hasStart = item.start && item.start !== '' && item.start !== 'N/A' && item.start !== 'null'
+              const hasEnd = item.end && item.end !== '' && item.end !== 'N/A' && item.end !== 'null'
+              return hasStart || hasEnd
+            })
+          
+          if (activitiesWithDates.length > 0) {
+            // Prioritize activities with value (has_value = true)
+            const valuableActivities = activitiesWithDates.filter(a => a.hasValue)
+            const activitiesToUse = valuableActivities.length > 0 ? valuableActivities : activitiesWithDates
+            
+            const validStarts = activitiesToUse
+              .map(a => parseDateString(a.start))
+              .filter((d): d is Date => d !== null && !isNaN(d.getTime()))
+            
+            const validEnds = activitiesToUse
+              .map(a => parseDateString(a.end))
+              .filter((d): d is Date => d !== null && !isNaN(d.getTime()))
+            
+            if (validStarts.length > 0) {
+              plannedStart = new Date(Math.min(...validStarts.map(d => d.getTime()))).toISOString()
+            }
+            
+            if (validEnds.length > 0) {
+              plannedCompletion = new Date(Math.max(...validEnds.map(d => d.getTime()))).toISOString()
+            }
+            
+            if (plannedStart && plannedCompletion) {
+              const startDate = new Date(plannedStart)
+              const endDate = new Date(plannedCompletion)
+              if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+                duration = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
+              }
+            }
+            
+            // Sum calendar_duration if calculated duration is 0
+            if (duration === 0) {
+              duration = activitiesToUse.reduce((sum, a) => sum + (a.duration || 0), 0)
+            }
+            
+            if (plannedStart || plannedCompletion) {
+              source = 'activities'
+            }
+          }
+        }
+      }
+      
+      // ✅ METHOD 2: From KPIs (if activities don't have dates)
+      if ((!plannedStart || !plannedCompletion) && allKPIs.length > 0) {
+        const kpiDates = getPlannedDatesFromKPIs(project)
+        
+        if (kpiDates.start && !plannedStart) {
+          plannedStart = kpiDates.start
+          source = source === 'none' ? 'kpis' : 'activities_kpis'
+        }
+        
+        if (kpiDates.completion && !plannedCompletion) {
+          plannedCompletion = kpiDates.completion
+          source = source === 'none' ? 'kpis' : 'activities_kpis'
+        }
+      }
+      
+      // ✅ METHOD 3: From Project Fields (Fallback)
+      if (!plannedStart) {
+        const projectStart = getProjectField(project, 'Planned Start Date') || 
+                            getProjectField(project, 'Planned Start') || 
+                            getProjectField(project, 'Project Start Date') ||
+                            getProjectField(project, 'Start Date') ||
+                            getProjectField(project, 'Commencement Date') ||
+                            ''
+        if (projectStart) {
+          plannedStart = projectStart
+          source = source === 'none' ? 'project_fields' : source
+        }
+      }
+      
+      if (!plannedCompletion) {
+        const projectCompletion = getProjectField(project, 'Planned Completion Date') || 
+                                 getProjectField(project, 'Planned Completion') ||
+                                 getProjectField(project, 'Project End Date') ||
+                                 getProjectField(project, 'End Date') ||
+                                 getProjectField(project, 'Completion Date') ||
+                                 ''
+        if (projectCompletion) {
+          plannedCompletion = projectCompletion
+          source = source === 'none' ? 'project_fields' : source
+        }
+      }
+      
+      // ✅ METHOD 4: Calculate duration if dates available but duration not
+      if (plannedStart && plannedCompletion && duration === 0) {
+        const startDate = new Date(plannedStart)
+        const endDate = new Date(plannedCompletion)
+        if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+          duration = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
+        }
+      }
+      
+      // ✅ METHOD 5: Estimate from Contract Duration field
+      if (duration === 0) {
+        const contractDuration = parseFloat(String(
+          getProjectField(project, 'Contract Duration') || 
+          getProjectField(project, 'Duration') ||
+          '0'
+        ).replace(/,/g, '')) || 0
+        
+        if (contractDuration > 0) {
+          duration = contractDuration
+          
+          // If we have start but not completion, estimate completion
+          if (plannedStart && !plannedCompletion) {
+            const startDate = new Date(plannedStart)
+            if (!isNaN(startDate.getTime())) {
+              const endDate = new Date(startDate)
+              endDate.setDate(endDate.getDate() + contractDuration)
+              plannedCompletion = endDate.toISOString()
+            }
+          }
+          
+          // If we have completion but not start, estimate start
+          if (plannedCompletion && !plannedStart) {
+            const endDate = new Date(plannedCompletion)
+            if (!isNaN(endDate.getTime())) {
+              const startDate = new Date(endDate)
+              startDate.setDate(startDate.getDate() - contractDuration)
+              plannedStart = startDate.toISOString()
+            }
+          }
+          
+          if (duration > 0) {
+            source = source === 'none' ? 'contract_duration' : source
+          }
+        }
+      }
+      
+    } catch (error) {
+      console.error('Error getting planned dates:', error)
+    }
+    
+    return { start: plannedStart, completion: plannedCompletion, duration, source }
+  }, [allActivities, allKPIs])
+
+  // Status helpers
   const getProjectStatusIcon = (status: string) => {
     switch (status) {
       case 'completed': return <CheckCircle className="h-4 w-4 text-green-500" />
@@ -106,1294 +1489,1158 @@ export function ProjectsTableWithCustomization({
     }
   }
 
-  // Calculate Advanced Performance Score with Multiple Factors
-  const calculateAdvancedPerformanceScore = (project: Project) => {
-    let score = 0
-    let factors = 0
+  // ✅ Render cell content - OPTIMIZED with useCallback
+  // All calculated columns use analytics from calculateProjectAnalytics (same as Cards)
+  // This ensures data consistency between Cards and Customize Columns
+  const renderCell = useCallback((project: Project, column: ColumnConfig) => {
+    // Get analytics for this project (calculated once per project)
+    const analytics = projectsAnalytics.get(project.id)
     
-    // Status Factor (30%)
-    switch (project.project_status) {
-      case 'completed': score += 30; break
-      case 'on-going': score += 25; break
-      case 'on-hold': score += 15; break
-      case 'cancelled': score += 5; break
-      case 'upcoming': score += 20; break
-      default: score += 10; break
-    }
-    factors += 30
-    
-    // Financial Factor (25%)
-    if (project.contract_amount && project.contract_amount > 0) {
-      if (project.contract_amount >= 10000000) score += 25 // Large project
-      else if (project.contract_amount >= 1000000) score += 20 // Medium project
-      else if (project.contract_amount >= 100000) score += 15 // Small project
-      else score += 10 // Very small project
-      factors += 25
-    }
-    
-    // Timeline Factor (25%)
-    if (project.date_project_awarded) {
-      const awardDate = new Date(project.date_project_awarded)
-      const today = new Date()
-      const daysSinceAward = Math.ceil((today.getTime() - awardDate.getTime()) / (1000 * 60 * 60 * 24))
-      
-      if (daysSinceAward <= 30) score += 25 // Recent award
-      else if (daysSinceAward <= 90) score += 20 // Within 3 months
-      else if (daysSinceAward <= 365) score += 15 // Within 1 year
-      else if (daysSinceAward <= 730) score += 10 // Within 2 years
-      else score += 5 // Very old project
-      factors += 25
-    }
-    
-    // Quality Factor (20%)
-    if (project.kpi_completed) {
-      score += 20 // KPI completed
-    } else {
-      score += 10 // KPI not completed
-    }
-    factors += 20
-    
-    return factors > 0 ? Math.min(100, Math.max(0, (score / factors) * 100)) : 0
-  }
-
-  // Calculate Efficiency with Advanced Metrics
-  const calculateAdvancedEfficiency = (project: Project) => {
-    let efficiency = 0
-    let metrics = 0
-    
-    // Status Efficiency (40%)
-    switch (project.project_status) {
-      case 'completed': efficiency += 40; break
-      case 'on-going': efficiency += 35; break
-      case 'on-hold': efficiency += 20; break
-      case 'cancelled': efficiency += 5; break
-      case 'upcoming': efficiency += 30; break
-      default: efficiency += 15; break
-    }
-    metrics += 40
-    
-    // Financial Efficiency (35%)
-    if (project.contract_amount && project.contract_amount > 0) {
-      if (project.contract_amount >= 10000000) efficiency += 35 // Large project
-      else if (project.contract_amount >= 1000000) efficiency += 30 // Medium project
-      else if (project.contract_amount >= 100000) efficiency += 25 // Small project
-      else efficiency += 20 // Very small project
-      metrics += 35
-    }
-    
-    // Timeline Efficiency (25%)
-    if (project.date_project_awarded) {
-      const awardDate = new Date(project.date_project_awarded)
-      const today = new Date()
-      const daysSinceAward = Math.ceil((today.getTime() - awardDate.getTime()) / (1000 * 60 * 60 * 24))
-      
-      if (daysSinceAward <= 30) efficiency += 25 // Recent award
-      else if (daysSinceAward <= 90) efficiency += 20 // Within 3 months
-      else if (daysSinceAward <= 365) efficiency += 15 // Within 1 year
-      else if (daysSinceAward <= 730) efficiency += 10 // Within 2 years
-      else efficiency += 5 // Very old project
-      metrics += 25
-    }
-    
-    return metrics > 0 ? Math.min(100, Math.max(0, (efficiency / metrics) * 100)) : 0
-  }
-
-  // Calculate Risk Level with Advanced Assessment
-  const calculateAdvancedRiskLevel = (project: Project) => {
-    let riskScore = 0
-    let riskFactors = 0
-    
-    // Status Risk (30%)
-    switch (project.project_status) {
-      case 'cancelled': riskScore += 30; break
-      case 'on-hold': riskScore += 25; break
-      case 'on-going': riskScore += 10; break
-      case 'completed': riskScore += 5; break
-      case 'upcoming': riskScore += 15; break
-      default: riskScore += 20; break
-    }
-    riskFactors += 30
-    
-    // Financial Risk (25%)
-    if (project.contract_amount && project.contract_amount > 0) {
-      if (project.contract_amount >= 10000000) riskScore += 25 // Large project risk
-      else if (project.contract_amount >= 1000000) riskScore += 20 // Medium project risk
-      else if (project.contract_amount >= 100000) riskScore += 15 // Small project risk
-      else riskScore += 10 // Very small project risk
-      riskFactors += 25
-    }
-    
-    // Timeline Risk (25%)
-    if (project.date_project_awarded) {
-      const awardDate = new Date(project.date_project_awarded)
-      const today = new Date()
-      const daysSinceAward = Math.ceil((today.getTime() - awardDate.getTime()) / (1000 * 60 * 60 * 24))
-      
-      if (daysSinceAward > 730) riskScore += 25 // Very old project
-      else if (daysSinceAward > 365) riskScore += 20 // Old project
-      else if (daysSinceAward > 90) riskScore += 15 // Medium age project
-      else if (daysSinceAward > 30) riskScore += 10 // Recent project
-      else riskScore += 5 // Very recent project
-      riskFactors += 25
-    }
-    
-    // Quality Risk (20%)
-    if (project.kpi_completed) {
-      riskScore += 5 // KPI completed
-    } else {
-      riskScore += 20 // KPI not completed
-    }
-    riskFactors += 20
-    
-    const riskPercentage = riskFactors > 0 ? (riskScore / riskFactors) * 100 : 0
-    
-    if (riskPercentage >= 70) return { level: 'high', score: riskPercentage, color: 'red' }
-    if (riskPercentage >= 40) return { level: 'medium', score: riskPercentage, color: 'yellow' }
-    if (riskPercentage >= 20) return { level: 'low', score: riskPercentage, color: 'green' }
-    return { level: 'minimal', score: riskPercentage, color: 'blue' }
-  }
-
-  // Calculate Smart Insights with Advanced Logic
-  const getSmartInsights = (project: Project) => {
-    const insights = []
-    
-    // Status Insights
-    switch (project.project_status) {
-      case 'completed':
-        insights.push({ type: 'success', message: 'Project completed successfully', icon: '🎉' })
-        break
-      case 'on-going':
-        insights.push({ type: 'info', message: 'Project in progress', icon: '⚡' })
-        break
-      case 'on-hold':
-        insights.push({ type: 'warning', message: 'Project on hold', icon: '⏸️' })
-        break
-      case 'cancelled':
-        insights.push({ type: 'error', message: 'Project cancelled', icon: '❌' })
-        break
-      case 'upcoming':
-        insights.push({ type: 'info', message: 'Project upcoming', icon: '📅' })
-        break
-      default:
-        insights.push({ type: 'info', message: 'Project status unknown', icon: '❓' })
-        break
-    }
-    
-    // Financial Insights
-    if (project.contract_amount && project.contract_amount > 0) {
-      if (project.contract_amount >= 10000000) {
-        insights.push({ type: 'info', message: 'Large project', icon: '💰' })
-      } else if (project.contract_amount >= 1000000) {
-        insights.push({ type: 'info', message: 'Medium project', icon: '💵' })
-      } else if (project.contract_amount >= 100000) {
-        insights.push({ type: 'info', message: 'Small project', icon: '💸' })
-      } else {
-        insights.push({ type: 'info', message: 'Very small project', icon: '💳' })
-      }
-    }
-    
-    // Timeline Insights
-    if (project.date_project_awarded) {
-      const awardDate = new Date(project.date_project_awarded)
-      const today = new Date()
-      const daysSinceAward = Math.ceil((today.getTime() - awardDate.getTime()) / (1000 * 60 * 60 * 24))
-      
-      if (daysSinceAward > 730) {
-        insights.push({ type: 'warning', message: 'Very old project', icon: '⏰' })
-      } else if (daysSinceAward > 365) {
-        insights.push({ type: 'info', message: 'Old project', icon: '📅' })
-      } else if (daysSinceAward > 90) {
-        insights.push({ type: 'info', message: 'Medium age project', icon: '📆' })
-      } else if (daysSinceAward > 30) {
-        insights.push({ type: 'info', message: 'Recent project', icon: '🆕' })
-      } else {
-        insights.push({ type: 'info', message: 'Very recent project', icon: '✨' })
-      }
-    }
-    
-    // KPI Insights
-    if (project.kpi_completed) {
-      insights.push({ type: 'success', message: 'KPI completed', icon: '✅' })
-    } else {
-      insights.push({ type: 'warning', message: 'KPI not completed', icon: '⚠️' })
-    }
-    
-    return insights.length > 0 ? insights : [{ type: 'info', message: 'Insufficient data for analysis', icon: '📊' }]
-  }
-
-  // Calculate Smart Recommendations with Advanced Logic
-  const getSmartRecommendations = (project: Project) => {
-    const recommendations = []
-    
-    // Status-based Recommendations
-    switch (project.project_status) {
-      case 'on-hold':
-        recommendations.push({ type: 'action', message: 'Resume project activities', icon: '🚀' })
-        recommendations.push({ type: 'action', message: 'Review hold reasons', icon: '📋' })
-        break
-      case 'on-going':
-        recommendations.push({ type: 'action', message: 'Monitor progress closely', icon: '👀' })
-        recommendations.push({ type: 'action', message: 'Ensure quality standards', icon: '⭐' })
-        break
-      case 'upcoming':
-        recommendations.push({ type: 'action', message: 'Prepare project resources', icon: '🛠️' })
-        recommendations.push({ type: 'action', message: 'Finalize project plan', icon: '📝' })
-        break
-      case 'cancelled':
-        recommendations.push({ type: 'action', message: 'Analyze cancellation reasons', icon: '🔍' })
-        recommendations.push({ type: 'action', message: 'Learn from experience', icon: '📚' })
-        break
-    }
-    
-    // Financial Recommendations
-    if (project.contract_amount && project.contract_amount >= 10000000) {
-      recommendations.push({ type: 'action', message: 'Implement strict monitoring', icon: '📊' })
-      recommendations.push({ type: 'action', message: 'Regular financial reviews', icon: '💰' })
-    }
-    
-    // Timeline Recommendations
-    if (project.date_project_awarded) {
-      const awardDate = new Date(project.date_project_awarded)
-      const today = new Date()
-      const daysSinceAward = Math.ceil((today.getTime() - awardDate.getTime()) / (1000 * 60 * 60 * 24))
-      
-      if (daysSinceAward > 365) {
-        recommendations.push({ type: 'action', message: 'Review project timeline', icon: '⏰' })
-        recommendations.push({ type: 'action', message: 'Assess project viability', icon: '🔍' })
-      }
-    }
-    
-    // KPI Recommendations
-    if (!project.kpi_completed) {
-      recommendations.push({ type: 'action', message: 'Complete KPI setup', icon: '📈' })
-      recommendations.push({ type: 'action', message: 'Implement tracking system', icon: '📊' })
-    }
-    
-    return recommendations.length > 0 ? recommendations : [{ type: 'info', message: 'Everything is going well', icon: '✅' }]
-  }
-
-  // Format date helper
-  const formatDate = (dateString: string) => {
-    if (!dateString) return 'N/A'
-    try {
-      return new Date(dateString).toLocaleDateString('en-US')
-    } catch {
-      return 'Invalid Date'
-    }
-  }
-
-  // Access raw project data from database row if available
-  const getProjectField = (project: Project, fieldName: string): any => {
-    const raw = (project as any).raw || project
-    return raw[fieldName] || raw[fieldName.replace(/\s+/g, ' ')] || (project as any)[fieldName] || ''
-  }
-
-  // Helper function to match project codes more comprehensively
-  const matchesProject = (item: any, project: Project): boolean => {
-    if (!project.project_code) return false
-    
-    const projectCode = String(project.project_code || '').trim().toUpperCase()
-    const projectSubCode = String(project.project_sub_code || '').trim().toUpperCase()
-    const projectFullCode = projectSubCode ? `${projectCode}${projectSubCode}` : projectCode
-    
-    // Get item project codes (try all possible field names and variations)
-    // Check both mapped and raw data
-    const rawItem = (item as any).raw || {}
-    const itemProjectCode = String(
-      item['Project Code'] || 
-      item.project_code || 
-      item['project_code'] || 
-      rawItem['Project Code'] ||
-      rawItem.project_code ||
-      ''
-    ).trim().toUpperCase()
-    
-    const itemProjectFullCode = String(
-      item['Project Full Code'] || 
-      item.project_full_code || 
-      item['project_full_code'] || 
-      rawItem['Project Full Code'] ||
-      rawItem.project_full_code ||
-      ''
-    ).trim().toUpperCase()
-    
-    const itemProjectSubCode = String(
-      item['Project Sub Code'] || 
-      item.project_sub_code || 
-      item['project_sub_code'] ||
-      rawItem['Project Sub Code'] ||
-      rawItem.project_sub_code ||
-      ''
-    ).trim().toUpperCase()
-    
-    // Combine all possible project code values from item
-    const allItemCodes = [
-      itemProjectCode,
-      itemProjectFullCode,
-      itemProjectSubCode ? `${itemProjectCode}${itemProjectSubCode}` : '',
-      itemProjectFullCode.split('-')[0],
-      itemProjectFullCode.split('_')[0],
-      itemProjectFullCode.split(' ')[0],
-      itemProjectCode.split('-')[0],
-      itemProjectCode.split('_')[0],
-      itemProjectCode.split(' ')[0]
-    ].filter(code => code && code.length > 0)
-    
-    // Remove duplicates
-    const uniqueItemCodes = Array.from(new Set(allItemCodes))
-    
-    // Try multiple matching strategies (order by most specific first)
-    // 1. Exact match on project_code
-    if (uniqueItemCodes.includes(projectCode)) return true
-    
-    // 2. Exact match on project_full_code
-    if (uniqueItemCodes.includes(projectFullCode)) return true
-    
-    // 3. Item project_code starts with project's project_code (e.g., P5067-01 starts with P5067)
-    if (uniqueItemCodes.some(code => {
-      return code === projectCode || 
-             code.startsWith(projectCode) || 
-             code.startsWith(`${projectCode}-`) ||
-             code.startsWith(`${projectCode}_`)
-    })) return true
-    
-    // 4. Project's project_code starts with item's project_code
-    if (uniqueItemCodes.some(code => {
-      return projectCode === code ||
-             projectCode.startsWith(code) || 
-             projectCode.startsWith(`${code}-`) ||
-             projectCode.startsWith(`${code}_`)
-    })) return true
-    
-    // 5. Extract numeric part and match (e.g., P5095 matches any item with 5095)
-    const projectNumMatch = projectCode.match(/(\d+)/)
-    if (projectNumMatch) {
-      const projectNum = projectNumMatch[1]
-      if (uniqueItemCodes.some(code => {
-        const codeNumMatch = code.match(/(\d+)/)
-        return codeNumMatch && codeNumMatch[1] === projectNum
-      })) return true
-    }
-    
-    // 6. Match by sub-code combination
-    if (itemProjectSubCode && projectSubCode) {
-      const combinedItemCode = `${itemProjectCode}${itemProjectSubCode}`
-      if (combinedItemCode === projectFullCode || combinedItemCode === projectCode) return true
-    }
-    
-    // 7. Very loose match - if project code is contained anywhere or contains item code
-    if (uniqueItemCodes.some(code => {
-      // Remove all non-alphanumeric characters for comparison
-      const cleanCode = code.replace(/[^A-Z0-9]/g, '')
-      const cleanProjectCode = projectCode.replace(/[^A-Z0-9]/g, '')
-      return cleanCode === cleanProjectCode ||
-             cleanCode.includes(cleanProjectCode) || 
-             cleanProjectCode.includes(cleanCode)
-    })) return true
-    
-    return false
-  }
-
-  // Helper function to parse date string (handles "DD-Mon-YY" format)
-  const parseDateString = (dateStr: string | null | undefined): Date | null => {
-    if (!dateStr) return null
+    // ✅ PERFORMANCE: Debug logging removed for production performance
     
     try {
-      // Try parsing as-is first (ISO format, etc.)
-      const date = new Date(dateStr)
-      if (!isNaN(date.getTime())) return date
-      
-      // Try parsing "DD-Mon-YY" format (e.g., "23-Feb-24")
-      const dateMatch = String(dateStr).trim().match(/(\d+)-([A-Za-z]+)-(\d+)/)
-      if (dateMatch) {
-        const day = parseInt(dateMatch[1], 10)
-        const monthName = dateMatch[2]
-        const year = parseInt(dateMatch[3], 10)
+      switch (column.id) {
+        case 'select':
+          return (
+            <input
+              type="checkbox"
+              checked={selectedIds.includes(project.id)}
+              onChange={(e) => handleSelectOne(project.id, e.target.checked)}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+          )
         
-        const monthMap: { [key: string]: number } = {
-          'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
-          'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
-        }
-        
-        const month = monthMap[monthName.substring(0, 3)]
-        if (month !== undefined) {
-          // Convert 2-digit year to 4-digit (assume 20xx for years < 100)
-          const fullYear = year < 100 ? 2000 + year : year
-          const parsedDate = new Date(fullYear, month, day)
-          if (!isNaN(parsedDate.getTime())) return parsedDate
-        }
-      }
-    } catch (e) {
-      // Ignore parsing errors
-    }
-    
-    return null
-  }
-
-  // Calculate Planned Dates from KPIs - فقط تاريخ أول Planned KPI
-  const getPlannedDatesFromKPIs = (project: Project) => {
-    const projectCode = project.project_code
-    if (!projectCode) return { start: null, completion: null }
-
-    // Debug: Log all KPIs and project code
-    if (allKPIs.length > 0 && projectCode === 'P5011') {
-      console.log(`🔍 [${projectCode}] Searching for Planned KPIs. Total KPIs: ${allKPIs.length}`)
-      console.log(`🔍 [${projectCode}] Sample KPI project codes:`, allKPIs.slice(0, 5).map((k: any) => ({
-        code: k.project_code || k['Project Code'],
-        fullCode: k.project_full_code || k['Project Full Code'],
-        inputType: k.input_type || k['Input Type'],
-        day: k.day || k['Day']
-      })))
-    }
-
-    // Filter KPIs for this project with Input Type = 'Planned' فقط
-    const projectKPIs = allKPIs.filter((kpi: any) => {
-      const matches = matchesProject(kpi, project)
-      const inputType = String(kpi['Input Type'] || kpi.input_type || '').trim()
-      const isPlanned = inputType === 'Planned'
-      
-      if (projectCode === 'P5011' && matches && allKPIs.length > 0) {
-        console.log(`🔍 [${projectCode}] KPI matches:`, {
-          matches,
-          inputType,
-          isPlanned,
-          kpiProjectCode: kpi.project_code || kpi['Project Code'],
-          kpiFullCode: kpi.project_full_code || kpi['Project Full Code'],
-          day: kpi.day || kpi['Day']
-        })
-      }
-      
-      return matches && isPlanned
-    })
-
-    if (projectKPIs.length === 0) {
-      if (projectCode === 'P5011') {
-        console.log(`⚠️ [${projectCode}] No Planned KPIs found. Total KPIs: ${allKPIs.length}`)
-      }
-      return { start: null, completion: null }
-    }
-
-    // Get dates from KPI records (try multiple field names)
-    const kpisWithDates = projectKPIs.map((kpi: any) => {
-      // Try all possible date field names (check raw data too)
-      const rawKpi = (kpi as any).raw || {}
-      
-      // ✅ PRIORITY: Use 'Day' column from database (primary date field)
-      // For Planned KPIs, prefer Day, then Target Date or Activity Date
-      const dateStr = kpi.day ||
-                     kpi['Day'] ||
-                     rawKpi['Day'] ||
-                     rawKpi.day ||
-                     kpi.target_date ||
-                     kpi.activity_date || 
-                     kpi.date ||
-                     kpi['Target Date'] ||
-                     kpi['Activity Date'] ||
-                     kpi['Date'] ||
-                     rawKpi['Target Date'] ||
-                     rawKpi['Activity Date'] ||
-                     rawKpi['Date'] ||
-                     rawKpi.target_date ||
-                     rawKpi.activity_date ||
-                     rawKpi.date ||
-                     kpi.created_at || // Fallback to creation date if no specific date
-                     null
-      
-      const parsedDate = parseDateString(dateStr)
-      
-      // 🔍 Enhanced logging for all projects (limit to first 3 KPIs to avoid spam)
-      if (!parsedDate && projectKPIs.length > 0 && projectKPIs.indexOf(kpi) < 3) {
-        console.log(`📅 [${projectCode}] Planned KPI date search:`, {
-          day: kpi.day || kpi['Day'] || 'NOT FOUND',
-          rawDay: rawKpi['Day'] || 'NOT FOUND',
-          dateStr: dateStr || 'NULL',
-          parsed: parsedDate ? 'SUCCESS' : 'FAILED',
-          inputType: kpi.input_type || kpi['Input Type'],
-          projectCode: kpi.project_code || kpi['Project Code']
-        })
-      }
-      
-      return parsedDate ? { kpi, date: parsedDate.toISOString(), dateObj: parsedDate } : null
-    }).filter((item): item is { kpi: any, date: string, dateObj: Date } => item !== null)
-
-    if (kpisWithDates.length === 0) return { start: null, completion: null }
-
-    // Sort by date (ascending) - ترتيب حسب التاريخ
-    const sortedKPIs = kpisWithDates.sort((a: any, b: any) => {
-      return a.dateObj.getTime() - b.dateObj.getTime()
-    })
-
-    // فقط تاريخ أول Planned KPI
-    const firstKPI = sortedKPIs[0]
-    const lastKPI = sortedKPIs[sortedKPIs.length - 1]
-
-    return {
-      start: firstKPI.date || null,
-      completion: lastKPI.date || null
-    }
-  }
-
-  // Calculate Actual Dates from Actual KPIs - فقط تاريخ أول Actual KPI
-  const getActualDatesFromActivities = (project: Project) => {
-    const projectCode = project.project_code
-    if (!projectCode) return { start: null, completion: null }
-
-    // فقط Actual KPIs - بدون البحث في الأنشطة
-    const actualKPIs = allKPIs.filter((kpi: any) => {
-      const matches = matchesProject(kpi, project)
-      const inputType = String(kpi['Input Type'] || kpi.input_type || '').trim()
-      const isActual = inputType === 'Actual'
-      return matches && isActual
-    })
-
-    if (actualKPIs.length === 0) {
-      if (projectCode === 'P5011') {
-        console.log(`⚠️ [${projectCode}] No Actual KPIs found. Total KPIs: ${allKPIs.length}`)
-      }
-      return { start: null, completion: null }
-    }
-
-    // Get dates from KPI records (try multiple field names)
-    const kpisWithDates = actualKPIs.map((kpi: any) => {
-      // Try all possible date field names (check raw data too)
-      const rawKpi = (kpi as any).raw || {}
-      
-      // ✅ PRIORITY: Use 'Day' column from database (primary date field)
-      // For Actual KPIs, prefer Day, then Actual Date or Activity Date
-      const dateStr = kpi.day ||
-                     kpi['Day'] ||
-                     rawKpi['Day'] ||
-                     rawKpi.day ||
-                     kpi.actual_date ||
-                     kpi.activity_date || 
-                     kpi.date ||
-                     kpi['Actual Date'] ||
-                     kpi['Activity Date'] ||
-                     kpi['Date'] ||
-                     rawKpi['Actual Date'] ||
-                     rawKpi['Activity Date'] ||
-                     rawKpi['Date'] ||
-                     rawKpi.actual_date ||
-                     rawKpi.activity_date ||
-                     rawKpi.date ||
-                     kpi.created_at || // Fallback to creation date if no specific date
-                     null
-      
-      const parsedDate = parseDateString(dateStr)
-      
-      // 🔍 Enhanced logging for all projects (limit to first 3 KPIs to avoid spam)
-      if (!parsedDate && actualKPIs.length > 0 && actualKPIs.indexOf(kpi) < 3) {
-        console.log(`📅 [${projectCode}] Actual KPI date search:`, {
-          day: kpi.day || kpi['Day'] || 'NOT FOUND',
-          rawDay: rawKpi['Day'] || 'NOT FOUND',
-          dateStr: dateStr || 'NULL',
-          parsed: parsedDate ? 'SUCCESS' : 'FAILED',
-          inputType: kpi.input_type || kpi['Input Type'],
-          projectCode: kpi.project_code || kpi['Project Code']
-        })
-      }
-      
-      return parsedDate ? { kpi, date: parsedDate.toISOString(), dateObj: parsedDate } : null
-    }).filter((item): item is { kpi: any, date: string, dateObj: Date } => item !== null)
-
-    if (kpisWithDates.length === 0) return { start: null, completion: null }
-
-    // Sort by date (ascending) - ترتيب حسب التاريخ
-    const sortedKPIs = kpisWithDates.sort((a: any, b: any) => {
-      return a.dateObj.getTime() - b.dateObj.getTime()
-    })
-
-    // فقط تاريخ أول Actual KPI
-    const firstKPI = sortedKPIs[0]
-    const lastKPI = sortedKPIs[sortedKPIs.length - 1]
-
-    return {
-      start: firstKPI.date || null,
-      completion: lastKPI.date || null
-    }
-  }
-
-  // Render cell content based on column
-  const renderCell = (project: Project, column: ColumnConfig) => {
-    const rawProject = (project as any).raw || project
-    
-    switch (column.id) {
-      case 'select':
-        return (
-          <input
-            type="checkbox"
-            checked={selectedIds.includes(project.id)}
-            onChange={(e) => handleSelectOne(project.id, e.target.checked)}
-            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-          />
-        )
-      
-      case 'project_info_merged':
-        const projectFullCode = getProjectField(project, 'Project Full Code') || project.project_sub_code || ''
-        const projectDescription = getProjectField(project, 'Project Description') || getProjectField(project, 'Description') || ''
-        return (
-          <div className="space-y-1.5">
+        case 'project_code':
+          const projectFullCodeForCode = getProjectField(project, 'Project Full Code') || project.project_sub_code || ''
+          const projectCodeValue = project.project_code || 'N/A'
+          
+          return (
             <div className="flex items-center gap-2 flex-wrap">
-              <div className="font-semibold text-gray-900 dark:text-white text-sm">
-                {project.project_code || 'N/A'}
-            </div>
-              {projectFullCode && (
-                <div className="text-xs text-gray-600 dark:text-gray-400">
-                  ({projectFullCode})
-            </div>
-              )}
-              {project.plot_number && project.plot_number !== 'N/A' && (
-                <div className="px-2 py-0.5 text-xs font-medium rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
-                  Plot: {project.plot_number}
-            </div>
+              <span className="text-sm text-gray-700 dark:text-gray-300">
+                {projectCodeValue}
+              </span>
+              {projectFullCodeForCode && projectFullCodeForCode !== 'N/A' && (
+                <span className="text-sm font-bold text-gray-900 dark:text-white">
+                  {projectFullCodeForCode}
+                </span>
               )}
             </div>
+          )
+        
+        case 'project_name':
+          // Display only the first activity name from the project
+          const projectActivitiesForName = allActivities.filter((activity: any) => matchesProject(activity, project))
+          
+          if (projectActivitiesForName.length > 0) {
+            const firstActivityName = projectActivitiesForName[0].activity_name || 
+                                      projectActivitiesForName[0].activity || 
+                                      ''
+            if (firstActivityName) {
+              return (
+                <div className="font-medium text-gray-900 dark:text-white text-sm">
+                  {firstActivityName}
+                </div>
+              )
+            }
+          }
+          
+          // Fallback to project name if no activities found
+          return (
             <div className="font-medium text-gray-900 dark:text-white text-sm">
               {project.project_name || 'N/A'}
             </div>
-            {projectDescription && projectDescription !== 'N/A' && (
-            <div className="text-xs text-gray-600 dark:text-gray-400">
-                {projectDescription}
+          )
+        
+        case 'plot_number':
+          const plotNumber = project.plot_number || getProjectField(project, 'Plot Number') || getProjectField(project, 'Plot') || ''
+          
+          const handleCopyPlotNumber = async (e: React.MouseEvent) => {
+            e.stopPropagation() // Prevent row selection when clicking
+            if (!plotNumber || plotNumber === 'N/A') return
+            
+            try {
+              await navigator.clipboard.writeText(plotNumber)
+              setCopiedPlotNumber(plotNumber)
+              // Clear feedback after 2 seconds
+              setTimeout(() => {
+                setCopiedPlotNumber(null)
+              }, 2000)
+            } catch (error) {
+              console.error('Failed to copy plot number:', error)
+            }
+          }
+          
+          const isCopied = copiedPlotNumber === plotNumber
+          
+          return (
+            <div>
+              {plotNumber && plotNumber !== 'N/A' ? (
+                <div 
+                  onClick={handleCopyPlotNumber}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-lg inline-block cursor-pointer transition-all duration-200 ${
+                    isCopied 
+                      ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' 
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  }`}
+                  title={isCopied ? 'Copied!' : 'Click to copy'}
+                >
+                  {isCopied ? '✓ Copied' : plotNumber}
+                </div>
+              ) : (
+                <span className="text-gray-400 dark:text-gray-500 text-sm">N/A</span>
+              )}
             </div>
-            )}
-          </div>
-        )
-      
-      case 'responsible_divisions':
-        const divisionsRaw = project.responsible_division || 'N/A'
-        // Split by comma and trim each division
-        const divisionsList = divisionsRaw !== 'N/A' 
-          ? divisionsRaw.split(',').map(d => d.trim()).filter(d => d.length > 0)
-          : ['N/A']
+          )
         
-        // Generate color based on division name for consistent tagging
-        const divisionColors: { [key: string]: string } = {
-          'Enabling Division': 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-          'Infrastructure Division': 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-          'Soil Improvement Division': 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
-          'Marine Division': 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
-        }
-        
-        return (
-          <div className="flex flex-wrap gap-1.5">
-            {divisionsList.map((division, index) => {
-              const divisionColor = divisionColors[division] || 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300'
-              return (
-                <span key={index} className={`px-2.5 py-1 text-xs font-medium rounded-full ${divisionColor}`}>
-                  {division}
-              </span>
-              )
-            })}
+        case 'responsible_divisions':
+          const divisionsRaw = project.responsible_division || 'N/A'
+          const divisionsList = divisionsRaw !== 'N/A' 
+            ? divisionsRaw.split(',').map(d => d.trim()).filter(d => d.length > 0)
+            : ['N/A']
+          
+          const divisionColors: { [key: string]: string } = {
+            'Enabling Division': 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
+            'Infrastructure Division': 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
+            'Soil Improvement Division': 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
+            'Marine Division': 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
+          }
+          
+          return (
+            <div className="flex flex-wrap gap-1.5">
+              {divisionsList.map((division, index) => {
+                const divisionColor = divisionColors[division] || 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300'
+                return (
+                  <span key={index} className={`px-2.5 py-1 text-xs font-medium rounded-full ${divisionColor}`}>
+                    {division}
+                  </span>
+                )
+              })}
             </div>
-        )
-      
-      case 'scope_of_works':
-        const scopeRaw = project.project_type || 'N/A'
-        // Split by comma and trim each scope item
-        const scopeList = scopeRaw !== 'N/A' 
-          ? scopeRaw.split(',').map(s => s.trim()).filter(s => s.length > 0)
-          : ['N/A']
+          )
         
-        // Generate color based on scope keywords for consistent tagging
-        const getScopeColor = (scope: string): string => {
-          const scopeLower = scope.toLowerCase()
-          if (scopeLower.includes('infrastructure') || scopeLower.includes('enabling')) {
-            return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
+        case 'scope_of_works':
+          const scopeRaw = project.project_type || 'N/A'
+          const scopeList = scopeRaw !== 'N/A' 
+            ? scopeRaw.split(',').map(s => s.trim()).filter(s => s.length > 0)
+            : ['N/A']
+          
+          const isExpanded = expandedScopes.has(project.id)
+          const maxVisible = 3 // Show max 3 scopes initially
+          const visibleScopes = isExpanded ? scopeList : scopeList.slice(0, maxVisible)
+          const hasMore = scopeList.length > maxVisible
+          
+          const getScopeColor = (scope: string): string => {
+            const scopeLower = scope.toLowerCase()
+            if (scopeLower.includes('infrastructure') || scopeLower.includes('enabling')) {
+              return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
+            }
+            if (scopeLower.includes('construction') || scopeLower.includes('excavation')) {
+              return 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300'
+            }
+            return 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300'
           }
-          if (scopeLower.includes('construction') || scopeLower.includes('excavation')) {
-            return 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300'
+          
+          const toggleExpand = (e: React.MouseEvent) => {
+            e.stopPropagation()
+            setExpandedScopes(prev => {
+              const newSet = new Set(prev)
+              if (newSet.has(project.id)) {
+                newSet.delete(project.id)
+              } else {
+                newSet.add(project.id)
+              }
+              return newSet
+            })
           }
-          if (scopeLower.includes('development') || scopeLower.includes('piling')) {
-            return 'bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-300'
-          }
-          if (scopeLower.includes('testing') || scopeLower.includes('testing')) {
-            return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
-          }
-          if (scopeLower.includes('landscaping') || scopeLower.includes('interlock')) {
-            return 'bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300'
-          }
-          if (scopeLower.includes('financial') || scopeLower.includes('finanical')) {
-            return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'
-          }
-          return 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300'
-        }
+          
+          return (
+            <div className="flex flex-wrap gap-1.5 items-center">
+              {visibleScopes.map((scope, index) => {
+                const scopeColor = getScopeColor(scope)
+                return (
+                  <span key={index} className={`px-2.5 py-1 text-xs font-medium rounded-full ${scopeColor}`}>
+                    {scope}
+                  </span>
+                )
+              })}
+              {hasMore && (
+                <button
+                  onClick={toggleExpand}
+                  className="px-2 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline"
+                  title={isExpanded ? 'Show Less' : `Show ${scopeList.length - maxVisible} more`}
+                >
+                  {isExpanded ? 'Show Less' : `+${scopeList.length - maxVisible}`}
+                </button>
+              )}
+            </div>
+          )
         
-        return (
-          <div className="flex flex-wrap gap-1.5">
-            {scopeList.map((scope, index) => {
-              const scopeColor = getScopeColor(scope)
-              return (
-                <span key={index} className={`px-2.5 py-1 text-xs font-medium rounded-full ${scopeColor}`}>
-                  {scope}
-              </span>
-              )
-            })}
-          </div>
-        )
-      
-      case 'kpi_added':
-        return (
+        case 'kpi_added':
+          // ✅ Use EXACT same logic as calculateProjectAnalytics (from lib/projectAnalytics.ts line 150-164)
+          // This ensures 100% consistency and accuracy
+          const projectKPIs = allKPIs.filter((k: any) => {
+            // Get project codes from KPI (check mapped fields first, then raw)
+            const rawKPI = (k as any).raw || {}
+            const kpiProjectCode = k.project_code || rawKPI['Project Code'] || ''
+            const kpiProjectFullCode = k.project_full_code || rawKPI['Project Full Code'] || ''
+            
+            if (!kpiProjectCode && !kpiProjectFullCode) return false
+            
+            // Strategy 1: Direct project code match
+            if (kpiProjectCode === project.project_code) return true
+            
+            // Strategy 2: Project full code starts with project code (e.g., P9999 matches P9999-01, P9999-02, etc.)
+            if (kpiProjectFullCode?.startsWith(project.project_code)) return true
+            
+            // Strategy 3: Exact full code match (if project has sub-code)
+            const fullCode = `${project.project_code}${project.project_sub_code || ''}`
+            if (kpiProjectFullCode === fullCode) return true
+            
+            return false
+          })
+          
+          const hasKPIs = projectKPIs.length > 0
+          const totalKPIs = projectKPIs.length
+          
+          // ✅ DEBUG: Always log for troubleshooting
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`🔍 [${project.project_code}] KPI Added? Check:`, {
+              projectCode: project.project_code,
+              projectSubCode: project.project_sub_code,
+              projectFullCode: `${project.project_code}${project.project_sub_code || ''}`,
+              allKPIsCount: allKPIs.length,
+              foundKPIs: totalKPIs,
+              sampleKPIs: allKPIs.slice(0, 5).map((k: any) => {
+                const rawK = (k as any).raw || {}
+                const kCode = k.project_code || rawK['Project Code'] || ''
+                const kFullCode = k.project_full_code || rawK['Project Full Code'] || ''
+                return {
+                  kpiProjectCode: kCode,
+                  kpiProjectFullCode: kFullCode,
+                  matches: kCode === project.project_code || 
+                           kFullCode?.startsWith(project.project_code) ||
+                           kFullCode === `${project.project_code}${project.project_sub_code || ''}`
+                }
+              })
+            })
+          }
+          
+          return (
             <div className="flex items-center gap-2">
-            {project.kpi_completed ? (
-              <CheckCircle className="h-4 w-4 text-green-500" />
-            ) : (
-              <AlertCircle className="h-4 w-4 text-red-500" />
-            )}
-            <span className="text-sm text-gray-900 dark:text-white">
-              {project.kpi_completed ? 'Yes' : 'No'}
-              </span>
-          </div>
-        )
-      
-      case 'project_status':
-        const status = project.project_status?.replace('-', ' ') || 'Unknown'
-        const statusColorMap: { [key: string]: string } = {
-          'completed': 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
-          'on going': 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-          'on-going': 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-          'on hold': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
-          'on-hold': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
-          'upcoming': 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300',
-          'cancelled': 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
-        }
-        const statusColor = statusColorMap[status.toLowerCase()] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-        return (
+              {hasKPIs ? (
+                <>
+                  <CheckCircle className="h-4 w-4 text-green-500" />
+                  <span className="text-sm text-gray-900 dark:text-white">
+                    Yes ({totalKPIs})
+                  </span>
+                </>
+              ) : (
+                <>
+                  <AlertCircle className="h-4 w-4 text-red-500" />
+                  <span className="text-sm text-gray-900 dark:text-white">
+                    No
+                  </span>
+                </>
+              )}
+            </div>
+          )
+        
+        case 'project_status':
+          const status = project.project_status?.replace('-', ' ') || 'Unknown'
+          const statusColorMap: { [key: string]: string } = {
+            'completed': 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
+            'on going': 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
+            'on-going': 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
+            'on hold': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
+            'on-hold': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
+            'upcoming': 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300',
+            'cancelled': 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+          }
+          const statusColor = statusColorMap[status.toLowerCase()] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+          return (
             <div className="flex items-center gap-2">
               {getProjectStatusIcon(project.project_status)}
-            <span className={`px-2.5 py-1 text-xs font-medium rounded-full capitalize ${statusColor}`}>
-              {status}
+              <span className={`px-2.5 py-1 text-xs font-medium rounded-full capitalize ${statusColor}`}>
+                {status}
               </span>
             </div>
-        )
-      
-      case 'contract_durations':
-        // Calculate Contract Duration from Planned Dates
-        const contractPlannedDates = getPlannedDatesFromKPIs(project)
-        const contractPlannedStart = contractPlannedDates.start || getProjectField(project, 'Planned Start Date') || getProjectField(project, 'Planned Start') || ''
-        const contractPlannedCompletion = contractPlannedDates.completion || getProjectField(project, 'Planned Completion Date') || getProjectField(project, 'Planned Completion') || ''
+          )
         
-        // Calculate actual duration from Actual Dates
-        const contractActualDates = getActualDatesFromActivities(project)
-        const contractActualStart = contractActualDates.start || getProjectField(project, 'Actual Start Date') || getProjectField(project, 'Actual Start') || ''
-        const contractActualCompletion = contractActualDates.completion || getProjectField(project, 'Actual Completion Date') || getProjectField(project, 'Actual Completion') || ''
-        
-        // Calculate contract duration in days
-        let contractDuration = 0
-        if (contractPlannedStart && contractPlannedCompletion) {
-          const startDate = new Date(contractPlannedStart)
-          const endDate = new Date(contractPlannedCompletion)
-          if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
-            contractDuration = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
-          }
-        }
-        
-        // Fallback to project field if calculation fails
-        if (contractDuration <= 0) {
-          contractDuration = parseFloat(String(getProjectField(project, 'Contract Duration') || '0').replace(/,/g, '')) || 0
-        }
-        
-        // Get extension duration from project field
-        const extensionDuration = parseFloat(String(getProjectField(project, 'Extension of Time Duration') || getProjectField(project, 'Extension Duration') || '0').replace(/,/g, '')) || 0
-        
-        // Calculate actual total duration from actual dates
-        let actualTotalDuration = 0
-        if (contractActualStart && contractActualCompletion) {
-          const actualStartDate = new Date(contractActualStart)
-          const actualEndDate = new Date(contractActualCompletion)
-          if (!isNaN(actualStartDate.getTime()) && !isNaN(actualEndDate.getTime())) {
-            actualTotalDuration = Math.ceil((actualEndDate.getTime() - actualStartDate.getTime()) / (1000 * 60 * 60 * 24))
-          }
-        }
-        
-        const totalDuration = contractDuration + extensionDuration
-        
-        return (
-          <div className="space-y-1">
-            <div className="text-xs text-gray-600 dark:text-gray-400">Contract: {contractDuration > 0 ? contractDuration : 'N/A'} days</div>
-            <div className="text-xs text-gray-600 dark:text-gray-400">Extension: {extensionDuration > 0 ? extensionDuration : '0'} days</div>
-            <div className="text-sm font-medium text-gray-900 dark:text-white">Total: {totalDuration > 0 ? totalDuration : 'N/A'} days</div>
-            {actualTotalDuration > 0 && (
-              <div className="text-xs text-blue-600 dark:text-blue-400">Actual: {actualTotalDuration} days</div>
-            )}
-            </div>
-        )
-      
-      case 'planned_dates':
-        // Get planned dates from KPIs (first and last Planned KPI dates)
-        const plannedDates = getPlannedDatesFromKPIs(project)
-        
-        // Debug for specific project
-        if (project.project_code === 'P5011') {
-          console.log(`🔍 [${project.project_code}] Planned Dates result:`, {
-            fromKPIs: plannedDates,
-            fromFields: {
-              start: getProjectField(project, 'Planned Start Date') || getProjectField(project, 'Planned Start'),
-              completion: getProjectField(project, 'Planned Completion Date') || getProjectField(project, 'Planned Completion')
-            },
-            allKPIsCount: allKPIs.length
-          })
-        }
-        
-        // Fallback to project fields if KPI data not available
-        const plannedStart = plannedDates.start || 
-                            getProjectField(project, 'Planned Start Date') || 
-                            getProjectField(project, 'Planned Start') || 
-                            getProjectField(project, 'Project Start Date') ||
-                            ''
-        const plannedCompletion = plannedDates.completion || 
-                                  getProjectField(project, 'Planned Completion Date') || 
-                                  getProjectField(project, 'Planned Completion') ||
-                                  getProjectField(project, 'Project End Date') ||
-                                  ''
-        return (
-          <div className="space-y-1">
-            <div className="text-xs text-gray-600 dark:text-gray-400">Start: {plannedStart ? formatDate(plannedStart) : 'N/A'}</div>
-            <div className="text-xs text-gray-600 dark:text-gray-400">Completion: {plannedCompletion ? formatDate(plannedCompletion) : 'N/A'}</div>
-            </div>
-        )
-      
-      case 'actual_dates':
-        // Get actual dates from Actual KPIs (first and last Actual KPI dates)
-        const actualDates = getActualDatesFromActivities(project)
-        
-        // Debug for specific project
-        if (project.project_code === 'P5011') {
-          console.log(`🔍 [${project.project_code}] Actual Dates result:`, {
-            fromKPIs: actualDates,
-            fromFields: {
-              start: getProjectField(project, 'Actual Start Date') || getProjectField(project, 'Actual Start'),
-              completion: getProjectField(project, 'Actual Completion Date') || getProjectField(project, 'Actual Completion')
-            },
-            allKPIsCount: allKPIs.length
-          })
-        }
-        
-        // Fallback to project fields if KPI data not available
-        const actualStart = actualDates.start || 
-                           getProjectField(project, 'Actual Start Date') || 
-                           getProjectField(project, 'Actual Start') ||
-                           getProjectField(project, 'Project Actual Start Date') ||
-                           ''
-        const actualCompletion = actualDates.completion || 
-                                getProjectField(project, 'Actual Completion Date') || 
-                                getProjectField(project, 'Actual Completion') ||
-                                getProjectField(project, 'Project Actual End Date') ||
-                                ''
-        return (
-          <div className="space-y-1">
-            <div className="text-xs text-gray-600 dark:text-gray-400">Start: {actualStart ? formatDate(actualStart) : 'N/A'}</div>
-            <div className="text-xs text-gray-600 dark:text-gray-400">Completion: {actualCompletion ? formatDate(actualCompletion) : 'N/A'}</div>
-          </div>
-        )
-      
-      case 'progress_summary':
-        // Calculate progress from actual KPIs and BOQ activities
-        const projectCode = project.project_code
-        let plannedProgress = 0
-        let actualProgress = 0
-        
-        if (projectCode) {
-          // Filter KPIs and activities for this project
-          const projectKPIs = allKPIs.filter((kpi: any) => {
-            return matchesProject(kpi, project)
-          })
+        case 'contract_durations':
+          // ✅ Use same data sources as Cards: KPIs and Activities from analytics
+          // Cards don't display contract durations, but we use same KPIs/Activities data
+          const plannedDatesForContract = getPlannedDatesFromActivities(project)
+          const kpiPlannedDatesForContract = getPlannedDatesFromKPIs(project)
+          const actualDatesForContract = getActualDatesFromKPIs(project)
           
-          const projectActivities = allActivities.filter((activity: any) => {
-            return matchesProject(activity, project)
-          })
+          // Get dates from all possible sources
+          const contractPlannedStart = plannedDatesForContract.start || 
+                                       kpiPlannedDatesForContract.start || 
+                                       getProjectField(project, 'Planned Start Date') || 
+                                       getProjectField(project, 'Planned Start') ||
+                                       getProjectField(project, 'Project Start Date') ||
+                                       getProjectField(project, 'Commencement Date') ||
+                                       ''
           
-          // Calculate planned values
-          let totalPlannedUnits = 0
-          let totalPlannedValue = 0
-          let totalActualUnits = 0
-          let totalActualValue = 0
+          const contractPlannedCompletion = plannedDatesForContract.completion || 
+                                            kpiPlannedDatesForContract.completion || 
+                                            getProjectField(project, 'Planned Completion Date') || 
+                                            getProjectField(project, 'Planned Completion') ||
+                                            getProjectField(project, 'Project End Date') ||
+                                            getProjectField(project, 'Completion Date') ||
+                                            ''
           
-          // From BOQ Activities (planned)
-          projectActivities.forEach((activity: any) => {
-            const plannedUnits = parseFloat(String(activity['Planned Units'] || activity.planned_units || '0').replace(/,/g, '')) || 0
-            const actualUnits = parseFloat(String(activity['Actual Units'] || activity.actual_units || '0').replace(/,/g, '')) || 0
-            const rate = parseFloat(String(activity['Rate'] || activity.rate || '0').replace(/,/g, '')) || 0
-            
-            totalPlannedUnits += plannedUnits
-            totalActualUnits += actualUnits
-            
-            if (rate > 0) {
-              totalPlannedValue += plannedUnits * rate
-              totalActualValue += actualUnits * rate
-            } else {
-              const plannedValue = parseFloat(String(activity['Planned Value'] || activity.planned_value || '0').replace(/,/g, '')) || 0
-              const actualValue = parseFloat(String(activity['Earned Value'] || activity.earned_value || '0').replace(/,/g, '')) || 0
-              totalPlannedValue += plannedValue
-              totalActualValue += actualValue
+          // ✅ Calculate contract duration from dates (most accurate)
+          let contractDuration = plannedDatesForContract.duration || 0
+          if (contractDuration <= 0 && contractPlannedStart && contractPlannedCompletion) {
+            const startDate = new Date(contractPlannedStart)
+            const endDate = new Date(contractPlannedCompletion)
+            if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+              contractDuration = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
             }
-          })
+          }
           
-          // From KPIs (to get more accurate progress)
-          projectKPIs.forEach((kpi: any) => {
-            const quantity = parseFloat(String(kpi.quantity || kpi['Quantity'] || '0').replace(/,/g, '')) || 0
-            const inputType = kpi['Input Type'] || kpi.input_type
+          // ✅ Fallback: From project field
+          if (contractDuration <= 0) {
+            contractDuration = parseFloat(String(
+              getProjectField(project, 'Contract Duration') || 
+              getProjectField(project, 'Duration') ||
+              getProjectField(project, 'Project Duration') ||
+              '0'
+            ).replace(/,/g, '')) || 0
+          }
+          
+          // ✅ Fallback: Calculate from contract amount if available (estimate)
+          if (contractDuration <= 0) {
+            const contractAmt = parseFloat(String(
+              project.contract_amount || 
+              getProjectField(project, 'Contract Amount') || 
+              '0'
+            ).replace(/,/g, '')) || 0
             
-            // Find related activity for rate
-            const relatedActivity = projectActivities.find((a: any) => {
-              return a.activity_name === (kpi.activity_name || kpi['Activity Name'])
+            // Rough estimate: Larger contracts typically take longer
+            if (contractAmt > 0) {
+              if (contractAmt >= 10000000) {
+                contractDuration = 730 // ~2 years for large projects
+              } else if (contractAmt >= 1000000) {
+                contractDuration = 365 // ~1 year for medium projects
+              } else if (contractAmt >= 100000) {
+                contractDuration = 180 // ~6 months for small projects
+              } else {
+                contractDuration = 90 // ~3 months for very small projects
+              }
+            }
+          }
+          
+          // Get extension duration
+          const extensionDuration = parseFloat(String(
+            getProjectField(project, 'Extension of Time Duration') || 
+            getProjectField(project, 'Extension Duration') || 
+            getProjectField(project, 'EOT Duration') ||
+            '0'
+          ).replace(/,/g, '')) || 0
+          
+          // ✅ Calculate actual duration from actual dates
+          let contractActualDuration = 0
+          const contractActualStart = actualDatesForContract.start || getProjectField(project, 'Actual Start Date') || ''
+          const contractActualCompletion = actualDatesForContract.completion || getProjectField(project, 'Actual Completion Date') || ''
+          
+          if (contractActualStart && contractActualCompletion) {
+            const actualStartDate = new Date(contractActualStart)
+            const actualEndDate = new Date(contractActualCompletion)
+            if (!isNaN(actualStartDate.getTime()) && !isNaN(actualEndDate.getTime())) {
+              contractActualDuration = Math.ceil((actualEndDate.getTime() - actualStartDate.getTime()) / (1000 * 60 * 60 * 24))
+            }
+          } else if (contractActualStart && contractPlannedCompletion) {
+            // If only actual start is available, calculate until planned completion
+            const actualStartDate = new Date(contractActualStart)
+            const plannedEndDate = new Date(contractPlannedCompletion)
+            const today = new Date()
+            if (!isNaN(actualStartDate.getTime()) && !isNaN(plannedEndDate.getTime())) {
+              contractActualDuration = Math.ceil((Math.min(today.getTime(), plannedEndDate.getTime()) - actualStartDate.getTime()) / (1000 * 60 * 60 * 24))
+            }
+          }
+          
+          const totalDuration = contractDuration + extensionDuration
+          
+          return (
+            <div className="space-y-1">
+              <div className="text-xs text-gray-600 dark:text-gray-400">
+                Contract: {contractDuration > 0 ? `${contractDuration} days` : 'N/A'}
+              </div>
+              <div className="text-xs text-gray-600 dark:text-gray-400">
+                Extension: {extensionDuration > 0 ? `${extensionDuration} days` : '0 days'}
+              </div>
+              <div className="text-sm font-medium text-gray-900 dark:text-white">
+                Total: {totalDuration > 0 ? `${totalDuration} days` : 'N/A'}
+              </div>
+              {contractActualDuration > 0 && (
+                <div className="text-xs text-blue-600 dark:text-blue-400">
+                  Actual: {contractActualDuration} days {contractActualDuration > totalDuration ? '(Over)' : contractActualDuration < totalDuration * 0.8 ? '(Ahead)' : ''}
+                </div>
+              )}
+            </div>
+          )
+        
+        case 'planned_dates':
+          // ✅ USE BOQ ACTIVITIES FIRST (SAME AS CARDS)
+          // Cards (ProjectDetailsPanel) use: activity.planned_activity_start_date and activity.deadline
+          // Table now uses: getPlannedDatesFromActivities FIRST (same as Cards), then KPIs as fallback
+          // Calculation logic (SAME AS CARDS):
+          // 1. Get dates from BOQ Activities: planned_activity_start_date (Start) and deadline (Completion)
+          // 2. Start = أول planned_activity_start_date من جميع الأنشطة
+          // 3. Completion = آخر deadline من جميع الأنشطة
+          // 4. Fallback to KPIs if Activities don't have dates
+          
+          // ✅ DEBUG: Log data availability
+          if (process.env.NODE_ENV === 'development') {
+            const projectActivities = allActivities.filter((activity: any) => matchesProject(activity, project))
+            console.log(`🔍 [${project.project_code}] Planned Dates Debug:`, {
+              allActivitiesCount: allActivities.length,
+              projectActivitiesCount: projectActivities.length,
+              projectCode: project.project_code,
+              sampleActivity: projectActivities[0] ? {
+                projectCode: projectActivities[0].project_code || projectActivities[0]['Project Code'],
+                activityName: projectActivities[0].activity_name,
+                plannedStart: projectActivities[0].planned_activity_start_date || projectActivities[0]['Planned Activity Start Date'],
+                deadline: projectActivities[0].deadline || projectActivities[0]['Deadline']
+              } : 'No activities found'
             })
-            
-            const rate = relatedActivity ? 
-              (parseFloat(String(relatedActivity['Rate'] || relatedActivity.rate || '0').replace(/,/g, '')) || 0) :
-              (parseFloat(String(kpi['Rate'] || kpi.rate || '0').replace(/,/g, '')) || 0)
-            
-            const value = rate > 0 ? quantity * rate : (parseFloat(String(kpi.value || kpi['Value'] || '0').replace(/,/g, '')) || 0)
-            
-            if (inputType === 'Planned') {
-              totalPlannedUnits += quantity
-              totalPlannedValue += value
-            } else if (inputType === 'Actual') {
-              totalActualUnits += quantity
-              totalActualValue += value
-            }
-          })
-          
-          // Calculate progress percentages
-          if (totalPlannedUnits > 0) {
-            actualProgress = (totalActualUnits / totalPlannedUnits) * 100
-          } else if (totalPlannedValue > 0) {
-            actualProgress = (totalActualValue / totalPlannedValue) * 100
-          } else {
-            // Fallback to project field
-            actualProgress = parseFloat(String(getProjectField(project, 'Actual Progress') || '0').replace(/,/g, '')) || 0
           }
           
-          // Planned progress should be based on time elapsed vs total planned duration
-          const plannedDatesCalc = getPlannedDatesFromKPIs(project)
-          const plannedStartCalc = plannedDatesCalc.start || getProjectField(project, 'Planned Start Date') || getProjectField(project, 'Planned Start') || ''
-          const plannedCompletionCalc = plannedDatesCalc.completion || getProjectField(project, 'Planned Completion Date') || getProjectField(project, 'Planned Completion') || ''
+          // ✅ METHOD 1: From BOQ Activities (Primary Source - SAME AS CARDS)
+          const plannedDatesFromActivities = getPlannedDatesFromActivities(project)
+          let plannedStart = plannedDatesFromActivities.start || null
+          let plannedCompletion = plannedDatesFromActivities.completion || null
+          let plannedDuration = plannedDatesFromActivities.duration || 0
+          let datesSource = plannedDatesFromActivities.source || 'none'
           
-          if (plannedStartCalc && plannedCompletionCalc) {
-            const startDate = new Date(plannedStartCalc)
-            const endDate = new Date(plannedCompletionCalc)
+          // ✅ DEBUG: Log result from Activities
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`📅 [${project.project_code}] Planned Dates from Activities:`, {
+              start: plannedStart,
+              completion: plannedCompletion,
+              duration: plannedDuration,
+              source: datesSource,
+              formattedStart: plannedStart ? formatDate(plannedStart) : 'N/A',
+              formattedCompletion: plannedCompletion ? formatDate(plannedCompletion) : 'N/A'
+            })
+          }
+          
+          // ✅ METHOD 2: Fallback to KPIs (only if Activities don't have dates)
+          if ((!plannedStart || !plannedCompletion) && allKPIs.length > 0) {
+          const plannedDatesFromKPIs = getPlannedDatesFromKPIs(project)
+          
+            if (!plannedStart && plannedDatesFromKPIs.start) {
+              plannedStart = plannedDatesFromKPIs.start
+              datesSource = datesSource === 'none' ? 'kpis' : 'activities_kpis'
+            }
+            
+            if (!plannedCompletion && plannedDatesFromKPIs.completion) {
+              plannedCompletion = plannedDatesFromKPIs.completion
+              datesSource = datesSource === 'none' ? 'kpis' : 'activities_kpis'
+            }
+          }
+          
+          // ✅ DEBUG: Log result
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`📅 [${project.project_code}] Planned Dates from KPIs:`, {
+              start: plannedStart,
+              completion: plannedCompletion,
+              formattedStart: plannedStart ? formatDate(plannedStart) : 'N/A',
+              formattedCompletion: plannedCompletion ? formatDate(plannedCompletion) : 'N/A'
+            })
+          }
+          
+          // ✅ Fallback ONLY if no KPIs found (to project fields)
+          if (!plannedStart || !plannedCompletion) {
+            // Only use project fields as fallback if KPIs don't exist
+            if (!plannedStart) {
+              const projectStart = getProjectField(project, 'Planned Start Date') || 
+                                  getProjectField(project, 'Planned Start') || 
+                                  getProjectField(project, 'Project Start Date') ||
+                                  getProjectField(project, 'Start Date') ||
+                                  getProjectField(project, 'Commencement Date') ||
+                                  ''
+              if (projectStart) {
+                plannedStart = projectStart
+              }
+            }
+            
+            if (!plannedCompletion) {
+              const projectCompletion = getProjectField(project, 'Planned Completion Date') || 
+                                       getProjectField(project, 'Planned Completion') ||
+                                       getProjectField(project, 'Project End Date') ||
+                                       getProjectField(project, 'End Date') ||
+                                       getProjectField(project, 'Completion Date') ||
+                                       ''
+              if (projectCompletion) {
+                plannedCompletion = projectCompletion
+              }
+            }
+          }
+          
+          // ✅ Calculate duration from dates (if not already calculated)
+          if (plannedDuration === 0 && plannedStart && plannedCompletion) {
+            const startDate = new Date(plannedStart)
+            const endDate = new Date(plannedCompletion)
+            if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+              plannedDuration = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
+            }
+          }
+          
+          // ✅ Calculate days remaining/elapsed
+          let daysInfo = null
+          if (plannedStart && plannedCompletion) {
+            const startDate = new Date(plannedStart)
+            const endDate = new Date(plannedCompletion)
             const today = new Date()
             
             if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
-              const totalDuration = endDate.getTime() - startDate.getTime()
-              const elapsedDuration = today.getTime() - startDate.getTime()
+              const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
+              const elapsedDays = Math.ceil((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
+              const remainingDays = totalDays - elapsedDays
               
-              if (totalDuration > 0) {
-                plannedProgress = Math.min(100, Math.max(0, (elapsedDuration / totalDuration) * 100))
+              if (elapsedDays >= 0) {
+                daysInfo = {
+                  elapsed: elapsedDays,
+                  remaining: remainingDays,
+                  total: totalDays,
+                  isOverdue: remainingDays < 0
+                }
               }
             }
-          } else {
-            // Fallback to project field
-            plannedProgress = parseFloat(String(getProjectField(project, 'Planned Progress') || getProjectField(project, 'Progress') || '0').replace(/,/g, '')) || 0
           }
-        } else {
-          // Fallback to project fields
-          plannedProgress = parseFloat(String(getProjectField(project, 'Planned Progress') || getProjectField(project, 'Progress') || '0').replace(/,/g, '')) || 0
-          actualProgress = parseFloat(String(getProjectField(project, 'Actual Progress') || '0').replace(/,/g, '')) || 0
-        }
+          
+          return (
+            <div className="space-y-1">
+              <div className="text-xs text-gray-600 dark:text-gray-400">
+                Start: {plannedStart ? formatDate(plannedStart) : 'N/A'}
+                {datesSource !== 'none' && (
+                  <span className="ml-1 text-xs text-gray-400" title={`Source: ${datesSource}`}>
+                    {datesSource === 'activities' ? '📊' : datesSource === 'kpis' ? '📈' : '📝'}
+                  </span>
+                )}
+              </div>
+              <div className="text-xs text-gray-600 dark:text-gray-400">
+                Completion: {plannedCompletion ? formatDate(plannedCompletion) : 'N/A'}
+              </div>
+              {plannedDuration > 0 && (
+                <div className="text-sm font-medium text-gray-900 dark:text-white">
+                  Duration: {plannedDuration} days
+                </div>
+              )}
+              {daysInfo && (
+                <div className={`text-xs ${daysInfo.isOverdue ? 'text-red-600 dark:text-red-400' : 'text-blue-600 dark:text-blue-400'}`}>
+                  {daysInfo.isOverdue 
+                    ? `Overdue: ${Math.abs(daysInfo.remaining)} days` 
+                    : `Remaining: ${daysInfo.remaining} days`}
+                </div>
+              )}
+            </div>
+          )
         
-        const varianceValue = actualProgress - plannedProgress
+        case 'actual_dates':
+          // ✅ USE BOQ ACTIVITIES FIRST (SAME AS CARDS), THEN KPIs
+          // Cards (ProjectDetailsPanel) prioritize: activity dates, then KPIs
+          // Table now uses: BOQ Activities actual dates FIRST, then KPIs, then project fields
+          // Calculation logic (SAME AS CARDS):
+          // 1. Get actual dates from BOQ Activities (activity_actual_start_date, activity_actual_completion_date)
+          // 2. Fallback to KPIs (Actual KPIs from analytics.kpis)
+          // 3. Fallback to project fields
+          
+          let actualStartDate = ''
+          let actualCompletionDate = ''
+          let actualDatesSource = 'none'
+          
+          // ✅ METHOD 1: From BOQ Activities (Primary Source - SAME AS CARDS)
+          if (allActivities.length > 0) {
+            const projectActivities = allActivities.filter((activity: any) => matchesProject(activity, project))
+            
+            if (projectActivities.length > 0) {
+              const activitiesWithActualDates = projectActivities
+                .map((activity: any) => {
+              const rawActivity = (activity as any).raw || {}
+              
+                  const activityActualStart = activity.activity_actual_start_date ||
+                                           activity['Activity Actual Start Date'] ||
+                                           rawActivity['Activity Actual Start Date'] ||
+                                           activity.actual_start_date ||
+                                         activity['Actual Start Date'] ||
+                                         rawActivity['Actual Start Date'] ||
+                                         ''
+              
+                  const activityActualEnd = activity.activity_actual_completion_date ||
+                                           activity['Activity Actual Completion Date'] ||
+                                           rawActivity['Activity Actual Completion Date'] ||
+                                           activity.actual_completion_date ||
+                                       activity['Actual Completion Date'] ||
+                                       rawActivity['Actual Completion Date'] ||
+                                       activity.completion_date ||
+                                       ''
+              
+                  return { start: activityActualStart, end: activityActualEnd }
+                })
+                .filter(item => item.start || item.end)
+              
+              if (activitiesWithActualDates.length > 0) {
+                const validStarts = activitiesWithActualDates
+                  .map(a => parseDateString(a.start))
+                  .filter((d): d is Date => d !== null && !isNaN(d.getTime()))
+                
+                const validEnds = activitiesWithActualDates
+                  .map(a => parseDateString(a.end))
+                  .filter((d): d is Date => d !== null && !isNaN(d.getTime()))
+                
+                if (validStarts.length > 0) {
+                  actualStartDate = new Date(Math.min(...validStarts.map(d => d.getTime()))).toISOString()
+                  actualDatesSource = 'activities'
+                }
+                
+                if (validEnds.length > 0) {
+                  actualCompletionDate = new Date(Math.max(...validEnds.map(d => d.getTime()))).toISOString()
+                  actualDatesSource = 'activities'
+                }
+              }
+            }
+          }
+          
+          // ✅ METHOD 2: Fallback to KPIs (if Activities don't have actual dates)
+          if ((!actualStartDate || !actualCompletionDate) && allKPIs.length > 0) {
+            const actualDatesFromKPIs = getActualDatesFromKPIs(project)
+            
+            if (!actualStartDate && actualDatesFromKPIs.start) {
+              actualStartDate = actualDatesFromKPIs.start
+              actualDatesSource = actualDatesSource === 'none' ? 'kpis' : 'activities_kpis'
+            }
+            
+            if (!actualCompletionDate && actualDatesFromKPIs.completion) {
+              actualCompletionDate = actualDatesFromKPIs.completion
+              actualDatesSource = actualDatesSource === 'none' ? 'kpis' : 'activities_kpis'
+            }
+          }
+          
+          // ✅ METHOD 3: Fallback to Project Fields
+          if (!actualStartDate) {
+            actualStartDate = getProjectField(project, 'Actual Start Date') || 
+                             getProjectField(project, 'Actual Start') ||
+                             getProjectField(project, 'Project Actual Start Date') ||
+                             getProjectField(project, 'Start Date (Actual)') ||
+                             ''
+            if (actualStartDate) {
+              actualDatesSource = actualDatesSource === 'none' ? 'project_fields' : actualDatesSource
+            }
+          }
+          
+          if (!actualCompletionDate) {
+            actualCompletionDate = getProjectField(project, 'Actual Completion Date') || 
+                                getProjectField(project, 'Actual Completion') ||
+                                getProjectField(project, 'Project Actual End Date') ||
+                                getProjectField(project, 'Completion Date (Actual)') ||
+                                ''
+            if (actualCompletionDate) {
+              actualDatesSource = actualDatesSource === 'none' ? 'project_fields' : actualDatesSource
+            }
+          }
+          
+          // ✅ Calculate actual duration
+          let actualDatesDuration = 0
+          if (actualStartDate && actualCompletionDate) {
+            const startDateObj = new Date(actualStartDate)
+            const endDateObj = new Date(actualCompletionDate)
+            if (!isNaN(startDateObj.getTime()) && !isNaN(endDateObj.getTime())) {
+              actualDatesDuration = Math.ceil((endDateObj.getTime() - startDateObj.getTime()) / (1000 * 60 * 60 * 24))
+            }
+          }
+          
+          // ✅ Compare with planned dates if available (use same source as planned_dates column)
+          const plannedDatesCompare = getPlannedDatesFromActivities(project)
+          let plannedStartCompare = plannedDatesCompare.start || null
+          let plannedCompletionCompare = plannedDatesCompare.completion || null
+          
+          // Fallback to KPIs if Activities don't have planned dates
+          if ((!plannedStartCompare || !plannedCompletionCompare) && allKPIs.length > 0) {
+            const plannedDatesFromKPIs = getPlannedDatesFromKPIs(project)
+            if (!plannedStartCompare && plannedDatesFromKPIs.start) {
+              plannedStartCompare = plannedDatesFromKPIs.start
+            }
+            if (!plannedCompletionCompare && plannedDatesFromKPIs.completion) {
+              plannedCompletionCompare = plannedDatesFromKPIs.completion
+            }
+          }
+          
+          // Final fallback to project fields
+          if (!plannedStartCompare) {
+            plannedStartCompare = getProjectField(project, 'Planned Start Date') || ''
+          }
+          if (!plannedCompletionCompare) {
+            plannedCompletionCompare = getProjectField(project, 'Planned Completion Date') || ''
+          }
+          
+          let varianceInfo: { start?: number, completion?: number } | null = null
+          if (actualStartDate && plannedStartCompare) {
+            const actualStartDateObj = new Date(actualStartDate)
+            const plannedStartDateObj = new Date(plannedStartCompare)
+            if (!isNaN(actualStartDateObj.getTime()) && !isNaN(plannedStartDateObj.getTime())) {
+              const startVariance = Math.ceil((actualStartDateObj.getTime() - plannedStartDateObj.getTime()) / (1000 * 60 * 60 * 24))
+              varianceInfo = { start: startVariance }
+            }
+          }
+          
+          if (actualCompletionDate && plannedCompletionCompare) {
+            const actualEndDateObj = new Date(actualCompletionDate)
+            const plannedEndDateObj = new Date(plannedCompletionCompare)
+            if (!isNaN(actualEndDateObj.getTime()) && !isNaN(plannedEndDateObj.getTime())) {
+              const completionVariance = Math.ceil((actualEndDateObj.getTime() - plannedEndDateObj.getTime()) / (1000 * 60 * 60 * 24))
+              if (!varianceInfo) varianceInfo = {}
+              varianceInfo.completion = completionVariance
+            }
+          }
+          
+          return (
+            <div className="space-y-1">
+              <div className="text-xs text-gray-600 dark:text-gray-400">
+                Start: {actualStartDate ? formatDate(actualStartDate) : 'N/A'}
+                {varianceInfo?.start !== undefined && (
+                  <span className={`ml-2 ${varianceInfo.start > 0 ? 'text-red-600 dark:text-red-400' : varianceInfo.start < 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-600 dark:text-gray-400'}`}>
+                    ({varianceInfo.start > 0 ? '+' : ''}{varianceInfo.start} days)
+                  </span>
+                )}
+              </div>
+              <div className="text-xs text-gray-600 dark:text-gray-400">
+                Completion: {actualCompletionDate ? formatDate(actualCompletionDate) : 'N/A'}
+                {varianceInfo?.completion !== undefined && (
+                  <span className={`ml-2 ${varianceInfo.completion > 0 ? 'text-red-600 dark:text-red-400' : varianceInfo.completion < 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-600 dark:text-gray-400'}`}>
+                    ({varianceInfo.completion > 0 ? '+' : ''}{varianceInfo.completion} days)
+                  </span>
+                )}
+              </div>
+              {actualDatesDuration > 0 && (
+                <div className="text-sm font-medium text-gray-900 dark:text-white">
+                  Duration: {actualDatesDuration} days
+                </div>
+              )}
+            </div>
+          )
         
-        return (
-          <div className="space-y-2">
+        case 'progress_summary':
+          // ✅ Use analytics from calculateProjectAnalytics (SAME AS CARDS)
+          // Cards display: analytics.overallProgress (from ModernProjectCard.tsx line 187)
+          // Cards use: calculateProjectAnalytics(project, allActivities, allKPIs) - SAME SOURCE
+          const overallProgress = analytics?.overallProgress || 0
+          const financialProgress = analytics?.financialProgress || 0
+          const averageProgress = analytics?.averageActivityProgress || 0
+          
+          // ✅ SAME LOGIC AS CARDS:
+          // - overallProgress = (Earned Value / Contract Value) × 100 (from projectAnalytics.ts line 330)
+          // - financialProgress = (Earned Value / Planned Value) × 100 (from projectAnalytics.ts line 299)
+          // Use overallProgress (from contract amount) as actual, financialProgress as planned
+          const progress = {
+            planned: financialProgress,
+            actual: overallProgress,
+            source: analytics ? 'analytics' : 'none'
+          }
+          const varianceProgress = progress.actual - progress.planned
+          
+          // Determine status icon
+          const getProgressStatusIcon = () => {
+            if (progress.actual >= 100) {
+              return <CheckCircle className="h-3 w-3 text-green-500" />
+            } else if (progress.actual >= progress.planned) {
+              return <TrendingUp className="h-3 w-3 text-green-500" />
+            } else if (progress.actual >= progress.planned * 0.8) {
+              return <Clock className="h-3 w-3 text-yellow-500" />
+            } else {
+              return <AlertCircle className="h-3 w-3 text-red-500" />
+            }
+          }
+          
+          // Get source indicator
+          const getSourceIndicator = () => {
+            if (progress.source === 'analytics') {
+              return '📊 Analytics (Same as Cards)'
+            }
+            const sourceLabels: { [key: string]: string } = {
+              'activities': '📊 Activities',
+              'work_value': '💰 Work Value',
+              'kpi_value': '📈 KPI Value',
+              'kpi_quantity': '📊 KPI Qty',
+              'time_based': '⏰ Time-based',
+              'contract_estimated': '📋 Contract Est.',
+              'project_field': '📝 Project Field'
+            }
+            return sourceLabels[progress.source] || ''
+          }
+          
+          return (
+            <div className="space-y-2">
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-gray-600 dark:text-gray-400">Planned</span>
+                  <span className="font-medium">{progress.planned.toFixed(1)}%</span>
+                </div>
+                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                  <div 
+                    className="bg-blue-500 h-1.5 rounded-full transition-all" 
+                    style={{ width: `${Math.min(100, Math.max(0, progress.planned))}%` }}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-1">
+                    <span className="text-gray-600 dark:text-gray-400">Actual</span>
+                    {getProgressStatusIcon()}
+                  </div>
+                  <span className="font-medium">{progress.actual.toFixed(1)}%</span>
+                </div>
+                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                  <div 
+                    className={`h-1.5 rounded-full transition-all ${progress.actual >= progress.planned ? 'bg-green-500' : progress.actual >= progress.planned * 0.8 ? 'bg-yellow-500' : 'bg-orange-500'}`} 
+                    style={{ width: `${Math.min(100, Math.max(0, progress.actual))}%` }}
+                  />
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className={`text-xs font-medium ${varianceProgress >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                  Variance: {varianceProgress >= 0 ? '+' : ''}{varianceProgress.toFixed(1)}%
+                </div>
+              </div>
+            </div>
+          )
+        
+        case 'work_value_status':
+          // ✅ Use analytics from calculateProjectAnalytics (SAME AS CARDS)
+          // Cards use: calculateProjectAnalytics(project, allActivities, allKPIs) - SAME SOURCE
+          // Calculation logic from projectAnalytics.ts:
+          // - totalPlannedValue = sum of all BOQ activities planned values (line 282)
+          // - totalEarnedValue = from KPIs if available, else from BOQ activities (line 285-296)
+          const totalPlannedValue = analytics?.totalPlannedValue || 0
+          const totalEarnedValue = analytics?.totalEarnedValue || 0
+          const totalContractValue = analytics?.totalContractValue || project.contract_amount || 0
+          
+          // ✅ SAME DATA AS CARDS: Uses analytics.totalPlannedValue and analytics.totalEarnedValue
+          // Use totalPlannedValue as planned, totalEarnedValue as done
+          const workValue = {
+            planned: totalPlannedValue,
+            done: totalEarnedValue,
+            source: analytics ? 'analytics' : 'none'
+          }
+          const varianceWorkValue = workValue.done - workValue.planned
+          const variancePercentage = workValue.planned > 0 ? (varianceWorkValue / workValue.planned) * 100 : 0
+          
+          // Get source indicator
+          const getWorkValueSourceIndicator = () => {
+            return analytics ? '📊 Analytics (Same as Cards)' : 'N/A'
+          }
+          
+          // Calculate completion percentage
+          const completionPercentage = workValue.planned > 0 
+            ? (workValue.done / workValue.planned) * 100 
+            : 0
+          
+          return (
             <div className="space-y-1">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-gray-600 dark:text-gray-400">Planned</span>
-                <span className="font-medium">{plannedProgress.toFixed(1)}%</span>
-            </div>
-              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
-                <div className="bg-blue-500 h-1.5 rounded-full transition-all" style={{ width: `${Math.min(100, Math.max(0, plannedProgress))}%` }}></div>
-            </div>
-            </div>
-            <div className="space-y-1">
+                <span className="font-medium">${workValue.planned.toLocaleString()}</span>
+              </div>
               <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-600 dark:text-gray-400">Actual</span>
-                <span className="font-medium">{actualProgress.toFixed(1)}%</span>
+                <span className="text-gray-600 dark:text-gray-400">Done</span>
+                <span className="font-medium">${workValue.done.toLocaleString()}</span>
               </div>
-              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
-                <div className={`h-1.5 rounded-full transition-all ${actualProgress >= plannedProgress ? 'bg-green-500' : 'bg-orange-500'}`} style={{ width: `${Math.min(100, Math.max(0, actualProgress))}%` }}></div>
-              </div>
-            </div>
-            <div className={`text-xs font-medium ${varianceValue >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-              Variance: {varianceValue >= 0 ? '+' : ''}{varianceValue.toFixed(1)}%
-            </div>
-          </div>
-        )
-      
-      case 'work_value_status':
-        // Calculate Work Value Status from actual KPIs and BOQ activities
-        const workProjectCode = project.project_code
-        let plannedWorkValueNum = 0
-        let workDoneValueNum = 0
-        
-        if (workProjectCode) {
-          // Filter KPIs and activities for this project
-          const workProjectKPIs = allKPIs.filter((kpi: any) => {
-            return matchesProject(kpi, project)
-          })
-          
-          const workProjectActivities = allActivities.filter((activity: any) => {
-            return matchesProject(activity, project)
-          })
-          
-          // Calculate from BOQ Activities
-          workProjectActivities.forEach((activity: any) => {
-            const plannedUnits = parseFloat(String(activity['Planned Units'] || activity.planned_units || '0').replace(/,/g, '')) || 0
-            const actualUnits = parseFloat(String(activity['Actual Units'] || activity.actual_units || '0').replace(/,/g, '')) || 0
-            const totalUnits = parseFloat(String(activity['Total Units'] || activity.total_units || '0').replace(/,/g, '')) || 0
-            const totalValue = parseFloat(String(activity['Total Value'] || activity.total_value || '0').replace(/,/g, '')) || 0
-            
-            // Calculate rate
-            let rate = 0
-            if (plannedUnits > 0 && totalValue > 0) {
-              rate = totalValue / plannedUnits
-            } else if (totalUnits > 0 && totalValue > 0) {
-              rate = totalValue / totalUnits
-            } else {
-              rate = parseFloat(String(activity['Rate'] || activity.rate || '0').replace(/,/g, '')) || 0
-            }
-            
-            // Calculate planned and earned values
-            const plannedValue = rate > 0 ? (plannedUnits * rate) : (parseFloat(String(activity['Planned Value'] || activity.planned_value || '0').replace(/,/g, '')) || 0)
-            const earnedValue = rate > 0 ? (actualUnits * rate) : (parseFloat(String(activity['Earned Value'] || activity.earned_value || '0').replace(/,/g, '')) || 0)
-            
-            plannedWorkValueNum += plannedValue
-            workDoneValueNum += earnedValue
-          })
-          
-          // Add values from KPIs (to get more accurate calculations)
-          workProjectKPIs.forEach((kpi: any) => {
-            const quantity = parseFloat(String(kpi.quantity || kpi['Quantity'] || '0').replace(/,/g, '')) || 0
-            const inputType = kpi['Input Type'] || kpi.input_type
-            
-            // Find related activity for rate
-            const relatedActivity = workProjectActivities.find((a: any) => {
-              return a.activity_name === (kpi.activity_name || kpi['Activity Name'])
-            })
-            
-            let rate = 0
-            if (relatedActivity) {
-              const plannedUnits = parseFloat(String(relatedActivity['Planned Units'] || relatedActivity.planned_units || '0').replace(/,/g, '')) || 0
-              const totalValue = parseFloat(String(relatedActivity['Total Value'] || relatedActivity.total_value || '0').replace(/,/g, '')) || 0
-              if (plannedUnits > 0 && totalValue > 0) {
-                rate = totalValue / plannedUnits
-              } else {
-                rate = parseFloat(String(relatedActivity['Rate'] || relatedActivity.rate || '0').replace(/,/g, '')) || 0
-              }
-            } else {
-              rate = parseFloat(String(kpi['Rate'] || kpi.rate || '0').replace(/,/g, '')) || 0
-            }
-            
-            const value = rate > 0 ? (quantity * rate) : (parseFloat(String(kpi.value || kpi['Value'] || '0').replace(/,/g, '')) || 0)
-            
-            if (inputType === 'Planned') {
-              plannedWorkValueNum += value
-            } else if (inputType === 'Actual') {
-              workDoneValueNum += value
-            }
-          })
-        }
-        
-        // Fallback to project fields if calculations didn't work
-        if (plannedWorkValueNum === 0 && workDoneValueNum === 0) {
-          const plannedWorkValue = getProjectField(project, 'Planned Work Value') || getProjectField(project, 'Value of Planned Work') || '0'
-          const workDoneValue = getProjectField(project, 'Work Done Value') || getProjectField(project, 'Value of Work Done') || '0'
-          plannedWorkValueNum = parseFloat(String(plannedWorkValue).replace(/,/g, '')) || 0
-          workDoneValueNum = parseFloat(String(workDoneValue).replace(/,/g, '')) || 0
-        }
-        
-        const varianceWorkValue = workDoneValueNum - plannedWorkValueNum
-        
-        return (
-          <div className="space-y-1">
-            <div className="text-xs text-gray-600 dark:text-gray-400">Planned: ${plannedWorkValueNum.toLocaleString()}</div>
-            <div className="text-xs text-gray-600 dark:text-gray-400">Done: ${workDoneValueNum.toLocaleString()}</div>
-            <div className={`text-sm font-medium ${varianceWorkValue >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-              Variance: ${varianceWorkValue >= 0 ? '+' : ''}${varianceWorkValue.toLocaleString()}
-            </div>
-            </div>
-        )
-      
-      case 'contract_amount':
-        // Get contract amount from project field
-        const contractAmt = parseFloat(String(project.contract_amount || getProjectField(project, 'Contract Amount') || '0').replace(/,/g, '')) || 0
-        const variationsAmt = parseFloat(String(getProjectField(project, 'Variations Amount') || getProjectField(project, 'Variations') || getProjectField(project, 'Variation Amount') || '0').replace(/,/g, '')) || 0
-        
-        // Calculate actual work value from activities/KPIs as additional info
-        const contractProjectCode = project.project_code
-        let actualWorkValue = 0
-        
-        if (contractProjectCode && contractAmt > 0) {
-          const contractProjectActivities = allActivities.filter((activity: any) => {
-            return matchesProject(activity, project)
-          })
-          
-          contractProjectActivities.forEach((activity: any) => {
-            const earnedValue = parseFloat(String(activity['Earned Value'] || activity.earned_value || '0').replace(/,/g, '')) || 0
-            if (earnedValue > 0) {
-              actualWorkValue += earnedValue
-            } else {
-              // Calculate from actual units × rate
-              const actualUnits = parseFloat(String(activity['Actual Units'] || activity.actual_units || '0').replace(/,/g, '')) || 0
-              const rate = parseFloat(String(activity['Rate'] || activity.rate || '0').replace(/,/g, '')) || 0
-              if (rate > 0 && actualUnits > 0) {
-                actualWorkValue += actualUnits * rate
-              }
-            }
-          })
-        }
-        
-        const totalContractAmt = contractAmt + variationsAmt
-        
-        return (
-          <div className="space-y-1">
-            <div className="text-xs text-gray-600 dark:text-gray-400">Contract: ${contractAmt.toLocaleString()}</div>
-            <div className="text-xs text-gray-600 dark:text-gray-400">Variations: ${variationsAmt.toLocaleString()}</div>
-            <div className="text-sm font-medium text-gray-900 dark:text-white">Total: ${totalContractAmt.toLocaleString()}</div>
-            {actualWorkValue > 0 && (
-              <div className="text-xs text-blue-600 dark:text-blue-400">Work Done: ${actualWorkValue.toLocaleString()}</div>
-            )}
-          </div>
-        )
-      
-      case 'divisions_contract_amount':
-        // Get from project fields first (try multiple field name variations)
-        let enablingDiv = parseFloat(String(
-          getProjectField(project, 'Enabling Division T. Contract Value') || 
-          getProjectField(project, 'Enabling Division Contract Value') || 
-          getProjectField(project, 'Enabling Division Total Contract Value') ||
-          getProjectField(project, 'Enabling Division Contract Amount') ||
-          '0'
-        ).replace(/,/g, '')) || 0
-        
-        let soilImprovementDiv = parseFloat(String(
-          getProjectField(project, 'Soil Improvement Division T. Contract Value') || 
-          getProjectField(project, 'Soil Improvement Division Contract Value') || 
-          getProjectField(project, 'Soil Improvement Division Total Contract Value') ||
-          getProjectField(project, 'Soil Improvement Division Contract Amount') ||
-          '0'
-        ).replace(/,/g, '')) || 0
-        
-        let marineDiv = parseFloat(String(
-          getProjectField(project, 'Marine Division T. Contract Value') || 
-          getProjectField(project, 'Marine Division Contract Value') || 
-          getProjectField(project, 'Marine Division Total Contract Value') ||
-          getProjectField(project, 'Marine Division Contract Amount') ||
-          '0'
-        ).replace(/,/g, '')) || 0
-        
-        // Calculate from activities if project fields are empty/zero
-        const divisionsProjectCode = project.project_code
-        if (divisionsProjectCode) {
-          const divisionsProjectActivities = allActivities.filter((activity: any) => {
-            return matchesProject(activity, project)
-          })
-          
-          let enablingValue = 0
-          let soilImprovementValue = 0
-          let marineValue = 0
-          let otherValue = 0
-          
-          // Also check responsible division from project
-          const responsibleDivision = (project.responsible_division || getProjectField(project, 'Responsible Division') || '').toLowerCase()
-          
-          divisionsProjectActivities.forEach((activity: any) => {
-            const activityDivision = (activity['Activity Division'] || activity.activity_division || '').toLowerCase()
-            const totalValue = parseFloat(String(activity['Total Value'] || activity.total_value || '0').replace(/,/g, '')) || 0
-            
-            // Match division names more accurately
-            if (activityDivision.includes('enabling') || 
-                activityDivision.includes('infrastructure') || 
-                activityDivision.includes('enabling division')) {
-              enablingValue += totalValue
-            } else if (activityDivision.includes('soil') && activityDivision.includes('improvement')) {
-              soilImprovementValue += totalValue
-            } else if (activityDivision.includes('marine') || activityDivision.includes('marine division')) {
-              marineValue += totalValue
-            } else {
-              // If no division match in activity, check project's responsible division
-              if (responsibleDivision.includes('enabling') || responsibleDivision.includes('infrastructure')) {
-                enablingValue += totalValue
-              } else if (responsibleDivision.includes('soil') || responsibleDivision.includes('improvement')) {
-                soilImprovementValue += totalValue
-              } else if (responsibleDivision.includes('marine')) {
-                marineValue += totalValue
-              } else {
-                otherValue += totalValue
-              }
-            }
-          })
-          
-          // Only use calculated values if project fields are zero or very small
-          if (enablingDiv < 1000 && enablingValue > 0) enablingDiv = enablingValue
-          if (soilImprovementDiv < 1000 && soilImprovementValue > 0) soilImprovementDiv = soilImprovementValue
-          if (marineDiv < 1000 && marineValue > 0) marineDiv = marineValue
-          
-          // Add other values to the largest division if project fields are all zero
-          if (enablingDiv === 0 && soilImprovementDiv === 0 && marineDiv === 0 && otherValue > 0) {
-            if (enablingValue >= soilImprovementValue && enablingValue >= marineValue) {
-              enablingDiv = otherValue
-            } else if (soilImprovementValue >= marineValue) {
-              soilImprovementDiv = otherValue
-            } else {
-              marineDiv = otherValue
-            }
-          }
-        }
-        
-        const divisionsTotal = enablingDiv + soilImprovementDiv + marineDiv
-        
-        return (
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-gray-600 dark:text-gray-400">Enabling:</span>
-              <span className="font-medium text-gray-900 dark:text-white">${enablingDiv.toLocaleString()}</span>
-            </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-gray-600 dark:text-gray-400">Soil Improvement:</span>
-              <span className="font-medium text-gray-900 dark:text-white">${soilImprovementDiv.toLocaleString()}</span>
-            </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-gray-600 dark:text-gray-400">Marine:</span>
-              <span className="font-medium text-gray-900 dark:text-white">${marineDiv.toLocaleString()}</span>
-            </div>
-            {divisionsTotal > 0 && (
-              <div className="pt-1 border-t border-gray-200 dark:border-gray-700">
-                <div className="flex items-center justify-between text-sm font-semibold text-gray-900 dark:text-white">
-                  <span>Total:</span>
-                  <span>${divisionsTotal.toLocaleString()}</span>
+              
+              {/* Progress bar */}
+              {workValue.planned > 0 && (
+                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 mt-1">
+                  <div 
+                    className={`h-1.5 rounded-full transition-all ${completionPercentage >= 100 ? 'bg-green-500' : completionPercentage >= 80 ? 'bg-blue-500' : completionPercentage >= 50 ? 'bg-yellow-500' : 'bg-orange-500'}`} 
+                    style={{ width: `${Math.min(100, Math.max(0, completionPercentage))}%` }}
+                  />
+                </div>
+              )}
+              
+              <div className="flex items-center justify-between pt-1">
+                <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Currency: {project.currency || getProjectField(project, 'Currency') || 'AED'}
                 </div>
               </div>
-            )}
-            {divisionsTotal === 0 && (
-              <div className="text-xs text-gray-500 dark:text-gray-400 italic">No data available</div>
-            )}
-          </div>
-        )
-      
-      case 'temporary_material':
-        // Get temporary material information from project fields
-        const hasTempMaterial = getProjectField(project, 'Project has Temporary Materials?') || 
-                               getProjectField(project, 'Temporary Materials') || 
-                               getProjectField(project, 'Has Temporary Materials') ||
-                               'No'
+              
+              {workValue.planned > 0 && (
+                <div className="text-xs text-gray-500 dark:text-gray-400">
+                  {completionPercentage.toFixed(1)}% Complete
+                </div>
+              )}
+            </div>
+          )
         
-        const tempMaterialDuration = getProjectField(project, 'Temporary Material Rental Duration') || 
-                                    getProjectField(project, 'Temporary Material Duration') || 
-                                    getProjectField(project, 'Temporary Material Rental Period') ||
-                                    '0'
+        case 'contract_amount':
+          // ✅ Use analytics from calculateProjectAnalytics (same as Cards)
+          // Cards display: project.contract_amount directly
+          const contractAmt = analytics?.totalContractValue || 
+                             parseFloat(String(
+                               project.contract_amount || 
+                               getProjectField(project, 'Contract Amount') || 
+                               '0'
+                             ).replace(/,/g, '')) || 0
+          
+          const variationsAmt = parseFloat(String(
+            getProjectField(project, 'Variations Amount') || 
+            getProjectField(project, 'Variations') || 
+            '0'
+          ).replace(/,/g, '')) || 0
+          
+          const totalContractAmt = contractAmt + variationsAmt
+          
+          return (
+            <div className="space-y-1">
+              <div className="text-xs text-gray-600 dark:text-gray-400">
+                Contract: ${contractAmt.toLocaleString()}
+              </div>
+              {variationsAmt > 0 && (
+                <div className="text-xs text-gray-600 dark:text-gray-400">
+                  Variations: ${variationsAmt.toLocaleString()}
+                </div>
+              )}
+              <div className="text-sm font-medium text-gray-900 dark:text-white">
+                Total: ${totalContractAmt.toLocaleString()}
+              </div>
+            </div>
+          )
         
-        // Parse duration to number for better display
-        const durationNum = parseFloat(String(tempMaterialDuration).replace(/[^0-9.]/g, '')) || 0
+        case 'divisions_contract_amount':
+          // ✅ Get divisions from scope_of_works (project.project_type)
+          const divisionsScopeRaw = project.project_type || getProjectField(project, 'Scope of Works') || ''
+          const divisionsScopeList = divisionsScopeRaw && divisionsScopeRaw !== 'N/A' 
+            ? divisionsScopeRaw.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0)
+            : []
+          
+          // ✅ Map to store division amounts
+          const divisionAmounts: Record<string, number> = {}
+          
+          // Initialize divisions from scope
+          divisionsScopeList.forEach((scope: string) => {
+            const scopeKey = scope.trim().toLowerCase()
+            if (!divisionAmounts[scopeKey]) {
+              divisionAmounts[scopeKey] = 0
+            }
+          })
+          
+          // ✅ Get activities for this project - USE allActivities DIRECTLY (more reliable)
+          // Don't rely on analytics.activities as it might not have all the data
+          const projectActivities = allActivities.length > 0 
+            ? allActivities.filter((activity: any) => matchesProject(activity, project))
+            : (analytics?.activities || [])
+          
+          // ✅ DEBUG: Log activities for troubleshooting
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`🔍 [${project.project_code}] Divisions Contract Amount Debug:`, {
+              allActivitiesCount: allActivities.length,
+              projectActivitiesCount: projectActivities.length,
+              scopeList: divisionsScopeList,
+              analyticsActivitiesCount: analytics?.activities?.length || 0,
+              sampleActivity: projectActivities.length > 0 ? {
+                activityName: projectActivities[0].activity_name,
+                activityDivision: projectActivities[0].activity_division || projectActivities[0]['Activity Division'],
+                activityValue: projectActivities[0].activity_value || projectActivities[0]['Activity Value'] || projectActivities[0].raw?.['Activity Value'],
+                totalValue: projectActivities[0].total_value || projectActivities[0]['Total Value'],
+                plannedValue: projectActivities[0].planned_value || projectActivities[0]['Planned Value'],
+                rate: projectActivities[0].rate || projectActivities[0]['Rate'],
+                totalUnits: projectActivities[0].total_units || projectActivities[0]['Total Units'],
+                hasRaw: !!projectActivities[0].raw,
+                rawActivityValue: projectActivities[0].raw?.['Activity Value'],
+                projectCode: projectActivities[0].project_code,
+                rawProjectCode: projectActivities[0].raw?.['Project Code']
+              } : 'No activities found'
+            })
+          }
+          
+          // ✅ Calculate amount for each division from activities
+          projectActivities.forEach((activity: any) => {
+            // Get activity division from multiple possible fields
+            const rawActivity = (activity as any).raw || {}
+            const activityDivision = (activity['Activity Division'] || 
+                                     activity.activity_division || 
+                                     rawActivity['Activity Division'] ||
+                                     activity.division ||
+                                     '').toLowerCase().trim()
+            
+            // ✅ Get activity value - SAME WAY AS BOQ (use total_value directly)
+            // In BOQ, Activity Value column displays: activity.total_value
+            // So we use the same approach here
+            let totalValue = 0
+            
+            // ✅ Use total_value directly (same as BOQ does)
+            // Check in order: raw data, then mapped fields, then calculate
+            const rawTotalValue = rawActivity['Total Value']
+            const mappedTotalValue = activity.total_value
+            
+            // ✅ PRIORITY 1: Use total_value from raw (direct from database)
+            if (rawTotalValue !== null && rawTotalValue !== undefined && rawTotalValue !== '') {
+              const parsed = parseFloat(String(rawTotalValue).replace(/,/g, ''))
+              if (!isNaN(parsed) && parsed > 0) {
+                totalValue = parsed
+              }
+            }
+            
+            // ✅ PRIORITY 2: Use total_value from mapped fields
+            if (totalValue === 0 && mappedTotalValue !== null && mappedTotalValue !== undefined) {
+              const parsed = parseFloat(String(mappedTotalValue).replace(/,/g, ''))
+              if (!isNaN(parsed) && parsed > 0) {
+                totalValue = parsed
+              }
+            }
+            
+            // ✅ PRIORITY 3: Calculate from Rate × Total Units (same as BOQ fallback)
+            if (totalValue === 0) {
+              const rate = activity.rate || parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, ''))
+              const totalUnits = activity.total_units || parseFloat(String(rawActivity['Total Units'] || '0').replace(/,/g, ''))
+              
+              if (rate > 0 && totalUnits > 0) {
+                totalValue = rate * totalUnits
+              }
+            }
+            
+            // ✅ DEBUG: Log value extraction for first few activities
+            if (process.env.NODE_ENV === 'development' && projectActivities.indexOf(activity) < 3) {
+              console.log(`💰 [${project.project_code}] Activity Value Extraction (BOQ Method):`, {
+                activityName: activity.activity_name,
+                activityDivision: activityDivision,
+                rawTotalValue: rawTotalValue,
+                mappedTotalValue: mappedTotalValue,
+                finalTotalValue: totalValue,
+                rate: activity.rate || rawActivity['Rate'],
+                totalUnits: activity.total_units || rawActivity['Total Units'],
+                calculated: totalValue > 0 && (activity.rate || rawActivity['Rate']) ? 'Rate × Units' : 'Direct'
+              })
+            }
+            
+            // ✅ Match activity division with scope divisions
+            if (activityDivision && totalValue > 0) {
+              // Try to match with existing divisions in scope
+              let matched = false
+              for (const scope of divisionsScopeList) {
+                const scopeLower = scope.toLowerCase().trim()
+                // Check if activity division matches any scope division (more flexible matching)
+                if (activityDivision.includes(scopeLower) || 
+                    scopeLower.includes(activityDivision) ||
+                    activityDivision === scopeLower) {
+                  const key = scopeLower
+                  divisionAmounts[key] = (divisionAmounts[key] || 0) + totalValue
+                  matched = true
+                  break
+                }
+              }
+              
+              // If no match found, add as new division (use original division name)
+              if (!matched && activityDivision) {
+                // Use the original division name from activity
+                const originalDivision = activity['Activity Division'] || 
+                                        activity.activity_division || 
+                                        rawActivity['Activity Division'] ||
+                                        activityDivision
+                divisionAmounts[originalDivision.toLowerCase().trim()] = 
+                  (divisionAmounts[originalDivision.toLowerCase().trim()] || 0) + totalValue
+              }
+            }
+          })
+          
+          // ✅ Also check project fields for division amounts (fallback)
+          if (divisionsScopeList.length > 0) {
+            divisionsScopeList.forEach((scope: string) => {
+              const scopeKey = scope.toLowerCase().trim()
+              // Try to get from project fields
+              const fieldValue = parseFloat(String(
+                getProjectField(project, `${scope} Division T. Contract Value`) || 
+                getProjectField(project, `${scope} Division Contract Value`) || 
+                getProjectField(project, `${scope} Contract Value`) ||
+                '0'
+              ).replace(/,/g, '')) || 0
+              
+              if (fieldValue > 0 && (!divisionAmounts[scopeKey] || divisionAmounts[scopeKey] === 0)) {
+                divisionAmounts[scopeKey] = fieldValue
+              }
+            })
+          }
+          
+          // Calculate total
+          const divisionsTotal = Object.values(divisionAmounts).reduce((sum: number, val: number) => sum + val, 0)
+          
+          // Get divisions to display (from scope, or all divisions found)
+          const divisionsToShow = divisionsScopeList.length > 0 ? divisionsScopeList : Object.keys(divisionAmounts)
+          
+          // Limit display to 3 divisions initially
+          const isExpandedDivisions = expandedDivisions.has(project.id)
+          const maxVisibleDivisions = 3 // Show max 3 divisions initially
+          const visibleDivisions = isExpandedDivisions ? divisionsToShow : divisionsToShow.slice(0, maxVisibleDivisions)
+          const hasMoreDivisions = divisionsToShow.length > maxVisibleDivisions
+          
+          const toggleExpandDivisions = (e: React.MouseEvent) => {
+            e.stopPropagation()
+            setExpandedDivisions(prev => {
+              const newSet = new Set(prev)
+              if (newSet.has(project.id)) {
+                newSet.delete(project.id)
+              } else {
+                newSet.add(project.id)
+              }
+              return newSet
+            })
+          }
+          
+          return (
+            <div className="space-y-1">
+              {divisionsToShow.length > 0 ? (
+                <>
+                  {visibleDivisions.map((division: string, index: number) => {
+                    const divisionKey = division.toLowerCase().trim()
+                    const amount = divisionAmounts[divisionKey] || 0
+                    return (
+                      <div key={index} className="flex items-center justify-between text-xs">
+                        <span className="text-gray-600 dark:text-gray-400 truncate max-w-[120px]">
+                          {division}:
+                        </span>
+                        <span className="font-medium text-gray-900 dark:text-white">
+                          ${amount.toLocaleString()}
+                        </span>
+              </div>
+                    )
+                  })}
+                  {hasMoreDivisions && (
+                    <button
+                      onClick={toggleExpandDivisions}
+                      className="px-2 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline"
+                      title={isExpandedDivisions ? 'Show Less' : `Show ${divisionsToShow.length - maxVisibleDivisions} more`}
+                    >
+                      {isExpandedDivisions ? 'Show Less' : `+${divisionsToShow.length - maxVisibleDivisions}`}
+                    </button>
+                  )}
+              {divisionsTotal > 0 && (
+                    <div className="pt-1 border-t border-gray-200 dark:border-gray-700 mt-1">
+                  <div className="flex items-center justify-between text-sm font-semibold text-gray-900 dark:text-white">
+                    <span>Total:</span>
+                    <span>${divisionsTotal.toLocaleString()}</span>
+                  </div>
+                </div>
+              )}
+                </>
+              ) : (
+                <div className="text-xs text-gray-500 dark:text-gray-400 italic">No data available</div>
+              )}
+            </div>
+          )
         
-        // Check if material exists (handle various formats)
-        const hasMaterial = hasTempMaterial === 'Yes' || 
-                           hasTempMaterial === 'TRUE' || 
-                           hasTempMaterial === true ||
-                           hasTempMaterial === 'true' ||
-                           String(hasTempMaterial).toLowerCase() === 'yes'
-        
-        return (
-          <div className="space-y-1">
+        case 'temporary_material':
+          const hasTempMaterial = getProjectField(project, 'Project has Temporary Materials?') || 
+                                 getProjectField(project, 'Temporary Materials') || 
+                                 'No'
+          
+          const hasMaterial = hasTempMaterial === 'Yes' || 
+                             hasTempMaterial === 'TRUE' || 
+                             hasTempMaterial === true ||
+                             String(hasTempMaterial).toLowerCase() === 'yes'
+          
+          return (
             <div className="flex items-center gap-2">
               {hasMaterial ? (
                 <CheckCircle className="h-4 w-4 text-green-500" />
@@ -1404,116 +2651,132 @@ export function ProjectsTableWithCustomization({
                 {hasMaterial ? 'Yes' : 'No'}
               </span>
             </div>
-            {hasMaterial && durationNum > 0 && (
+          )
+        
+        case 'project_location':
+          const latitude = project.latitude || getProjectField(project, 'Latitude') || ''
+          const longitude = project.longitude || getProjectField(project, 'Longitude') || ''
+          const locationLink = latitude && longitude 
+            ? `https://www.google.com/maps?q=${latitude},${longitude}`
+            : ''
+          
+          return (
+            <div>
+              {locationLink ? (
+                <a 
+                  href={locationLink} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-blue-600 dark:text-blue-400 hover:underline text-sm"
+                >
+                  {latitude}, {longitude}
+                </a>
+              ) : (
+                <span className="text-gray-500 dark:text-gray-400 text-sm">N/A</span>
+              )}
+            </div>
+          )
+        
+        case 'project_parties':
+          return (
+            <div className="space-y-1">
               <div className="text-xs text-gray-600 dark:text-gray-400">
-                Duration: {durationNum} {durationNum === 1 ? 'day' : 'days'}
-            </div>
-            )}
-            {hasMaterial && durationNum === 0 && (
-              <div className="text-xs text-orange-600 dark:text-orange-400">
-                Duration: Not specified
-            </div>
-            )}
-            </div>
-        )
-      
-      case 'project_location':
-        const latitude = project.latitude || getProjectField(project, 'Latitude') || ''
-        const longitude = project.longitude || getProjectField(project, 'Longitude') || ''
-        const locationLink = latitude && longitude 
-          ? `https://www.google.com/maps?q=${latitude},${longitude}`
-          : ''
-        return (
-          <div>
-            {locationLink ? (
-              <a 
-                href={locationLink} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="text-blue-600 dark:text-blue-400 hover:underline text-sm"
-              >
-                {latitude}, {longitude}
-              </a>
-            ) : (
-              <span className="text-gray-500 dark:text-gray-400 text-sm">N/A</span>
-            )}
-          </div>
-        )
-      
-      case 'project_parties':
-        return (
-          <div className="space-y-1">
-            <div className="text-xs text-gray-600 dark:text-gray-400">First Party: {project.first_party_name || 'N/A'}</div>
-            <div className="text-xs text-gray-600 dark:text-gray-400">Client: {project.client_name || 'N/A'}</div>
-            <div className="text-xs text-gray-600 dark:text-gray-400">Consultant: {project.consultant_name || 'N/A'}</div>
+                First Party: {project.first_party_name || 'N/A'}
               </div>
-        )
-      
-      case 'project_staff':
-        const areaManager = project.area_manager_email || getProjectField(project, 'Area Manager') || 'N/A'
-        const projectManager = project.project_manager_email || getProjectField(project, 'Project Manager') || 'N/A'
-        const divisionHead = getProjectField(project, 'Division Head') || getProjectField(project, 'Division Head Email') || 'N/A'
-        return (
-          <div className="space-y-1">
-            <div className="text-xs text-gray-600 dark:text-gray-400">Area Manager: {areaManager}</div>
-            <div className="text-xs text-gray-600 dark:text-gray-400">Project Manager: {projectManager}</div>
-            <div className="text-xs text-gray-600 dark:text-gray-400">Division Head: {divisionHead}</div>
-          </div>
-        )
-      
-      case 'project_award_date':
-        return (
-          <div className="text-sm text-gray-900 dark:text-white">
-            {project.date_project_awarded ? formatDate(project.date_project_awarded) : 'N/A'}
+              <div className="text-xs text-gray-600 dark:text-gray-400">
+                Client: {project.client_name || 'N/A'}
               </div>
-        )
-      
-      case 'workmanship':
-        const hasWorkmanship = project.workmanship_only || getProjectField(project, 'Workmanship?') || 'No'
-        const virtualMaterialPercent = project.virtual_material_value || getProjectField(project, 'Virtual Material %') || getProjectField(project, 'Virtual Material Value') || '0'
-        return (
-          <div className="space-y-1">
+              <div className="text-xs text-gray-600 dark:text-gray-400">
+                Consultant: {project.consultant_name || 'N/A'}
+              </div>
+            </div>
+          )
+        
+        case 'project_staff':
+          const areaManager = project.area_manager_email || getProjectField(project, 'Area Manager') || 'N/A'
+          const projectManager = project.project_manager_email || getProjectField(project, 'Project Manager') || 'N/A'
+          const divisionHead = getProjectField(project, 'Division Head') || 'N/A'
+          
+          return (
+            <div className="space-y-1">
+              <div className="text-xs text-gray-600 dark:text-gray-400">Area Manager: {areaManager}</div>
+              <div className="text-xs text-gray-600 dark:text-gray-400">Project Manager: {projectManager}</div>
+              <div className="text-xs text-gray-600 dark:text-gray-400">Division Head: {divisionHead}</div>
+            </div>
+          )
+        
+        case 'project_award_date':
+          return (
             <div className="text-sm text-gray-900 dark:text-white">
-              {hasWorkmanship === 'Yes' || hasWorkmanship === 'TRUE' || hasWorkmanship === true ? 'Yes' : 'No'}
+              {project.date_project_awarded ? formatDate(project.date_project_awarded) : 'N/A'}
             </div>
-            <div className="text-xs text-gray-600 dark:text-gray-400">
-              Virtual Material: {virtualMaterialPercent}%
+          )
+        
+        case 'workmanship':
+          const hasWorkmanship = project.workmanship_only || getProjectField(project, 'Workmanship?') || 'No'
+          const virtualMaterialPercent = project.virtual_material_value || getProjectField(project, 'Virtual Material %') || '0'
+          
+          return (
+            <div className="space-y-1">
+              <div className="text-sm text-gray-900 dark:text-white">
+                {hasWorkmanship === 'Yes' || hasWorkmanship === 'TRUE' || hasWorkmanship === true ? 'Yes' : 'No'}
+              </div>
+              <div className="text-xs text-gray-600 dark:text-gray-400">
+                Virtual Material: {virtualMaterialPercent}%
+              </div>
             </div>
-          </div>
-        )
-      
-      case 'actions':
-        return (
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onEdit(project)}
-              className="text-blue-600 hover:text-blue-700"
-            >
-              Edit
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onDelete(project.id)}
-              className="text-red-600 hover:text-red-700"
-            >
-              Delete
-            </Button>
-          </div>
-        )
-      
-      default:
-        return (
-          <span className="text-gray-500 dark:text-gray-400 text-sm">
-            N/A
-          </span>
-        )
+          )
+        
+        case 'actions':
+          return (
+            <div className="flex items-center gap-2">
+              <PermissionButton
+                permission="projects.edit"
+                variant="outline"
+                size="sm"
+                onClick={() => onEdit(project)}
+                className="text-blue-600 hover:text-blue-700"
+              >
+                Edit
+              </PermissionButton>
+              <PermissionButton
+                permission="projects.delete"
+                variant="outline"
+                size="sm"
+                onClick={() => onDelete(project.id)}
+                className="text-red-600 hover:text-red-700"
+              >
+                Delete
+              </PermissionButton>
+            </div>
+          )
+        
+        default:
+          return (
+            <span className="text-gray-500 dark:text-gray-400 text-sm">
+              N/A
+            </span>
+          )
+      }
+    } catch (error) {
+      console.error(`Error rendering cell for column ${column.id}:`, error)
+      return (
+        <span className="text-red-500 dark:text-red-400 text-sm">
+          Error
+        </span>
+      )
     }
-  }
+  }, [projectsAnalytics, allActivities, allKPIs, matchesProject, getProjectField, getPlannedDatesFromActivities, getActualDatesFromKPIs, copiedPlotNumber, expandedScopes, expandedDivisions])
 
-  const visibleColumns = columns.filter(col => col.visible).sort((a, b) => a.order - b.order)
+  // ✅ PERFORMANCE: Memoize visible columns to prevent unnecessary recalculations
+  const visibleColumns = useMemo(() => {
+    return columns.filter(col => col.visible).sort((a, b) => a.order - b.order)
+  }, [columns])
+
+  // ✅ Check permission before rendering the entire table
+  if (!guard.hasAccess('projects.view')) {
+    return null
+  }
 
   return (
     <div className="space-y-4">
@@ -1528,7 +2791,7 @@ export function ProjectsTableWithCustomization({
               <span className="text-sm text-gray-600 dark:text-gray-400">
                 {selectedIds.length} selected
               </span>
-              {onBulkDelete && (
+              {onBulkDelete && guard.hasAccess('projects.delete') && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -1543,7 +2806,8 @@ export function ProjectsTableWithCustomization({
         </div>
         
         <div className="flex items-center gap-2">
-          <Button
+          <PermissionButton
+            permission="projects.view"
             variant="outline"
             size="sm"
             onClick={() => setShowCustomizer(true)}
@@ -1551,13 +2815,13 @@ export function ProjectsTableWithCustomization({
           >
             <Filter className="h-4 w-4" />
             Customize Columns
-          </Button>
-          <Button
+          </PermissionButton>
+          <PermissionButton
+            permission="projects.view"
             variant="outline"
             size="sm"
             onClick={() => {
               resetToDefault()
-              // Refresh page to apply changes
               setTimeout(() => window.location.reload(), 100)
             }}
             className="flex items-center gap-2 text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
@@ -1565,21 +2829,42 @@ export function ProjectsTableWithCustomization({
           >
             <RotateCcw className="h-4 w-4" />
             Reset
-          </Button>
+          </PermissionButton>
         </div>
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto max-h-[calc(100vh-300px)] overflow-y-auto">
         <table className="w-full border-collapse">
-          <thead>
+          <thead className="sticky top-0 z-10">
             <tr className="border-b border-gray-200 dark:border-gray-700">
               {visibleColumns.map((column) => (
                 <th
                   key={column.id}
-                  className="px-6 py-4 text-left text-base font-semibold text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 min-w-[120px]"
+                  className="px-4 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800"
+                  style={{
+                    width: column.width || 'auto',
+                    minWidth: column.width || '120px',
+                    maxWidth: column.width || 'none',
+                    position: 'sticky',
+                    top: 0,
+                    zIndex: 10
+                  }}
                 >
-                  {column.label}
+                  {column.id === 'select' ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.length === projects.length && projects.length > 0}
+                        onChange={(e) => handleSelectAll(e.target.checked)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        title="Select All"
+                      />
+                      <span>{column.label}</span>
+                    </div>
+                  ) : (
+                    column.label
+                  )}
                 </th>
               ))}
             </tr>
@@ -1593,7 +2878,12 @@ export function ProjectsTableWithCustomization({
                 {visibleColumns.map((column) => (
                   <td
                     key={column.id}
-                    className="px-6 py-4 text-base"
+                    className="px-4 py-3 text-sm"
+                    style={{
+                      width: column.width || 'auto',
+                      minWidth: column.width || '120px',
+                      maxWidth: column.width || 'none'
+                    }}
                   >
                     {renderCell(project, column)}
                   </td>
@@ -1605,15 +2895,17 @@ export function ProjectsTableWithCustomization({
       </div>
 
       {/* Column Customizer Modal */}
-      {showCustomizer && (
-        <ColumnCustomizer
-          columns={columns}
-          onColumnsChange={saveConfiguration}
-          onClose={() => setShowCustomizer(false)}
-          title="Customize Projects Table Columns"
-          storageKey="projects"
-        />
-      )}
+      <PermissionGuard permission="projects.view">
+        {showCustomizer && (
+          <ColumnCustomizer
+            columns={columns}
+            onColumnsChange={saveConfiguration}
+            onClose={() => setShowCustomizer(false)}
+            title="Customize Projects Table Columns"
+            storageKey="projects"
+          />
+        )}
+      </PermissionGuard>
     </div>
   )
 }

@@ -151,51 +151,76 @@ export function EnhancedSmartActualKPIForm({
       try {
         const supabase = getSupabaseClient()
         
-        // Strategy 1: Match by exact Project Code
-        const { data: activitiesByCode, error: error1 } = await executeQuery(async () =>
-          supabase
+        // Strategy 1: Match by exact Project Code + Sub Code (MOST ACCURATE)
+        const { data: activitiesByCodeAndSubCode, error: error1 } = await executeQuery(async () => {
+          let query = supabase
             .from(TABLES.BOQ_ACTIVITIES)
             .select('*')
             .eq('Project Code', projectCode)
-        )
+          
+          // If sub code exists, also filter by sub code for exact match
+          if (projectSubCode) {
+            query = query.eq('Project Sub Code', projectSubCode)
+          } else {
+            // If no sub code, only match activities with no sub code
+            query = query.or('Project Sub Code.is.null,Project Sub Code.eq.')
+          }
+          
+          return query
+        })
         
         // Strategy 2: Match by exact Project Full Code
         const { data: activitiesByFullCodeExact, error: error2 } = await executeQuery(async () =>
           supabase
             .from(TABLES.BOQ_ACTIVITIES)
             .select('*')
-            .eq('Project Full Code', projectCode)
+            .eq('Project Full Code', projectFullCode)
         )
         
         // Strategy 3: Match where Project Full Code starts with Project Code
-        const { data: activitiesByFullCodeStart, error: error3 } = await executeQuery(async () =>
-          supabase
+        // Only if sub code is empty (to avoid matching wrong projects)
+        const { data: activitiesByFullCodeStart, error: error3 } = await executeQuery(async () => {
+          if (projectSubCode) {
+            // If sub code exists, use exact match only (already in Strategy 2)
+            return { data: [], error: null }
+          }
+          return supabase
             .from(TABLES.BOQ_ACTIVITIES)
             .select('*')
             .like('Project Full Code', `${projectCode}%`)
-        )
+        })
         
         // Strategy 4: Match where Project Code contains the project code (for old data)
-        const { data: activitiesByCodeContains, error: error4 } = await executeQuery(async () =>
-          supabase
+        // Only if no sub code to avoid matching wrong projects
+        const { data: activitiesByCodeContains, error: error4 } = await executeQuery(async () => {
+          if (projectSubCode) {
+            // Skip if sub code exists to ensure accuracy
+            return { data: [], error: null }
+          }
+          return supabase
             .from(TABLES.BOQ_ACTIVITIES)
             .select('*')
             .ilike('Project Code', `%${projectCode}%`)
             .neq('Project Code', projectCode)
-        )
+        })
         
         // Strategy 5: Match where Project Full Code contains the project code (for old data)
-        const { data: activitiesByFullCodeContains, error: error5 } = await executeQuery(async () =>
-          supabase
+        // Only if no sub code to avoid matching wrong projects
+        const { data: activitiesByFullCodeContains, error: error5 } = await executeQuery(async () => {
+          if (projectSubCode) {
+            // Skip if sub code exists to ensure accuracy
+            return { data: [], error: null }
+          }
+          return supabase
             .from(TABLES.BOQ_ACTIVITIES)
             .select('*')
             .ilike('Project Full Code', `%${projectCode}%`)
             .neq('Project Full Code', projectCode)
-        )
+        })
         
-        // Merge ALL results
+        // Merge ALL results (prioritize exact matches)
         const allActivitiesData = [
-          ...(Array.isArray(activitiesByCode) ? activitiesByCode : []),
+          ...(Array.isArray(activitiesByCodeAndSubCode) ? activitiesByCodeAndSubCode : []),
           ...(Array.isArray(activitiesByFullCodeExact) ? activitiesByFullCodeExact : []),
           ...(Array.isArray(activitiesByFullCodeStart) ? activitiesByFullCodeStart : []),
           ...(Array.isArray(activitiesByCodeContains) ? activitiesByCodeContains : []),
@@ -207,19 +232,43 @@ export function EnhancedSmartActualKPIForm({
           new Map(allActivitiesData.map((item: any) => [item.id, item])).values()
         )
         
-        // Additional client-side filtering to ensure all match the project
+        // Additional client-side filtering to ensure all match the project EXACTLY
         const filteredActivities = uniqueActivitiesData.filter((item: any) => {
           const itemProjectCode = (item['Project Code'] || '').toString().trim()
+          const itemProjectSubCode = (item['Project Sub Code'] || '').toString().trim()
           const itemProjectFullCode = (item['Project Full Code'] || '').toString().trim()
           
-          // Direct matches
-          if (itemProjectCode === projectCode) return true
-          if (itemProjectFullCode === projectCode) return true
-          if (itemProjectFullCode.startsWith(projectCode)) return true
+          // Build expected full code from selected project
+          const expectedFullCode = `${projectCode}${projectSubCode}`.trim()
           
-          // For old database entries, check if project code appears anywhere
-          if (itemProjectCode.includes(projectCode)) return true
-          if (itemProjectFullCode.includes(projectCode)) return true
+          // Priority 1: Exact match on Project Code + Sub Code
+          if (itemProjectCode === projectCode && itemProjectSubCode === projectSubCode) {
+            return true
+          }
+          
+          // Priority 2: Exact match on Project Full Code
+          if (itemProjectFullCode === expectedFullCode) {
+            return true
+          }
+          
+          // Priority 3: Match where Project Full Code starts with project code
+          // Only if sub code is empty or matches
+          if (itemProjectFullCode.startsWith(projectCode)) {
+            if (!projectSubCode || itemProjectSubCode === projectSubCode) {
+              return true
+            }
+            // If sub code exists, check if full code matches
+            if (itemProjectFullCode === expectedFullCode) {
+              return true
+            }
+          }
+          
+          // Priority 4: For old database entries without sub code, match by code only
+          // Only if selected project also has no sub code
+          if (!projectSubCode && !itemProjectSubCode) {
+            if (itemProjectCode === projectCode) return true
+            if (itemProjectFullCode === projectCode) return true
+          }
           
           return false
         })
@@ -236,8 +285,8 @@ export function EnhancedSmartActualKPIForm({
         setProjectActivities(projectActivities)
         setCurrentStep('activities')
         
-        console.log(`📊 Smart KPI Form: Comprehensive fetch results:`, {
-          byCode: activitiesByCode?.length || 0,
+        console.log(`📊 Smart KPI Form: Comprehensive fetch results for project ${projectCode}${projectSubCode ? `-${projectSubCode}` : ''}:`, {
+          byCodeAndSubCode: activitiesByCodeAndSubCode?.length || 0,
           byFullCodeExact: activitiesByFullCodeExact?.length || 0,
           byFullCodeStart: activitiesByFullCodeStart?.length || 0,
           byCodeContains: activitiesByCodeContains?.length || 0,
@@ -247,7 +296,7 @@ export function EnhancedSmartActualKPIForm({
           finalAfterFilter: projectActivities.length
         })
         
-        console.log(`✅ Smart KPI Form: Loaded ${projectActivities.length} activities for project ${projectCode}`)
+        console.log(`✅ Smart KPI Form: Loaded ${projectActivities.length} activities for project ${projectCode}${projectSubCode ? `-${projectSubCode}` : ''}`)
         console.log(`📋 Activities:`, projectActivities.map(a => ({
           name: a.activity_name,
           project_code: a.project_code,
@@ -845,11 +894,34 @@ export function EnhancedSmartActualKPIForm({
 
   // Project Selection Step
   if (currentStep === 'project') {
-    const filteredProjects = projects.filter(project => 
-      project.project_name?.toLowerCase().includes(projectSearchTerm.toLowerCase()) ||
-      project.project_code?.toLowerCase().includes(projectSearchTerm.toLowerCase()) ||
-      (project as any).location?.toLowerCase().includes(projectSearchTerm.toLowerCase())
-    )
+    const filteredProjects = projects.filter(project => {
+      const searchTerm = projectSearchTerm.toLowerCase().trim()
+      if (!searchTerm) return true
+      
+      // Search in project name
+      const matchesName = project.project_name?.toLowerCase().includes(searchTerm)
+      
+      // Search in project code
+      const matchesCode = project.project_code?.toLowerCase().includes(searchTerm)
+      
+      // Search in project sub code
+      const matchesSubCode = project.project_sub_code?.toLowerCase().includes(searchTerm)
+      
+      // Search in project full code (if exists)
+      const projectFullCode = `${project.project_code || ''}${project.project_sub_code || ''}`
+      const matchesFullCode = projectFullCode.toLowerCase().includes(searchTerm)
+      
+      // Search in location (if exists)
+      const matchesLocation = (project as any).location?.toLowerCase().includes(searchTerm)
+      
+      // Also search for combined code (e.g., "P9999-01" or "P9999 01")
+      const combinedCode1 = `${project.project_code || ''}-${project.project_sub_code || ''}`.toLowerCase()
+      const combinedCode2 = `${project.project_code || ''} ${project.project_sub_code || ''}`.toLowerCase()
+      const matchesCombined1 = combinedCode1.includes(searchTerm)
+      const matchesCombined2 = combinedCode2.includes(searchTerm)
+      
+      return matchesName || matchesCode || matchesSubCode || matchesFullCode || matchesLocation || matchesCombined1 || matchesCombined2
+    })
 
     return (
       <div className="w-full max-w-4xl mx-auto">
@@ -927,7 +999,7 @@ export function EnhancedSmartActualKPIForm({
                     <div className="p-3 border-b border-gray-200 dark:border-gray-700">
                       <input
                         type="text"
-                        placeholder="Search projects..."
+                        placeholder="Search by name, code, or sub code..."
                         value={projectSearchTerm}
                         onChange={(e) => setProjectSearchTerm(e.target.value)}
                         className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
@@ -945,7 +1017,20 @@ export function EnhancedSmartActualKPIForm({
                               {project.project_name}
                             </div>
                             <div className="text-sm text-gray-600 dark:text-gray-400">
-                              {project.project_code} • {(project as any).location || 'No location'}
+                              <span className="font-medium">{project.project_code}</span>
+                              {project.project_sub_code && (
+                                <>
+                                  <span className="mx-1">•</span>
+                                  <span className="font-semibold text-gray-800 dark:text-gray-300">
+                                    {project.project_sub_code}
+                                  </span>
+                                </>
+                              )}
+                              {((project as any).location) && (
+                                <span className="ml-2 text-gray-500 dark:text-gray-500">
+                                  • {(project as any).location}
+                                </span>
+                              )}
                             </div>
                           </button>
                         ))
@@ -990,6 +1075,17 @@ export function EnhancedSmartActualKPIForm({
                       <p className="text-sm text-gray-600 dark:text-gray-400">
                         {projectActivities.length} activities
                       </p>
+                      {selectedProject && (
+                        <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                          Project: <span className="font-medium">{selectedProject.project_code}</span>
+                          {selectedProject.project_sub_code && (
+                            <span className="font-semibold ml-1">{selectedProject.project_sub_code}</span>
+                          )}
+                          {selectedProject.project_name && (
+                            <span className="ml-2">• {selectedProject.project_name}</span>
+                          )}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <button
@@ -1811,6 +1907,21 @@ export function EnhancedSmartActualKPIForm({
                       <h2 className="text-lg sm:text-xl md:text-2xl font-bold text-gray-900 dark:text-white mb-2">
                         Select an Activity
                       </h2>
+                      {selectedProject && (
+                        <div className="mb-3 px-4">
+                          <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                            Project: <span className="font-semibold">{selectedProject.project_code}</span>
+                            {selectedProject.project_sub_code && (
+                              <span className="font-bold ml-1">{selectedProject.project_sub_code}</span>
+                            )}
+                          </p>
+                          {selectedProject.project_name && (
+                            <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                              {selectedProject.project_name}
+                            </p>
+                          )}
+                        </div>
+                      )}
                       <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400 mb-3 sm:mb-4 px-4">
                         Click on an activity from the sidebar to start recording KPI data
                       </p>
@@ -1850,7 +1961,13 @@ export function EnhancedSmartActualKPIForm({
                       Activity Details
                     </h2>
                     <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 truncate">
-                      Project: {selectedProject?.project_code}
+                      Project: <span className="font-medium">{selectedProject?.project_code}</span>
+                      {selectedProject?.project_sub_code && (
+                        <span className="font-semibold ml-1">{selectedProject.project_sub_code}</span>
+                      )}
+                      {selectedProject?.project_name && (
+                        <span className="ml-2">• {selectedProject.project_name}</span>
+                      )}
                     </p>
                   </div>
                 </div>

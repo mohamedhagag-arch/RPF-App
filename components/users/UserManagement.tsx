@@ -13,6 +13,7 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { User } from '@/lib/supabase'
 import { EnhancedPermissionsManager } from './EnhancedPermissionsManager'
 import { IntegratedUserManager } from './IntegratedUserManager'
+import { RolesManagement } from './RolesManagement'
 import { 
   UserWithPermissions,
   getUserPermissions,
@@ -98,6 +99,7 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
   const [showExportImport, setShowExportImport] = useState(false)
   const [showAuditLog, setShowAuditLog] = useState(false)
   const [showAnalytics, setShowAnalytics] = useState(false)
+  const [customRoles, setCustomRoles] = useState<any[]>([])
   const [advancedFilters, setAdvancedFilters] = useState({
     isActive: '',
     role: '',
@@ -108,6 +110,7 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
   const [sortBy, setSortBy] = useState('created_at')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table')
+  const [activeTab, setActiveTab] = useState<'users' | 'roles'>('users')
 
   const supabase = getSupabaseClient()
 
@@ -281,10 +284,26 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
     if (canManageUsers) {
       console.log('✅ Calling fetchUsers because canManageUsers is true')
       fetchUsers()
+      loadCustomRoles()
     } else {
       console.log('❌ Not calling fetchUsers because canManageUsers is false')
     }
   }, [userRole, canManageUsers])
+  
+  // Load custom roles from database
+  const loadCustomRoles = async () => {
+    try {
+      const { data, error } = await (supabase as any)
+        .from('custom_roles')
+        .select('*')
+        .order('created_at', { ascending: false })
+      
+      if (error) throw error
+      setCustomRoles(data || [])
+    } catch (err: any) {
+      console.error('Error loading custom roles:', err)
+    }
+  }
 
          const fetchUsers = async () => {
            try {
@@ -359,7 +378,19 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
 
       if (authError) throw authError
 
-      // Create user profile
+      // Get permissions for the role (default or custom)
+      let rolePermissions: string[] = []
+      if (DEFAULT_ROLE_PERMISSIONS[userData.role as string]) {
+        rolePermissions = DEFAULT_ROLE_PERMISSIONS[userData.role as string]
+      } else {
+        // Check custom roles
+        const customRole = customRoles.find(r => r.role_key === userData.role)
+        if (customRole) {
+          rolePermissions = customRole.permissions || []
+        }
+      }
+      
+      // Create user profile with permissions
       const { error: profileError } = await (supabase as any)
         .from('users')
         .insert([{
@@ -367,7 +398,9 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
           email: userData.email,
           full_name: userData.full_name,
           role: userData.role,
-          division: userData.division
+          division: userData.division,
+          permissions: rolePermissions,
+          custom_permissions_enabled: false // Default roles use default permissions
         }])
 
       if (profileError) throw profileError
@@ -381,9 +414,28 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
 
   const handleUpdateUser = async (id: string, userData: Partial<User>) => {
     try {
+      // Get permissions for the role (default or custom)
+      let rolePermissions: string[] = []
+      if (DEFAULT_ROLE_PERMISSIONS[userData.role as string]) {
+        rolePermissions = DEFAULT_ROLE_PERMISSIONS[userData.role as string]
+      } else {
+        // Check custom roles
+        const customRole = customRoles.find(r => r.role_key === userData.role)
+        if (customRole) {
+          rolePermissions = customRole.permissions || []
+        }
+      }
+      
+      // Update user with role and permissions
+      const updateData = {
+        ...userData,
+        permissions: rolePermissions,
+        custom_permissions_enabled: false // Default roles use default permissions
+      }
+      
       const { error } = await (supabase as any)
         .from('users')
-        .update(userData)
+        .update(updateData)
         .eq('id', id)
 
       if (error) throw error
@@ -392,7 +444,7 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
       setUsers(prevUsers => 
         prevUsers.map(user => 
           user.id === id 
-            ? { ...user, ...userData }
+            ? { ...user, ...updateData }
             : user
         )
       )
@@ -631,77 +683,122 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
             <p className="text-gray-600 dark:text-gray-400 mt-2">Manage system users and their permissions</p>
           </div>
           
-          {/* System Toggle */}
-          <div className="flex items-center space-x-2 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
-            <button
-              onClick={() => setUseIntegratedSystem(true)}
-              className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-                useIntegratedSystem
-                  ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-              }`}
-            >
-              <Key className="h-3 w-3 inline mr-1" />
-              Integrated System
-            </button>
-            <button
-              onClick={() => setUseIntegratedSystem(false)}
-              className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-                !useIntegratedSystem
-                  ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-              }`}
-            >
-              <Shield className="h-3 w-3 inline mr-1" />
-              Legacy System
-            </button>
+          {/* Tabs */}
+          <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+            {guard.hasAccess('users.view') && (
+              <button
+                onClick={() => setActiveTab('users')}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
+                  activeTab === 'users'
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                }`}
+              >
+                <Users className="h-4 w-4" />
+                Users
+              </button>
+            )}
+            {guard.hasAccess('users.permissions') && (
+              <button
+                onClick={() => setActiveTab('roles')}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
+                  activeTab === 'roles'
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                }`}
+              >
+                <Shield className="h-4 w-4" />
+                Roles
+              </button>
+            )}
           </div>
+          
+          {/* System Toggle */}
+          {guard.hasAccess('users.permissions') && (
+            <div className="flex items-center space-x-2 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+              <button
+                onClick={() => setUseIntegratedSystem(true)}
+                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                  useIntegratedSystem
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                }`}
+              >
+                <Key className="h-3 w-3 inline mr-1" />
+                Integrated System
+              </button>
+              <button
+                onClick={() => setUseIntegratedSystem(false)}
+                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                  !useIntegratedSystem
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                }`}
+              >
+                <Shield className="h-3 w-3 inline mr-1" />
+                Legacy System
+              </button>
+            </div>
+          )}
         </div>
 
+        {/* Content based on active tab */}
+        {activeTab === 'roles' ? (
+          <RolesManagement />
+        ) : (
+          <div>
         {/* Advanced Features Toolbar */}
         <div className="flex flex-wrap items-center justify-between gap-4">
           {/* Left Side - Advanced Actions */}
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowBulkOperations(!showBulkOperations)}
-              className="flex items-center gap-2"
-              disabled={selectedUsers.length === 0}
-            >
-              <Settings className="h-4 w-4" />
-              Bulk Operations ({selectedUsers.length})
-            </Button>
+            {guard.hasAccess('users.edit') && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowBulkOperations(!showBulkOperations)}
+                className="flex items-center gap-2"
+                disabled={selectedUsers.length === 0}
+              >
+                <Settings className="h-4 w-4" />
+                Bulk Operations ({selectedUsers.length})
+              </Button>
+            )}
             
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={exportUsers}
-              className="flex items-center gap-2"
-            >
-              <Download className="h-4 w-4" />
-              Export Users
-            </Button>
+            {guard.hasAccess('users.export') && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={exportUsers}
+                className="flex items-center gap-2"
+              >
+                <Download className="h-4 w-4" />
+                Export Users
+              </Button>
+            )}
             
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowAnalytics(!showAnalytics)}
-              className="flex items-center gap-2"
-            >
-              <BarChart3 className="h-4 w-4" />
-              Analytics
-            </Button>
+            {guard.hasAccess('analytics.view') && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowAnalytics(!showAnalytics)}
+                className="flex items-center gap-2"
+              >
+                <BarChart3 className="h-4 w-4" />
+                Analytics
+              </Button>
+            )}
             
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowAuditLog(!showAuditLog)}
-              className="flex items-center gap-2"
-            >
-              <History className="h-4 w-4" />
-              Audit Log
-            </Button>
+            {guard.hasAccess('system.audit') && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowAuditLog(!showAuditLog)}
+                className="flex items-center gap-2"
+              >
+                <History className="h-4 w-4" />
+                Audit Log
+              </Button>
+            )}
           </div>
 
           {/* Right Side - View Mode and Add User */}
@@ -731,38 +828,44 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
               </button>
             </div>
             
-            <Button onClick={() => setShowForm(true)} className="flex items-center space-x-2">
-              <Plus className="h-4 w-4" />
-              <span>Add New User</span>
-            </Button>
+            {guard.hasAccess('users.create') && (
+              <Button onClick={() => setShowForm(true)} className="flex items-center space-x-2">
+                <Plus className="h-4 w-4" />
+                <span>Add New User</span>
+              </Button>
+            )}
           </div>
         </div>
 
         {/* Bulk Operations Panel */}
-        {showBulkOperations && (
+        {showBulkOperations && guard.hasAccess('users.edit') && (
           <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
             <div className="flex flex-wrap items-center gap-3">
               <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
                 Selected {selectedUsers.length} users
               </span>
               
-              <Button
-                size="sm"
-                onClick={() => bulkUpdateUsers({ is_active: true } as any)}
-                className="flex items-center gap-2"
-              >
-                <UserCheck className="h-4 w-4" />
-                Activate
-              </Button>
+              {guard.hasAccess('users.edit') && (
+                <Button
+                  size="sm"
+                  onClick={() => bulkUpdateUsers({ is_active: true } as any)}
+                  className="flex items-center gap-2"
+                >
+                  <UserCheck className="h-4 w-4" />
+                  Activate
+                </Button>
+              )}
               
-              <Button
-                size="sm"
-                onClick={() => bulkUpdateUsers({ is_active: false } as any)}
-                className="flex items-center gap-2"
-              >
-                <UserX className="h-4 w-4" />
-                Deactivate
-              </Button>
+              {guard.hasAccess('users.edit') && (
+                <Button
+                  size="sm"
+                  onClick={() => bulkUpdateUsers({ is_active: false } as any)}
+                  className="flex items-center gap-2"
+                >
+                  <UserX className="h-4 w-4" />
+                  Deactivate
+                </Button>
+              )}
               
               <Button
                 size="sm"
@@ -776,7 +879,7 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
         )}
 
         {/* Analytics Panel */}
-        {showAnalytics && (
+        {showAnalytics && guard.hasAccess('analytics.view') && (
           <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="text-center">
@@ -801,6 +904,7 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
           </div>
         )}
       </div>
+        )}
 
       {error && (
         <Alert variant="error">
@@ -840,6 +944,12 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
                 <option value="manager">Manager</option>
                 <option value="engineer">Engineer</option>
                 <option value="viewer">Viewer</option>
+                <option value="planner">Planner</option>
+                {customRoles.map(role => (
+                  <option key={role.role_key} value={role.role_key}>
+                    {role.role_name} (Custom)
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -859,7 +969,7 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
                   : "No users match your search criteria."
                 }
               </p>
-              {users.length === 0 && (
+              {users.length === 0 && guard.hasAccess('users.create') && (
                 <Button onClick={() => setShowForm(true)}>
                   <Plus className="h-4 w-4 mr-2" />
                   Create First User
@@ -990,29 +1100,35 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
                             >
                               <Eye className="h-4 w-4" />
                             </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setManagingPermissionsUser(userWithPerms)}
-                              title="Manage Permissions"
-                            >
-                              <Shield className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setEditingUser(user)}
-                            >
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleDeleteUser(user.id)}
-                              className="text-red-600 hover:text-red-700"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            {guard.hasAccess('users.permissions') && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setManagingPermissionsUser(userWithPerms)}
+                                title="Manage Permissions"
+                              >
+                                <Shield className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {guard.hasAccess('users.edit') && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setEditingUser(user)}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {guard.hasAccess('users.delete') && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleDeleteUser(user.id)}
+                                className="text-red-600 hover:text-red-700"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1041,8 +1157,10 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
           onCancel={() => setEditingUser(null)}
         />
       )}
+          </div>
+        )
 
-      {/* Enhanced Permissions Manager */}
+      {/* Enhanced Permissions Manager - Available in both tabs */}
       {managingPermissionsUser && (
         <EnhancedPermissionsManager
           key={managingPermissionsUser.id + managingPermissionsUser.updated_at} // Force re-render when user changes
@@ -1055,7 +1173,7 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
             const updateData: Partial<User> = {
               full_name: userData.full_name,
               email: userData.email,
-              role: userData.role as 'admin' | 'manager' | 'engineer' | 'viewer',
+              role: userData.role as any, // Allow custom roles
               division: userData.division
             }
             await handleUpdateUser(managingPermissionsUser.id, updateData)
@@ -1137,10 +1255,30 @@ function UserForm({ user, onSubmit, onCancel }: UserFormProps) {
     last_name: '',
     full_name: '',
     email: '',
-    role: 'viewer' as 'admin' | 'manager' | 'engineer' | 'viewer',
+    role: 'viewer' as string,
     division: ''
   })
   const [error, setError] = useState('')
+  const [customRoles, setCustomRoles] = useState<any[]>([])
+  const supabase = getSupabaseClient()
+  
+  // Load custom roles
+  useEffect(() => {
+    const loadCustomRoles = async () => {
+      try {
+        const { data, error } = await (supabase as any)
+          .from('custom_roles')
+          .select('*')
+          .order('created_at', { ascending: false })
+        
+        if (error) throw error
+        setCustomRoles(data || [])
+      } catch (err: any) {
+        console.error('Error loading custom roles:', err)
+      }
+    }
+    loadCustomRoles()
+  }, [])
 
   useEffect(() => {
     if (user) {
@@ -1164,7 +1302,10 @@ function UserForm({ user, onSubmit, onCancel }: UserFormProps) {
       return
     }
 
-    onSubmit(formData)
+    onSubmit({
+      ...formData,
+      role: formData.role as any // Allow custom roles
+    })
   }
 
   const handleChange = (field: string, value: any) => {
@@ -1243,10 +1384,22 @@ function UserForm({ user, onSubmit, onCancel }: UserFormProps) {
                 onChange={(e) => handleChange('role', e.target.value)}
                 className="w-full h-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
               >
-                <option value="viewer">Viewer</option>
-                <option value="engineer">Engineer</option>
-                <option value="manager">Manager</option>
-                <option value="admin">Admin</option>
+                <optgroup label="Default Roles">
+                  <option value="viewer">Viewer</option>
+                  <option value="engineer">Engineer</option>
+                  <option value="manager">Manager</option>
+                  <option value="admin">Admin</option>
+                  <option value="planner">Planner</option>
+                </optgroup>
+                {customRoles.length > 0 && (
+                  <optgroup label="Custom Roles">
+                    {customRoles.map(role => (
+                      <option key={role.role_key} value={role.role_key}>
+                        {role.role_name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             </div>
 

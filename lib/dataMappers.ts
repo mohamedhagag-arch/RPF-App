@@ -130,6 +130,7 @@ export function mapBOQFromDB(row: any): any {
     variance_units: parseNum(row['Variance Units']),
     rate: parseNum(row['Rate']),
     total_value: parseNum(row['Total Value']),
+    activity_value: parseNum(row['Activity Value']), // ✅ Activity Value from BOQ
     planned_activity_start_date: row['Planned Activity Start Date'] || '',
     deadline: row['Deadline'] || row['Planned Activity Start Date'] || '',
     calendar_duration: parseNum(row['Calendar Duration']),
@@ -151,7 +152,9 @@ export function mapBOQFromDB(row: any): any {
     has_value: row['Has Value'] === 'TRUE' || row['has_value'] === true || row['Has Value'] === true || true,
     affects_timeline: row['Affects Timeline'] === 'TRUE' || row['affects_timeline'] === true || row['Affects Timeline'] === true || false,
     created_at: row.created_at || new Date().toISOString(),
-    updated_at: row.updated_at || new Date().toISOString()
+    updated_at: row.updated_at || new Date().toISOString(),
+    // ✅ CRITICAL: Preserve raw database row for direct column access (same as mapProjectFromDB)
+    raw: row
   }
 }
 

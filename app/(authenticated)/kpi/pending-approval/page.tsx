@@ -10,6 +10,7 @@ import { mapProjectFromDB, mapKPIFromDB } from '@/lib/dataMappers'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
+import { PermissionButton } from '@/components/ui/PermissionButton'
 import { Card } from '@/components/ui/Card'
 import { ArrowLeft, CheckCircle, X, Clock, Target, AlertCircle } from 'lucide-react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
@@ -647,7 +648,7 @@ export default function PendingApprovalKPIPage() {
                 </div>
               </div>
 
-              {pendingKPIs.length > 0 && (
+              {pendingKPIs.length > 0 && guard.hasAccess('kpi.approve') && (
                 <Button
                   onClick={handleBulkApprove}
                   className="bg-green-600 hover:bg-green-700 text-white"
@@ -879,7 +880,8 @@ export default function PendingApprovalKPIPage() {
                       </div>
 
                       <div className="flex flex-col sm:flex-row gap-2">
-                        <Button
+                        <PermissionButton
+                          permission="kpi.approve"
                           onClick={() => handleApprove(kpi.id)}
                           disabled={processingIds.has(kpi.id)}
                           className="bg-green-600 hover:bg-green-700 text-white"
@@ -895,8 +897,9 @@ export default function PendingApprovalKPIPage() {
                               Approve
                             </>
                           )}
-                        </Button>
-                        <Button
+                        </PermissionButton>
+                        <PermissionButton
+                          permission="kpi.approve"
                           onClick={() => handleReject(kpi.id)}
                           disabled={processingIds.has(kpi.id)}
                           variant="outline"
@@ -904,7 +907,7 @@ export default function PendingApprovalKPIPage() {
                         >
                           <X className="w-4 h-4 mr-2" />
                           Reject
-                        </Button>
+                        </PermissionButton>
                       </div>
                     </div>
                   </div>

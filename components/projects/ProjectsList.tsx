@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { withSafeLoading, createSafeLoadingSetter } from '@/lib/loadingStateManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { useAuth } from '@/app/providers'
 import { hasPermission } from '@/lib/permissionsSystem'
 import { usePermissionGuard } from '@/lib/permissionGuard'
+import { PermissionGuard } from '@/components/common/PermissionGuard'
 import { getGridClasses, shouldLoadAnalytics, getViewModeIcon, getViewModeName } from '@/lib/viewModeOptimizer'
 import { getCardGridClasses, shouldLoadCardAnalytics, getCardViewName, getCardViewDescription } from '@/lib/cardViewOptimizer'
 import { Project, TABLES } from '@/lib/supabase'
@@ -18,6 +19,7 @@ import { calculateProjectProgress, ProjectProgress } from '@/lib/progressCalcula
 import { loadAllDataWithProgress } from '@/lib/lazyLoadingManager'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
+import { PermissionButton } from '@/components/ui/PermissionButton'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Alert } from '@/components/ui/Alert'
 import { IntelligentProjectForm } from './IntelligentProjectForm'
@@ -28,7 +30,7 @@ import { ProjectDetailsPanel } from './ProjectDetailsPanel'
 import { ProjectsTableWithCustomization } from './ProjectsTableWithCustomization'
 import { AdvancedSorting, SortOption, FilterOption } from '@/components/ui/AdvancedSorting'
 import { Pagination } from '@/components/ui/Pagination'
-import { Plus, Search, Building, Calendar, DollarSign, Percent, Hash, CheckCircle, Clock, AlertCircle, Folder, BarChart3, Grid, MapPin } from 'lucide-react'
+import { Plus, Search, Building, Calendar, DollarSign, Percent, Hash, CheckCircle, Clock, AlertCircle, Folder, BarChart3, Grid, MapPin, Lock } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { Input } from '@/components/ui/Input'
 import { SmartFilter } from '@/components/ui/SmartFilter'
@@ -62,14 +64,24 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
   const [successMessage, setSuccessMessage] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
-  // ✅ Standard View is always the default - Force to true on mount
-  const [useCustomizedTable, setUseCustomizedTable] = useState(true)
+  // ✅ Standard View - only enable if user has permission
+  const [useCustomizedTable, setUseCustomizedTable] = useState(false)
   
-  // Ensure Standard View is always the default on mount
+  // Ensure Standard View is only enabled if user has permission
   useEffect(() => {
-    // Force Standard View on initial mount
-    setUseCustomizedTable(true)
-  }, [])
+    // Only enable table view if user has permission - check every time
+    const hasPermission = guard.hasAccess('projects.view')
+    if (hasPermission) {
+      setUseCustomizedTable(true)
+    } else {
+      setUseCustomizedTable(false)
+    }
+  }, [guard])
+  
+  // ✅ Additional safety check: Never allow table view without permission
+  // Always check permission at render time, don't rely on state
+  const hasPermission = guard.hasAccess('projects.view')
+  const canUseCustomizedTable = hasPermission && useCustomizedTable
   const [viewingProject, setViewingProject] = useState<Project | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [viewMode, setViewMode] = useState<'cards'>('cards') // Default to cards view
@@ -92,6 +104,23 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
   const supabase = getSupabaseClient()
   const isMountedRef = useRef(true) // ✅ Track if component is mounted
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('projects') // ✅ Smart loading
+  
+  // ✅ Permission check - return access denied if user doesn't have permission
+  if (!guard.hasAccess('projects.view')) {
+    return (
+      <div className="p-6">
+        <Alert variant="error">
+          <div className="flex items-center gap-2">
+            <Lock className="h-5 w-5" />
+            <div>
+              <h3 className="font-semibold">Access Denied</h3>
+              <p className="text-sm">You do not have permission to view projects. Please contact your administrator.</p>
+            </div>
+          </div>
+        </Alert>
+      </div>
+    )
+  }
 
   // Sort options for projects
   const sortOptions: SortOption[] = [
@@ -914,14 +943,15 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
           
           {/* Action Buttons */}
           <div className="flex items-center gap-2">
-            <Button
+            <PermissionButton
+              permission="projects.zones"
               variant="secondary"
               onClick={() => router.push('/projects/zones')}
               className="flex items-center gap-2"
             >
               <MapPin className="h-4 w-4" />
               Manage Zones
-            </Button>
+            </PermissionButton>
           </div>
           
           {/* Rate-based Performance Summary */}
@@ -976,13 +1006,14 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
                 <Plus className="h-4 w-4" />
                 <span>Add New Project</span>
               </button>
-              <button 
+              <PermissionButton
+                permission="projects.view"
                 onClick={() => setUseCustomizedTable(!useCustomizedTable)}
                 className="btn-outline flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
               >
                 <Grid className="h-4 w-4" />
                 <span>{useCustomizedTable ? 'Standard View' : 'Customize Columns'}</span>
-              </button>
+              </PermissionButton>
             </div>
           )}
         </div>
@@ -992,7 +1023,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
           {/* Data Actions Group */}
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300 mr-2">Data Actions:</span>
-            {guard.hasAccess('projects.export') && (
+            <PermissionGuard permission="projects.export">
               <ExportButton
                 data={getExportData()}
                 filename="Projects"
@@ -1000,19 +1031,21 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
                 label="Export"
                 variant="outline"
               />
-            )}
+            </PermissionGuard>
             
-            <PrintButton
-              label="Print"
-              variant="outline"
-              printTitle="Projects Report"
-              printSettings={{
-                fontSize: '11px',
-                compactMode: true
-              }}
-            />
+            <PermissionGuard permission="projects.print">
+              <PrintButton
+                label="Print"
+                variant="outline"
+                printTitle="Projects Report"
+                printSettings={{
+                  fontSize: '11px',
+                  compactMode: true
+                }}
+              />
+            </PermissionGuard>
             
-            {guard.hasAccess('projects.create') && (
+            <PermissionGuard permission="projects.import">
               <ImportButton
                 onImport={handleImportProjects}
                 requiredColumns={['Project Code', 'Project Name']}
@@ -1021,7 +1054,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
                 label="Import"
                 variant="outline"
               />
-            )}
+            </PermissionGuard>
           </div>
           
         </div>
@@ -1082,38 +1115,39 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
         </Alert>
       )}
 
-      <Card className="card-modern transition-opacity duration-300">
-        <CardHeader>
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input
-                  placeholder="Search projects..."
-                  value={searchTerm}
-                  onChange={(e) => {
-                    setSearchTerm(e.target.value)
-                    setCurrentPage(1) // ✅ Reset to first page when searching
-                  }}
-                  className="pl-10"
+      {guard.hasAccess('projects.view') && (
+        <Card className="card-modern transition-opacity duration-300">
+          <CardHeader>
+            <div className="flex flex-col md:flex-row gap-4">
+              <div className="flex-1">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    placeholder="Search projects..."
+                    value={searchTerm}
+                    onChange={(e) => {
+                      setSearchTerm(e.target.value)
+                      setCurrentPage(1) // ✅ Reset to first page when searching
+                    }}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+              <div className="md:w-auto">
+                <AdvancedSorting
+                  sortOptions={sortOptions}
+                  filterOptions={filterOptions}
+                  onSortChange={handleSortChange}
+                  onFilterChange={handleFilterChange}
+                  onProjectCodeFilter={handleProjectCodeFilter}
+                  projects={projects.map(p => ({ project_code: p.project_code, project_name: p.project_name }))}
+                  currentSort={currentSort || undefined}
+                  currentFilters={currentFilters}
+                  currentProjectCode={currentProjectCode}
                 />
               </div>
             </div>
-            <div className="md:w-auto">
-              <AdvancedSorting
-                sortOptions={sortOptions}
-                filterOptions={filterOptions}
-                onSortChange={handleSortChange}
-                onFilterChange={handleFilterChange}
-                onProjectCodeFilter={handleProjectCodeFilter}
-                projects={projects.map(p => ({ project_code: p.project_code, project_name: p.project_name }))}
-                currentSort={currentSort || undefined}
-                currentFilters={currentFilters}
-                currentProjectCode={currentProjectCode}
-              />
-            </div>
-          </div>
-        </CardHeader>
+          </CardHeader>
         <CardContent>
           {/* Show "no results" message only if filters are applied but no matches */}
           {filteredProjects.length === 0 ? (
@@ -1132,9 +1166,9 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
                 )}
               </div>
             </div>
-          ) : (
-            useCustomizedTable ? (
-              // Table View with Customization
+          ) : hasPermission ? (
+            canUseCustomizedTable ? (
+              // Table View with Customization - Triple check permission
               <ProjectsTableWithCustomization
                 projects={filteredProjects}
                 onEdit={setEditingProject}
@@ -1143,28 +1177,23 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
                 allActivities={allActivities}
               />
             ) : (
-              // Card View
+              // Card View - Only show if user has permission
               <div className={`grid gap-6 ${getCardGridClasses(viewMode)} transition-all duration-300 ease-in-out`}>
                 {filteredProjects.map((project) => {
-                  // Calculate analytics for this project (using pre-loaded data)
+                  // ✅ PERFORMANCE: Only calculate analytics if needed (for enhanced view mode)
+                  // Calculate analytics inline (will be memoized by ModernProjectCard if provided)
                   const analytics = shouldLoadCardAnalytics(viewMode) 
                     ? calculateProjectAnalytics(project, allActivities, allKPIs)
                     : null
                   
-                  // تقليل التسجيل لتجنب البطء
-                  if (shouldLoadCardAnalytics(viewMode) && Math.random() < 0.1) {
-                    console.log(`🔍 Analytics for ${project.project_code}:`, {
-                      allActivitiesCount: allActivities.length,
-                      allKPIsCount: allKPIs.length,
-                      hasAnalytics: !!analytics
-                    })
-                  }
-                  
-                  // 🔧 NEW: Always use ModernProjectCard for better UX
+                  // ✅ Pass analytics and data to ModernProjectCard (same as Table uses)
                   return (
                     <ModernProjectCard
                       key={project.id}
                       project={project}
+                      analytics={analytics} // ✅ Pass pre-calculated analytics
+                      allActivities={allActivities} // ✅ Pass pre-loaded activities
+                      allKPIs={allKPIs} // ✅ Pass pre-loaded KPIs
                       onEdit={setEditingProject}
                       onDelete={handleDeleteProject}
                       onViewDetails={setViewingProject}
@@ -1175,7 +1204,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
                 })}
               </div>
             )
-          )}
+          ) : null}
         </CardContent>
         
         {/* Pagination */}
@@ -1189,7 +1218,8 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
             loading={loading}
           />
         )}
-      </Card>
+        </Card>
+      )}
 
       {showForm && (
         <IntelligentProjectForm

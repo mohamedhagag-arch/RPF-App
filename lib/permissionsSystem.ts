@@ -23,6 +23,9 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: 'projects.edit', name: 'Edit Projects', category: 'projects', description: 'Can edit existing projects', action: 'edit' },
   { id: 'projects.delete', name: 'Delete Projects', category: 'projects', description: 'Can delete projects', action: 'delete' },
   { id: 'projects.export', name: 'Export Projects', category: 'projects', description: 'Can export projects data', action: 'export' },
+  { id: 'projects.import', name: 'Import Projects', category: 'projects', description: 'Can import projects from files', action: 'manage' },
+  { id: 'projects.print', name: 'Print Projects', category: 'projects', description: 'Can print projects reports', action: 'export' },
+  { id: 'projects.zones', name: 'Manage Zones', category: 'projects', description: 'Can manage project zones', action: 'manage' },
   
   // BOQ Permissions
   { id: 'boq.view', name: 'View BOQ', category: 'boq', description: 'Can view BOQ activities', action: 'view' },
@@ -31,6 +34,8 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: 'boq.delete', name: 'Delete Activities', category: 'boq', description: 'Can delete BOQ activities', action: 'delete' },
   { id: 'boq.approve', name: 'Approve Activities', category: 'boq', description: 'Can approve BOQ activities', action: 'approve' },
   { id: 'boq.export', name: 'Export BOQ', category: 'boq', description: 'Can export BOQ data', action: 'export' },
+  { id: 'boq.import', name: 'Import BOQ', category: 'boq', description: 'Can import BOQ activities from files', action: 'manage' },
+  { id: 'boq.print', name: 'Print BOQ', category: 'boq', description: 'Can print BOQ reports', action: 'export' },
   
   // KPI Permissions
   { id: 'kpi.view', name: 'View KPIs', category: 'kpi', description: 'Can view KPI records', action: 'view' },
@@ -38,6 +43,8 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: 'kpi.edit', name: 'Edit KPIs', category: 'kpi', description: 'Can edit KPI records', action: 'edit' },
   { id: 'kpi.delete', name: 'Delete KPIs', category: 'kpi', description: 'Can delete KPI records', action: 'delete' },
   { id: 'kpi.export', name: 'Export KPIs', category: 'kpi', description: 'Can export KPI data', action: 'export' },
+  { id: 'kpi.import', name: 'Import KPIs', category: 'kpi', description: 'Can import KPI records from files', action: 'manage' },
+  { id: 'kpi.print', name: 'Print KPIs', category: 'kpi', description: 'Can print KPI reports', action: 'export' },
   { id: 'kpi.approve', name: 'Approve KPIs', category: 'kpi', description: 'Can approve Actual KPIs created by engineers. Users with this permission receive notifications when new KPIs are created and can approve them to appear on the main KPI page', action: 'approve' },
   
   // Reports Permissions
@@ -86,6 +93,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: 'profile.edit', name: 'Edit Profile', category: 'users', description: 'Can edit own profile', action: 'edit' },
   { id: 'profile.qr', name: 'Generate QR Code', category: 'users', description: 'Can generate QR codes for profiles', action: 'export' },
   { id: 'profile.photo', name: 'Manage Profile Photos', category: 'users', description: 'Can upload and manage profile photos', action: 'edit' },
+  { id: 'profile.share', name: 'Share Profile', category: 'users', description: 'Can share profile links and QR codes', action: 'view' },
   
   // Import/Export & Data Management
   { id: 'data.import', name: 'Import Data', category: 'system', description: 'Can import data from files', action: 'manage' },
@@ -185,11 +193,11 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     // Dashboard
     'dashboard.view',
     // Projects
-    'projects.view', 'projects.create', 'projects.edit', 'projects.delete', 'projects.export',
+    'projects.view', 'projects.create', 'projects.edit', 'projects.delete', 'projects.export', 'projects.import', 'projects.print', 'projects.zones',
     // BOQ
-    'boq.view', 'boq.create', 'boq.edit', 'boq.delete', 'boq.approve', 'boq.export',
+    'boq.view', 'boq.create', 'boq.edit', 'boq.delete', 'boq.approve', 'boq.export', 'boq.import', 'boq.print',
     // KPI
-    'kpi.view', 'kpi.create', 'kpi.edit', 'kpi.delete', 'kpi.export', 'kpi.approve',
+    'kpi.view', 'kpi.create', 'kpi.edit', 'kpi.delete', 'kpi.export', 'kpi.import', 'kpi.print', 'kpi.approve',
     // Reports
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly', 'reports.financial', 'reports.export', 'reports.print',
     'reports.lookahead', 'reports.critical', 'reports.performance', 'reports.custom',
@@ -202,7 +210,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     // Users (limited)
     'users.view', 'users.roles', 'users.groups', 'users.bulk', 'users.import', 'users.export',
     'directory.view', 'directory.export', 'directory.search',
-    'profile.view', 'profile.edit', 'profile.qr', 'profile.photo',
+    'profile.view', 'profile.edit', 'profile.qr', 'profile.photo', 'profile.share',
     // System (limited)
     'system.export', 'system.backup', 'system.search', 'system.audit',
     'data.import', 'data.export', 'data.templates', 'data.validation',

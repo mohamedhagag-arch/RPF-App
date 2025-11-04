@@ -490,6 +490,8 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
       // Validate required fields
       if (!projectCode.trim()) throw new Error('Project code is required')
       if (!projectName.trim()) throw new Error('Project name is required')
+      if (!workmanshipOnly.trim()) throw new Error('Workmanship Only is required')
+      if (!advancePaymentRequired.trim()) throw new Error('Advance Payment Required is required')
       
       // Validate project code format
       if (!codeValidation.valid) {
@@ -892,6 +894,44 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                   💰 {formatCurrency(parseFloat(contractAmount), selectedCurrency)}
                 </p>
               )}
+            </div>
+          </div>
+          
+          {/* Workmanship Only & Advance Payment Required - Required Fields */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Workmanship Only */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <Briefcase className="inline h-4 w-4 mr-1" />
+                Workmanship Only <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={workmanshipOnly}
+                onChange={(e) => setWorkmanshipOnly(e.target.value)}
+                disabled={loading}
+                required
+                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-all"
+              >
+                <option value="">Select...</option>
+                <option value="Yes">Yes</option>
+                <option value="No">No</option>
+              </select>
+            </div>
+            
+            {/* Advance Payment Required */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <DollarSign className="inline h-4 w-4 mr-1" />
+                Advance Payment Required <span className="text-red-500">*</span>
+              </label>
+              <Input
+                value={advancePaymentRequired}
+                onChange={(e) => setAdvancePaymentRequired(e.target.value)}
+                placeholder="e.g., Yes, No, 10%"
+                disabled={loading}
+                required
+                className="focus:ring-orange-500 focus:border-orange-500"
+              />
             </div>
           </div>
           
@@ -1356,36 +1396,6 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                     value={contractStatus}
                     onChange={(e) => setContractStatus(e.target.value)}
                     placeholder="e.g., Active, Pending, Completed"
-                    disabled={loading}
-                    className="focus:ring-orange-500 focus:border-orange-500"
-                  />
-                </div>
-                
-                {/* Workmanship Only */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    <Briefcase className="inline h-4 w-4 mr-1" />
-                    Workmanship Only
-                  </label>
-                  <Input
-                    value={workmanshipOnly}
-                    onChange={(e) => setWorkmanshipOnly(e.target.value)}
-                    placeholder="e.g., Yes, No, Partial"
-                    disabled={loading}
-                    className="focus:ring-orange-500 focus:border-orange-500"
-                  />
-                </div>
-                
-                {/* Advance Payment Required */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    <DollarSign className="inline h-4 w-4 mr-1" />
-                    Advance Payment Required
-                  </label>
-                  <Input
-                    value={advancePaymentRequired}
-                    onChange={(e) => setAdvancePaymentRequired(e.target.value)}
-                    placeholder="e.g., Yes, No, 10%"
                     disabled={loading}
                     className="focus:ring-orange-500 focus:border-orange-500"
                   />

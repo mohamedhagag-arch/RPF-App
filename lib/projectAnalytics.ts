@@ -118,58 +118,49 @@ export function calculateProjectAnalytics(
   allActivities: BOQActivity[],
   allKPIs: any[]
 ): ProjectAnalytics {
-  // تقليل التسجيل لتجنب البطء
-  if (Math.random() < 0.1) { // تسجيل 10% فقط من المشاريع
-    console.log('🔍 Calculating analytics for project:', project.project_code)
-  }
-  
   // 🔧 PERFORMANCE: Early return if no data
   if (allActivities.length === 0 && allKPIs.length === 0) {
     return createEmptyAnalytics(project)
   }
   
-  // Filter activities for this project by project_code
-  // Match by Project Code OR if Project Full Code starts with Project Code
+  // ✅ PERFORMANCE: Pre-calculate project codes once
+  const projectCode = project.project_code || ''
+  const projectSubCode = project.project_sub_code || ''
+  const fullCode = `${projectCode}${projectSubCode}`
+  
+  // ✅ PERFORMANCE: Filter activities with optimized matching
   const projectActivities = allActivities.filter(a => {
     if (!a.project_code && !a.project_full_code) return false
     
     // Direct project code match
-    if (a.project_code === project.project_code) return true
+    if (a.project_code === projectCode) return true
     
     // Project full code starts with project code (e.g., P5067 matches P5067-01)
-    if (a.project_full_code?.startsWith(project.project_code)) return true
+    if (a.project_full_code?.startsWith(projectCode)) return true
     
     // Exact full code match (if project has sub-code)
-    const fullCode = `${project.project_code}${project.project_sub_code || ''}`
-    if (a.project_full_code === fullCode) return true
+    if (fullCode && a.project_full_code === fullCode) return true
     
     return false
   })
   
-  // Filter KPIs for this project
+  // ✅ PERFORMANCE: Filter KPIs with optimized matching
   const projectKPIs = allKPIs.filter(k => {
     if (!k.project_code && !k.project_full_code) return false
     
     // Direct project code match
-    if (k.project_code === project.project_code) return true
+    if (k.project_code === projectCode) return true
     
     // Project full code starts with project code (e.g., P5067 matches P5067-01, P5067-02, etc.)
-    if (k.project_full_code?.startsWith(project.project_code)) return true
+    if (k.project_full_code?.startsWith(projectCode)) return true
     
     // Exact full code match (if project has sub-code)
-    const fullCode = `${project.project_code}${project.project_sub_code || ''}`
-    if (k.project_full_code === fullCode) return true
+    if (fullCode && k.project_full_code === fullCode) return true
     
     return false
   })
   
-  // تقليل التسجيل لتجنب البطء
-  if (Math.random() < 0.05) { // تسجيل 5% فقط من المشاريع
-    console.log(`✅ Filtered for ${project.project_code}:`, {
-      activities: projectActivities.length,
-      kpis: projectKPIs.length
-    })
-  }
+  // ✅ PERFORMANCE: Remove logging in production
   
   // BOQ Statistics
   const totalActivities = projectActivities.length
@@ -298,19 +289,7 @@ export function calculateProjectAnalytics(
   const totalRemainingValue = totalPlannedValue - totalEarnedValue
   const financialProgress = totalPlannedValue > 0 ? (totalEarnedValue / totalPlannedValue) * 100 : 0
   
-  // تقليل التسجيل لتجنب البطء
-  if (Math.random() < 0.02) { // تسجيل 2% فقط من المشاريع
-    console.log('💰 Financial Metrics:', {
-      totalPlannedValue: 'Always from ALL BOQ activities',
-      totalPlannedValueFromAllActivities,
-      totalPlannedValueFromKPIs: 'Used only for reference',
-      totalEarnedValue,
-      totalEarnedValueFromKPIs: totalEarnedValueFromKPIs > 0 ? totalEarnedValueFromKPIs : 'Calculated from BOQ',
-      totalRemainingValue,
-      financialProgress: financialProgress.toFixed(1) + '%',
-      note: 'Planned Value = sum of all BOQ activities planned values (regardless of KPIs)'
-    })
-  }
+  // ✅ PERFORMANCE: Remove logging in production
   
   // ✅ Progress Metrics - Based on Earned Values (قيم الأنشطة المنجزة)
   // Calculate progress from earned values of activities
@@ -334,8 +313,9 @@ export function calculateProjectAnalytics(
   const plannedKPIs = projectKPIs.filter(k => k.input_type === 'Planned').length
   const actualKPIs = projectKPIs.filter(k => k.input_type === 'Actual').length
   
-  // تقليل التسجيل لتجنب البطء
-  if (Math.random() < 0.02) { // تسجيل 2% فقط من المشاريع
+  // ✅ PERFORMANCE: Remove or reduce logging in production
+  // Only log in development mode and very rarely
+  if (process.env.NODE_ENV === 'development' && Math.random() < 0.01) {
     console.log('📊 Progress Calculation (from KPIs):', {
       plannedKPIs: plannedKPIs,
       actualKPIs: actualKPIs,
@@ -401,13 +381,17 @@ export function calculateProjectAnalytics(
   // This is the total contract value that the user manually entered
   const totalContractValue = project.contract_amount || 0
   
-  console.log('💵 Contract Value:', {
-    fromProject: project.contract_amount,
-    fromAllActivities: totalPlannedValueFromAllActivities,
-    fromKPIs: totalPlannedValue,
-    final: totalContractValue,
-    note: 'Contract Value always uses project.contract_amount (original value entered when creating project)'
-  })
+  // ✅ PERFORMANCE: Remove logging in production
+  // Only log in development mode and very rarely
+  if (process.env.NODE_ENV === 'development' && Math.random() < 0.01) {
+    console.log('💵 Contract Value:', {
+      fromProject: project.contract_amount,
+      fromAllActivities: totalPlannedValueFromAllActivities,
+      fromKPIs: totalPlannedValue,
+      final: totalContractValue,
+      note: 'Contract Value always uses project.contract_amount (original value entered when creating project)'
+    })
+  }
   
   return {
     project,

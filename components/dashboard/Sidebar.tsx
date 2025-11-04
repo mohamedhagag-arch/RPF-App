@@ -25,33 +25,38 @@ const menuItems = [
     id: 'dashboard' as TabType,
     label: 'Dashboard',
     icon: LayoutDashboard,
-    roles: ['admin', 'manager', 'engineer', 'viewer']
+    permission: 'dashboard.view'
   },
   {
     id: 'projects' as TabType,
     label: 'Project Management',
     icon: FolderOpen,
-    roles: ['admin', 'manager', 'engineer', 'viewer']
+    permission: 'projects.view'
   },
   {
     id: 'boq' as TabType,
     label: 'Bill of Quantities (BOQ)',
     icon: ClipboardList,
-    roles: ['admin', 'manager', 'engineer']
+    permission: 'boq.view'
   },
   {
     id: 'kpi' as TabType,
     label: 'Key Performance Indicators (KPI)',
     icon: BarChart3,
-    roles: ['admin', 'manager', 'engineer']
+    permission: 'kpi.view'
   }
 ]
 
 export function Sidebar({ activeTab, onTabChange, userRole }: SidebarProps) {
   const guard = usePermissionGuard()
   const filteredMenuItems = menuItems.filter(item => 
-    item.roles.includes(userRole || 'viewer')
+    guard.hasAccess(item.permission)
   )
+
+  // Hide sidebar completely if user has no permissions
+  if (filteredMenuItems.length === 0) {
+    return null
+  }
 
   const handleTabClick = useCallback((tab: TabType) => {
     onTabChange(tab)

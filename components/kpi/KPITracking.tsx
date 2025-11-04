@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { usePermissionGuard } from '@/lib/permissionGuard'
+import { PermissionGuard } from '@/components/common/PermissionGuard'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { KPIRecord, Project, BOQActivity, TABLES } from '@/lib/supabase'
@@ -23,11 +24,12 @@ import { autoSaveOnKPIUpdate } from '@/lib/autoCalculationSaver'
 import { UnifiedFilter, FilterState } from '@/components/ui/UnifiedFilter'
 import { Pagination } from '@/components/ui/Pagination'
 import { SmartFilter } from '@/components/ui/SmartFilter'
-import { Plus, BarChart3, CheckCircle, Clock, AlertCircle, Target, Info, Filter, X, Coins, DollarSign } from 'lucide-react'
+import { Plus, BarChart3, CheckCircle, Clock, AlertCircle, Target, Info, Filter, X, Coins, DollarSign, Lock } from 'lucide-react'
 import { formatCurrency } from '@/lib/boqValueCalculator'
 import { ExportButton } from '@/components/ui/ExportButton'
 import { ImportButton } from '@/components/ui/ImportButton'
 import { PrintButton } from '@/components/ui/PrintButton'
+import { PermissionButton } from '@/components/ui/PermissionButton'
 
 interface KPITrackingProps {
   globalSearchTerm?: string
@@ -51,14 +53,18 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   const isMountedRef = useRef(true) // ✅ Track if component is mounted
   const [showForm, setShowForm] = useState(false)
   const [showEnhancedForm, setShowEnhancedForm] = useState(false)
-  // ✅ Standard View is always the default - Force to true on mount
-  const [useCustomizedTable, setUseCustomizedTable] = useState(true)
+  // ✅ Standard View - only enable if user has permission
+  const [useCustomizedTable, setUseCustomizedTable] = useState(false)
   
-  // Ensure Standard View is always the default on mount
+  // Ensure Standard View is only enabled if user has permission
   useEffect(() => {
-    // Force Standard View on initial mount
-    setUseCustomizedTable(true)
-  }, [])
+    // Only enable table view if user has permission
+    if (guard.hasAccess('kpi.view')) {
+      setUseCustomizedTable(true)
+    } else {
+      setUseCustomizedTable(false)
+    }
+  }, [guard])
   // editingKPI is now handled by EnhancedKPITable
   const [filters, setFilters] = useState<FilterState>({})
   
@@ -74,6 +80,23 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   
   const supabase = getSupabaseClient()
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('kpi') // ✅ Smart loading
+  
+  // ✅ Permission check - return access denied if user doesn't have permission
+  if (!guard.hasAccess('kpi.view')) {
+    return (
+      <div className="p-6">
+        <Alert variant="error">
+          <div className="flex items-center gap-2">
+            <Lock className="h-5 w-5" />
+            <div>
+              <h3 className="font-semibold">Access Denied</h3>
+              <p className="text-sm">You do not have permission to view KPI. Please contact your administrator.</p>
+            </div>
+          </div>
+        </Alert>
+      </div>
+    )
+  }
 
   // Handle unified filter changes
   const handleFilterChange = (newFilters: FilterState) => {
@@ -1276,61 +1299,63 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
                        <Target className="h-4 w-4" />
                        <span>Legacy Site Form</span>
                      </Button>
-                    <Button 
+                    <PermissionButton
+                      permission="kpi.view"
                       onClick={() => setUseCustomizedTable(!useCustomizedTable)}
                       variant="outline"
                       className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
                     >
                       <Filter className="h-4 w-4" />
                       <span>{useCustomizedTable ? 'Standard View' : 'Customize Columns'}</span>
-                    </Button>
+                    </PermissionButton>
                   </div>
                 )}
                 
-                {/* Need to Submit Button - Show for admin or users with kpi.view permission - Outside kpi.create condition */}
-                {(guard.isAdmin() || guard.hasAccess('kpi.view') || guard.hasAccess('kpi.approve')) && (
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <Button 
-                      onClick={() => router.push('/kpi/pending-approval')}
-                      variant="outline"
-                      className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap bg-yellow-50 hover:bg-yellow-100 border-yellow-300 text-yellow-700 dark:bg-yellow-900/20 dark:border-yellow-700 dark:text-yellow-300 relative"
-                    >
-                      <Clock className="h-4 w-4" />
-                      <span>Need to Submit</span>
-                      {pendingKPICount > 0 && (
-                        <span className="ml-2 px-2 py-0.5 text-xs font-bold rounded-full bg-red-500 text-white">
-                          {pendingKPICount}
-                        </span>
-                      )}
-                    </Button>
-                  </div>
-                )}
+                {/* Need to Submit Button - Protected by permissions */}
+                <PermissionButton
+                  permission="kpi.approve"
+                  onClick={() => router.push('/kpi/pending-approval')}
+                  variant="outline"
+                  className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap bg-yellow-50 hover:bg-yellow-100 border-yellow-300 text-yellow-700 dark:bg-yellow-900/20 dark:border-yellow-700 dark:text-yellow-300 relative"
+                >
+                  <Clock className="h-4 w-4" />
+                  <span>Need to Submit</span>
+                  {pendingKPICount > 0 && (
+                    <span className="ml-2 px-2 py-0.5 text-xs font-bold rounded-full bg-red-500 text-white">
+                      {pendingKPICount}
+                    </span>
+                  )}
+                </PermissionButton>
         </div>
         
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300 mr-2">Data Actions:</span>
-          {guard.hasAccess('kpi.export') && filteredKPIs.length > 0 && (
-            <ExportButton
-              data={getExportData()}
-              filename="KPI_Records"
-              formats={['csv', 'excel']}
-              label="Export"
-              variant="outline"
-            />
+          {filteredKPIs.length > 0 && (
+            <PermissionGuard permission="kpi.export">
+              <ExportButton
+                data={getExportData()}
+                filename="KPI_Records"
+                formats={['csv', 'excel']}
+                label="Export"
+                variant="outline"
+              />
+            </PermissionGuard>
           )}
           
-          <PrintButton
-            label="Print"
-            variant="outline"
-            printTitle="KPI Records Report"
-            printSettings={{
-              fontSize: '11px',
-              compactMode: true
-            }}
-          />
+          <PermissionGuard permission="kpi.print">
+            <PrintButton
+              label="Print"
+              variant="outline"
+              printTitle="KPI Records Report"
+              printSettings={{
+                fontSize: '11px',
+                compactMode: true
+              }}
+            />
+          </PermissionGuard>
           
-          {guard.hasAccess('kpi.create') && (
+          <PermissionGuard permission="kpi.import">
             <ImportButton
               onImport={handleImportKPI}
               requiredColumns={['Project Code', 'Activity Name', 'Quantity', 'Input Type']}
@@ -1339,7 +1364,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
               label="Import"
               variant="outline"
             />
-          )}
+          </PermissionGuard>
         </div>
       </div>
       
@@ -1582,19 +1607,21 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {useCustomizedTable ? (
-            <KPITableWithCustomization
-              kpis={paginatedKPIs as any}
-              projects={projects}
-              onEdit={(kpi: KPIRecord) => {
-                // Handle edit - you can implement this
-                console.log('Edit KPI:', kpi)
-              }}
-              onDelete={handleDeleteKPI}
-              onBulkDelete={handleBulkDeleteKPI}
-            />
-          ) : (
-            <OptimizedKPITable
+          {guard.hasAccess('kpi.view') ? (
+            guard.hasAccess('kpi.view') && useCustomizedTable ? (
+              <KPITableWithCustomization
+                kpis={paginatedKPIs as any}
+                projects={projects}
+                allActivities={activities} // ✅ Pass activities to get Rate from BOQ
+                onEdit={(kpi: KPIRecord) => {
+                  // Handle edit - you can implement this
+                  console.log('Edit KPI:', kpi)
+                }}
+                onDelete={handleDeleteKPI}
+                onBulkDelete={handleBulkDeleteKPI}
+              />
+            ) : guard.hasAccess('kpi.view') ? (
+              <OptimizedKPITable
               kpis={paginatedKPIs}
               projects={projects}
               activities={activities}
@@ -1602,7 +1629,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
               onBulkDelete={handleBulkDeleteKPI}
               onUpdate={handleUpdateKPI}
             />
-          )}
+            ) : null
+          ) : null}
           
           {/* Pagination */}
           {totalPages > 1 && (

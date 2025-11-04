@@ -78,6 +78,31 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
     loadCompanySettings()
   }, [])
 
+  // Filter items based on permissions
+  const visibleItems = sidebarItems.filter((item) => {
+    switch (item.tab) {
+      case 'dashboard':
+        return guard.hasAccess('dashboard.view')
+      case 'projects':
+        return guard.hasAccess('projects.view')
+      case 'boq':
+        return guard.hasAccess('boq.view')
+      case 'kpi':
+        return guard.hasAccess('kpi.view')
+      case 'reports':
+        return guard.hasAccess('reports.view')
+      case 'settings':
+        return guard.hasAccess('settings.view')
+      default:
+        return true
+    }
+  })
+
+  // Hide sidebar completely if user has no permissions
+  if (visibleItems.length === 0 && !guard.hasAccess('system.search')) {
+    return null
+  }
+
   return (
     <>
       {/* Mobile Overlay */}
@@ -187,34 +212,9 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto p-4 space-y-2">
-          {sidebarItems.map((item) => {
+          {visibleItems.map((item) => {
             const Icon = item.icon
             const isActive = activeTab === item.tab
-
-            // Check permissions for each navigation item
-            const hasPermission = () => {
-              switch (item.tab) {
-                case 'dashboard':
-                  return guard.hasAccess('dashboard.view')
-                case 'projects':
-                  return guard.hasAccess('projects.view')
-                case 'boq':
-                  return guard.hasAccess('boq.view')
-                case 'kpi':
-                  return guard.hasAccess('kpi.view')
-                case 'reports':
-                  return guard.hasAccess('reports.view')
-                case 'settings':
-                  return guard.hasAccess('settings.view')
-                default:
-                  return true
-              }
-            }
-
-            // Don't render if user doesn't have permission
-            if (!hasPermission()) {
-              return null
-            }
 
             return (
               <button

@@ -290,15 +290,17 @@ export default function UserProfilePage() {
             </div>
             
             <div className="flex items-center gap-3">
-              <Button
-                variant="outline"
-                onClick={handleShareProfile}
-              >
-                <Share2 className="h-4 w-4 mr-2" />
-                Share Profile
-              </Button>
+              {guard.hasAccess('profile.share') && (
+                <Button
+                  variant="outline"
+                  onClick={handleShareProfile}
+                >
+                  <Share2 className="h-4 w-4 mr-2" />
+                  Share Profile
+                </Button>
+              )}
               
-              {authUser?.id === userId && (
+              {authUser?.id === userId && guard.hasAccess('profile.edit') && (
                 <Button
                   onClick={() => router.push('/profile')}
                 >

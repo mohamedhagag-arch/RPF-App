@@ -60,7 +60,11 @@ import {
   RotateCcw,
   Check,
   X,
-  Bell
+  Bell,
+  Download,
+  History,
+  TrendingUp,
+  Activity
 } from 'lucide-react'
 
 interface EnhancedPermissionsManagerProps {
@@ -143,6 +147,11 @@ export function EnhancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
   const [selectedAction, setSelectedAction] = useState<string>('all')
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['projects', 'users', 'settings']))
+  
+  // Advanced Features States
+  const [showAnalytics, setShowAnalytics] = useState(false)
+  const [showAuditLog, setShowAuditLog] = useState(false)
+  const [showExportOptions, setShowExportOptions] = useState(false)
   
   // Role management states
   const [showRoleManager, setShowRoleManager] = useState(false)
@@ -624,9 +633,122 @@ export function EnhancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
     setTimeout(() => setSuccess(''), 2000)
   }
 
+  // Export permissions to CSV
+  const exportPermissionsToCSV = () => {
+    if (!guard.hasAccess('users.export')) {
+      setError('You do not have permission to export permissions')
+      return
+    }
+
+    const data = selectedPermissions.map(id => {
+      const permission = ALL_PERMISSIONS.find(p => p.id === id)
+      return {
+        id: permission?.id || id,
+        name: permission?.name || id,
+        category: permission?.category || 'unknown',
+        action: permission?.action || 'unknown',
+        description: permission?.description || ''
+      }
+    })
+
+    const csvContent = [
+      'ID,Name,Category,Action,Description',
+      ...data.map(row => `"${row.id}","${row.name}","${row.category}","${row.action}","${row.description}"`)
+    ].join('\n')
+
+    const blob = new Blob([csvContent], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `permissions_${user.email}_${new Date().toISOString().split('T')[0]}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+
+    setSuccess('Permissions exported successfully!')
+    setTimeout(() => setSuccess(''), 2000)
+  }
+
+  // Export permissions to JSON
+  const exportPermissionsToJSON = () => {
+    if (!guard.hasAccess('users.export')) {
+      setError('You do not have permission to export permissions')
+      return
+    }
+
+    const data = {
+      user: {
+        email: user.email,
+        full_name: user.full_name,
+        role: user.role,
+        custom_permissions_enabled: customEnabled
+      },
+      permissions: selectedPermissions.map(id => {
+        const permission = ALL_PERMISSIONS.find(p => p.id === id)
+        return {
+          id: permission?.id || id,
+          name: permission?.name || id,
+          category: permission?.category || 'unknown',
+          action: permission?.action || 'unknown',
+          description: permission?.description || ''
+        }
+      }),
+      export_date: new Date().toISOString(),
+      total_permissions: selectedPermissions.length
+    }
+
+    const jsonContent = JSON.stringify(data, null, 2)
+    const blob = new Blob([jsonContent], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `permissions_${user.email}_${new Date().toISOString().split('T')[0]}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+
+    setSuccess('Permissions exported successfully!')
+    setTimeout(() => setSuccess(''), 2000)
+  }
+
+  // Get permission analytics
+  const getPermissionAnalytics = () => {
+    const analytics = {
+      total: selectedPermissions.length,
+      byCategory: categories.reduce((acc, cat) => {
+        const catPermissions = ALL_PERMISSIONS.filter(p => p.category === cat.id)
+        const catSelected = selectedPermissions.filter(id =>
+          catPermissions.some(p => p.id === id)
+        ).length
+        acc[cat.id] = {
+          total: catPermissions.length,
+          selected: catSelected,
+          percentage: catPermissions.length > 0 ? (catSelected / catPermissions.length) * 100 : 0
+        }
+        return acc
+      }, {} as Record<string, { total: number; selected: number; percentage: number }>),
+      byAction: actions.reduce((acc, act) => {
+        const actPermissions = ALL_PERMISSIONS.filter(p => p.action === act.id)
+        const actSelected = selectedPermissions.filter(id =>
+          actPermissions.some(p => p.id === id)
+        ).length
+        acc[act.id] = {
+          total: actPermissions.length,
+          selected: actSelected,
+          percentage: actPermissions.length > 0 ? (actSelected / actPermissions.length) * 100 : 0
+        }
+        return acc
+      }, {} as Record<string, { total: number; selected: number; percentage: number }>),
+      coverage: (selectedPermissions.length / ALL_PERMISSIONS.length) * 100
+    }
+    return analytics
+  }
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-7xl w-full max-h-[90vh] overflow-hidden">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-7xl w-full max-h-[90vh] overflow-hidden relative">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-4">
@@ -643,6 +765,39 @@ export function EnhancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {guard.hasAccess('analytics.view') && (
+              <Button 
+                variant="outline" 
+                onClick={() => setShowAnalytics(!showAnalytics)} 
+                size="sm"
+                className="flex items-center gap-2"
+              >
+                <BarChart3 className="h-4 w-4" />
+                Analytics
+              </Button>
+            )}
+            {guard.hasAccess('system.audit') && (
+              <Button 
+                variant="outline" 
+                onClick={() => setShowAuditLog(!showAuditLog)} 
+                size="sm"
+                className="flex items-center gap-2"
+              >
+                <History className="h-4 w-4" />
+                Audit Log
+              </Button>
+            )}
+            {guard.hasAccess('users.export') && (
+              <Button 
+                variant="outline" 
+                onClick={() => setShowExportOptions(!showExportOptions)} 
+                size="sm"
+                className="flex items-center gap-2"
+              >
+                <Download className="h-4 w-4" />
+                Export
+              </Button>
+            )}
             <Button variant="outline" onClick={copyPermissionsToClipboard} size="sm">
               <Copy className="h-4 w-4 mr-2" />
               Copy
@@ -684,9 +839,139 @@ export function EnhancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
           </div>
         </div>
 
+        {/* Analytics Panel */}
+        {showAnalytics && guard.hasAccess('analytics.view') && (
+          <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-700">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                <TrendingUp className="h-5 w-5" />
+                Permission Analytics
+              </h3>
+              <Button variant="outline" size="sm" onClick={() => setShowAnalytics(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            {(() => {
+              const analytics = getPermissionAnalytics()
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <Card className="bg-white dark:bg-gray-800">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm text-gray-600 dark:text-gray-400">Total Coverage</p>
+                          <p className="text-2xl font-bold text-blue-600">{analytics.coverage.toFixed(1)}%</p>
+                        </div>
+                        <Activity className="h-8 w-8 text-blue-500" />
+                      </div>
+                    </CardContent>
+                  </Card>
+                  {Object.entries(analytics.byCategory).slice(0, 3).map(([catId, stats]) => {
+                    const category = categories.find(c => c.id === catId)
+                    const Icon = category?.icon || Settings
+                    return (
+                      <Card key={catId} className="bg-white dark:bg-gray-800">
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm text-gray-600 dark:text-gray-400">{category?.name || catId}</p>
+                              <p className="text-2xl font-bold text-green-600">{stats.percentage.toFixed(1)}%</p>
+                              <p className="text-xs text-gray-500">{stats.selected}/{stats.total}</p>
+                            </div>
+                            <Icon className="h-8 w-8 text-green-500" />
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )
+                  })}
+                </div>
+              )
+            })()}
+          </div>
+        )}
+
+        {/* Export Options Dropdown */}
+        {showExportOptions && guard.hasAccess('users.export') && (
+          <div className="absolute right-4 top-24 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-[60] p-2 min-w-[200px]">
+            <div className="space-y-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  exportPermissionsToCSV()
+                  setShowExportOptions(false)
+                }}
+                className="w-full justify-start"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Export as CSV
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  exportPermissionsToJSON()
+                  setShowExportOptions(false)
+                }}
+                className="w-full justify-start"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Export as JSON
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  copyPermissionsToClipboard()
+                  setShowExportOptions(false)
+                }}
+                className="w-full justify-start"
+              >
+                <Copy className="h-4 w-4 mr-2" />
+                Copy to Clipboard
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowExportOptions(false)}
+                className="w-full justify-start"
+              >
+                <X className="h-4 w-4 mr-2" />
+                Close
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Audit Log Panel */}
+        {showAuditLog && guard.hasAccess('system.audit') && (
+          <div className="p-4 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                <History className="h-5 w-5" />
+                Permission Change History
+              </h3>
+              <Button variant="outline" size="sm" onClick={() => setShowAuditLog(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+              <div className="text-center py-8">
+                <History className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-600 dark:text-gray-400">
+                  Audit log feature will track all permission changes for this user.
+                </p>
+                <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">
+                  This feature requires audit logging to be enabled in the database.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="flex h-[calc(90vh-200px)]">
           {/* Sidebar - Filters and Controls */}
-          <div className="w-80 bg-gray-50 dark:bg-gray-700/50 border-r border-gray-200 dark:border-gray-700 p-4 overflow-y-auto">
+          <div className="w-80 bg-gray-50 dark:bg-gray-700/50 border-r border-gray-200 dark:border-gray-700 p-4 overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             {/* Search */}
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">

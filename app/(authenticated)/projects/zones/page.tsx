@@ -3,8 +3,10 @@
 import { useState, useEffect, useMemo } from 'react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
+import { PermissionPage } from '@/components/ui/PermissionPage'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
+import { PermissionButton } from '@/components/ui/PermissionButton'
 import { Input } from '@/components/ui/Input'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Alert } from '@/components/ui/Alert'
@@ -371,14 +373,25 @@ export default function ProjectZonesPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <LoadingSpinner />
-      </div>
+      <PermissionPage 
+        permission="projects.zones"
+        accessDeniedTitle="Project Zones Access Required"
+        accessDeniedMessage="You need permission to manage project zones. Please contact your administrator."
+      >
+        <div className="flex items-center justify-center min-h-screen">
+          <LoadingSpinner />
+        </div>
+      </PermissionPage>
     )
   }
 
   return (
-    <div className="container mx-auto px-4 py-6 max-w-7xl">
+    <PermissionPage 
+      permission="projects.zones"
+      accessDeniedTitle="Project Zones Access Required"
+      accessDeniedMessage="You need permission to manage project zones. Please contact your administrator."
+    >
+      <div className="container mx-auto px-4 py-6 max-w-7xl">
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center justify-between mb-4">
@@ -609,15 +622,17 @@ export default function ProjectZonesPage() {
                 <Button variant="secondary" onClick={handleCancel} disabled={saving}>
                   Cancel
                 </Button>
-                <Button 
-                  variant="primary" 
-                  onClick={handleSave} 
-                  disabled={saving || !selectedProject || zonesList.length === 0}
-                  className="flex items-center gap-2"
-                >
-                  <Save className="h-4 w-4" />
-                  {saving ? 'Saving...' : 'Save Zones'}
-                </Button>
+                {guard.hasAccess('projects.zones') && (
+                  <Button 
+                    variant="primary" 
+                    onClick={handleSave} 
+                    disabled={saving || !selectedProject || zonesList.length === 0}
+                    className="flex items-center gap-2"
+                  >
+                    <Save className="h-4 w-4" />
+                    {saving ? 'Saving...' : 'Save Zones'}
+                  </Button>
+                )}
               </div>
             </div>
           </CardContent>
@@ -689,7 +704,7 @@ export default function ProjectZonesPage() {
                 </select>
               </div>
             )}
-            {!editingProjectCode && (
+            {!editingProjectCode && guard.hasAccess('projects.zones') && (
               <Button
                 variant="primary"
                 onClick={() => {
@@ -834,7 +849,8 @@ export default function ProjectZonesPage() {
                         </div>
                         
                         <div className="flex items-center gap-2">
-                          <Button
+                          <PermissionButton
+                            permission="projects.zones"
                             variant="secondary"
                             size="sm"
                             onClick={() => handleEdit(project.project_code)}
@@ -842,16 +858,17 @@ export default function ProjectZonesPage() {
                           >
                             <Edit2 className="h-4 w-4" />
                             {zones ? 'Edit' : 'Add Zones'}
-                          </Button>
+                          </PermissionButton>
                           {zones && (
-                            <Button
+                            <PermissionButton
+                              permission="projects.zones"
                               variant="destructive"
                               size="sm"
                               onClick={() => handleDelete(project.project_code)}
                               className="flex items-center gap-2"
                             >
                               <Trash2 className="h-4 w-4" />
-                            </Button>
+                            </PermissionButton>
                           )}
                         </div>
                       </div>
@@ -880,19 +897,21 @@ export default function ProjectZonesPage() {
                 Projects will appear as you type.
               </p>
               <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">
-                <Button
-                  variant="primary"
-                  onClick={() => {
-                    setEditingProjectCode('new')
-                    setSelectedProject('')
-                    setZonesInput('')
-                    setNewZoneInput('')
-                  }}
-                  className="flex items-center gap-2"
-                >
-                  <Plus className="h-4 w-4" />
-                  Add Zones to New Project
-                </Button>
+                {guard.hasAccess('projects.zones') && (
+                  <Button
+                    variant="primary"
+                    onClick={() => {
+                      setEditingProjectCode('new')
+                      setSelectedProject('')
+                      setZonesInput('')
+                      setNewZoneInput('')
+                    }}
+                    className="flex items-center gap-2"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add Zones to New Project
+                  </Button>
+                )}
                 <Button
                   variant="secondary"
                   onClick={() => setShowProjects(true)}
@@ -907,5 +926,6 @@ export default function ProjectZonesPage() {
         </Card>
       )}
     </div>
+    </PermissionPage>
   )
 }

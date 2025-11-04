@@ -30,6 +30,9 @@ import {
 
 interface ModernProjectCardProps {
   project: Project
+  analytics?: ProjectAnalytics | null // ✅ Optional: Pre-calculated analytics (from parent)
+  allActivities?: any[] // ✅ Optional: Pre-loaded activities (from parent)
+  allKPIs?: any[] // ✅ Optional: Pre-loaded KPIs (from parent)
   onEdit: (project: Project) => void
   onDelete: (id: string) => void
   onViewDetails?: (project: Project) => void
@@ -38,7 +41,10 @@ interface ModernProjectCardProps {
 }
 
 export function ModernProjectCard({ 
-  project, 
+  project,
+  analytics: propAnalytics, // ✅ Pre-calculated analytics from parent
+  allActivities: propActivities = [], // ✅ Pre-loaded activities from parent
+  allKPIs: propKPIs = [], // ✅ Pre-loaded KPIs from parent
   onEdit, 
   onDelete,
   onViewDetails,
@@ -47,21 +53,45 @@ export function ModernProjectCard({
 }: ModernProjectCardProps) {
   const { appUser } = useAuth()
   const guard = usePermissionGuard()
-  const [analytics, setAnalytics] = useState<ProjectAnalytics | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [analytics, setAnalytics] = useState<ProjectAnalytics | null>(propAnalytics || null)
+  const [loading, setLoading] = useState(!propAnalytics) // ✅ Only load if analytics not provided
   const [error, setError] = useState<string | null>(null)
   const supabase = getSupabaseClient()
   const mountedRef = useRef(true)
 
-  // 🔧 FIX: Auto-load analytics on mount
+  // ✅ Use pre-calculated analytics if provided, otherwise load from database
   useEffect(() => {
     mountedRef.current = true
+    
+    // ✅ If analytics provided from parent, use it (SAME AS TABLE)
+    if (propAnalytics) {
+      setAnalytics(propAnalytics)
+      setLoading(false)
+      console.log(`✅ Using pre-calculated analytics for ${project.project_code} (same as Table)`)
+      return
+    }
+    
+    // ✅ If allActivities and allKPIs provided, calculate analytics (SAME AS TABLE)
+    if (propActivities.length > 0 || propKPIs.length > 0) {
+      try {
+        const calculatedAnalytics = calculateProjectAnalytics(project, propActivities, propKPIs)
+        setAnalytics(calculatedAnalytics)
+        setLoading(false)
+        console.log(`✅ Calculated analytics from pre-loaded data for ${project.project_code} (same as Table)`)
+        return
+      } catch (error) {
+        console.error(`❌ Error calculating analytics from pre-loaded data:`, error)
+        // Fall through to loadAnalytics()
+      }
+    }
+    
+    // ✅ Fallback: Load analytics from database (only if not provided)
     loadAnalytics()
     
     return () => {
       mountedRef.current = false
     }
-  }, [project.project_code])
+  }, [project.project_code, propAnalytics, propActivities, propKPIs])
 
   const loadAnalytics = async () => {
     if (!mountedRef.current) return

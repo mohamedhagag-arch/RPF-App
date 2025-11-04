@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
+import { PermissionGuard } from '@/components/common/PermissionGuard'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { Project, TABLES } from '@/lib/supabase'
@@ -1497,9 +1498,11 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                       disabled={loading}
                     />
                     {projectCode && (
-                      <p className="text-xs text-orange-500 mt-1">
-                        ⚠️ No zones defined for this project. <a href="/projects/zones" className="underline">Manage Zones</a>
-                      </p>
+                      <PermissionGuard permission="projects.zones">
+                        <p className="text-xs text-orange-500 mt-1">
+                          ⚠️ No zones defined for this project. <a href="/projects/zones" className="underline">Manage Zones</a>
+                        </p>
+                      </PermissionGuard>
                     )}
                   </div>
                 )}

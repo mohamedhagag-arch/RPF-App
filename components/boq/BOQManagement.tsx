@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
+import { PermissionGuard } from '@/components/common/PermissionGuard'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { BOQActivity, Project, TABLES } from '@/lib/supabase'
@@ -17,10 +18,11 @@ import { IntelligentBOQForm } from './IntelligentBOQForm'
 import { BOQTable } from './BOQTable'
 import { BOQTableWithCustomization } from './BOQTableWithCustomization'
 import { Pagination } from '@/components/ui/Pagination'
-import { Plus, ClipboardList, CheckCircle, Clock, AlertCircle, Filter, X, Search } from 'lucide-react'
+import { Plus, ClipboardList, CheckCircle, Clock, AlertCircle, Filter, X, Search, Lock } from 'lucide-react'
 import { ExportButton } from '@/components/ui/ExportButton'
 import { ImportButton } from '@/components/ui/ImportButton'
 import { PrintButton } from '@/components/ui/PrintButton'
+import { PermissionButton } from '@/components/ui/PermissionButton'
 
 interface BOQManagementProps {
   globalSearchTerm?: string
@@ -44,14 +46,18 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editingActivity, setEditingActivity] = useState<BOQActivity | null>(null)
-  // ✅ Standard View is always the default - Force to true on mount
-  const [useCustomizedTable, setUseCustomizedTable] = useState(true)
+  // ✅ Standard View - only enable if user has permission
+  const [useCustomizedTable, setUseCustomizedTable] = useState(false)
   
-  // Ensure Standard View is always the default on mount
+  // Ensure Standard View is only enabled if user has permission
   useEffect(() => {
-    // Force Standard View on initial mount
-    setUseCustomizedTable(true)
-  }, [])
+    // Only enable table view if user has permission
+    if (guard.hasAccess('boq.view')) {
+      setUseCustomizedTable(true)
+    } else {
+      setUseCustomizedTable(false)
+    }
+  }, [guard])
   
   // Zone Management
   const [selectedZone, setSelectedZone] = useState<string | null>(null)
@@ -75,6 +81,23 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   const supabase = getSupabaseClient()
   const isMountedRef = useRef(true) // ✅ Track if component is mounted
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('boq') // ✅ Smart loading
+  
+  // ✅ Permission check - return access denied if user doesn't have permission
+  if (!guard.hasAccess('boq.view')) {
+    return (
+      <div className="p-6">
+        <Alert variant="error">
+          <div className="flex items-center gap-2">
+            <Lock className="h-5 w-5" />
+            <div>
+              <h3 className="font-semibold">Access Denied</h3>
+              <p className="text-sm">You do not have permission to view BOQ. Please contact your administrator.</p>
+            </div>
+          </div>
+        </Alert>
+      </div>
+    )
+  }
 
   // ✅ Apply filters to activities
   const applyFilters = (activitiesList: BOQActivity[]) => {
@@ -270,6 +293,43 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       setFilteredActivities(filtered)
       setTotalCount(count || 0)
       
+      // ✅ Load KPIs for Actual Dates calculation
+      console.log('📊 Loading KPIs for Actual Dates (applyFilters)...')
+      try {
+        // Get unique project codes from activities
+        const projectCodes = Array.from(new Set(mappedActivities.map((a: BOQActivity) => 
+          a.project_code || a.project_full_code
+        ).filter(Boolean)))
+        
+        if (projectCodes.length > 0) {
+          // Load KPIs for all project codes
+          const kpisQuery = supabase
+            .from(TABLES.KPI)
+            .select('*')
+            .or(projectCodes.map((code) => 
+              `Project Full Code.eq.${code},Project Code.eq.${code},Project Full Code.like.${code}%,Project Code.like.${code}%`
+            ).join(','))
+            .limit(5000) // Limit to prevent huge queries
+          
+          const { data: kpisData, error: kpisError } = await kpisQuery
+          
+          if (kpisError) {
+            console.error('❌ KPIs query error:', kpisError)
+            setAllKPIs([])
+          } else {
+            const mappedKPIs = (kpisData || []).map(mapKPIFromDB)
+            setAllKPIs(mappedKPIs)
+            console.log(`✅ Loaded ${mappedKPIs.length} KPIs for Actual Dates calculation`)
+          }
+        } else {
+          setAllKPIs([])
+          console.log('💡 No project codes found, skipping KPI loading')
+        }
+      } catch (kpiError) {
+        console.error('❌ Error loading KPIs:', kpiError)
+        setAllKPIs([])
+      }
+      
       // Calculate Rate-based metrics for activities
       try {
         console.log('📊 Calculating Rate-based metrics for activities...')
@@ -280,7 +340,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         )
         setActivityRates(rates)
         
-        // Calculate progress for all activities
+        // Calculate progress for all activities (use updated allKPIs)
         const progresses = mappedActivities.map(activity => 
           calculateActivityProgress(activity, allKPIs)
         )
@@ -441,9 +501,42 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         console.log(`✅ Successfully loaded ${mappedActivities.length} activities`)
       }
       
-      // Skip KPI loading for now to improve performance
-      console.log('⏭️ Skipping KPI loading for better performance')
-      setAllKPIs([])
+      // ✅ Load KPIs for Actual Dates calculation
+      console.log('📊 Loading KPIs for Actual Dates...')
+      try {
+        // Get unique project codes from activities
+        const projectCodes = Array.from(new Set(mappedActivities.map((a: BOQActivity) => 
+          a.project_code || a.project_full_code
+        ).filter(Boolean)))
+        
+        if (projectCodes.length > 0) {
+          // Load KPIs for all project codes
+          const kpisQuery = supabase
+            .from(TABLES.KPI)
+            .select('*')
+            .or(projectCodes.map((code) => 
+              `Project Full Code.eq.${code},Project Code.eq.${code},Project Full Code.like.${code}%,Project Code.like.${code}%`
+            ).join(','))
+            .limit(5000) // Limit to prevent huge queries
+          
+          const { data: kpisData, error: kpisError } = await kpisQuery
+          
+          if (kpisError) {
+            console.error('❌ KPIs query error:', kpisError)
+            setAllKPIs([])
+          } else {
+            const mappedKPIs = (kpisData || []).map(mapKPIFromDB)
+            setAllKPIs(mappedKPIs)
+            console.log(`✅ Loaded ${mappedKPIs.length} KPIs for Actual Dates calculation`)
+          }
+        } else {
+          setAllKPIs([])
+          console.log('💡 No project codes found, skipping KPI loading')
+        }
+      } catch (kpiError) {
+        console.error('❌ Error loading KPIs:', kpiError)
+        setAllKPIs([])
+      }
       
       console.log('✅ BOQManagement: Page data loaded successfully!')
     } catch (error: any) {
@@ -632,7 +725,8 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         'Calendar Duration': activityData.calendar_duration?.toString() || '0',
         'Project Full Name': activityData.project_full_name || '',
         'Project Status': activityData.project_status || 'upcoming',
-        // ✅ Activity Timing
+        // ✅ Activity Timing, Has Value, and Affects Timeline
+        // Note: These columns must exist in the database (run add-activity-timing-column.sql first)
         'Activity Timing': activityData.activity_timing || 'post-commencement',
         'Has Value': activityData.has_value !== undefined ? (activityData.has_value ? 'TRUE' : 'FALSE') : 'TRUE',
         'Affects Timeline': activityData.affects_timeline !== undefined ? (activityData.affects_timeline ? 'TRUE' : 'FALSE') : 'FALSE'
@@ -717,7 +811,12 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         'Total Drilling Meters': activityData.total_drilling_meters?.toString() || '0',
         'Calendar Duration': activityData.calendar_duration?.toString() || '0',
         'Project Full Name': activityData.project_full_name || '',
-        'Project Status': activityData.project_status || 'upcoming'
+        'Project Status': activityData.project_status || 'upcoming',
+        // ✅ Activity Timing, Has Value, and Affects Timeline
+        // Note: These columns must exist in the database (run add-activity-timing-column.sql first)
+        'Activity Timing': activityData.activity_timing || 'post-commencement',
+        'Has Value': activityData.has_value !== undefined ? (activityData.has_value ? 'TRUE' : 'FALSE') : 'TRUE',
+        'Affects Timeline': activityData.affects_timeline !== undefined ? (activityData.affects_timeline ? 'TRUE' : 'FALSE') : 'FALSE'
       }
 
       console.log('📦 Database Format:', JSON.stringify(dbData, null, 2))
@@ -1026,14 +1125,15 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
                 <Plus className="h-4 w-4" />
                 <span>Add New Activity</span>
               </Button>
-              <Button 
+              <PermissionButton
+                permission="boq.view"
                 onClick={() => setUseCustomizedTable(!useCustomizedTable)}
                 variant="outline"
                 className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
               >
                 <Filter className="h-4 w-4" />
                 <span>{useCustomizedTable ? 'Standard View' : 'Customize Columns'}</span>
-              </Button>
+              </PermissionButton>
             </div>
           )}
         </div>
@@ -1171,7 +1271,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300 mr-2">Data Actions:</span>
-          {guard.hasAccess('boq.export') && (
+          <PermissionGuard permission="boq.export">
             <ExportButton
               data={getExportData()}
               filename="BOQ_Activities"
@@ -1179,19 +1279,21 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
               label="Export"
               variant="outline"
             />
-          )}
+          </PermissionGuard>
           
-          <PrintButton
-            label="Print"
-            variant="outline"
-            printTitle="BOQ Activities Report"
-            printSettings={{
-              fontSize: '10px',
-              compactMode: true
-            }}
-          />
+          <PermissionGuard permission="boq.print">
+            <PrintButton
+              label="Print"
+              variant="outline"
+              printTitle="BOQ Activities Report"
+              printSettings={{
+                fontSize: '10px',
+                compactMode: true
+              }}
+            />
+          </PermissionGuard>
           
-          {guard.hasAccess('boq.create') && (
+          <PermissionGuard permission="boq.import">
             <ImportButton
               onImport={handleImportBOQ}
               requiredColumns={['Project Code', 'Activity Name', 'Unit']}
@@ -1200,7 +1302,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
               label="Import"
               variant="outline"
             />
-          )}
+          </PermissionGuard>
         </div>
       </div>
 
@@ -1247,14 +1349,15 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
                 </div>
               </div>
             </div>
-          ) : (
-            useCustomizedTable ? (
+          ) : guard.hasAccess('boq.view') ? (
+            guard.hasAccess('boq.view') && useCustomizedTable ? (
               <BOQTableWithCustomization
                 activities={getCurrentPageData()}
                 projects={projects}
                 onEdit={setEditingActivity}
                 onDelete={handleDeleteActivity}
                 onBulkDelete={handleBulkDeleteActivity}
+                allKPIs={allKPIs}
               />
             ) : (
               <BOQTable
@@ -1266,7 +1369,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
                 onBulkDelete={handleBulkDeleteActivity}
               />
             )
-          )}
+          ) : null}
         </CardContent>
         
         {/* Pagination */}

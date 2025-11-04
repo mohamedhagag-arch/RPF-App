@@ -39,28 +39,28 @@ const mainMenuItems = [
     id: 'dashboard' as TabType,
     label: 'Dashboard',
     icon: LayoutDashboard,
-    roles: ['admin', 'manager', 'engineer', 'viewer'],
+    permission: 'dashboard.view',
     description: 'Overview and analytics'
   },
   {
     id: 'projects' as TabType,
     label: 'Projects',
     icon: FolderOpen,
-    roles: ['admin', 'manager', 'engineer', 'viewer'],
+    permission: 'projects.view',
     description: 'Project management'
   },
   {
     id: 'boq' as TabType,
     label: 'BOQ Activities',
     icon: ClipboardList,
-    roles: ['admin', 'manager', 'engineer'],
+    permission: 'boq.view',
     description: 'Bill of quantities'
   },
   {
     id: 'kpi' as TabType,
     label: 'KPI Tracking',
     icon: BarChart3,
-    roles: ['admin', 'manager', 'engineer'],
+    permission: 'kpi.view',
     description: 'Performance indicators'
   }
 ]
@@ -70,35 +70,35 @@ const enhancedMenuItems = [
     id: 'insights' as TabType,
     label: 'Data Insights',
     icon: TrendingUp,
-    roles: ['admin', 'manager', 'engineer', 'viewer'],
+    permission: 'analytics.view',
     description: 'Advanced analytics'
   },
   {
     id: 'actions' as TabType,
     label: 'Quick Actions',
     icon: Zap,
-    roles: ['admin', 'manager', 'engineer'],
+    permission: 'system.manage',
     description: 'Bulk operations'
   },
   {
     id: 'search' as TabType,
     label: 'Global Search',
     icon: Search,
-    roles: ['admin', 'manager', 'engineer', 'viewer'],
+    permission: 'system.search',
     description: 'Search everything'
   },
   {
     id: 'reports' as TabType,
     label: 'Advanced Reports',
     icon: FileText,
-    roles: ['admin', 'manager', 'engineer'],
+    permission: 'reports.view',
     description: 'Daily, Weekly, Monthly reports'
   },
   {
     id: 'settings' as TabType,
     label: 'Settings',
     icon: Settings,
-    roles: ['admin', 'manager', 'engineer', 'viewer'],
+    permission: 'settings.view',
     description: 'App preferences and user management'
   }
 ]
@@ -109,13 +109,17 @@ export function EnhancedSidebar({ activeTab, onTabChange, userRole, enhanced = f
   const [showFavorites, setShowFavorites] = useState(false)
 
   const filteredMainItems = mainMenuItems.filter(item => 
-    item.roles.includes(userRole || 'viewer')
+    guard.hasAccess(item.permission)
   )
 
   const filteredEnhancedItems = enhanced ? enhancedMenuItems.filter(item => 
-    item.roles.includes(userRole || 'viewer')
+    guard.hasAccess(item.permission)
   ) : []
 
+  // Hide sidebar completely if user has no permissions
+  if (filteredMainItems.length === 0 && filteredEnhancedItems.length === 0) {
+    return null
+  }
 
   const handleTabClick = useCallback((tab: TabType) => {
     onTabChange(tab)
