@@ -65,23 +65,26 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
   const [showForm, setShowForm] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   // ✅ Standard View - only enable if user has permission
-  const [useCustomizedTable, setUseCustomizedTable] = useState(false)
-  
-  // Ensure Standard View is only enabled if user has permission
-  useEffect(() => {
-    // Only enable table view if user has permission - check every time
-    const hasPermission = guard.hasAccess('projects.view')
-    if (hasPermission) {
-      setUseCustomizedTable(true)
-    } else {
-      setUseCustomizedTable(false)
+  // Load from localStorage or default to false (cards view)
+  const [useCustomizedTable, setUseCustomizedTable] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('projects-view-mode')
+      return saved === 'table'
     }
-  }, [guard])
+    return false
+  })
   
   // ✅ Additional safety check: Never allow table view without permission
   // Always check permission at render time, don't rely on state
   const hasPermission = guard.hasAccess('projects.view')
   const canUseCustomizedTable = hasPermission && useCustomizedTable
+  
+  // Save view preference to localStorage when it changes
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('projects-view-mode', useCustomizedTable ? 'table' : 'cards')
+    }
+  }, [useCustomizedTable])
   const [viewingProject, setViewingProject] = useState<Project | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [viewMode, setViewMode] = useState<'cards'>('cards') // Default to cards view
@@ -941,16 +944,45 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
             <p className="text-gray-600 dark:text-gray-400 mt-2">Masters of Foundation Construction - Manage and track all projects with smart analytics</p>
           </div>
           
-          {/* Action Buttons */}
-          <div className="flex items-center gap-2">
+          {/* Action Buttons - Enhanced Design with Equal Sizing */}
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Manage Zones Button - Dark Gray */}
             <PermissionButton
               permission="projects.zones"
-              variant="secondary"
               onClick={() => router.push('/projects/zones')}
-              className="flex items-center gap-2"
+              className="group relative flex items-center justify-center gap-2 min-w-[170px] h-11 px-6 py-2.5 bg-gradient-to-r from-[#363b45] to-[#3d424a] dark:from-[#4a5059] dark:to-[#525862] hover:from-[#2d3138] hover:to-[#343842] dark:hover:from-[#3a3f47] dark:hover:to-[#41464f] text-white font-semibold text-sm rounded-xl transition-all duration-300 shadow-md hover:shadow-xl hover:shadow-[#363b45]/30 hover:scale-[1.03] active:scale-[0.97] border-0 focus:outline-none focus:ring-2 focus:ring-[#363b45] focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-md overflow-hidden"
             >
-              <MapPin className="h-4 w-4" />
-              Manage Zones
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+              <MapPin className="h-4 w-4 flex-shrink-0 relative z-10" />
+              <span className="whitespace-nowrap relative z-10">Manage Zones</span>
+            </PermissionButton>
+
+            {/* Add New Project Button - Purple */}
+            {guard.hasAccess('projects.create') && (
+              <button 
+                onClick={() => setShowForm(true)} 
+                className="group relative flex items-center justify-center gap-2 min-w-[170px] h-11 px-6 py-2.5 bg-gradient-to-r from-[#6a4ee4] to-[#7a5ef4] dark:from-[#7a5ef4] dark:to-[#8a6ef4] hover:from-[#5a3ed4] hover:to-[#6a4ee4] dark:hover:from-[#6a4ee4] dark:hover:to-[#7a5ef4] text-white font-semibold text-sm rounded-xl transition-all duration-300 shadow-md hover:shadow-xl hover:shadow-[#6a4ee4]/40 hover:scale-[1.03] active:scale-[0.97] border-0 focus:outline-none focus:ring-2 focus:ring-[#6a4ee4] focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-md overflow-hidden"
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+                <Plus className="h-4 w-4 flex-shrink-0 relative z-10" />
+                <span className="whitespace-nowrap relative z-10">Add New Project</span>
+              </button>
+            )}
+
+            {/* Standard View Button - Blue */}
+            <PermissionButton
+              permission="projects.view"
+              onClick={() => {
+                // Only toggle if user has permission
+                if (hasPermission) {
+                  setUseCustomizedTable(!useCustomizedTable)
+                }
+              }}
+              className="group relative flex items-center justify-center gap-2 min-w-[170px] h-11 px-6 py-2.5 bg-gradient-to-r from-[#2962ff] to-[#3573ff] dark:from-[#3d72ff] dark:to-[#4d82ff] hover:from-[#1e53e6] hover:to-[#2d62ff] dark:hover:from-[#2d62ff] dark:hover:to-[#3d72ff] text-white font-semibold text-sm rounded-xl transition-all duration-300 shadow-md hover:shadow-xl hover:shadow-[#2962ff]/40 hover:scale-[1.03] active:scale-[0.97] border-0 focus:outline-none focus:ring-2 focus:ring-[#2962ff] focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-md overflow-hidden"
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+              <Grid className="h-4 w-4 flex-shrink-0 relative z-10" />
+              <span className="whitespace-nowrap relative z-10">{useCustomizedTable ? 'Standard View' : 'Customize Columns'}</span>
             </PermissionButton>
           </div>
           
@@ -993,27 +1025,6 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
                   <div className="text-sm text-blue-700 dark:text-blue-300">On Schedule</div>
                 </div>
               </div>
-            </div>
-          )}
-          
-          {/* Add New Project Button */}
-          {guard.hasAccess('projects.create') && (
-            <div className="flex gap-2">
-              <button 
-                onClick={() => setShowForm(true)} 
-                className="btn-primary flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
-              >
-                <Plus className="h-4 w-4" />
-                <span>Add New Project</span>
-              </button>
-              <PermissionButton
-                permission="projects.view"
-                onClick={() => setUseCustomizedTable(!useCustomizedTable)}
-                className="btn-outline flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
-              >
-                <Grid className="h-4 w-4" />
-                <span>{useCustomizedTable ? 'Standard View' : 'Customize Columns'}</span>
-              </PermissionButton>
             </div>
           )}
         </div>
