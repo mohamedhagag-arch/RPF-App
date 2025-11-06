@@ -2,6 +2,8 @@
  * Financial Calculation Functions for KPI Tracking
  */
 
+import { formatCurrencyByCodeSync } from './currenciesManager'
+
 /**
  * Calculate total planned value
  */
@@ -241,15 +243,10 @@ export function calculateMonthlyValueTrend(kpis: any[]): Array<{
 }
 
 /**
- * Format currency value
+ * Format currency value using the dynamic currency system
  */
-export function formatCurrency(value: number, currency: string = 'EGP'): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(value)
+export function formatCurrency(value: number, currencyCode?: string): string {
+  return formatCurrencyByCodeSync(value, currencyCode)
 }
 
 /**

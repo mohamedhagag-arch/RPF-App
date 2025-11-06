@@ -26,6 +26,7 @@ export interface Project {
   project_code: string
   project_sub_code: string
   project_name: string
+  project_description?: string
   project_type: string
   responsible_division: string
   plot_number: string
@@ -38,6 +39,7 @@ export interface Project {
   first_party_name?: string
   project_manager_email?: string
   area_manager_email?: string
+  division_head_email?: string
   date_project_awarded?: string
   work_programme?: string
   latitude?: string
@@ -47,6 +49,9 @@ export interface Project {
   workmanship_only?: string
   advance_payment_required?: string
   virtual_material_value?: string
+  project_start_date?: string
+  project_completion_date?: string
+  project_duration?: number // Calculated in days
   created_at: string
   updated_at: string
   created_by: string

@@ -4,6 +4,7 @@ import { SettingsPage as Settings } from '@/components/settings/SettingsPage'
 import { HolidaysSettings } from '@/components/settings/HolidaysSettings'
 import { CustomActivitiesManager } from '@/components/settings/CustomActivitiesManager'
 import { CompanySettings } from '@/components/settings/CompanySettings'
+import { CompaniesManager } from '@/components/settings/CompaniesManager'
 import { DatabaseManagement } from '@/components/settings/DatabaseManagement'
 import { UserManagement } from '@/components/users/UserManagement'
 import { useAuth } from '@/app/providers'
@@ -19,12 +20,13 @@ export default function SettingsPage() {
   const { appUser } = useAuth()
   const guard = usePermissionGuard()
   const searchParams = useSearchParams()
-  const [activeTab, setActiveTab] = useState<'general' | 'company' | 'holidays' | 'activities' | 'database' | 'users'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'company' | 'companies' | 'holidays' | 'activities' | 'database' | 'users'>('general')
   
   // Check permissions for advanced features
   const isAdmin = appUser?.role === 'admin'
   const canManageUsers = guard.hasAccess('users.permissions') || guard.hasAccess('users.view') || isAdmin
   const canManageCompany = guard.hasAccess('settings.company') || isAdmin
+  const canManageCompanies = guard.hasAccess('settings.manage') || isAdmin
   const canManageHolidays = guard.hasAccess('settings.holidays') || isAdmin
   const canManageActivities = guard.hasAccess('settings.activities') || isAdmin
   const canManageDatabase = guard.hasAccess('database.manage') || isAdmin
@@ -38,11 +40,12 @@ export default function SettingsPage() {
     
     // If user doesn't have permission and trying to access restricted tabs, redirect to general
     if (!canManageCompany && activeTab === 'company') setActiveTab('general')
+    if (!canManageCompanies && activeTab === 'companies') setActiveTab('general')
     if (!canManageHolidays && activeTab === 'holidays') setActiveTab('general')
     if (!canManageActivities && activeTab === 'activities') setActiveTab('general')
     if (!canManageDatabase && activeTab === 'database') setActiveTab('general')
     if (!canManageUsers && activeTab === 'users') setActiveTab('general')
-  }, [searchParams, canManageUsers, canManageCompany, canManageHolidays, canManageActivities, canManageDatabase, activeTab])
+  }, [searchParams, canManageUsers, canManageCompany, canManageCompanies, canManageHolidays, canManageActivities, canManageDatabase, activeTab])
 
   return (
     <PermissionPage
@@ -82,6 +85,17 @@ export default function SettingsPage() {
             size="sm"
           >
             Company Settings
+          </ModernButton>
+        )}
+        
+        {/* Companies Management Tab */}
+        {canManageCompanies && (
+          <ModernButton
+            variant={activeTab === 'companies' ? 'primary' : 'ghost'}
+            onClick={() => setActiveTab('companies')}
+            size="sm"
+          >
+            🏢 Companies
           </ModernButton>
         )}
         
@@ -133,6 +147,7 @@ export default function SettingsPage() {
       {/* Content */}
         {activeTab === 'general' && <Settings userRole={appUser?.role} />}
         {activeTab === 'company' && canManageCompany && <CompanySettings />}
+        {activeTab === 'companies' && canManageCompanies && <CompaniesManager />}
         {activeTab === 'holidays' && canManageHolidays && <HolidaysSettings />}
         {activeTab === 'activities' && canManageActivities && <CustomActivitiesManager />}
         {activeTab === 'database' && canManageDatabase && <DatabaseManagement />}

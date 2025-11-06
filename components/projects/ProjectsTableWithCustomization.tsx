@@ -8,8 +8,9 @@ import { Button } from '@/components/ui/Button'
 import { PermissionButton } from '@/components/ui/PermissionButton'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { PermissionGuard } from '@/components/common/PermissionGuard'
-import { CheckCircle, Clock, AlertCircle, Calendar, Building, Activity, TrendingUp, Target, Info, Filter, X, RotateCcw } from 'lucide-react'
+import { CheckCircle, Clock, AlertCircle, Calendar, Building, Activity, TrendingUp, Target, Info, Filter, X, RotateCcw, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { calculateProjectAnalytics, ProjectAnalytics } from '@/lib/projectAnalytics'
+import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 
 interface ProjectsTableWithCustomizationProps {
   projects: Project[]
@@ -24,26 +25,45 @@ interface ProjectsTableWithCustomizationProps {
 const defaultProjectsColumns: ColumnConfig[] = [
   { id: 'select', label: 'Select', visible: true, order: 0, fixed: true, width: '60px' },
   { id: 'project_code', label: 'Project Code', visible: true, order: 1, width: '150px' },
-  { id: 'project_name', label: 'Project Name', visible: true, order: 2, width: '250px' },
-  { id: 'plot_number', label: 'Plot No.', visible: true, order: 3, width: '120px' },
-  { id: 'responsible_divisions', label: 'Responsible Divisions', visible: true, order: 4, width: '180px' },
-  { id: 'scope_of_works', label: 'Scope of Works', visible: true, order: 5, width: '250px' },
-  { id: 'kpi_added', label: 'KPI Added?', visible: true, order: 6, width: '120px' },
-  { id: 'project_status', label: 'Project Status', visible: true, order: 7, width: '150px' },
-  { id: 'contract_durations', label: 'Contract Durations', visible: true, order: 8, width: '180px' },
-  { id: 'planned_dates', label: 'Planned Dates', visible: true, order: 9, width: '180px' },
-  { id: 'actual_dates', label: 'Actual Dates', visible: true, order: 10, width: '180px' },
-  { id: 'progress_summary', label: 'Progress Summary', visible: true, order: 11, width: '180px' },
-  { id: 'work_value_status', label: 'Work Value Status', visible: true, order: 12, width: '200px' },
-  { id: 'contract_amount', label: 'Contract Amount', visible: true, order: 13, width: '150px' },
-  { id: 'divisions_contract_amount', label: 'Divisions Contract Amount', visible: true, order: 14, width: '220px' },
-  { id: 'temporary_material', label: 'Temporary Material', visible: true, order: 15, width: '150px' },
-  { id: 'project_location', label: 'Project Location', visible: true, order: 16, width: '180px' },
-  { id: 'project_parties', label: 'Project Parties', visible: true, order: 17, width: '200px' },
-  { id: 'project_staff', label: 'Project Staff', visible: true, order: 18, width: '200px' },
-  { id: 'project_award_date', label: 'Project Award Date', visible: true, order: 19, width: '150px' },
-  { id: 'workmanship', label: 'Workmanship', visible: true, order: 20, width: '130px' },
-  { id: 'actions', label: 'Actions', visible: true, order: 21, fixed: true, width: '150px' }
+  { id: 'full_project_code', label: 'Full Project Code', visible: true, order: 2, width: '180px' },
+  { id: 'project_name', label: 'Project Name', visible: true, order: 3, width: '250px' },
+  { id: 'project_description', label: 'Project Description', visible: true, order: 4, width: '300px' },
+  { id: 'plot_number', label: 'Plot No.', visible: true, order: 5, width: '120px' },
+  { id: 'responsible_divisions', label: 'Responsible Divisions', visible: true, order: 6, width: '180px' },
+  { id: 'scope_of_works', label: 'Scope of Works', visible: true, order: 7, width: '250px' },
+  { id: 'kpi_added', label: 'KPI Added?', visible: true, order: 8, width: '120px' },
+  { id: 'project_status', label: 'Project Status', visible: true, order: 9, width: '150px' },
+  { id: 'contract_durations', label: 'Contract Durations', visible: true, order: 10, width: '180px' },
+  { id: 'planned_dates', label: 'Planned Dates', visible: true, order: 11, width: '180px' },
+  { id: 'actual_dates', label: 'Actual Dates', visible: true, order: 12, width: '180px' },
+  { id: 'progress_summary', label: 'Progress Summary', visible: true, order: 13, width: '180px' },
+  { id: 'work_value_status', label: 'Work Value Status', visible: true, order: 14, width: '200px' },
+  { id: 'contract_amount', label: 'Contract Amount', visible: true, order: 15, width: '150px' },
+  { id: 'divisions_contract_amount', label: 'Divisions Contract Amount', visible: true, order: 16, width: '220px' },
+  { id: 'temporary_material', label: 'Temporary Material', visible: true, order: 17, width: '150px' },
+  { id: 'project_location', label: 'Project Location', visible: true, order: 18, width: '180px' },
+  { id: 'project_parties', label: 'Project Parties', visible: true, order: 19, width: '200px' },
+  { id: 'client_name', label: 'Client Name', visible: false, order: 20, width: '180px' },
+  { id: 'consultant_name', label: 'Consultant Name', visible: false, order: 21, width: '180px' },
+  { id: 'first_party_name', label: 'First Party Name', visible: false, order: 22, width: '180px' },
+  { id: 'project_staff', label: 'Project Staff', visible: true, order: 23, width: '200px' },
+  { id: 'project_manager_email', label: 'Project Manager Email', visible: false, order: 24, width: '200px' },
+  { id: 'area_manager_email', label: 'Area Manager Email', visible: false, order: 25, width: '200px' },
+  { id: 'division_head_email', label: 'Division Head Email', visible: false, order: 26, width: '200px' },
+  { id: 'project_award_date', label: 'Project Award Date', visible: true, order: 27, width: '150px' },
+  { id: 'project_start_date', label: 'Project Start Date', visible: true, order: 28, width: '150px' },
+  { id: 'project_completion_date', label: 'Project Completion Date', visible: true, order: 29, width: '180px' },
+  { id: 'project_duration', label: 'Project Duration', visible: true, order: 30, width: '150px' },
+  { id: 'work_programme', label: 'Work Programme', visible: false, order: 31, width: '180px' },
+  { id: 'contract_status', label: 'Contract Status', visible: false, order: 32, width: '150px' },
+  { id: 'currency', label: 'Currency', visible: false, order: 33, width: '120px' },
+  { id: 'workmanship', label: 'Workmanship', visible: true, order: 34, width: '130px' },
+  { id: 'advance_payment_required', label: 'Advance Payment Required', visible: false, order: 35, width: '200px' },
+  { id: 'virtual_material_value', label: 'Virtual Material Value', visible: false, order: 36, width: '180px' },
+  { id: 'created_at', label: 'Created At', visible: false, order: 37, width: '150px' },
+  { id: 'updated_at', label: 'Updated At', visible: false, order: 38, width: '150px' },
+  { id: 'created_by', label: 'Created By', visible: false, order: 39, width: '150px' },
+  { id: 'actions', label: 'Actions', visible: true, order: 40, fixed: true, width: '150px' }
 ]
 
 export function ProjectsTableWithCustomization({ 
@@ -60,6 +80,10 @@ export function ProjectsTableWithCustomization({
   const [expandedScopes, setExpandedScopes] = useState<Set<string>>(new Set()) // Track expanded scopes per project
   const [expandedDivisions, setExpandedDivisions] = useState<Set<string>>(new Set()) // Track expanded divisions per project
   const [copiedPlotNumber, setCopiedPlotNumber] = useState<string | null>(null) // Track copied plot number for feedback
+  
+  // Sorting state
+  const [sortColumn, setSortColumn] = useState<string | null>(null)
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   
   const { 
     columns, 
@@ -125,7 +149,7 @@ export function ProjectsTableWithCustomization({
       } catch (error) {
         // Only log errors in development
         if (process.env.NODE_ENV === 'development') {
-          console.error(`Error calculating analytics for ${project.project_code}:`, error)
+        console.error(`Error calculating analytics for ${project.project_code}:`, error)
         }
       }
     })
@@ -1511,20 +1535,66 @@ export function ProjectsTableWithCustomization({
           )
         
         case 'project_code':
-          const projectFullCodeForCode = getProjectField(project, 'Project Full Code') || project.project_sub_code || ''
+          // ✅ Display only Project Code (base code without sub-code)
           const projectCodeValue = project.project_code || 'N/A'
           
           return (
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-sm text-gray-700 dark:text-gray-300">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-gray-900 dark:text-white">
                 {projectCodeValue}
               </span>
-              {projectFullCodeForCode && projectFullCodeForCode !== 'N/A' && (
-                <span className="text-sm font-bold text-gray-900 dark:text-white">
-                  {projectFullCodeForCode}
-                </span>
-              )}
-            </div>
+                </div>
+          )
+        
+        case 'full_project_code':
+          // ✅ Display Full Project Code (Project Code + Sub Code)
+          // Check if Project Full Code exists in database first
+          let fullProjectCode = getProjectField(project, 'Project Full Code')
+          
+          // If not, construct it from project_code and project_sub_code
+          if (!fullProjectCode || fullProjectCode === 'N/A' || fullProjectCode === '') {
+            const projectCode = (project.project_code || '').trim()
+            const projectSubCode = (project.project_sub_code || '').trim()
+            
+            // ✅ FIX: Handle cases where project_sub_code might already contain project_code
+            // Check if project_sub_code already contains project_code at the start
+            if (projectSubCode && projectSubCode.startsWith(projectCode)) {
+              // project_sub_code already contains the full code (e.g., "P9999-01")
+              // But check if it's duplicated (e.g., "P9999P9999-01")
+              if (projectSubCode.startsWith(`${projectCode}${projectCode}`)) {
+                // Remove duplicate project_code
+                fullProjectCode = projectSubCode.replace(`${projectCode}${projectCode}`, projectCode)
+              } else {
+                // Already correct format
+                fullProjectCode = projectSubCode
+              }
+            } else if (projectSubCode) {
+              // project_sub_code is just the suffix (e.g., "-01" or "01")
+              // Check if sub_code starts with "-" or not
+              if (projectSubCode.startsWith('-')) {
+                fullProjectCode = `${projectCode}${projectSubCode}`
+              } else {
+                fullProjectCode = `${projectCode}-${projectSubCode}`
+              }
+            } else {
+              // No sub_code, use project_code only
+              fullProjectCode = projectCode
+            }
+          } else {
+            // ✅ FIX: Check if the fullProjectCode from database has duplicate project_code
+            const projectCode = (project.project_code || '').trim()
+            if (projectCode && fullProjectCode.includes(`${projectCode}${projectCode}`)) {
+              // Remove duplicate project_code
+              fullProjectCode = fullProjectCode.replace(`${projectCode}${projectCode}`, projectCode)
+            }
+          }
+          
+          return (
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                {fullProjectCode || 'N/A'}
+              </span>
+                  </div>
           )
         
         case 'project_name':
@@ -1539,16 +1609,32 @@ export function ProjectsTableWithCustomization({
               return (
                 <div className="font-medium text-gray-900 dark:text-white text-sm">
                   {firstActivityName}
-                </div>
+                  </div>
               )
             }
           }
           
           // Fallback to project name if no activities found
           return (
-            <div className="font-medium text-gray-900 dark:text-white text-sm">
-              {project.project_name || 'N/A'}
-            </div>
+              <div className="font-medium text-gray-900 dark:text-white text-sm">
+                {project.project_name || 'N/A'}
+              </div>
+          )
+        
+        case 'project_description':
+          // ✅ Display Project Description
+          const projectDescription = project.project_description || getProjectField(project, 'Project Description') || 'N/A'
+          
+          return (
+            <div className="text-sm text-gray-700 dark:text-gray-300">
+              {projectDescription !== 'N/A' ? (
+                <p className="line-clamp-2" title={projectDescription}>
+                  {projectDescription}
+                </p>
+              ) : (
+                <span className="text-gray-400 dark:text-gray-500">N/A</span>
+              )}
+                </div>
           )
         
         case 'plot_number':
@@ -1746,23 +1832,50 @@ export function ProjectsTableWithCustomization({
           )
         
         case 'project_status':
-          const status = project.project_status?.replace('-', ' ') || 'Unknown'
-          const statusColorMap: { [key: string]: string } = {
-            'completed': 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
-            'on going': 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-            'on-going': 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-            'on hold': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
-            'on-hold': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
-            'upcoming': 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300',
-            'cancelled': 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+          // ✅ Display Project Status based on Variance Percentage (same as Cards)
+          // Project Ahead: Variance Percentage > 5%
+          // Project On Track: Variance Percentage between -5% to 5%
+          // Project Delayed: Variance Percentage < -5%
+          const projectStatus = analytics?.projectStatus || 'on_track'
+          const variancePercentageStatus = analytics?.variancePercentage || 0
+          
+          // Determine badge styling based on project status
+          const statusBadgeClass = projectStatus === 'ahead' 
+            ? 'bg-green-100 text-green-800 border border-green-300 dark:bg-green-900/30 dark:text-green-300 dark:border-green-700'
+            : projectStatus === 'on_track'
+            ? 'bg-blue-100 text-blue-800 border border-blue-300 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700'
+            : 'bg-red-100 text-red-800 border border-red-300 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700'
+          
+          const statusText = projectStatus === 'ahead' 
+            ? 'Project Ahead'
+            : projectStatus === 'on_track'
+            ? 'Project On Track'
+            : 'Project Delayed'
+          
+          // Get status icon
+          const getStatusIcon = () => {
+            if (projectStatus === 'ahead') {
+              return <TrendingUp className="h-3 w-3 text-green-600 dark:text-green-400" />
+            } else if (projectStatus === 'on_track') {
+              return <CheckCircle className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+            } else {
+              return <AlertCircle className="h-3 w-3 text-red-600 dark:text-red-400" />
+            }
           }
-          const statusColor = statusColorMap[status.toLowerCase()] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+          
           return (
+            <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
-              {getProjectStatusIcon(project.project_status)}
-              <span className={`px-2.5 py-1 text-xs font-medium rounded-full capitalize ${statusColor}`}>
-                {status}
+                {getStatusIcon()}
+                <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${statusBadgeClass}`}>
+                  {statusText}
               </span>
+              </div>
+              {variancePercentageStatus !== 0 && (
+                <span className="text-xs text-gray-600 dark:text-gray-400 px-1">
+                  Variance: {variancePercentageStatus > 0 ? '+' : ''}{variancePercentageStatus.toFixed(1)}%
+                </span>
+              )}
             </div>
           )
         
@@ -2395,15 +2508,15 @@ export function ProjectsTableWithCustomization({
           return (
             <div className="space-y-1">
               <div className="text-xs text-gray-600 dark:text-gray-400">
-                Contract: ${contractAmt.toLocaleString()}
+                Contract: {formatCurrencyByCodeSync(contractAmt, project.currency)}
               </div>
               {variationsAmt > 0 && (
                 <div className="text-xs text-gray-600 dark:text-gray-400">
-                  Variations: ${variationsAmt.toLocaleString()}
+                  Variations: {formatCurrencyByCodeSync(variationsAmt, project.currency)}
                 </div>
               )}
               <div className="text-sm font-medium text-gray-900 dark:text-white">
-                Total: ${totalContractAmt.toLocaleString()}
+                Total: {formatCurrencyByCodeSync(totalContractAmt, project.currency)}
               </div>
             </div>
           )
@@ -2601,7 +2714,7 @@ export function ProjectsTableWithCustomization({
                           {division}:
                         </span>
                         <span className="font-medium text-gray-900 dark:text-white">
-                          ${amount.toLocaleString()}
+                          {formatCurrencyByCodeSync(amount, project.currency)}
                         </span>
               </div>
                     )
@@ -2619,7 +2732,7 @@ export function ProjectsTableWithCustomization({
                     <div className="pt-1 border-t border-gray-200 dark:border-gray-700 mt-1">
                   <div className="flex items-center justify-between text-sm font-semibold text-gray-900 dark:text-white">
                     <span>Total:</span>
-                    <span>${divisionsTotal.toLocaleString()}</span>
+                    <span>{formatCurrencyByCodeSync(divisionsTotal, project.currency)}</span>
                   </div>
                 </div>
               )}
@@ -2712,6 +2825,55 @@ export function ProjectsTableWithCustomization({
             </div>
           )
         
+        case 'project_start_date':
+          const startDate = project.project_start_date || getProjectField(project, 'Project Start Date') || ''
+          return (
+            <div className="text-sm text-gray-900 dark:text-white">
+              {startDate ? formatDate(startDate) : <span className="text-gray-400 dark:text-gray-500">N/A</span>}
+            </div>
+          )
+        
+        case 'project_completion_date':
+          const completionDate = project.project_completion_date || getProjectField(project, 'Project Completion Date') || ''
+          return (
+            <div className="text-sm text-gray-900 dark:text-white">
+              {completionDate ? formatDate(completionDate) : <span className="text-gray-400 dark:text-gray-500">N/A</span>}
+            </div>
+          )
+        
+        case 'project_duration':
+          // Use stored duration or calculate from dates
+          let duration = project.project_duration
+          if (duration === undefined || duration === null) {
+            const startDateForDuration = project.project_start_date || getProjectField(project, 'Project Start Date') || ''
+            const completionDateForDuration = project.project_completion_date || getProjectField(project, 'Project Completion Date') || ''
+            
+            if (startDateForDuration && completionDateForDuration) {
+              const start = new Date(startDateForDuration)
+              const completion = new Date(completionDateForDuration)
+              if (!isNaN(start.getTime()) && !isNaN(completion.getTime())) {
+                const diffTime = completion.getTime() - start.getTime()
+                duration = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1 // Include both start and end days
+              }
+            }
+          }
+          
+          return (
+            <div className="text-sm text-gray-900 dark:text-white">
+              {duration !== undefined && duration !== null ? (
+                <div className="flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-blue-500" />
+                  <span className="font-medium">{duration}</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    {duration === 1 ? 'day' : 'days'}
+                  </span>
+                </div>
+              ) : (
+                <span className="text-gray-400 dark:text-gray-500">N/A</span>
+              )}
+            </div>
+          )
+        
         case 'workmanship':
           const hasWorkmanship = project.workmanship_only || getProjectField(project, 'Workmanship?') || 'No'
           const virtualMaterialPercent = project.virtual_material_value || getProjectField(project, 'Virtual Material %') || '0'
@@ -2724,6 +2886,167 @@ export function ProjectsTableWithCustomization({
               <div className="text-xs text-gray-600 dark:text-gray-400">
                 Virtual Material: {virtualMaterialPercent}%
               </div>
+            </div>
+          )
+        
+        case 'client_name':
+          const clientName = project.client_name || getProjectField(project, 'Client Name') || 'N/A'
+          return (
+            <div className="text-sm text-gray-900 dark:text-white">
+              {clientName !== 'N/A' ? clientName : <span className="text-gray-400 dark:text-gray-500">N/A</span>}
+            </div>
+          )
+        
+        case 'consultant_name':
+          const consultantName = project.consultant_name || getProjectField(project, 'Consultant Name') || 'N/A'
+          return (
+            <div className="text-sm text-gray-900 dark:text-white">
+              {consultantName !== 'N/A' ? consultantName : <span className="text-gray-400 dark:text-gray-500">N/A</span>}
+            </div>
+          )
+        
+        case 'first_party_name':
+          const firstPartyName = project.first_party_name || getProjectField(project, 'First Party name') || 'N/A'
+          return (
+            <div className="text-sm text-gray-900 dark:text-white">
+              {firstPartyName !== 'N/A' ? firstPartyName : <span className="text-gray-400 dark:text-gray-500">N/A</span>}
+            </div>
+          )
+        
+        case 'project_manager_email':
+          const projectManagerEmail = project.project_manager_email || getProjectField(project, 'Project Manager Email') || 'N/A'
+          return (
+            <div className="text-sm text-gray-900 dark:text-white">
+              {projectManagerEmail !== 'N/A' ? (
+                <a href={`mailto:${projectManagerEmail}`} className="text-blue-600 dark:text-blue-400 hover:underline">
+                  {projectManagerEmail}
+                </a>
+              ) : (
+                <span className="text-gray-400 dark:text-gray-500">N/A</span>
+              )}
+            </div>
+          )
+        
+        case 'area_manager_email':
+          const areaManagerEmail = project.area_manager_email || getProjectField(project, 'Area Manager Email') || 'N/A'
+          return (
+            <div className="text-sm text-gray-900 dark:text-white">
+              {areaManagerEmail !== 'N/A' ? (
+                <a href={`mailto:${areaManagerEmail}`} className="text-blue-600 dark:text-blue-400 hover:underline">
+                  {areaManagerEmail}
+                </a>
+              ) : (
+                <span className="text-gray-400 dark:text-gray-500">N/A</span>
+              )}
+            </div>
+          )
+        
+        case 'division_head_email':
+          const divisionHeadEmail = project.division_head_email || getProjectField(project, 'Division Head Email') || 'N/A'
+          return (
+            <div className="text-sm text-gray-900 dark:text-white">
+              {divisionHeadEmail !== 'N/A' ? (
+                <a href={`mailto:${divisionHeadEmail}`} className="text-blue-600 dark:text-blue-400 hover:underline">
+                  {divisionHeadEmail}
+                </a>
+              ) : (
+                <span className="text-gray-400 dark:text-gray-500">N/A</span>
+              )}
+            </div>
+          )
+        
+        case 'work_programme':
+          const workProgramme = project.work_programme || getProjectField(project, 'Work Programme') || 'N/A'
+          return (
+            <div className="text-sm text-gray-900 dark:text-white">
+              {workProgramme !== 'N/A' ? (
+                <p className="line-clamp-2" title={workProgramme}>
+                  {workProgramme}
+                </p>
+              ) : (
+                <span className="text-gray-400 dark:text-gray-500">N/A</span>
+              )}
+            </div>
+          )
+        
+        case 'contract_status':
+          const contractStatus = project.contract_status || getProjectField(project, 'Contract Status') || 'N/A'
+          const statusColors: { [key: string]: string } = {
+            'Active': 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
+            'Inactive': 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300',
+            'Pending': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
+            'Completed': 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
+            'Terminated': 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
+          }
+          const statusColor = statusColors[contractStatus] || 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300'
+          return (
+            <div>
+              {contractStatus !== 'N/A' ? (
+                <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${statusColor}`}>
+                  {contractStatus}
+                </span>
+              ) : (
+                <span className="text-gray-400 dark:text-gray-500 text-sm">N/A</span>
+              )}
+            </div>
+          )
+        
+        case 'currency':
+          const currency = project.currency || getProjectField(project, 'Currency') || 'AED'
+          return (
+            <div className="text-sm font-medium text-gray-900 dark:text-white">
+              {currency}
+            </div>
+          )
+        
+        case 'advance_payment_required':
+          const advancePayment = project.advance_payment_required || getProjectField(project, 'Advnace Payment Required') || 'No'
+          const hasAdvancePayment = advancePayment === 'Yes' || advancePayment === 'TRUE' || advancePayment === true || String(advancePayment).toLowerCase() === 'yes'
+          return (
+            <div className="flex items-center gap-2">
+              {hasAdvancePayment ? (
+                <CheckCircle className="h-4 w-4 text-green-500" />
+              ) : (
+                <X className="h-4 w-4 text-gray-400" />
+              )}
+              <span className={`text-sm font-medium ${hasAdvancePayment ? 'text-green-600 dark:text-green-400' : 'text-gray-600 dark:text-gray-400'}`}>
+                {hasAdvancePayment ? 'Yes' : 'No'}
+              </span>
+            </div>
+          )
+        
+        case 'virtual_material_value':
+          const virtualMaterialValueCol = project.virtual_material_value || getProjectField(project, 'Virtual Material Value') || '0'
+          const virtualMaterialPercentCol = typeof virtualMaterialValueCol === 'string' && virtualMaterialValueCol.includes('%') 
+            ? virtualMaterialValueCol 
+            : `${virtualMaterialValueCol}%`
+          return (
+            <div className="text-sm text-gray-900 dark:text-white">
+              {virtualMaterialValueCol !== '0' && virtualMaterialValueCol !== '0%' ? virtualMaterialPercentCol : <span className="text-gray-400 dark:text-gray-500">N/A</span>}
+            </div>
+          )
+        
+        case 'created_at':
+          const createdAt = project.created_at || getProjectField(project, 'created_at') || ''
+          return (
+            <div className="text-sm text-gray-900 dark:text-white">
+              {createdAt ? formatDate(createdAt) : <span className="text-gray-400 dark:text-gray-500">N/A</span>}
+            </div>
+          )
+        
+        case 'updated_at':
+          const updatedAt = project.updated_at || getProjectField(project, 'updated_at') || ''
+          return (
+            <div className="text-sm text-gray-900 dark:text-white">
+              {updatedAt ? formatDate(updatedAt) : <span className="text-gray-400 dark:text-gray-500">N/A</span>}
+            </div>
+          )
+        
+        case 'created_by':
+          const createdBy = project.created_by || getProjectField(project, 'created_by') || 'N/A'
+          return (
+            <div className="text-sm text-gray-900 dark:text-white">
+              {createdBy !== 'N/A' ? createdBy : <span className="text-gray-400 dark:text-gray-500">N/A</span>}
             </div>
           )
         
@@ -2772,6 +3095,160 @@ export function ProjectsTableWithCustomization({
   const visibleColumns = useMemo(() => {
     return columns.filter(col => col.visible).sort((a, b) => a.order - b.order)
   }, [columns])
+
+  // Sorting handler
+  const handleSort = (columnId: string) => {
+    // Don't sort select or actions columns
+    if (columnId === 'select' || columnId === 'actions') return
+    
+    if (sortColumn === columnId) {
+      // Toggle direction if same column
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
+    } else {
+      // New column, default to ascending
+      setSortColumn(columnId)
+      setSortDirection('asc')
+    }
+  }
+
+  // Get sortable value for a project and column
+  const getSortValue = (project: Project, columnId: string): any => {
+    const analytics = getProjectAnalytics(project)
+    
+    switch (columnId) {
+      case 'project_code':
+        return project.project_code || ''
+      case 'full_project_code':
+        return (project as any).project_full_code || project.project_code || ''
+      case 'project_name':
+        return project.project_name || ''
+      case 'project_description':
+        return project.project_description || ''
+      case 'plot_number':
+        return getProjectField(project, 'Plot Number') || ''
+      case 'responsible_divisions':
+        return project.responsible_division || getProjectField(project, 'Responsible Divisions') || ''
+      case 'scope_of_works':
+        return project.project_type || getProjectField(project, 'Scope of Works') || ''
+      case 'kpi_added':
+        // Sort by whether KPIs exist (Yes = 1, No = 0)
+        const hasKPIs = analytics && analytics.totalKPIs > 0
+        return hasKPIs ? 1 : 0
+      case 'project_status':
+        return project.project_status || ''
+      case 'contract_durations':
+        // Sort by planned duration days
+        const plannedStart = getProjectField(project, 'Planned Start Date') || ''
+        const plannedEnd = getProjectField(project, 'Planned Completion Date') || ''
+        if (plannedStart && plannedEnd) {
+          const start = new Date(plannedStart)
+          const end = new Date(plannedEnd)
+          if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+            return Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
+          }
+        }
+        return 0
+      case 'planned_dates':
+        const plannedStartDate = getProjectField(project, 'Planned Start Date') || ''
+        return plannedStartDate ? new Date(plannedStartDate).getTime() : 0
+      case 'actual_dates':
+        const actualStartDate = getProjectField(project, 'Actual Start Date') || ''
+        return actualStartDate ? new Date(actualStartDate).getTime() : 0
+      case 'progress_summary':
+        return analytics?.overallProgress ?? 0
+      case 'work_value_status':
+        // Sort by planned work value
+        return analytics?.totalPlannedValue ?? 0
+      case 'contract_amount':
+        const contractAmt = analytics?.totalContractValue || parseFloat(String(getProjectField(project, 'Contract Amount') || '0').replace(/,/g, '')) || 0
+        return contractAmt
+      case 'divisions_contract_amount':
+        // Sort by total divisions amount
+        return analytics?.totalContractValue ?? 0
+      case 'temporary_material':
+        const hasTempMaterial = getProjectField(project, 'Project has Temporary Materials?') || getProjectField(project, 'Temporary Materials') || ''
+        return (hasTempMaterial === 'Yes' || hasTempMaterial === 'TRUE' || hasTempMaterial === true) ? 1 : 0
+      case 'project_location':
+        const location = getProjectField(project, 'Location') || getProjectField(project, 'Project Location') || ''
+        return location
+      case 'project_parties':
+        // Sort by client name (first party in parties list)
+        return project.client_name || getProjectField(project, 'Client Name') || ''
+      case 'project_staff':
+        // Sort by project manager name
+        return project.project_manager_email || getProjectField(project, 'Project Manager') || ''
+      case 'project_award_date':
+        return project.date_project_awarded ? new Date(project.date_project_awarded).getTime() : 0
+      case 'project_start_date':
+        const startDate = project.project_start_date || getProjectField(project, 'Project Start Date') || ''
+        return startDate ? new Date(startDate).getTime() : 0
+      case 'project_completion_date':
+        const completionDate = project.project_completion_date || getProjectField(project, 'Project Completion Date') || ''
+        return completionDate ? new Date(completionDate).getTime() : 0
+      case 'project_duration':
+        return project.project_duration ?? 0
+      case 'work_programme':
+        return project.work_programme || getProjectField(project, 'Work Programme') || ''
+      case 'contract_status':
+        return project.contract_status || getProjectField(project, 'Contract Status') || ''
+      case 'currency':
+        return project.currency || getProjectField(project, 'Currency') || 'AED'
+      case 'workmanship':
+        const hasWorkmanship = project.workmanship_only || getProjectField(project, 'Workmanship?') || 'No'
+        return (hasWorkmanship === 'Yes' || hasWorkmanship === 'TRUE' || hasWorkmanship === true) ? 1 : 0
+      case 'advance_payment_required':
+        const advancePayment = project.advance_payment_required || getProjectField(project, 'Advnace Payment Required') || 'No'
+        return (advancePayment === 'Yes' || advancePayment === 'TRUE' || advancePayment === true) ? 1 : 0
+      case 'virtual_material_value':
+        const virtualMatValue = project.virtual_material_value || getProjectField(project, 'Virtual Material Value') || '0'
+        const virtualMatNum = parseFloat(String(virtualMatValue).replace(/[%,]/g, '')) || 0
+        return virtualMatNum
+      case 'client_name':
+        return project.client_name || getProjectField(project, 'Client Name') || ''
+      case 'consultant_name':
+        return project.consultant_name || getProjectField(project, 'Consultant Name') || ''
+      case 'first_party_name':
+        return project.first_party_name || getProjectField(project, 'First Party Name') || ''
+      case 'project_manager_email':
+        return project.project_manager_email || getProjectField(project, 'Project Manager Email') || ''
+      case 'area_manager_email':
+        return project.area_manager_email || getProjectField(project, 'Area Manager Email') || ''
+      case 'division_head_email':
+        return project.division_head_email || getProjectField(project, 'Division Head Email') || ''
+      case 'created_at':
+        return project.created_at ? new Date(project.created_at).getTime() : 0
+      case 'updated_at':
+        return project.updated_at ? new Date(project.updated_at).getTime() : 0
+      case 'created_by':
+        return project.created_by || getProjectField(project, 'created_by') || ''
+      default:
+        return getProjectField(project, columnId) || ''
+    }
+  }
+
+  // Sort projects
+  const sortedProjects = useMemo(() => {
+    if (!sortColumn) return projects
+    
+    return [...projects].sort((a, b) => {
+      const aValue = getSortValue(a, sortColumn)
+      const bValue = getSortValue(b, sortColumn)
+      
+      // Handle null/undefined values
+      if (aValue === null || aValue === undefined) return 1
+      if (bValue === null || bValue === undefined) return -1
+      
+      // Compare values
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        const comparison = aValue.localeCompare(bValue, undefined, { numeric: true, sensitivity: 'base' })
+        return sortDirection === 'asc' ? comparison : -comparison
+      }
+      
+      // Numeric comparison
+      const comparison = (aValue as number) - (bValue as number)
+      return sortDirection === 'asc' ? comparison : -comparison
+    })
+  }, [projects, sortColumn, sortDirection, getProjectAnalytics, getProjectField])
 
   // ✅ Check permission before rendering the entire table
   if (!guard.hasAccess('projects.view')) {
@@ -2838,39 +3315,62 @@ export function ProjectsTableWithCustomization({
         <table className="w-full border-collapse">
           <thead className="sticky top-0 z-10">
             <tr className="border-b border-gray-200 dark:border-gray-700">
-              {visibleColumns.map((column) => (
+              {visibleColumns.map((column) => {
+                const isSortable = column.id !== 'select' && column.id !== 'actions'
+                const isSorted = sortColumn === column.id
+                
+                return (
                 <th
                   key={column.id}
-                  className="px-4 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800"
-                  style={{
-                    width: column.width || 'auto',
-                    minWidth: column.width || '120px',
-                    maxWidth: column.width || 'none',
-                    position: 'sticky',
-                    top: 0,
-                    zIndex: 10
-                  }}
-                >
-                  {column.id === 'select' ? (
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.length === projects.length && projects.length > 0}
-                        onChange={(e) => handleSelectAll(e.target.checked)}
-                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                        title="Select All"
-                      />
-                      <span>{column.label}</span>
-                    </div>
-                  ) : (
-                    column.label
-                  )}
+                    onClick={() => isSortable && handleSort(column.id)}
+                    className={`px-4 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 ${
+                      isSortable ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none' : ''
+                    }`}
+                    style={{
+                      width: column.width || 'auto',
+                      minWidth: column.width || '120px',
+                      maxWidth: column.width || 'none',
+                      position: 'sticky',
+                      top: 0,
+                      zIndex: 10
+                    }}
+                  >
+                    {column.id === 'select' ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.length === projects.length && projects.length > 0}
+                          onChange={(e) => handleSelectAll(e.target.checked)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          title="Select All"
+                        />
+                        <span>{column.label}</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span>{column.label}</span>
+                        {isSortable && (
+                          <div className="flex flex-col">
+                            {isSorted ? (
+                              sortDirection === 'asc' ? (
+                                <ArrowUp className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                              ) : (
+                                <ArrowDown className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                              )
+                            ) : (
+                              <ArrowUpDown className="h-3 w-3 text-gray-400 dark:text-gray-500" />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                 </th>
-              ))}
+                )
+              })}
             </tr>
           </thead>
           <tbody>
-            {projects.map((project) => (
+            {sortedProjects.map((project) => (
               <tr
                 key={project.id}
                 className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50"
@@ -2896,15 +3396,15 @@ export function ProjectsTableWithCustomization({
 
       {/* Column Customizer Modal */}
       <PermissionGuard permission="projects.view">
-        {showCustomizer && (
-          <ColumnCustomizer
-            columns={columns}
-            onColumnsChange={saveConfiguration}
-            onClose={() => setShowCustomizer(false)}
-            title="Customize Projects Table Columns"
-            storageKey="projects"
-          />
-        )}
+      {showCustomizer && (
+        <ColumnCustomizer
+          columns={columns}
+          onColumnsChange={saveConfiguration}
+          onClose={() => setShowCustomizer(false)}
+          title="Customize Projects Table Columns"
+          storageKey="projects"
+        />
+      )}
       </PermissionGuard>
     </div>
   )

@@ -1,13 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { KPIRecord, Project } from '@/lib/supabase'
 import { ColumnCustomizer, ColumnConfig } from '@/components/ui/ColumnCustomizer'
 import { useColumnCustomization } from '@/lib/useColumnCustomization'
 import { Button } from '@/components/ui/Button'
 import { PermissionButton } from '@/components/ui/PermissionButton'
 import { usePermissionGuard } from '@/lib/permissionGuard'
-import { CheckCircle, Clock, AlertCircle, Calendar, Building, Activity, TrendingUp, Target, Info, Filter, X } from 'lucide-react'
+import { CheckCircle, Clock, AlertCircle, Calendar, Building, Activity, TrendingUp, Target, Info, Filter, X, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 
 interface KPITableWithCustomizationProps {
   kpis: KPIRecord[]
@@ -47,6 +48,10 @@ export function KPITableWithCustomization({
   const guard = usePermissionGuard()
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [showCustomizer, setShowCustomizer] = useState(false)
+  
+  // Sorting state
+  const [sortColumn, setSortColumn] = useState<string | null>(null)
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   
   const { 
     columns, 
@@ -374,24 +379,57 @@ export function KPITableWithCustomization({
         
         // Get Zone from multiple sources
         const rawKPIDetails = (kpi as any).raw || {}
-        const zoneValue = kpi.zone || 
-                         getKPIField(kpi, 'Zone') || 
-                         getKPIField(kpi, 'Zone Number') ||
-                         rawKPIDetails['Zone'] ||
-                         rawKPIDetails['Zone Number'] ||
-                         rawKPIDetails['Section'] ||
-                         kpi.section ||
-                         'N/A'
+        let zoneValue = kpi.zone || 
+                       getKPIField(kpi, 'Zone') || 
+                       getKPIField(kpi, 'Zone Number') ||
+                       rawKPIDetails['Zone'] ||
+                       rawKPIDetails['Zone Number'] ||
+                       rawKPIDetails['Section'] ||
+                       kpi.section ||
+                       ''
+        
+        // Remove project code from zone value if it exists
+        // Example: "P8888 - 1" -> "1" or "Zone P8888 - Building A" -> "Building A"
+        if (zoneValue && kpi.project_code) {
+          const projectCodeUpper = kpi.project_code.toUpperCase().trim()
+          let zoneStr = zoneValue.toString()
+          
+          // Remove project code patterns:
+          // 1. "P8888 - " or "P8888 -" at start
+          zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+          // 2. " P8888 - " or " P8888 -" in middle
+          zoneStr = zoneStr.replace(new RegExp(`\\s+${projectCodeUpper}\\s*-\\s*`, 'gi'), ' ').trim()
+          // 3. Just "P8888" at start followed by space or dash
+          zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}(\\s|-)+`, 'i'), '').trim()
+          // 4. Just "P8888" in middle with spaces/dashes around
+          zoneStr = zoneStr.replace(new RegExp(`(\\s|-)+${projectCodeUpper}(\\s|-)+`, 'gi'), ' ').trim()
+          // 5. Clean up any remaining " - " or "- " at the start
+          zoneStr = zoneStr.replace(/^\s*-\s*/, '').trim()
+          // 6. Clean up multiple spaces
+          zoneStr = zoneStr.replace(/\s+/g, ' ').trim()
+          // 7. If zone is empty or only contains dash, set to 'N/A'
+          if (!zoneStr || zoneStr === '-' || zoneStr === '') {
+            zoneStr = 'N/A'
+          }
+          
+          zoneValue = zoneStr
+        }
         
         return (
           <div className="space-y-1">
-            <div className="text-xs text-gray-600 dark:text-gray-400">Project: {projectFullName}</div>
             <div className="font-medium text-gray-900 dark:text-white text-sm">
               {kpi.activity_name || 'N/A'}
             </div>
-            <div className="text-xs text-gray-600 dark:text-gray-400">
-              Zone {zoneValue}
-            </div>
+            {projectFullName && projectFullName !== 'N/A' && (
+              <div className="text-xs text-gray-600 dark:text-gray-400">
+                {projectFullName}
+              </div>
+            )}
+            {zoneValue && zoneValue !== 'N/A' && (
+              <div className="text-xs text-gray-600 dark:text-gray-400">
+                Zone {zoneValue}
+              </div>
+            )}
           </div>
         )
       
@@ -542,14 +580,22 @@ export function KPITableWithCustomization({
         // Calculate Total Value = Quantity × Rate
         const totalValue = quantityForValue * rateForValue
         
+        // Get project currency
+        const projectForValue = projects.find(p => 
+          p.project_code === kpi.project_code || 
+          p.project_sub_code === kpi.project_code ||
+          p.project_code === kpi.project_full_code
+        )
+        const currencyCode = projectForValue?.currency || 'AED'
+        
         return (
           <div className="space-y-1">
             <div className="text-sm font-medium text-gray-900 dark:text-white">
-              Total: ${totalValue.toLocaleString()}
+              Total: {formatCurrencyByCodeSync(totalValue, currencyCode)}
             </div>
             {rateForValue > 0 && (
               <div className="text-xs text-gray-600 dark:text-gray-400">
-                Rate: ${rateForValue.toLocaleString()}/unit
+                Rate: {formatCurrencyByCodeSync(rateForValue, currencyCode)}/unit
               </div>
             )}
           </div>
@@ -647,11 +693,14 @@ export function KPITableWithCustomization({
         
         const totalVirtualValue = virtualMaterialValue + baseValue
         
+        // Get project currency (already found above as projectForVirtual)
+        const currencyCodeForVirtual = projectForVirtual?.currency || 'AED'
+        
         return (
           <div className="space-y-1">
-            <div className="text-xs text-gray-600 dark:text-gray-400">Virtual Material: ${virtualMaterialValue.toLocaleString()}</div>
-            <div className="text-xs text-gray-600 dark:text-gray-400">Value: ${baseValue.toLocaleString()}</div>
-            <div className="text-sm font-medium text-gray-900 dark:text-white">Total: ${totalVirtualValue.toLocaleString()}</div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Virtual Material: {formatCurrencyByCodeSync(virtualMaterialValue, currencyCodeForVirtual)}</div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Value: {formatCurrencyByCodeSync(baseValue, currencyCodeForVirtual)}</div>
+            <div className="text-sm font-medium text-gray-900 dark:text-white">Total: {formatCurrencyByCodeSync(totalVirtualValue, currencyCodeForVirtual)}</div>
           </div>
         )
       
@@ -1150,11 +1199,19 @@ export function KPITableWithCustomization({
           monthlyCumulativeValueNum = parseFloat(String(monthlyCumulativeValue).replace(/,/g, '')) || 0
         }
         
+        // Get project currency for cumulative values
+        const projectForCumValue = projects.find(p => 
+          p.project_code === kpi.project_code || 
+          p.project_sub_code === kpi.project_code ||
+          p.project_code === kpi.project_full_code
+        )
+        const currencyCodeForCum = projectForCumValue?.currency || 'AED'
+        
         return (
           <div className="space-y-1">
-            <div className="text-xs text-gray-600 dark:text-gray-400">Daily: ${dailyCumulativeValueNum.toLocaleString()}</div>
-            <div className="text-xs text-gray-600 dark:text-gray-400">Weekly: ${weeklyCumulativeValueNum.toLocaleString()}</div>
-            <div className="text-sm font-medium text-gray-900 dark:text-white">Monthly: ${monthlyCumulativeValueNum.toLocaleString()}</div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Daily: {formatCurrencyByCodeSync(dailyCumulativeValueNum, currencyCodeForCum)}</div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Weekly: {formatCurrencyByCodeSync(weeklyCumulativeValueNum, currencyCodeForCum)}</div>
+            <div className="text-sm font-medium text-gray-900 dark:text-white">Monthly: {formatCurrencyByCodeSync(monthlyCumulativeValueNum, currencyCodeForCum)}</div>
           </div>
         )
       
@@ -1192,6 +1249,201 @@ export function KPITableWithCustomization({
   }
 
   const visibleColumns = columns.filter(col => col.visible).sort((a, b) => a.order - b.order)
+
+  // Sorting handler
+  const handleSort = (columnId: string) => {
+    if (columnId === 'select' || columnId === 'actions') return
+    
+    if (sortColumn === columnId) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortColumn(columnId)
+      setSortDirection('asc')
+    }
+  }
+
+  // Get sortable value for a KPI and column
+  const getSortValue = (kpi: KPIRecord, columnId: string): any => {
+    const getKPIField = (fieldName: string) => {
+      const raw = (kpi as any).raw || kpi
+      return raw[fieldName] || (kpi as any)[fieldName] || ''
+    }
+    
+    switch (columnId) {
+      case 'activity_details':
+        return kpi.activity_name || getKPIField('Activity Name') || ''
+      case 'date':
+        const dateValue = kpi.target_date || kpi.activity_date || getKPIField('Target Date') || getKPIField('Activity Date') || ''
+        return dateValue ? new Date(dateValue).getTime() : 0
+      case 'input_type':
+        return kpi.input_type || getKPIField('Input Type') || ''
+      case 'quantities':
+        return parseFloat(String(kpi.quantity || getKPIField('Quantity') || '0').replace(/,/g, '')) || 0
+      case 'value':
+        const valueNum = parseFloat(String(kpi.value || getKPIField('Value') || '0').replace(/,/g, '')) || 0
+        return valueNum
+      case 'virtual_value':
+        const virtualValue = parseFloat(String(getKPIField('Virtual Material Value') || '0').replace(/,/g, '')) || 0
+        return virtualValue
+      case 'activity_commencement_relation':
+        const activityTiming = kpi.activity_timing || getKPIField('Activity Timing') || 'post-commencement'
+        // Sort by timing: pre-commencement = 1, post-commencement = 2, post-completion = 3
+        if (activityTiming === 'pre-commencement') return 1
+        if (activityTiming === 'post-completion') return 3
+        return 2 // post-commencement
+      case 'activity_division':
+        return (kpi as any).activity_division || getKPIField('Activity Division') || ''
+      case 'activity_scope':
+        return getKPIField('Activity Scope') || ''
+      case 'key_dates':
+        const keyDate = getKPIField('Key Date') || ''
+        return keyDate ? new Date(keyDate).getTime() : 0
+      case 'cumulative_quantity':
+        // Calculate cumulative quantity from all related KPIs
+        const relatedKPIsForCumQty = kpis.filter((otherKPI: any) => {
+          const sameProject = (
+            otherKPI.project_code === kpi.project_code ||
+            otherKPI.project_full_code === kpi.project_code ||
+            otherKPI.project_code === kpi.project_full_code ||
+            otherKPI.project_full_code === kpi.project_full_code
+          )
+          const sameActivity = (
+            otherKPI.activity_name?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim()
+          )
+          const sameInputType = otherKPI.input_type === kpi.input_type
+          return sameProject && sameActivity && sameInputType
+        })
+        const cumQty = relatedKPIsForCumQty.reduce((sum, k) => {
+          const qty = parseFloat(String(k.quantity || 0).replace(/,/g, '')) || 0
+          return sum + qty
+        }, 0)
+        return cumQty
+      case 'cumulative_value':
+        // Calculate cumulative value from all related KPIs
+        const relatedKPIsForCumValue = kpis.filter((otherKPI: any) => {
+          const sameProject = (
+            otherKPI.project_code === kpi.project_code ||
+            otherKPI.project_full_code === kpi.project_code ||
+            otherKPI.project_code === kpi.project_full_code ||
+            otherKPI.project_full_code === kpi.project_full_code
+          )
+          const sameActivity = (
+            otherKPI.activity_name?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim()
+          )
+          const sameInputType = otherKPI.input_type === kpi.input_type
+          return sameProject && sameActivity && sameInputType
+        })
+        const cumValue = relatedKPIsForCumValue.reduce((sum, k) => {
+          const val = parseFloat(String(k.value || 0).replace(/,/g, '')) || 0
+          return sum + val
+        }, 0)
+        return cumValue
+      default:
+        return getKPIField(columnId) || ''
+    }
+  }
+
+  // Sort KPIs
+  const sortedKPIs = useMemo(() => {
+    if (!sortColumn) return kpis
+    
+    // Create getSortValue with access to kpis array
+    const getSortValueWithKPIs = (kpi: KPIRecord, columnId: string): any => {
+      const getKPIField = (fieldName: string) => {
+        const raw = (kpi as any).raw || kpi
+        return raw[fieldName] || (kpi as any)[fieldName] || ''
+      }
+      
+      switch (columnId) {
+        case 'activity_details':
+          return kpi.activity_name || getKPIField('Activity Name') || ''
+        case 'date':
+          const dateValue = kpi.target_date || kpi.activity_date || getKPIField('Target Date') || getKPIField('Activity Date') || ''
+          return dateValue ? new Date(dateValue).getTime() : 0
+        case 'input_type':
+          return kpi.input_type || getKPIField('Input Type') || ''
+        case 'quantities':
+          return parseFloat(String(kpi.quantity || getKPIField('Quantity') || '0').replace(/,/g, '')) || 0
+        case 'value':
+          const valueNum = parseFloat(String(kpi.value || getKPIField('Value') || '0').replace(/,/g, '')) || 0
+          return valueNum
+        case 'virtual_value':
+          const virtualValue = parseFloat(String(getKPIField('Virtual Material Value') || '0').replace(/,/g, '')) || 0
+          return virtualValue
+        case 'activity_commencement_relation':
+          const activityTiming = kpi.activity_timing || getKPIField('Activity Timing') || 'post-commencement'
+          // Sort by timing: pre-commencement = 1, post-commencement = 2, post-completion = 3
+          if (activityTiming === 'pre-commencement') return 1
+          if (activityTiming === 'post-completion') return 3
+          return 2 // post-commencement
+        case 'activity_division':
+          return (kpi as any).activity_division || getKPIField('Activity Division') || ''
+        case 'activity_scope':
+          return getKPIField('Activity Scope') || ''
+        case 'key_dates':
+          const keyDate = getKPIField('Key Date') || ''
+          return keyDate ? new Date(keyDate).getTime() : 0
+        case 'cumulative_quantity':
+          // Calculate cumulative quantity from all related KPIs
+          const relatedKPIsForCumQty = kpis.filter((otherKPI: any) => {
+            const sameProject = (
+              otherKPI.project_code === kpi.project_code ||
+              otherKPI.project_full_code === kpi.project_code ||
+              otherKPI.project_code === kpi.project_full_code ||
+              otherKPI.project_full_code === kpi.project_full_code
+            )
+            const sameActivity = (
+              otherKPI.activity_name?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim()
+            )
+            const sameInputType = otherKPI.input_type === kpi.input_type
+            return sameProject && sameActivity && sameInputType
+          })
+          const cumQty = relatedKPIsForCumQty.reduce((sum, k) => {
+            const qty = parseFloat(String(k.quantity || 0).replace(/,/g, '')) || 0
+            return sum + qty
+          }, 0)
+          return cumQty
+        case 'cumulative_value':
+          // Calculate cumulative value from all related KPIs
+          const relatedKPIsForCumValue = kpis.filter((otherKPI: any) => {
+            const sameProject = (
+              otherKPI.project_code === kpi.project_code ||
+              otherKPI.project_full_code === kpi.project_code ||
+              otherKPI.project_code === kpi.project_full_code ||
+              otherKPI.project_full_code === kpi.project_full_code
+            )
+            const sameActivity = (
+              otherKPI.activity_name?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim()
+            )
+            const sameInputType = otherKPI.input_type === kpi.input_type
+            return sameProject && sameActivity && sameInputType
+          })
+          const cumValue = relatedKPIsForCumValue.reduce((sum, k) => {
+            const val = parseFloat(String(k.value || 0).replace(/,/g, '')) || 0
+            return sum + val
+          }, 0)
+          return cumValue
+        default:
+          return getKPIField(columnId) || ''
+      }
+    }
+    
+    return [...kpis].sort((a, b) => {
+      const aValue = getSortValueWithKPIs(a, sortColumn)
+      const bValue = getSortValueWithKPIs(b, sortColumn)
+      
+      if (aValue === null || aValue === undefined) return 1
+      if (bValue === null || bValue === undefined) return -1
+      
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        const comparison = aValue.localeCompare(bValue, undefined, { numeric: true, sensitivity: 'base' })
+        return sortDirection === 'asc' ? comparison : -comparison
+      }
+      
+      const comparison = (aValue as number) - (bValue as number)
+      return sortDirection === 'asc' ? comparison : -comparison
+    })
+  }, [kpis, sortColumn, sortDirection])
 
   // ✅ Check permission before rendering the entire table
   if (!guard.hasAccess('kpi.view')) {
@@ -1245,39 +1497,62 @@ export function KPITableWithCustomization({
         <table className="w-full border-collapse">
           <thead className="sticky top-0 z-10">
             <tr className="border-b border-gray-200 dark:border-gray-700">
-              {visibleColumns.map((column) => (
+              {visibleColumns.map((column) => {
+                const isSortable = column.id !== 'select' && column.id !== 'actions'
+                const isSorted = sortColumn === column.id
+                
+                return (
                 <th
                   key={column.id}
-                  className="px-4 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800"
-                  style={{
-                    width: column.width || 'auto',
-                    minWidth: column.width || '120px',
-                    maxWidth: column.width || 'none',
-                    position: 'sticky',
-                    top: 0,
-                    zIndex: 10
-                  }}
-                >
-                  {column.id === 'select' ? (
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.length === kpis.length && kpis.length > 0}
-                        onChange={(e) => handleSelectAll(e.target.checked)}
-                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                        title="Select All"
-                      />
-                      <span>{column.label}</span>
-                    </div>
-                  ) : (
-                    column.label
-                  )}
+                    onClick={() => isSortable && handleSort(column.id)}
+                    className={`px-4 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 ${
+                      isSortable ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none' : ''
+                    }`}
+                    style={{
+                      width: column.width || 'auto',
+                      minWidth: column.width || '120px',
+                      maxWidth: column.width || 'none',
+                      position: 'sticky',
+                      top: 0,
+                      zIndex: 10
+                    }}
+                  >
+                    {column.id === 'select' ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.length === kpis.length && kpis.length > 0}
+                          onChange={(e) => handleSelectAll(e.target.checked)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          title="Select All"
+                        />
+                        <span>{column.label}</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span>{column.label}</span>
+                        {isSortable && (
+                          <div className="flex flex-col">
+                            {isSorted ? (
+                              sortDirection === 'asc' ? (
+                                <ArrowUp className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                              ) : (
+                                <ArrowDown className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                              )
+                            ) : (
+                              <ArrowUpDown className="h-3 w-3 text-gray-400 dark:text-gray-500" />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                 </th>
-              ))}
+                )
+              })}
             </tr>
           </thead>
           <tbody>
-            {kpis.map((kpi) => (
+            {sortedKPIs.map((kpi) => (
               <tr
                 key={kpi.id}
                 className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50"

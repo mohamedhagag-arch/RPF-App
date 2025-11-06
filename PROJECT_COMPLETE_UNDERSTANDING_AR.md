@@ -906,3 +906,4 @@ return DEFAULT_ROLE_PERMISSIONS[user.role]
 **تاريخ آخر تحديث:** ديسمبر 2024  
 **الحالة:** جاهز للإنتاج ✅
 
+

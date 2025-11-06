@@ -345,6 +345,74 @@ export function formatCurrency(amount: number, currency: Currency): string {
 }
 
 /**
+ * تنسيق المبلغ بناءً على كود العملة فقط (دالة مساعدة للاستخدام في المكونات)
+ * Format amount based on currency code (helper function for components)
+ */
+export async function formatCurrencyByCode(amount: number, currencyCode?: string): Promise<string> {
+  try {
+    let currency: Currency
+    
+    if (currencyCode) {
+      // جلب العملة المحددة
+      const currencies = await getAllCurrencies()
+      currency = currencies.find(c => c.code === currencyCode) || await getDefaultCurrency()
+    } else {
+      // استخدام العملة الافتراضية
+      currency = await getDefaultCurrency()
+    }
+    
+    return formatCurrency(amount, currency)
+  } catch (error) {
+    console.error('Error formatting currency:', error)
+    // Fallback إلى العملة الافتراضية
+    const defaultCurrency = DEFAULT_CURRENCIES[0] // AED
+    return formatCurrency(amount, defaultCurrency)
+  }
+}
+
+/**
+ * تنسيق المبلغ بناءً على كود العملة (نسخة متزامنة - تستخدم cache)
+ * Format amount based on currency code (synchronous version - uses cache)
+ */
+let currencyCache: Map<string, Currency> = new Map()
+let currencyCacheTimestamp: number = 0
+const CACHE_DURATION = 5 * 60 * 1000 // 5 دقائق
+
+export async function refreshCurrencyCache(): Promise<void> {
+  try {
+    const currencies = await getAllCurrencies()
+    currencyCache.clear()
+    currencies.forEach(c => currencyCache.set(c.code, c))
+    currencyCacheTimestamp = Date.now()
+  } catch (error) {
+    console.error('Error refreshing currency cache:', error)
+  }
+}
+
+export function formatCurrencyByCodeSync(amount: number, currencyCode?: string): string {
+  // تحديث الـ cache إذا كان قديم
+  if (Date.now() - currencyCacheTimestamp > CACHE_DURATION || currencyCache.size === 0) {
+    refreshCurrencyCache().catch(console.error)
+  }
+  
+  let currency: Currency
+  
+  if (currencyCode && currencyCache.has(currencyCode)) {
+    currency = currencyCache.get(currencyCode)!
+  } else {
+    // استخدام العملة الافتراضية من الـ cache أو fallback
+    currency = currencyCache.get('AED') || DEFAULT_CURRENCIES[0]
+  }
+  
+  const formattedAmount = new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  }).format(amount)
+  
+  return `${formattedAmount} ${currency.symbol}`
+}
+
+/**
  * زيادة عداد الاستخدام عند استخدام العملة في مشروع
  */
 export async function incrementCurrencyUsage(currencyCode: string): Promise<void> {

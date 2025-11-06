@@ -16,6 +16,7 @@ export function mapProjectFromDB(row: any): Project {
     project_code: row['Project Code'] || '',
     project_sub_code: row['Project Sub-Code'] || '',
     project_name: row['Project Name'] || '',
+    project_description: row['Project Description'] || '',
     project_type: row['Project Type'] || '',
     responsible_division: row['Responsible Division'] || '',
     plot_number: row['Plot Number'] || '',
@@ -28,6 +29,7 @@ export function mapProjectFromDB(row: any): Project {
     first_party_name: row['First Party name'] || '',
     project_manager_email: row['Project Manager Email'] || '',
     area_manager_email: row['Area Manager Email'] || '',
+    division_head_email: row['Division Head Email'] || '',
     date_project_awarded: row['Date Project Awarded'] || '',
     work_programme: row['Work Programme'] || '',
     latitude: row['Latitude'] || '',
@@ -37,6 +39,9 @@ export function mapProjectFromDB(row: any): Project {
     workmanship_only: row['Workmanship only?'] || '',
     advance_payment_required: row['Advnace Payment Required'] || '',
     virtual_material_value: row['Virtual Material Value'] || '',
+    project_start_date: row['Project Start Date'] || '',
+    project_completion_date: row['Project Completion Date'] || '',
+    project_duration: row['Project Duration'] ? parseInt(String(row['Project Duration'])) : undefined,
     created_at: row.created_at || new Date().toISOString(),
     updated_at: row.updated_at || new Date().toISOString(),
     created_by: row.created_by || ''
@@ -51,6 +56,7 @@ export function mapProjectToDB(project: Partial<Project>): any {
     'Project Code': project.project_code,
     'Project Sub-Code': project.project_sub_code,
     'Project Name': project.project_name,
+    'Project Description': project.project_description,
     'Project Type': project.project_type,
     'Responsible Division': project.responsible_division,
     'Plot Number': project.plot_number,
@@ -60,11 +66,13 @@ export function mapProjectToDB(project: Partial<Project>): any {
   }
   
   // Add optional fields if they exist
+  if (project.project_description) dbData['Project Description'] = project.project_description
   if (project.client_name) dbData['Client Name'] = project.client_name
   if (project.consultant_name) dbData['Consultant Name'] = project.consultant_name
   if (project.first_party_name) dbData['First Party name'] = project.first_party_name
   if (project.project_manager_email) dbData['Project Manager Email'] = project.project_manager_email
   if (project.area_manager_email) dbData['Area Manager Email'] = project.area_manager_email
+  if (project.division_head_email) dbData['Division Head Email'] = project.division_head_email
   if (project.date_project_awarded) dbData['Date Project Awarded'] = project.date_project_awarded
   if (project.work_programme) dbData['Work Programme'] = project.work_programme
   if (project.latitude) dbData['Latitude'] = project.latitude
@@ -74,6 +82,9 @@ export function mapProjectToDB(project: Partial<Project>): any {
   if (project.workmanship_only) dbData['Workmanship only?'] = project.workmanship_only
   if (project.advance_payment_required) dbData['Advnace Payment Required'] = project.advance_payment_required
   if (project.virtual_material_value) dbData['Virtual Material Value'] = project.virtual_material_value
+  if (project.project_start_date) dbData['Project Start Date'] = project.project_start_date
+  if (project.project_completion_date) dbData['Project Completion Date'] = project.project_completion_date
+  if (project.project_duration !== undefined) dbData['Project Duration'] = project.project_duration
   
   return dbData
 }

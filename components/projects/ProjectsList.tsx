@@ -14,8 +14,6 @@ import { Project, TABLES } from '@/lib/supabase'
 import { mapProjectFromDB, mapProjectToDB, mapBOQFromDB, mapKPIFromDB } from '@/lib/dataMappers'
 import { calculateProjectAnalytics } from '@/lib/projectAnalytics'
 import { getProjectStatusColor, getProjectStatusText } from '@/lib/projectStatusManager'
-import { calculateProjectRate, ProjectRate } from '@/lib/rateCalculator'
-import { calculateProjectProgress, ProjectProgress } from '@/lib/progressCalculator'
 import { loadAllDataWithProgress } from '@/lib/lazyLoadingManager'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -30,7 +28,7 @@ import { ProjectDetailsPanel } from './ProjectDetailsPanel'
 import { ProjectsTableWithCustomization } from './ProjectsTableWithCustomization'
 import { AdvancedSorting, SortOption, FilterOption } from '@/components/ui/AdvancedSorting'
 import { Pagination } from '@/components/ui/Pagination'
-import { Plus, Search, Building, Calendar, DollarSign, Percent, Hash, CheckCircle, Clock, AlertCircle, Folder, BarChart3, Grid, MapPin, Lock } from 'lucide-react'
+import { Plus, Search, Building, Calendar, DollarSign, Percent, Hash, CheckCircle, Clock, AlertCircle, Folder, Grid, MapPin, Lock } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { Input } from '@/components/ui/Input'
 import { SmartFilter } from '@/components/ui/SmartFilter'
@@ -57,8 +55,6 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
   const [totalCount, setTotalCount] = useState(0)
   const [allActivities, setAllActivities] = useState<any[]>([])
   const [allKPIs, setAllKPIs] = useState<any[]>([])
-  const [projectRates, setProjectRates] = useState<ProjectRate[]>([])
-  const [projectProgresses, setProjectProgresses] = useState<ProjectProgress[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
@@ -390,124 +386,9 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
         setProjects(mappedProjects)
         setTotalCount(count || 0)
         
-        // Calculate Rate-based metrics for projects
-        try {
-          console.log('📊 Calculating Rate-based metrics...')
-          
-          // Fetch all activities and KPIs for rate calculation
-          const [allActivitiesData, allKPIsData] = await Promise.all([
-            supabase.from(TABLES.BOQ_ACTIVITIES).select('*'),
-            supabase.from(TABLES.KPI).select('*')
-          ])
-          
-          if (allActivitiesData.data && allKPIsData.data) {
-            const activities = allActivitiesData.data.map(mapBOQFromDB)
-            const kpis = allKPIsData.data.map(mapKPIFromDB)
-            
-            // Calculate rates for all projects
-            const rates = mappedProjects.map((project: Project) => 
-              calculateProjectRate(project, activities, kpis)
-            )
-            setProjectRates(rates)
-            
-            // Calculate progress for all projects
-            const progresses = mappedProjects.map((project: Project) => 
-              calculateProjectProgress(project, activities, kpis)
-            )
-            setProjectProgresses(progresses)
-            
-            console.log('✅ Rate-based metrics calculated successfully')
-          }
-        } catch (rateError) {
-          console.log('⚠️ Rate calculation not available:', rateError)
-        }
-        
-        // ✅ Always load activities and KPIs - needed for both table and card views
-        console.log('🔍 View mode:', viewMode, 'useCustomizedTable:', useCustomizedTable, 'shouldLoadCardAnalytics:', shouldLoadCardAnalytics(viewMode))
-        if (mappedProjects.length > 0) {
-          console.log('📊 Loading activities and KPIs for enhanced cards...')
-          
-          // 🔧 PERFORMANCE: Add loading indicator
-          setLoading(true)
-          
-          // Get project codes for current page
-          const projectCodes = mappedProjects.map((p: any) => p.project_code).filter(Boolean)
-          
-          if (projectCodes.length > 0) {
-            // 🔧 FIX: Use comprehensive query to get ALL data for ALL projects
-            const [activitiesResult, kpisResult] = await Promise.all([
-              // For activities - try multiple matching strategies
-              supabase
-                .from(TABLES.BOQ_ACTIVITIES)
-                .select('*')
-                .or(projectCodes.map((code: any) => 
-                  `Project Code.eq.${code},Project Full Code.eq.${code},Project Full Code.like.${code}%,Project Code.like.${code}%`
-                ).join(',')),
-              // For KPIs - try all possible project code variations
-              supabase
-                .from(TABLES.KPI)
-                .select('*')
-                .or(projectCodes.map((code: any) => 
-                  `Project Full Code.eq.${code},Project Code.eq.${code},Project Full Code.like.${code}%,Project Code.like.${code}%`
-                ).join(','))
-            ])
-            
-            console.log('🔍 Activities query result:', {
-              count: activitiesResult.data?.length || 0,
-              error: activitiesResult.error,
-              projectCodes: projectCodes.slice(0, 5)
-            })
-            console.log('🔍 KPIs query result:', {
-              count: kpisResult.data?.length || 0,
-              error: kpisResult.error,
-              projectCodes: projectCodes.slice(0, 5)
-            })
-            
-            // 🔍 DEBUG: Check for errors
-            if (activitiesResult.error) {
-              console.error('❌ Activities query error:', activitiesResult.error)
-            }
-            if (kpisResult.error) {
-              console.error('❌ KPIs query error:', kpisResult.error)
-            }
-            
-            const mappedActivities = (activitiesResult.data || []).map(mapBOQFromDB)
-            const mappedKPIs = (kpisResult.data || []).map(mapKPIFromDB)
-            
-            console.log(`✅ Loaded ${mappedActivities.length} activities and ${mappedKPIs.length} KPIs for ${projectCodes.length} project(s)`)
-            if (mappedActivities.length > 0) {
-              console.log('🔍 Sample activity project codes:', mappedActivities.slice(0, 5).map((a: any) => a.project_code || a['Project Code'] || 'N/A'))
-            }
-            if (mappedKPIs.length > 0) {
-              console.log('🔍 Sample KPI project codes:', mappedKPIs.slice(0, 5).map((k: any) => k.project_code || k['Project Code'] || k.project_full_code || k['Project Full Code'] || 'N/A'))
-              // 🔍 DEBUG: Check Day column in KPIs
-              console.log('📅 Sample KPI Day values:', mappedKPIs.slice(0, 5).map((k: any) => ({
-                day: k.day,
-                'Day': k['Day'],
-                rawDay: k.raw?.['Day'],
-                inputType: k.input_type || k['Input Type'],
-                projectCode: k.project_code || k['Project Code']
-              })))
-            }
-            
-            // ✅ Merge with existing data to accumulate across pages
-            setAllActivities(prev => {
-              const merged = [...prev, ...mappedActivities]
-              const unique = Array.from(new Map(merged.map((a: any) => [a.id, a])).values())
-              console.log(`📊 Activities: ${prev.length} existing + ${mappedActivities.length} new = ${unique.length} total`)
-              return unique
-            })
-            setAllKPIs(prev => {
-              const merged = [...prev, ...mappedKPIs]
-              const unique = Array.from(new Map(merged.map((k: any) => [k.id, k])).values())
-              console.log(`📊 KPIs: ${prev.length} existing + ${mappedKPIs.length} new = ${unique.length} total`)
-              return unique
-            })
-            
-            // 🔧 PERFORMANCE: Stop loading indicator
-            setLoading(false)
-          }
-        }
+        // ✅ Note: Activities and KPIs are loaded in fetchAllData() on component mount
+        // This ensures analytics work correctly without blocking the initial page load
+        // No need to load here again - fetchAllData handles it
       }
     } catch (error: any) {
       console.error('❌ Exception:', error)
@@ -985,48 +866,6 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
               <span className="whitespace-nowrap relative z-10">{useCustomizedTable ? 'Standard View' : 'Customize Columns'}</span>
             </PermissionButton>
           </div>
-          
-          {/* Rate-based Performance Summary */}
-          {projectRates.length > 0 && (
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-lg p-6 border border-blue-200 dark:border-blue-700">
-              <div className="flex items-center gap-2 mb-4">
-                <BarChart3 className="h-5 w-5 text-blue-600" />
-                <h3 className="text-lg font-semibold text-blue-900 dark:text-blue-100">Rate-Based Performance</h3>
-              </div>
-              
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-blue-900 dark:text-blue-100">
-                    ${projectRates.reduce((sum, rate) => sum + rate.totalPlannedValue, 0).toLocaleString()}
-                  </div>
-                  <div className="text-sm text-blue-700 dark:text-blue-300">Total Planned Value</div>
-                </div>
-                
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-green-600 dark:text-green-400">
-                    ${projectRates.reduce((sum, rate) => sum + rate.totalEarnedValue, 0).toLocaleString()}
-                  </div>
-                  <div className="text-sm text-blue-700 dark:text-blue-300">Total Earned Value</div>
-                </div>
-                
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
-                    {projectRates.length > 0 
-                      ? (projectRates.reduce((sum, rate) => sum + rate.totalProgress, 0) / projectRates.length).toFixed(1)
-                      : 0}%
-                  </div>
-                  <div className="text-sm text-blue-700 dark:text-blue-300">Average Progress</div>
-                </div>
-                
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
-                    {projectRates.filter(rate => rate.performance.onSchedule).length}/{projectRates.length}
-                  </div>
-                  <div className="text-sm text-blue-700 dark:text-blue-300">On Schedule</div>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
         
         {/* Action Buttons and Controls */}
@@ -1191,20 +1030,48 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
               // Card View - Only show if user has permission
               <div className={`grid gap-6 ${getCardGridClasses(viewMode)} transition-all duration-300 ease-in-out`}>
                 {filteredProjects.map((project) => {
-                  // ✅ PERFORMANCE: Only calculate analytics if needed (for enhanced view mode)
-                  // Calculate analytics inline (will be memoized by ModernProjectCard if provided)
-                  const analytics = shouldLoadCardAnalytics(viewMode) 
+                  // ✅ ALL CALCULATIONS HAPPEN OUTSIDE THE CARD (in ProjectsList)
+                  // Calculate analytics ONCE per project here, NOT inside ModernProjectCard
+                  // This ensures better performance - calculations happen once, card just displays
+                  const shouldCalculate = shouldLoadCardAnalytics(viewMode)
+                  const analytics = shouldCalculate
                     ? calculateProjectAnalytics(project, allActivities, allKPIs)
                     : null
                   
-                  // ✅ Pass analytics and data to ModernProjectCard (same as Table uses)
+                  // ✅ DEBUG: Log analytics calculation (first project only to avoid spam)
+                  if (project === filteredProjects[0]) {
+                    console.log('🔍 ProjectsList - Calculating analytics OUTSIDE card:', {
+                      projectCode: project.project_code,
+                      shouldCalculate,
+                      hasAnalytics: !!analytics,
+                      allActivitiesLength: allActivities.length,
+                      allKPIsLength: allKPIs.length,
+                      // ✅ Show FULL analytics object to see all calculated values
+                      analytics: analytics ? {
+                        totalActivities: analytics.totalActivities,
+                        totalKPIs: analytics.totalKPIs,
+                        overallProgress: analytics.overallProgress,
+                        totalContractValue: analytics.totalContractValue,
+                        financialProgress: analytics.financialProgress,
+                        weightedProgress: analytics.weightedProgress,
+                        completedActivities: analytics.completedActivities,
+                        onTrackActivities: analytics.onTrackActivities,
+                        plannedKPIs: analytics.plannedKPIs,
+                        actualKPIs: analytics.actualKPIs
+                      } : null
+                    })
+                  }
+                  
+                  // ✅ Pass analytics to ModernProjectCard - NO RECALCULATION INSIDE CARD
+                  // ModernProjectCard will ONLY use propAnalytics (no recalculation)
+                  // This is the correct pattern: calculate ONCE outside, display inside
                   return (
                     <ModernProjectCard
                       key={project.id}
                       project={project}
-                      analytics={analytics} // ✅ Pass pre-calculated analytics
-                      allActivities={allActivities} // ✅ Pass pre-loaded activities
-                      allKPIs={allKPIs} // ✅ Pass pre-loaded KPIs
+                      analytics={analytics} // ✅ Pre-calculated OUTSIDE card (calculated ONCE in ProjectsList)
+                      allActivities={allActivities} // ✅ Pass for fallback only (should not be used if analytics provided)
+                      allKPIs={allKPIs} // ✅ Pass for fallback only (should not be used if analytics provided)
                       onEdit={setEditingProject}
                       onDelete={handleDeleteProject}
                       onViewDetails={setViewingProject}

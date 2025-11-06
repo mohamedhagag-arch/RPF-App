@@ -25,7 +25,7 @@ import { UnifiedFilter, FilterState } from '@/components/ui/UnifiedFilter'
 import { Pagination } from '@/components/ui/Pagination'
 import { SmartFilter } from '@/components/ui/SmartFilter'
 import { Plus, BarChart3, CheckCircle, Clock, AlertCircle, Target, Info, Filter, X, Coins, DollarSign, Lock } from 'lucide-react'
-import { formatCurrency } from '@/lib/boqValueCalculator'
+import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 import { ExportButton } from '@/components/ui/ExportButton'
 import { ImportButton } from '@/components/ui/ImportButton'
 import { PrintButton } from '@/components/ui/PrintButton'
@@ -53,18 +53,23 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   const isMountedRef = useRef(true) // ✅ Track if component is mounted
   const [showForm, setShowForm] = useState(false)
   const [showEnhancedForm, setShowEnhancedForm] = useState(false)
+  const [editingKPI, setEditingKPI] = useState<KPIRecord | null>(null)
   // ✅ Standard View - only enable if user has permission
   const [useCustomizedTable, setUseCustomizedTable] = useState(false)
+  const [hasInitializedView, setHasInitializedView] = useState(false)
   
-  // Ensure Standard View is only enabled if user has permission
+  // Ensure Standard View is only enabled if user has permission (only on initial load)
   useEffect(() => {
-    // Only enable table view if user has permission
-    if (guard.hasAccess('kpi.view')) {
-      setUseCustomizedTable(true)
-    } else {
-      setUseCustomizedTable(false)
+    // Only set initial value once, not on every guard change
+    if (!hasInitializedView) {
+      if (guard.hasAccess('kpi.view')) {
+        setUseCustomizedTable(true)
+      } else {
+        setUseCustomizedTable(false)
+      }
+      setHasInitializedView(true)
     }
-  }, [guard])
+  }, [guard, hasInitializedView])
   // editingKPI is now handled by EnhancedKPITable
   const [filters, setFilters] = useState<FilterState>({})
   
@@ -73,6 +78,12 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   const [selectedActivities, setSelectedActivities] = useState<string[]>([])
   const [selectedTypes, setSelectedTypes] = useState<string[]>([])
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([])
+  const [selectedZones, setSelectedZones] = useState<string[]>([])
+  const [selectedUnits, setSelectedUnits] = useState<string[]>([])
+  const [selectedDivisions, setSelectedDivisions] = useState<string[]>([])
+  const [dateRange, setDateRange] = useState<{ from?: string; to?: string }>({})
+  const [valueRange, setValueRange] = useState<{ min?: number; max?: number }>({})
+  const [quantityRange, setQuantityRange] = useState<{ min?: number; max?: number }>({})
   const [currentPage, setCurrentPage] = useState(1)
   const [totalKPICount, setTotalKPICount] = useState(0)
   const [pendingKPICount, setPendingKPICount] = useState(0) // Count of KPIs pending approval
@@ -1022,6 +1033,63 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       if (!matchesStatus) return false
     }
     
+    // Zone filter (Smart Filter)
+    if (selectedZones.length > 0) {
+      const kpiZone = (kpi.zone || kpi.section || (kpi as any).zone_ref || (kpi as any).zone_number || '').toLowerCase().trim()
+      const matchesZone = selectedZones.some(zone =>
+        kpiZone === zone.toLowerCase().trim() ||
+        kpiZone.includes(zone.toLowerCase().trim()) ||
+        zone.toLowerCase().trim().includes(kpiZone)
+      )
+      if (!matchesZone) return false
+    }
+    
+    // Unit filter (Smart Filter)
+    if (selectedUnits.length > 0) {
+      const kpiUnit = ((kpi as any).unit || '').toLowerCase().trim()
+      if (!selectedUnits.some(unit => kpiUnit === unit.toLowerCase().trim())) return false
+    }
+    
+    // Division filter (Smart Filter)
+    if (selectedDivisions.length > 0) {
+      const kpiDivision = ((kpi as any).activity_division || (kpi as any)['Activity Division'] || '').toLowerCase().trim()
+      const matchesDivision = selectedDivisions.some(division =>
+        kpiDivision === division.toLowerCase().trim() ||
+        kpiDivision.includes(division.toLowerCase().trim()) ||
+        division.toLowerCase().trim().includes(kpiDivision)
+      )
+      if (!matchesDivision) return false
+    }
+    
+    // Date range filter (Smart Filter)
+    if (dateRange.from || dateRange.to) {
+      const kpiDate = new Date(kpi.target_date || kpi.activity_date || kpi.created_at)
+      if (dateRange.from) {
+        const fromDate = new Date(dateRange.from)
+        fromDate.setHours(0, 0, 0, 0)
+        if (kpiDate < fromDate) return false
+      }
+      if (dateRange.to) {
+        const toDate = new Date(dateRange.to)
+        toDate.setHours(23, 59, 59, 999)
+        if (kpiDate > toDate) return false
+      }
+    }
+    
+    // Value range filter (Smart Filter)
+    if (valueRange.min !== undefined || valueRange.max !== undefined) {
+      const kpiValue = (kpi as any).value || kpi.value || 0
+      if (valueRange.min !== undefined && kpiValue < valueRange.min) return false
+      if (valueRange.max !== undefined && kpiValue > valueRange.max) return false
+    }
+    
+    // Quantity range filter (Smart Filter)
+    if (quantityRange.min !== undefined || quantityRange.max !== undefined) {
+      const kpiQuantity = kpi.quantity || 0
+      if (quantityRange.min !== undefined && kpiQuantity < quantityRange.min) return false
+      if (quantityRange.max !== undefined && kpiQuantity > quantityRange.max) return false
+    }
+    
     // Legacy filter support (fallback for backward compatibility)
     // Search filter
     if (filters.search) {
@@ -1376,12 +1444,28 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         }))}
         activities={activities.map(a => ({
           activity_name: a.activity_name,
-          project_code: a.project_code
+          project_code: a.project_code,
+          zone: a.zone_ref || a.zone_number || '',
+          unit: a.unit || '',
+          activity_division: a.activity_division || ''
+        }))}
+        kpis={kpis.map(k => ({
+          zone: (k as any).zone || (k as any).section || '',
+          unit: (k as any).unit || '',
+          activity_division: (k as any).activity_division || '',
+          value: (k as any).value || 0,
+          quantity: (k as any).quantity || 0
         }))}
         selectedProjects={selectedProjects}
         selectedActivities={selectedActivities}
         selectedTypes={selectedTypes}
         selectedStatuses={selectedStatuses}
+        selectedZones={selectedZones}
+        selectedUnits={selectedUnits}
+        selectedDivisions={selectedDivisions}
+        dateRange={dateRange}
+        valueRange={valueRange}
+        quantityRange={quantityRange}
         onProjectsChange={(projectCodes) => {
           setSelectedProjects(projectCodes)
           setCurrentPage(1) // Reset to page 1
@@ -1399,12 +1483,24 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         onActivitiesChange={setSelectedActivities}
         onTypesChange={setSelectedTypes}
         onStatusesChange={setSelectedStatuses}
+        onZonesChange={setSelectedZones}
+        onUnitsChange={setSelectedUnits}
+        onDivisionsChange={setSelectedDivisions}
+        onDateRangeChange={setDateRange}
+        onValueRangeChange={setValueRange}
+        onQuantityRangeChange={setQuantityRange}
         onClearAll={() => {
           console.log('🔄 Clearing all filters...')
           setSelectedProjects([])
           setSelectedActivities([])
           setSelectedTypes([])
           setSelectedStatuses([])
+          setSelectedZones([])
+          setSelectedUnits([])
+          setSelectedDivisions([])
+          setDateRange({})
+          setValueRange({})
+          setQuantityRange({})
           setKpis([]) // Clear KPIs too
           setCurrentPage(1)
         }}
@@ -1487,7 +1583,14 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
               <div>
                 <p className="text-sm font-medium text-indigo-600 dark:text-indigo-300">Planned Value</p>
                 <p className="text-3xl font-bold text-indigo-900 dark:text-indigo-100">
-                  {formatCurrency(totalPlannedValue)}
+                  {(() => {
+                    // Get currency from first selected project or default
+                    const firstProject = selectedProjects.length > 0 
+                      ? projects.find(p => selectedProjects.includes(p.project_code))
+                      : projects[0]
+                    const currencyCode = firstProject?.currency || 'AED'
+                    return formatCurrencyByCodeSync(totalPlannedValue, currencyCode)
+                  })()}
                 </p>
                 <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-1">
                   Across {plannedCount.toLocaleString()} planned KPIs
@@ -1504,7 +1607,14 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
               <div>
                 <p className="text-sm font-medium text-emerald-600 dark:text-emerald-300">Actual Value</p>
                 <p className="text-3xl font-bold text-emerald-900 dark:text-emerald-100">
-                  {formatCurrency(totalActualValue)}
+                  {(() => {
+                    // Get currency from first selected project or default
+                    const firstProject = selectedProjects.length > 0 
+                      ? projects.find(p => selectedProjects.includes(p.project_code))
+                      : projects[0]
+                    const currencyCode = firstProject?.currency || 'AED'
+                    return formatCurrencyByCodeSync(totalActualValue, currencyCode)
+                  })()}
                 </p>
                 <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1">
                   {valueAchievementRate.toFixed(1)}% of planned value
@@ -1524,7 +1634,14 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
                   {achievementRate.toFixed(1)}%
                 </p>
                 <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
-                  {formatCurrency(totalActualValue)} / {formatCurrency(totalPlannedValue)}
+                  {(() => {
+                    // Get currency from first selected project or default
+                    const firstProject = selectedProjects.length > 0 
+                      ? projects.find(p => selectedProjects.includes(p.project_code))
+                      : projects[0]
+                    const currencyCode = firstProject?.currency || 'AED'
+                    return `${formatCurrencyByCodeSync(totalActualValue, currencyCode)} / ${formatCurrencyByCodeSync(totalPlannedValue, currencyCode)}`
+                  })()}
                 </p>
                 <p className="text-[11px] text-orange-500 dark:text-orange-300">
                   {actualCount.toLocaleString()} / {plannedCount.toLocaleString()} KPIs
@@ -1614,8 +1731,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
                 projects={projects}
                 allActivities={activities} // ✅ Pass activities to get Rate from BOQ
                 onEdit={(kpi: KPIRecord) => {
-                  // Handle edit - you can implement this
-                  console.log('Edit KPI:', kpi)
+                  setEditingKPI(kpi)
+                  setShowForm(true)
                 }}
                 onDelete={handleDeleteKPI}
                 onBulkDelete={handleBulkDeleteKPI}
@@ -1653,11 +1770,18 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
 
       {showForm && (
         <IntelligentKPIForm
-          kpi={null}
+          kpi={editingKPI || null}
           projects={projects}
           activities={activities}
-          onSubmit={handleCreateKPI}
-          onCancel={() => setShowForm(false)}
+          onSubmit={editingKPI ? async (data) => {
+            await handleUpdateKPI(editingKPI.id, data)
+            setShowForm(false)
+            setEditingKPI(null)
+          } : handleCreateKPI}
+          onCancel={() => {
+            setShowForm(false)
+            setEditingKPI(null)
+          }}
         />
       )}
 

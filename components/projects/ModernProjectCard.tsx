@@ -9,6 +9,7 @@ import { hasPermission } from '@/lib/permissionsSystem'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { mapBOQFromDB, mapKPIFromDB } from '@/lib/dataMappers'
 import { getProjectStatusIcon } from '@/lib/projectStatusManager'
+import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -54,30 +55,46 @@ export function ModernProjectCard({
   const { appUser } = useAuth()
   const guard = usePermissionGuard()
   const [analytics, setAnalytics] = useState<ProjectAnalytics | null>(propAnalytics || null)
-  const [loading, setLoading] = useState(!propAnalytics) // ✅ Only load if analytics not provided
+  // ✅ Initialize loading to false if analytics provided, true if not (will be set in useEffect)
+  const [loading, setLoading] = useState(!propAnalytics && propActivities === undefined && propKPIs === undefined)
   const [error, setError] = useState<string | null>(null)
   const supabase = getSupabaseClient()
   const mountedRef = useRef(true)
 
-  // ✅ Use pre-calculated analytics if provided, otherwise load from database
+  // ✅ Use pre-calculated analytics from parent (ProjectsList) - NO RECALCULATION INSIDE CARD
+  // ✅ All calculations happen OUTSIDE the card in ProjectsList.tsx for better performance
+  // ✅ Only recalculate if propAnalytics is not provided (fallback for edge cases)
   useEffect(() => {
     mountedRef.current = true
     
-    // ✅ If analytics provided from parent, use it (SAME AS TABLE)
+    // ✅ PRIORITY 1: Use propAnalytics if provided (calculated OUTSIDE in ProjectsList)
+    // This is the main path - all calculations happen in ProjectsList, card just displays
     if (propAnalytics) {
+      console.log(`✅ ModernProjectCard [${project.project_code}]: Using pre-calculated analytics from ProjectsList:`, {
+        totalActivities: propAnalytics.totalActivities,
+        totalKPIs: propAnalytics.totalKPIs,
+        overallProgress: propAnalytics.overallProgress,
+        totalContractValue: propAnalytics.totalContractValue,
+        // ✅ Show full analytics object
+        fullAnalytics: propAnalytics
+      })
       setAnalytics(propAnalytics)
       setLoading(false)
-      console.log(`✅ Using pre-calculated analytics for ${project.project_code} (same as Table)`)
+      setError(null)
       return
     }
     
-    // ✅ If allActivities and allKPIs provided, calculate analytics (SAME AS TABLE)
-    if (propActivities.length > 0 || propKPIs.length > 0) {
+    // ✅ PRIORITY 2: If propAnalytics not provided but activities/KPIs are, calculate as fallback
+    // This only happens if ProjectsList didn't calculate analytics for some reason
+    if (propActivities !== undefined && propKPIs !== undefined) {
       try {
         const calculatedAnalytics = calculateProjectAnalytics(project, propActivities, propKPIs)
         setAnalytics(calculatedAnalytics)
         setLoading(false)
-        console.log(`✅ Calculated analytics from pre-loaded data for ${project.project_code} (same as Table)`)
+        setError(null)
+        if (Math.random() < 0.05) {
+          console.log(`⚠️ Calculated analytics INSIDE card as fallback for ${project.project_code} (should be calculated OUTSIDE)`)
+        }
         return
       } catch (error) {
         console.error(`❌ Error calculating analytics from pre-loaded data:`, error)
@@ -85,7 +102,8 @@ export function ModernProjectCard({
       }
     }
     
-    // ✅ Fallback: Load analytics from database (only if not provided)
+    // ✅ PRIORITY 3: Fallback - Load analytics from database (only if not provided)
+    // This should rarely happen as ProjectsList should always provide analytics
     loadAnalytics()
     
     return () => {
@@ -172,13 +190,9 @@ export function ModernProjectCard({
     }
   }
 
+  // Use dynamic currency system based on project currency
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0
-    }).format(amount)
+    return formatCurrencyByCodeSync(amount, project.currency)
   }
   
   const formatPercent = (value: number) => {
@@ -214,9 +228,50 @@ export function ModernProjectCard({
     }
   }
 
-  const progress = analytics?.overallProgress || 0
-  const totalActivities = analytics?.totalActivities || 0
-  const totalKPIs = analytics?.totalKPIs || 0
+  // ✅ Calculate display values from analytics - ALWAYS calculate even if analytics is null
+  // This ensures we always have valid numbers for display (0 if no data)
+  const progress = analytics?.overallProgress ?? 0
+  const totalActivities = analytics?.totalActivities ?? 0
+  const totalKPIs = analytics?.totalKPIs ?? 0
+
+  // ✅ DEBUG: Log analytics state for troubleshooting - SHOW FULL VALUES AND DISPLAY VALUES
+  // Log for ALL projects to see what's happening
+  console.log(`🔍 ModernProjectCard [${project.project_code}]:`, {
+    hasAnalytics: !!analytics,
+    hasPropAnalytics: !!propAnalytics,
+    loading,
+    error,
+    propActivitiesLength: propActivities?.length || 0,
+    propKPIsLength: propKPIs?.length || 0,
+    // ✅ Show FULL analytics object to see all values
+    analytics: analytics ? {
+      totalActivities: analytics.totalActivities,
+      totalKPIs: analytics.totalKPIs,
+      overallProgress: analytics.overallProgress,
+      totalContractValue: analytics.totalContractValue,
+      financialProgress: analytics.financialProgress,
+      weightedProgress: analytics.weightedProgress,
+      completedActivities: analytics.completedActivities,
+      onTrackActivities: analytics.onTrackActivities,
+      plannedKPIs: analytics.plannedKPIs,
+      actualKPIs: analytics.actualKPIs,
+      // ✅ Show activities and KPIs arrays to verify matching
+      activitiesCount: analytics.activities?.length || 0,
+      kpisCount: analytics.kpis?.length || 0
+    } : null,
+    // ✅ Show actual values being used for display (AFTER calculation)
+    displayValues: {
+      progress,
+      totalActivities,
+      totalKPIs,
+      progressFormatted: formatPercent(progress),
+      // ✅ Verify these are numbers, not strings or undefined
+      progressType: typeof progress,
+      totalActivitiesType: typeof totalActivities,
+      totalKPIsType: typeof totalKPIs
+    },
+    contractAmount: project.contract_amount
+  })
 
   return (
     <Card className="card-modern group overflow-hidden" style={{
@@ -231,6 +286,11 @@ export function ModernProjectCard({
             <CardTitle className="text-lg font-bold text-gray-900 dark:text-white mb-2 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
               {project.project_name}
             </CardTitle>
+            {project.project_description && (
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2 line-clamp-2">
+                {project.project_description}
+              </p>
+            )}
             <div className="flex gap-2 flex-wrap">
               <Badge variant="outline" className="text-xs font-mono bg-gray-100 dark:bg-gray-700">
                 {project.project_code}
@@ -258,7 +318,7 @@ export function ModernProjectCard({
               ) : error ? (
                 <span className="text-red-500">Error</span>
               ) : (
-                formatPercent(progress)
+                <span title={`Progress: ${progress}%`}>{formatPercent(progress)}</span> // ✅ Always show value, even if 0
               )}
             </span>
           </div>
@@ -292,7 +352,7 @@ export function ModernProjectCard({
                   ) : error ? (
                     <span className="text-red-500">-</span>
                   ) : (
-                    totalActivities
+                    <span>{totalActivities}</span> // ✅ Always show value, even if 0 - wrapped in span for debugging
                   )}
                 </p>
               </div>
@@ -312,13 +372,58 @@ export function ModernProjectCard({
                   ) : error ? (
                     <span className="text-red-500">-</span>
                   ) : (
-                    totalKPIs
+                    <span>{totalKPIs}</span> // ✅ Always show value, even if 0 - wrapped in span for debugging
                   )}
                 </p>
               </div>
             </div>
           </div>
         </div>
+
+        {/* Project Dates & Duration */}
+        {(project.project_start_date || project.project_completion_date || project.project_duration) && (
+          <div className="bg-gradient-to-r from-orange-50 to-amber-50 dark:from-orange-900/20 dark:to-amber-900/20 rounded-xl p-4 space-y-3">
+            <div className="flex items-center gap-2 mb-2">
+              <Calendar className="w-5 h-5 text-orange-600 dark:text-orange-400" />
+              <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Project Timeline</span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {project.project_start_date && (
+                <div className="space-y-1">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Start Date</p>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                    {new Date(project.project_start_date).toLocaleDateString('en-US', { 
+                      year: 'numeric', 
+                      month: 'short', 
+                      day: 'numeric' 
+                    })}
+                  </p>
+                </div>
+              )}
+              {project.project_completion_date && (
+                <div className="space-y-1">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Completion Date</p>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                    {new Date(project.project_completion_date).toLocaleDateString('en-US', { 
+                      year: 'numeric', 
+                      month: 'short', 
+                      day: 'numeric' 
+                    })}
+                  </p>
+                </div>
+              )}
+              {(project.project_duration !== undefined && project.project_duration !== null) && (
+                <div className="space-y-1">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Duration</p>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-blue-500" />
+                    {project.project_duration} {project.project_duration === 1 ? 'day' : 'days'}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Project Details */}
         <div className="grid grid-cols-2 gap-4">
@@ -379,6 +484,19 @@ export function ModernProjectCard({
               </a>
             </div>
           )}
+          
+          {project.division_head_email && (
+            <div className="space-y-1">
+              <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Division Head</p>
+              <a 
+                href={`mailto:${project.division_head_email}`}
+                className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline cursor-pointer truncate block"
+                title="Click to send email"
+              >
+                {project.division_head_email}
+              </a>
+            </div>
+          )}
         </div>
 
         {/* Contract Value */}
@@ -396,27 +514,22 @@ export function ModernProjectCard({
           </div>
         </div>
 
-        {/* Health Status */}
+        {/* Project Status based on Variance Percentage */}
         {analytics && (
           <div className="flex gap-2">
             <Badge className={`${
-              analytics.projectHealth === 'excellent' ? 'bg-green-100 text-green-800' :
-              analytics.projectHealth === 'good' ? 'bg-blue-100 text-blue-800' :
-              analytics.projectHealth === 'warning' ? 'bg-yellow-100 text-yellow-800' :
-              'bg-red-100 text-red-800'
+              analytics.projectStatus === 'ahead' ? 'bg-green-100 text-green-800 border border-green-300' :
+              analytics.projectStatus === 'on_track' ? 'bg-blue-100 text-blue-800 border border-blue-300' :
+              'bg-red-100 text-red-800 border border-red-300'
             } font-semibold`}>
-              {analytics.projectHealth === 'excellent' ? 'Excellent' :
-               analytics.projectHealth === 'good' ? 'Good' :
-               analytics.projectHealth === 'warning' ? 'Warning' : 'Critical'}
+              {analytics.projectStatus === 'ahead' ? 'Project Ahead' :
+               analytics.projectStatus === 'on_track' ? 'Project On Track' : 'Project Delayed'}
             </Badge>
-            <Badge className={`${
-              analytics.riskLevel === 'low' ? 'bg-green-100 text-green-800' :
-              analytics.riskLevel === 'medium' ? 'bg-yellow-100 text-yellow-800' :
-              analytics.riskLevel === 'high' ? 'bg-orange-100 text-orange-800' :
-              'bg-red-100 text-red-800'
-            }`}>
-              Risk: {analytics.riskLevel.toUpperCase()}
-            </Badge>
+            {analytics.variancePercentage !== 0 && (
+              <Badge className="bg-gray-100 text-gray-800 border border-gray-300">
+                Variance: {analytics.variancePercentage > 0 ? '+' : ''}{analytics.variancePercentage.toFixed(1)}%
+              </Badge>
+            )}
           </div>
         )}
 

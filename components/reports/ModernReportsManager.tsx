@@ -13,6 +13,7 @@ import { Alert } from '@/components/ui/Alert'
 import { SmartFilter } from '@/components/ui/SmartFilter'
 import { PrintableReport } from './PrintableReport'
 import { PrintButton } from '@/components/ui/PrintButton'
+import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 import {
   FileText,
   Download,
@@ -63,6 +64,12 @@ export function ModernReportsManager() {
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>([])
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([])
   const [selectedTypes, setSelectedTypes] = useState<string[]>([])
+  const [selectedZones, setSelectedZones] = useState<string[]>([])
+  const [selectedUnits, setSelectedUnits] = useState<string[]>([])
+  const [selectedActivities, setSelectedActivities] = useState<string[]>([])
+  const [smartFilterDateRange, setSmartFilterDateRange] = useState<{ from?: string; to?: string }>({})
+  const [valueRange, setValueRange] = useState<{ min?: number; max?: number }>({})
+  const [quantityRange, setQuantityRange] = useState<{ min?: number; max?: number }>({})
   
   const [dateRange, setDateRange] = useState({
     start: '',
@@ -208,18 +215,117 @@ export function ModernReportsManager() {
       ))
     }
 
+    // Filter by activities
+    if (selectedActivities.length > 0) {
+      filteredActivities = filteredActivities.filter(a =>
+        selectedActivities.includes(a.activity_name)
+      )
+      filteredKPIs = filteredKPIs.filter(k =>
+        selectedActivities.includes((k as any).activity_name || k.activity_name)
+      )
+    }
+
     // Filter by divisions
     if (selectedDivisions.length > 0) {
       filteredProjects = filteredProjects.filter(p => 
         selectedDivisions.includes(p.responsible_division)
       )
+      filteredActivities = filteredActivities.filter(a =>
+        selectedDivisions.some(div => 
+          (a.activity_division || '').toLowerCase().includes(div.toLowerCase())
+        )
+      )
+      filteredKPIs = filteredKPIs.filter(k =>
+        selectedDivisions.some(div => 
+          ((k as any).activity_division || '').toLowerCase().includes(div.toLowerCase())
+        )
+      )
     }
 
-    // Filter by statuses
+    // Filter by zones
+    if (selectedZones.length > 0) {
+      filteredActivities = filteredActivities.filter(a => {
+        const activityZone = (a.zone_ref || a.zone_number || '').toLowerCase().trim()
+        return selectedZones.some(zone =>
+          activityZone === zone.toLowerCase().trim() ||
+          activityZone.includes(zone.toLowerCase().trim())
+        )
+      })
+      filteredKPIs = filteredKPIs.filter(k => {
+        const kpiZone = ((k as any).zone || (k as any).section || '').toLowerCase().trim()
+        return selectedZones.some(zone =>
+          kpiZone === zone.toLowerCase().trim() ||
+          kpiZone.includes(zone.toLowerCase().trim())
+        )
+      })
+    }
+
+    // Filter by units
+    if (selectedUnits.length > 0) {
+      filteredActivities = filteredActivities.filter(a =>
+        selectedUnits.includes(a.unit || '')
+      )
+      filteredKPIs = filteredKPIs.filter(k =>
+        selectedUnits.includes((k as any).unit || '')
+      )
+    }
+
+    // Filter by types
+    if (selectedTypes.length > 0) {
+      filteredKPIs = filteredKPIs.filter(k =>
+        selectedTypes.includes((k as any).input_type || k.input_type)
+      )
+    }
+
+    // Filter by statuses (for KPIs)
     if (selectedStatuses.length > 0) {
+      filteredKPIs = filteredKPIs.filter(k =>
+        selectedStatuses.some(status =>
+          ((k as any).status || '').toLowerCase() === status.toLowerCase()
+        )
+      )
+      // Also filter projects by status if they have status field
       filteredProjects = filteredProjects.filter(p => 
         selectedStatuses.includes(p.project_status)
       )
+    }
+
+    // Filter by date range (Smart Filter)
+    if (smartFilterDateRange.from || smartFilterDateRange.to) {
+      filteredKPIs = filteredKPIs.filter(k => {
+        const kpiDate = new Date((k as any).target_date || (k as any).activity_date || k.created_at)
+        if (smartFilterDateRange.from) {
+          const fromDate = new Date(smartFilterDateRange.from)
+          fromDate.setHours(0, 0, 0, 0)
+          if (kpiDate < fromDate) return false
+        }
+        if (smartFilterDateRange.to) {
+          const toDate = new Date(smartFilterDateRange.to)
+          toDate.setHours(23, 59, 59, 999)
+          if (kpiDate > toDate) return false
+        }
+        return true
+      })
+    }
+
+    // Filter by value range
+    if (valueRange.min !== undefined || valueRange.max !== undefined) {
+      filteredKPIs = filteredKPIs.filter(k => {
+        const kpiValue = (k as any).value || 0
+        if (valueRange.min !== undefined && kpiValue < valueRange.min) return false
+        if (valueRange.max !== undefined && kpiValue > valueRange.max) return false
+        return true
+      })
+    }
+
+    // Filter by quantity range
+    if (quantityRange.min !== undefined || quantityRange.max !== undefined) {
+      filteredKPIs = filteredKPIs.filter(k => {
+        const kpiQuantity = (k as any).quantity || 0
+        if (quantityRange.min !== undefined && kpiQuantity < quantityRange.min) return false
+        if (quantityRange.max !== undefined && kpiQuantity > quantityRange.max) return false
+        return true
+      })
     }
 
     // Filter by date range
@@ -427,20 +533,55 @@ export function ModernReportsManager() {
         <CardContent>
           <div className="space-y-4">
             <SmartFilter
-              projects={projects}
-              activities={activities}
+              projects={projects.map(p => ({ 
+                project_code: p.project_code, 
+                project_name: p.project_name 
+              }))}
+              activities={activities.map(a => ({
+                activity_name: a.activity_name,
+                project_code: a.project_code,
+                zone: a.zone_ref || a.zone_number || '',
+                unit: a.unit || '',
+                activity_division: a.activity_division || ''
+              }))}
+              kpis={kpis.map(k => ({
+                zone: (k as any).zone || (k as any).section || '',
+                unit: (k as any).unit || '',
+                activity_division: (k as any).activity_division || '',
+                value: (k as any).value || 0,
+                quantity: (k as any).quantity || 0
+              }))}
               selectedProjects={selectedProjects}
-              selectedActivities={[]}
+              selectedActivities={selectedActivities}
               selectedTypes={selectedTypes}
               selectedStatuses={selectedStatuses}
+              selectedZones={selectedZones}
+              selectedUnits={selectedUnits}
+              selectedDivisions={selectedDivisions}
+              dateRange={smartFilterDateRange}
+              valueRange={valueRange}
+              quantityRange={quantityRange}
               onProjectsChange={setSelectedProjects}
+              onActivitiesChange={setSelectedActivities}
               onTypesChange={setSelectedTypes}
               onStatusesChange={setSelectedStatuses}
-              onActivitiesChange={() => {}}
+              onZonesChange={setSelectedZones}
+              onUnitsChange={setSelectedUnits}
+              onDivisionsChange={setSelectedDivisions}
+              onDateRangeChange={setSmartFilterDateRange}
+              onValueRangeChange={setValueRange}
+              onQuantityRangeChange={setQuantityRange}
               onClearAll={() => {
                 setSelectedProjects([])
+                setSelectedActivities([])
                 setSelectedTypes([])
                 setSelectedStatuses([])
+                setSelectedZones([])
+                setSelectedUnits([])
+                setSelectedDivisions([])
+                setSmartFilterDateRange({})
+                setValueRange({})
+                setQuantityRange({})
               }}
             />
             
@@ -1383,14 +1524,9 @@ function KPIsReport({ kpis }: { kpis: ProcessedKPI[] }) {
   )
 }
 
-// Helper function
-const formatCurrency = (amount: number) => {
-  return new Intl.NumberFormat('en-AE', {
-    style: 'currency',
-    currency: 'AED',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  }).format(amount || 0)
+// Helper function - use dynamic currency system
+const formatCurrency = (amount: number, currencyCode?: string) => {
+  return formatCurrencyByCodeSync(amount || 0, currencyCode)
 }
 
 // Financial Report Component
@@ -1474,10 +1610,10 @@ function FinancialReport({ summary, projects, activities }: { summary: any, proj
                     <div className="text-sm text-gray-500">{project.project_code}</div>
                   </td>
                   <td className="px-6 py-4 text-sm font-semibold text-gray-900 dark:text-gray-100">
-                    {formatCurrency(project.contract_amount)}
+                    {formatCurrency(project.contract_amount, project.currency)}
                   </td>
                   <td className="px-6 py-4 text-sm font-semibold text-green-600">
-                    {formatCurrency(activitiesValue)}
+                    {formatCurrency(activitiesValue, project.currency)}
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">

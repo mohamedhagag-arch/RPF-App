@@ -58,6 +58,10 @@ export interface ProjectAnalytics {
   // Status Summary
   projectHealth: 'excellent' | 'good' | 'warning' | 'critical'
   riskLevel: 'low' | 'medium' | 'high' | 'critical'
+  
+  // Variance Metrics
+  variancePercentage: number
+  projectStatus: 'ahead' | 'on_track' | 'delayed' // Based on variance percentage
 }
 
 /**
@@ -106,7 +110,11 @@ function createEmptyAnalytics(project: Project): ProjectAnalytics {
     
     // Status Summary
     projectHealth: 'warning',
-    riskLevel: 'low'
+    riskLevel: 'low',
+    
+    // Variance Metrics
+    variancePercentage: 0,
+    projectStatus: 'on_track'
   }
 }
 
@@ -129,6 +137,7 @@ export function calculateProjectAnalytics(
   const fullCode = `${projectCode}${projectSubCode}`
   
   // ✅ PERFORMANCE: Filter activities with optimized matching
+  // ✅ DEBUG: Add logging to diagnose matching issues
   const projectActivities = allActivities.filter(a => {
     if (!a.project_code && !a.project_full_code) return false
     
@@ -141,10 +150,18 @@ export function calculateProjectAnalytics(
     // Exact full code match (if project has sub-code)
     if (fullCode && a.project_full_code === fullCode) return true
     
+    // ✅ Also check raw data if available (for database column names with spaces)
+    const rawActivity = (a as any).raw
+    if (rawActivity) {
+      const rawProjectCode = rawActivity['Project Code'] || rawActivity['Project Full Code']
+      if (rawProjectCode === projectCode || rawProjectCode?.startsWith(projectCode)) return true
+    }
+    
     return false
   })
   
   // ✅ PERFORMANCE: Filter KPIs with optimized matching
+  // ✅ DEBUG: Add logging to diagnose matching issues
   const projectKPIs = allKPIs.filter(k => {
     if (!k.project_code && !k.project_full_code) return false
     
@@ -157,7 +174,56 @@ export function calculateProjectAnalytics(
     // Exact full code match (if project has sub-code)
     if (fullCode && k.project_full_code === fullCode) return true
     
+    // ✅ Also check raw data if available (for database column names with spaces)
+    const rawKPI = (k as any).raw
+    if (rawKPI) {
+      const rawProjectCode = rawKPI['Project Code'] || rawKPI['Project Full Code']
+      if (rawProjectCode === projectCode || rawProjectCode?.startsWith(projectCode)) return true
+    }
+    
     return false
+  })
+  
+  // ✅ DEBUG: Log matching results for ALL projects to diagnose matching issues
+  console.log(`🔍 calculateProjectAnalytics [${projectCode}]:`, {
+    projectCode,
+    projectSubCode,
+    fullCode,
+    allActivitiesCount: allActivities.length,
+    allKPIsCount: allKPIs.length,
+    matchedActivitiesCount: projectActivities.length,
+    matchedKPIsCount: projectKPIs.length,
+    // ✅ Show sample activity codes for debugging (first 5 activities)
+    sampleActivities: allActivities.slice(0, 5).map((a: any) => ({
+      project_code: a.project_code,
+      project_full_code: a.project_full_code,
+      rawProjectCode: a.raw?.['Project Code'],
+      rawProjectFullCode: a.raw?.['Project Full Code'],
+      matches: {
+        directCodeMatch: a.project_code === projectCode,
+        fullCodeStartsWith: a.project_full_code?.startsWith(projectCode),
+        fullCodeExact: fullCode && a.project_full_code === fullCode,
+        rawCodeMatch: a.raw?.['Project Code'] === projectCode || a.raw?.['Project Full Code']?.startsWith(projectCode)
+      }
+    })),
+    // ✅ Show sample KPI codes for debugging (first 5 KPIs)
+    sampleKPIs: allKPIs.slice(0, 5).map((k: any) => ({
+      project_code: k.project_code,
+      project_full_code: k.project_full_code,
+      rawProjectCode: k.raw?.['Project Code'],
+      rawProjectFullCode: k.raw?.['Project Full Code'],
+      matches: {
+        directCodeMatch: k.project_code === projectCode,
+        fullCodeStartsWith: k.project_full_code?.startsWith(projectCode),
+        fullCodeExact: fullCode && k.project_full_code === fullCode,
+        rawCodeMatch: k.raw?.['Project Code'] === projectCode || k.raw?.['Project Full Code']?.startsWith(projectCode)
+      }
+    })),
+    // ✅ Show final calculated values
+    calculatedValues: {
+      totalActivities: projectActivities.length,
+      totalKPIs: projectKPIs.length
+    }
   })
   
   // ✅ PERFORMANCE: Remove logging in production
@@ -381,6 +447,32 @@ export function calculateProjectAnalytics(
   // This is the total contract value that the user manually entered
   const totalContractValue = project.contract_amount || 0
   
+  // ✅ Calculate Variance Percentage
+  // Variance Percentage = ((Actual Progress - Planned Progress) / Planned Progress) × 100
+  // Actual Progress = overallProgress (based on contract value)
+  // Planned Progress = financialProgress (based on planned value)
+  // If Planned Progress is 0, variance is 0
+  let variancePercentage = 0
+  if (financialProgress > 0) {
+    variancePercentage = ((overallProgress - financialProgress) / financialProgress) * 100
+  } else if (overallProgress > 0) {
+    // If planned is 0 but actual > 0, we're ahead
+    variancePercentage = 100
+  }
+  
+  // ✅ Determine Project Status based on Variance Percentage
+  // Project Ahead: Variance Percentage > 5%
+  // Project On Track: Variance Percentage between -5% to 5%
+  // Project Delayed: Variance Percentage < -5%
+  let projectStatus: 'ahead' | 'on_track' | 'delayed'
+  if (variancePercentage > 5) {
+    projectStatus = 'ahead'
+  } else if (variancePercentage >= -5 && variancePercentage <= 5) {
+    projectStatus = 'on_track'
+  } else {
+    projectStatus = 'delayed'
+  }
+  
   // ✅ PERFORMANCE: Remove logging in production
   // Only log in development mode and very rarely
   if (process.env.NODE_ENV === 'development' && Math.random() < 0.01) {
@@ -435,7 +527,11 @@ export function calculateProjectAnalytics(
     
     // Status Summary
     projectHealth,
-    riskLevel
+    riskLevel,
+    
+    // Variance Metrics
+    variancePercentage,
+    projectStatus
   }
 }
 

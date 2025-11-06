@@ -8,6 +8,8 @@
  * - Project Progress = (Total Earned Value / Total Project Value) × 100
  */
 
+import { formatCurrencyByCodeSync } from './currenciesManager'
+
 export interface BOQValueCalculation {
   rate: number
   value: number
@@ -78,15 +80,10 @@ export function calculateProgress(actualUnits: number, plannedUnits: number): nu
 }
 
 /**
- * Format currency value
+ * Format currency value using the dynamic currency system
  */
-export function formatCurrency(value: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  }).format(value)
+export function formatCurrency(value: number, currencyCode?: string): string {
+  return formatCurrencyByCodeSync(value, currencyCode)
 }
 
 /**

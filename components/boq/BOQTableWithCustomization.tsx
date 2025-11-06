@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { BOQActivity, Project } from '@/lib/supabase'
 import { ColumnCustomizer, ColumnConfig } from '@/components/ui/ColumnCustomizer'
 import { useColumnCustomization } from '@/lib/useColumnCustomization'
@@ -8,7 +8,8 @@ import { Button } from '@/components/ui/Button'
 import { PermissionButton } from '@/components/ui/PermissionButton'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { PermissionGuard } from '@/components/common/PermissionGuard'
-import { CheckCircle, Clock, AlertCircle, Calendar, Building, Activity, TrendingUp, Target, Info, Filter, X } from 'lucide-react'
+import { CheckCircle, Clock, AlertCircle, Calendar, Building, Activity, TrendingUp, Target, Info, Filter, X, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 
 interface BOQTableWithCustomizationProps {
   activities: BOQActivity[]
@@ -44,6 +45,10 @@ export function BOQTableWithCustomization({
   const guard = usePermissionGuard()
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [showCustomizer, setShowCustomizer] = useState(false)
+  
+  // Sorting state
+  const [sortColumn, setSortColumn] = useState<string | null>(null)
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   
   const { 
     columns, 
@@ -352,6 +357,7 @@ export function BOQTableWithCustomization({
   const renderCell = (activity: BOQActivity, column: ColumnConfig) => {
     const project = projects.find(p => p.project_code === activity.project_code)
     const projectFullName = getProjectName(activity.project_code) || activity.project_full_code || activity.project_code
+    const currencyCode = project?.currency
     
     switch (column.id) {
       case 'select':
@@ -367,22 +373,51 @@ export function BOQTableWithCustomization({
       case 'activity_details':
         // Get Zone from multiple sources
         const rawActivityDetails = (activity as any).raw || {}
-        const zoneValue = activity.zone_number || 
-                         activity.zone_ref || 
-                         rawActivityDetails['Zone Number'] ||
-                         rawActivityDetails['Zone Ref'] ||
-                         rawActivityDetails['Zone #'] ||
-                         'N/A'
+        let zoneValue = activity.zone_number || 
+                       activity.zone_ref || 
+                       rawActivityDetails['Zone Number'] ||
+                       rawActivityDetails['Zone Ref'] ||
+                       rawActivityDetails['Zone #'] ||
+                       ''
+        
+        // Remove project code from zone value if it exists
+        // Example: "P9999 - Building A" -> "Building A" or "Zone P9999 - Building A" -> "Building A"
+        if (zoneValue && activity.project_code) {
+          const projectCodeUpper = activity.project_code.toUpperCase().trim()
+          let zoneStr = zoneValue.toString()
+          
+          // Remove project code patterns:
+          // 1. "P9999 - " or "P9999 -" at start
+          zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+          // 2. " P9999 - " or " P9999 -" in middle
+          zoneStr = zoneStr.replace(new RegExp(`\\s+${projectCodeUpper}\\s*-\\s*`, 'gi'), ' ').trim()
+          // 3. Just "P9999" at start followed by space or dash
+          zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}(\\s|-)+`, 'i'), '').trim()
+          // 4. Just "P9999" in middle with spaces/dashes around
+          zoneStr = zoneStr.replace(new RegExp(`(\\s|-)+${projectCodeUpper}(\\s|-)+`, 'gi'), ' ').trim()
+          // 5. Clean up any remaining " - " or "- " at the start
+          zoneStr = zoneStr.replace(/^\s*-\s*/, '').trim()
+          // 6. Clean up multiple spaces
+          zoneStr = zoneStr.replace(/\s+/g, ' ').trim()
+          
+          zoneValue = zoneStr || 'N/A'
+        }
         
         return (
           <div className="space-y-1">
-            <div className="text-xs text-gray-600 dark:text-gray-400">Project: {projectFullName}</div>
             <div className="font-medium text-gray-900 dark:text-white text-sm">
               {activity.activity_name || 'N/A'}
             </div>
-            <div className="text-xs text-gray-600 dark:text-gray-400">
-              Zone {zoneValue}
-            </div>
+            {projectFullName && projectFullName !== 'N/A' && (
+              <div className="text-xs text-gray-600 dark:text-gray-400">
+                {projectFullName}
+              </div>
+            )}
+            {zoneValue && zoneValue !== 'N/A' && (
+              <div className="text-xs text-gray-600 dark:text-gray-400">
+                Zone {zoneValue}
+              </div>
+            )}
           </div>
         )
       
@@ -490,9 +525,9 @@ export function BOQTableWithCustomization({
           : 0)
         return (
           <div className="space-y-1">
-            <div className="text-xs text-gray-600 dark:text-gray-400">Total Value: ${(activity.total_value || 0).toLocaleString()}</div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Total Value: {formatCurrencyByCodeSync(activity.total_value || 0, currencyCode)}</div>
             <div className="text-xs text-gray-600 dark:text-gray-400">Unit: {activity.unit || 'N/A'}</div>
-            <div className="text-sm font-medium text-gray-900 dark:text-white">Unit Rate: ${unitRate.toLocaleString()}</div>
+            <div className="text-sm font-medium text-gray-900 dark:text-white">Unit Rate: {formatCurrencyByCodeSync(unitRate, currencyCode)}</div>
           </div>
         )
       
@@ -995,10 +1030,10 @@ export function BOQTableWithCustomization({
         
         return (
           <div className="space-y-1">
-            <div className="text-xs text-gray-600 dark:text-gray-400">Planned: ${plannedWorkValueAct.toLocaleString()}</div>
-            <div className="text-xs text-gray-600 dark:text-gray-400">Done: ${workDoneValueAct.toLocaleString()}</div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Planned: {formatCurrencyByCodeSync(plannedWorkValueAct, currencyCode)}</div>
+            <div className="text-xs text-gray-600 dark:text-gray-400">Done: {formatCurrencyByCodeSync(workDoneValueAct, currencyCode)}</div>
             <div className={`text-sm font-medium ${varianceWorkValueAct >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-              Variance: ${varianceWorkValueAct >= 0 ? '+' : ''}${varianceWorkValueAct.toLocaleString()}
+              Variance: {varianceWorkValueAct >= 0 ? '+' : ''}{formatCurrencyByCodeSync(varianceWorkValueAct, currencyCode)}
             </div>
           </div>
         )
@@ -1248,6 +1283,71 @@ export function BOQTableWithCustomization({
 
   const visibleColumns = columns.filter(col => col.visible).sort((a, b) => a.order - b.order)
 
+  // Sorting handler
+  const handleSort = (columnId: string) => {
+    if (columnId === 'select' || columnId === 'actions') return
+    
+    if (sortColumn === columnId) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortColumn(columnId)
+      setSortDirection('asc')
+    }
+  }
+
+  // Get sortable value for an activity and column
+  const getSortValue = (activity: BOQActivity, columnId: string): any => {
+    const getField = (fieldName: string) => {
+      const raw = (activity as any).raw || activity
+      return raw[fieldName] || (activity as any)[fieldName] || ''
+    }
+    
+    switch (columnId) {
+      case 'activity_details':
+        return activity.activity_name || getField('Activity Name') || ''
+      case 'quantities':
+        return parseFloat(String(activity.planned_units || getField('Planned Units') || '0').replace(/,/g, '')) || 0
+      case 'activity_value':
+        return parseFloat(String(activity.total_value || getField('Total Value') || '0').replace(/,/g, '')) || 0
+      case 'planned_dates':
+        const plannedStart = activity.activity_planned_start_date || getField('Planned Start Date') || ''
+        return plannedStart ? new Date(plannedStart).getTime() : 0
+      case 'actual_dates':
+        const actualStart = (activity as any).activity_actual_start_date || getField('Actual Start Date') || ''
+        return actualStart ? new Date(actualStart).getTime() : 0
+      case 'progress_summary':
+        return activity.activity_progress_percentage ?? 0
+      case 'work_value_status':
+        const plannedWorkValue = parseFloat(String(getField('Planned Work Value') || '0').replace(/,/g, '')) || 0
+        return plannedWorkValue
+      case 'activity_status':
+        return (activity as any).activity_status || getField('Activity Status') || ''
+      default:
+        return getField(columnId) || ''
+    }
+  }
+
+  // Sort activities
+  const sortedActivities = useMemo(() => {
+    if (!sortColumn) return activities
+    
+    return [...activities].sort((a, b) => {
+      const aValue = getSortValue(a, sortColumn)
+      const bValue = getSortValue(b, sortColumn)
+      
+      if (aValue === null || aValue === undefined) return 1
+      if (bValue === null || bValue === undefined) return -1
+      
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        const comparison = aValue.localeCompare(bValue, undefined, { numeric: true, sensitivity: 'base' })
+        return sortDirection === 'asc' ? comparison : -comparison
+      }
+      
+      const comparison = (aValue as number) - (bValue as number)
+      return sortDirection === 'asc' ? comparison : -comparison
+    })
+  }, [activities, sortColumn, sortDirection])
+
   // ✅ Check permission before rendering the entire table
   if (!guard.hasAccess('boq.view')) {
     return null
@@ -1299,39 +1399,62 @@ export function BOQTableWithCustomization({
         <table className="w-full border-collapse">
           <thead className="sticky top-0 z-10">
             <tr className="border-b border-gray-200 dark:border-gray-700">
-              {visibleColumns.map((column) => (
-                <th
-                  key={column.id}
-                  className="px-4 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800"
-                  style={{
-                    width: column.width || 'auto',
-                    minWidth: column.width || '120px',
-                    maxWidth: column.width || 'none',
-                    position: 'sticky',
-                    top: 0,
-                    zIndex: 10
-                  }}
-                >
-                  {column.id === 'select' ? (
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.length === activities.length && activities.length > 0}
-                        onChange={(e) => handleSelectAll(e.target.checked)}
-                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                        title="Select All"
-                      />
-                      <span>{column.label}</span>
-                    </div>
-                  ) : (
-                    column.label
-                  )}
-                </th>
-              ))}
+              {visibleColumns.map((column) => {
+                const isSortable = column.id !== 'select' && column.id !== 'actions'
+                const isSorted = sortColumn === column.id
+                
+                return (
+                  <th
+                    key={column.id}
+                    onClick={() => isSortable && handleSort(column.id)}
+                    className={`px-4 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 ${
+                      isSortable ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none' : ''
+                    }`}
+                    style={{
+                      width: column.width || 'auto',
+                      minWidth: column.width || '120px',
+                      maxWidth: column.width || 'none',
+                      position: 'sticky',
+                      top: 0,
+                      zIndex: 10
+                    }}
+                  >
+                    {column.id === 'select' ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.length === activities.length && activities.length > 0}
+                          onChange={(e) => handleSelectAll(e.target.checked)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          title="Select All"
+                        />
+                        <span>{column.label}</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span>{column.label}</span>
+                        {isSortable && (
+                          <div className="flex flex-col">
+                            {isSorted ? (
+                              sortDirection === 'asc' ? (
+                                <ArrowUp className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                              ) : (
+                                <ArrowDown className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                              )
+                            ) : (
+                              <ArrowUpDown className="h-3 w-3 text-gray-400 dark:text-gray-500" />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </th>
+                )
+              })}
             </tr>
           </thead>
           <tbody>
-            {activities.map((activity) => (
+            {sortedActivities.map((activity) => (
               <tr
                 key={activity.id}
                 className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50"

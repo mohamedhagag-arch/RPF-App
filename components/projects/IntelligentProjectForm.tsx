@@ -38,6 +38,12 @@ import {
   Currency
 } from '@/lib/currenciesManager'
 import {
+  getAllCompanies,
+  getCompaniesByType,
+  addCompany,
+  Company
+} from '@/lib/companiesManager'
+import {
   Sparkles,
   Building2,
   MapPin,
@@ -53,7 +59,9 @@ import {
   Hash,
   Clock,
   Link,
-  Download
+  Download,
+  Plus,
+  Check
 } from 'lucide-react'
 
 interface IntelligentProjectFormProps {
@@ -72,6 +80,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
   const [projectCode, setProjectCode] = useState('')
   const [projectSubCode, setProjectSubCode] = useState('')
   const [projectName, setProjectName] = useState('')
+  const [projectDescription, setProjectDescription] = useState('')
   const [projectTypes, setProjectTypes] = useState<string[]>([])
   const [responsibleDivisions, setResponsibleDivisions] = useState<string[]>([])
   const [plotNumber, setPlotNumber] = useState('')
@@ -82,9 +91,27 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
   // Additional Project Details
   const [clientName, setClientName] = useState('')
   const [consultantName, setConsultantName] = useState('')
-  const [firstPartyName, setFirstPartyName] = useState('')
+  const [contractorName, setContractorName] = useState('')
+  
+  // Companies data for dropdowns
+  const [clientCompanies, setClientCompanies] = useState<Company[]>([])
+  const [consultantCompanies, setConsultantCompanies] = useState<Company[]>([])
+  const [contractorCompanies, setContractorCompanies] = useState<Company[]>([])
+  const [clientSearch, setClientSearch] = useState('')
+  const [consultantSearch, setConsultantSearch] = useState('')
+  const [contractorSearch, setContractorSearch] = useState('')
+  const [showClientDropdown, setShowClientDropdown] = useState(false)
+  const [showConsultantDropdown, setShowConsultantDropdown] = useState(false)
+  const [showContractorDropdown, setShowContractorDropdown] = useState(false)
+  
+  // Add new company modal state
+  const [showAddCompanyModal, setShowAddCompanyModal] = useState(false)
+  const [newCompanyType, setNewCompanyType] = useState<'Client' | 'Consultant' | 'Contractor'>('Client')
+  const [newCompanyName, setNewCompanyName] = useState('')
+  const [addingCompany, setAddingCompany] = useState(false)
   const [projectManagerEmail, setProjectManagerEmail] = useState('')
   const [areaManagerEmail, setAreaManagerEmail] = useState('')
+  const [divisionHeadEmail, setDivisionHeadEmail] = useState('')
   const [latitude, setLatitude] = useState('')
   const [longitude, setLongitude] = useState('')
   const [mapUrl, setMapUrl] = useState('')
@@ -92,6 +119,10 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
   const [workmanshipOnly, setWorkmanshipOnly] = useState('')
   const [advancePaymentRequired, setAdvancePaymentRequired] = useState('')
   const [virtualMaterialValue, setVirtualMaterialValue] = useState('')
+  const [projectStartDate, setProjectStartDate] = useState('')
+  const [projectCompletionDate, setProjectCompletionDate] = useState('')
+  const [projectDuration, setProjectDuration] = useState<number | undefined>(undefined)
+  const [dateProjectAwarded, setDateProjectAwarded] = useState('')
   
   // Currency Management
   const [selectedCurrency, setSelectedCurrency] = useState<Currency | null>(null)
@@ -300,6 +331,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
       setProjectCode(project.project_code)
       setProjectSubCode(project.project_sub_code || '')
       setProjectName(project.project_name)
+      setProjectDescription(project.project_description || '')
       setProjectTypes(project.project_type ? project.project_type.split(', ') : [])
       setResponsibleDivisions(project.responsible_division ? project.responsible_division.split(', ') : [])
       setPlotNumber(project.plot_number || '')
@@ -311,16 +343,51 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
       // Load additional project details
       setClientName(project.client_name || '')
       setConsultantName(project.consultant_name || '')
-      setFirstPartyName(project.first_party_name || '')
+      setContractorName(project.first_party_name || '')
       setProjectManagerEmail(project.project_manager_email || '')
       setAreaManagerEmail(project.area_manager_email || '')
+      setDivisionHeadEmail(project.division_head_email || '')
       setLatitude(project.latitude || '')
       setLongitude(project.longitude || '')
       setContractStatus(project.contract_status || '')
       setWorkmanshipOnly(project.workmanship_only || '')
       setAdvancePaymentRequired(project.advance_payment_required || '')
       setVirtualMaterialValue(project.virtual_material_value || '')
+      
+      // Load project dates
+      if (project.project_start_date) {
+        // Convert date to YYYY-MM-DD format for input
+        const startDate = new Date(project.project_start_date)
+        if (!isNaN(startDate.getTime())) {
+          setProjectStartDate(startDate.toISOString().split('T')[0])
+        }
+      }
+      if (project.project_completion_date) {
+        const completionDate = new Date(project.project_completion_date)
+        if (!isNaN(completionDate.getTime())) {
+          setProjectCompletionDate(completionDate.toISOString().split('T')[0])
+        }
+      }
+      if (project.project_duration !== undefined) {
+        setProjectDuration(project.project_duration)
+      }
+      
+      // Load project award date
+      if (project.date_project_awarded) {
+        const awardDate = new Date(project.date_project_awarded)
+        if (!isNaN(awardDate.getTime())) {
+          setDateProjectAwarded(awardDate.toISOString().split('T')[0])
+        }
+      } else {
+        setDateProjectAwarded('')
+      }
     } else {
+      // Reset form fields for new project
+      setDateProjectAwarded('')
+      setProjectStartDate('')
+      setProjectCompletionDate('')
+      setProjectDuration(undefined)
+      
       // Load metadata for suggestions
       const metadata = getProjectMetadata()
       if (metadata.suggestedNextCode) {
@@ -371,6 +438,109 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
       setCodeValidation({ valid: true })
     }
   }, [projectCode])
+
+  // Calculate duration automatically when dates change
+  useEffect(() => {
+    if (projectStartDate && projectCompletionDate) {
+      const start = new Date(projectStartDate)
+      const completion = new Date(projectCompletionDate)
+      
+      if (!isNaN(start.getTime()) && !isNaN(completion.getTime())) {
+        // Calculate duration in days (including both start and end days)
+        const diffTime = completion.getTime() - start.getTime()
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1
+        setProjectDuration(diffDays >= 0 ? diffDays : 0)
+      } else {
+        setProjectDuration(undefined)
+      }
+    } else if (projectStartDate && !projectCompletionDate) {
+      // If only start date exists, calculate from start to today
+      const start = new Date(projectStartDate)
+      const today = new Date()
+      if (!isNaN(start.getTime())) {
+        const diffTime = today.getTime() - start.getTime()
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1
+        setProjectDuration(diffDays >= 0 ? diffDays : 0)
+      } else {
+        setProjectDuration(undefined)
+      }
+    } else {
+      setProjectDuration(undefined)
+    }
+  }, [projectStartDate, projectCompletionDate])
+  
+  // Load companies from database
+  const loadCompanies = async () => {
+    try {
+      const [clients, consultants, contractors] = await Promise.all([
+        getCompaniesByType('Client'),
+        getCompaniesByType('Consultant'),
+        getCompaniesByType('Contractor')
+      ])
+      setClientCompanies(clients)
+      setConsultantCompanies(consultants)
+      setContractorCompanies(contractors)
+    } catch (error) {
+      console.error('Error loading companies:', error)
+    }
+  }
+
+  useEffect(() => {
+    loadCompanies()
+  }, [])
+
+  // Handle adding new company
+  const handleAddNewCompany = async () => {
+    if (!newCompanyName.trim()) {
+      return
+    }
+
+    try {
+      setAddingCompany(true)
+      await addCompany({
+        company_name: newCompanyName.trim(),
+        company_type: newCompanyType
+      })
+      
+      // Reload companies
+      await loadCompanies()
+      
+      // Set the newly added company
+      if (newCompanyType === 'Client') {
+        setClientName(newCompanyName.trim())
+        setShowClientDropdown(false)
+      } else if (newCompanyType === 'Consultant') {
+        setConsultantName(newCompanyName.trim())
+        setShowConsultantDropdown(false)
+      } else if (newCompanyType === 'Contractor') {
+        setContractorName(newCompanyName.trim())
+        setShowContractorDropdown(false)
+      }
+      
+      // Reset modal
+      setShowAddCompanyModal(false)
+      setNewCompanyName('')
+    } catch (error: any) {
+      console.error('Error adding company:', error)
+      alert(error.message || 'Failed to add company')
+    } finally {
+      setAddingCompany(false)
+    }
+  }
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      if (!target.closest('.company-dropdown-container')) {
+        setShowClientDropdown(false)
+        setShowConsultantDropdown(false)
+        setShowContractorDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
   
   // Project scopes are loaded directly from Project Scope Management
   // No need to modify suggestions based on divisions
@@ -502,6 +672,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
         project_code: projectCode.trim().toUpperCase(),
         project_sub_code: projectSubCode.trim() || undefined,
         project_name: projectName.trim(),
+        project_description: projectDescription.trim() || undefined,
         project_type: projectTypes.join(', ') || undefined,
         responsible_division: responsibleDivisions.join(', ') || undefined,
         plot_number: plotNumber.trim() || undefined,
@@ -511,15 +682,42 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
         // Additional project details
         client_name: clientName.trim() || undefined,
         consultant_name: consultantName.trim() || undefined,
-        first_party_name: firstPartyName.trim() || undefined,
+        first_party_name: contractorName.trim() || undefined,
         project_manager_email: projectManagerEmail.trim() || undefined,
         area_manager_email: areaManagerEmail.trim() || undefined,
+        division_head_email: divisionHeadEmail.trim() || undefined,
         latitude: latitude.trim() || undefined,
         longitude: longitude.trim() || undefined,
         contract_status: contractStatus.trim() || undefined,
         workmanship_only: workmanshipOnly.trim() || undefined,
         advance_payment_required: advancePaymentRequired.trim() || undefined,
-        virtual_material_value: virtualMaterialValue.trim() || undefined
+        virtual_material_value: virtualMaterialValue.trim() || undefined,
+        project_start_date: projectStartDate.trim() || undefined,
+        project_completion_date: projectCompletionDate.trim() || undefined,
+        date_project_awarded: dateProjectAwarded.trim() || undefined
+        // ✅ Note: project_duration will be calculated automatically by database trigger
+        // But we can also send it if calculated in frontend for immediate display
+      }
+      
+      // ✅ Calculate duration here as well to ensure it's sent to database
+      // Database trigger will also calculate it, but sending it ensures consistency
+      if (projectStartDate && projectCompletionDate) {
+        const start = new Date(projectStartDate)
+        const completion = new Date(projectCompletionDate)
+        if (!isNaN(start.getTime()) && !isNaN(completion.getTime())) {
+          const diffTime = completion.getTime() - start.getTime()
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1
+          projectData.project_duration = diffDays >= 0 ? diffDays : 0
+        }
+      } else if (projectStartDate && !projectCompletionDate) {
+        // Calculate from start to today
+        const start = new Date(projectStartDate)
+        const today = new Date()
+        if (!isNaN(start.getTime())) {
+          const diffTime = today.getTime() - start.getTime()
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1
+          projectData.project_duration = diffDays >= 0 ? diffDays : 0
+        }
       }
       
       // إضافة العملة كخاصية إضافية (سيتم حفظها لاحقاً عند إضافة العمود)
@@ -695,6 +893,22 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
               placeholder="Enter full project name..."
               required
               disabled={loading}
+            />
+          </div>
+          
+          {/* Project Description */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <Info className="inline h-4 w-4 mr-1" />
+              Project Description
+            </label>
+            <textarea
+              value={projectDescription}
+              onChange={(e) => setProjectDescription(e.target.value)}
+              placeholder="Enter project description..."
+              disabled={loading}
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed resize-y"
             />
           </div>
           
@@ -897,6 +1111,80 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
             </div>
           </div>
           
+          {/* Project Award Date */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <Calendar className="inline h-4 w-4 mr-1" />
+              Project Award Date (تاريخ التعاقد)
+            </label>
+            <Input
+              type="date"
+              value={dateProjectAwarded}
+              onChange={(e) => setDateProjectAwarded(e.target.value)}
+              disabled={loading}
+              className="focus:ring-blue-500 focus:border-blue-500"
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Date when the project contract was awarded
+            </p>
+          </div>
+          
+          {/* Project Start Date, Completion Date & Duration */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Project Start Date */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <Calendar className="inline h-4 w-4 mr-1" />
+                Project Start Date
+              </label>
+              <Input
+                type="date"
+                value={projectStartDate}
+                onChange={(e) => setProjectStartDate(e.target.value)}
+                disabled={loading}
+                min={dateProjectAwarded || undefined}
+                className="focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+            
+            {/* Project Completion Date */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <Calendar className="inline h-4 w-4 mr-1" />
+                Project Completion Date
+              </label>
+              <Input
+                type="date"
+                value={projectCompletionDate}
+                onChange={(e) => setProjectCompletionDate(e.target.value)}
+                disabled={loading}
+                min={projectStartDate || dateProjectAwarded || undefined}
+                className="focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+            
+            {/* Project Duration (Auto-calculated) */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <Clock className="inline h-4 w-4 mr-1" />
+                Project Duration (Days)
+              </label>
+              <Input
+                type="number"
+                value={projectDuration || ''}
+                readOnly
+                disabled={loading}
+                placeholder="Auto-calculated"
+                className="bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-400 cursor-not-allowed"
+              />
+              {projectDuration !== undefined && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  {projectDuration} {projectDuration === 1 ? 'day' : 'days'}
+                </p>
+              )}
+            </div>
+          </div>
+          
           {/* Workmanship Only & Advance Payment Required - Required Fields */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Workmanship Only */}
@@ -972,51 +1260,343 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
             
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* Client Name */}
-              <div>
+              <div className="relative company-dropdown-container">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   <Building2 className="inline h-4 w-4 mr-1" />
                   Client Name <span className="text-red-500">*</span>
                 </label>
-                <Input
-                  value={clientName}
-                  onChange={(e) => setClientName(e.target.value)}
-                  placeholder="Enter client name..."
-                  required
-                  disabled={loading}
-                />
+                <div className="relative">
+                  <Input
+                    value={clientName}
+                    onChange={(e) => {
+                      setClientName(e.target.value)
+                      setClientSearch(e.target.value)
+                      setShowClientDropdown(true)
+                    }}
+                    onFocus={() => setShowClientDropdown(true)}
+                    placeholder="Search or enter client name..."
+                    required
+                    disabled={loading}
+                  />
+                  {showClientDropdown && (
+                    <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                      {(() => {
+                        const filtered = clientCompanies
+                          .filter(c => !clientSearch || c.company_name.toLowerCase().includes(clientSearch.toLowerCase()))
+                        const hasExactMatch = clientSearch && filtered.some(c => c.company_name.toLowerCase() === clientSearch.toLowerCase().trim())
+                        const showAddButton = clientSearch && clientSearch.trim().length > 0 && !hasExactMatch && filtered.length > 0
+                        const showAddButtonNoResults = clientSearch && clientSearch.trim().length > 0 && filtered.length === 0
+                        
+                        return (
+                          <>
+                            {filtered.map((company) => (
+                              <div
+                                key={company.id}
+                                onClick={() => {
+                                  setClientName(company.company_name)
+                                  setClientSearch('')
+                                  setShowClientDropdown(false)
+                                }}
+                                className="px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer flex items-center gap-2"
+                              >
+                                <Building2 className="h-4 w-4 text-gray-400" />
+                                <span>{company.company_name}</span>
+                              </div>
+                            ))}
+                            {showAddButton && (
+                              <div
+                                onClick={() => {
+                                  setNewCompanyType('Client')
+                                  setNewCompanyName(clientSearch)
+                                  setShowAddCompanyModal(true)
+                                  setShowClientDropdown(false)
+                                }}
+                                className="px-4 py-2 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 cursor-pointer border-t border-gray-200 dark:border-gray-700 flex items-center gap-2 text-blue-600 dark:text-blue-400 font-medium"
+                              >
+                                <Plus className="h-4 w-4" />
+                                <span>Add "{clientSearch}" as Client</span>
+                              </div>
+                            )}
+                            {showAddButtonNoResults && (
+                              <div
+                                onClick={() => {
+                                  setNewCompanyType('Client')
+                                  setNewCompanyName(clientSearch)
+                                  setShowAddCompanyModal(true)
+                                  setShowClientDropdown(false)
+                                }}
+                                className="px-4 py-3 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 cursor-pointer flex items-center gap-2 text-blue-600 dark:text-blue-400 font-medium"
+                              >
+                                <Plus className="h-4 w-4" />
+                                <span>Add "{clientSearch}" as Client</span>
+                              </div>
+                            )}
+                            {filtered.length === 0 && !showAddButton && !showAddButtonNoResults && (
+                              <div className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 text-center">
+                                Start typing to search...
+                              </div>
+                            )}
+                          </>
+                        )
+                      })()}
+                    </div>
+                  )}
+                </div>
               </div>
               
-              {/* First Party Name */}
-              <div>
+              {/* Contractor Name */}
+              <div className="relative company-dropdown-container">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   <Users className="inline h-4 w-4 mr-1" />
-                  First Party <span className="text-red-500">*</span>
+                  Contractor <span className="text-red-500">*</span>
                 </label>
-                <Input
-                  value={firstPartyName}
-                  onChange={(e) => setFirstPartyName(e.target.value)}
-                  placeholder="Enter first party name..."
-                  required
-                  disabled={loading}
-                />
+                <div className="relative">
+                  <Input
+                    value={contractorName}
+                    onChange={(e) => {
+                      setContractorName(e.target.value)
+                      setContractorSearch(e.target.value)
+                      setShowContractorDropdown(true)
+                    }}
+                    onFocus={() => setShowContractorDropdown(true)}
+                    placeholder="Search or enter contractor name..."
+                    required
+                    disabled={loading}
+                  />
+                  {showContractorDropdown && (
+                    <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                      {(() => {
+                        const filtered = contractorCompanies
+                          .filter(c => !contractorSearch || c.company_name.toLowerCase().includes(contractorSearch.toLowerCase()))
+                        const hasExactMatch = contractorSearch && filtered.some(c => c.company_name.toLowerCase() === contractorSearch.toLowerCase().trim())
+                        const showAddButton = contractorSearch && contractorSearch.trim().length > 0 && !hasExactMatch && filtered.length > 0
+                        const showAddButtonNoResults = contractorSearch && contractorSearch.trim().length > 0 && filtered.length === 0
+                        
+                        return (
+                          <>
+                            {filtered.map((company) => (
+                              <div
+                                key={company.id}
+                                onClick={() => {
+                                  setContractorName(company.company_name)
+                                  setContractorSearch('')
+                                  setShowContractorDropdown(false)
+                                }}
+                                className="px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer flex items-center gap-2"
+                              >
+                                <Users className="h-4 w-4 text-gray-400" />
+                                <span>{company.company_name}</span>
+                              </div>
+                            ))}
+                            {showAddButton && (
+                              <div
+                                onClick={() => {
+                                  setNewCompanyType('Contractor')
+                                  setNewCompanyName(contractorSearch)
+                                  setShowAddCompanyModal(true)
+                                  setShowContractorDropdown(false)
+                                }}
+                                className="px-4 py-2 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 cursor-pointer border-t border-gray-200 dark:border-gray-700 flex items-center gap-2 text-blue-600 dark:text-blue-400 font-medium"
+                              >
+                                <Plus className="h-4 w-4" />
+                                <span>Add "{contractorSearch}" as Contractor</span>
+                              </div>
+                            )}
+                            {showAddButtonNoResults && (
+                              <div
+                                onClick={() => {
+                                  setNewCompanyType('Contractor')
+                                  setNewCompanyName(contractorSearch)
+                                  setShowAddCompanyModal(true)
+                                  setShowContractorDropdown(false)
+                                }}
+                                className="px-4 py-3 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 cursor-pointer flex items-center gap-2 text-blue-600 dark:text-blue-400 font-medium"
+                              >
+                                <Plus className="h-4 w-4" />
+                                <span>Add "{contractorSearch}" as Contractor</span>
+                              </div>
+                            )}
+                            {filtered.length === 0 && !showAddButton && !showAddButtonNoResults && (
+                              <div className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 text-center">
+                                Start typing to search...
+                              </div>
+                            )}
+                          </>
+                        )
+                      })()}
+                    </div>
+                  )}
+                </div>
               </div>
               
               {/* Consultant Name */}
-              <div>
+              <div className="relative company-dropdown-container">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   <Briefcase className="inline h-4 w-4 mr-1" />
                   Consultant <span className="text-red-500">*</span>
                 </label>
-                <Input
-                  value={consultantName}
-                  onChange={(e) => setConsultantName(e.target.value)}
-                  placeholder="Enter consultant name..."
-                  required
-                  disabled={loading}
-                />
+                <div className="relative">
+                  <Input
+                    value={consultantName}
+                    onChange={(e) => {
+                      setConsultantName(e.target.value)
+                      setConsultantSearch(e.target.value)
+                      setShowConsultantDropdown(true)
+                    }}
+                    onFocus={() => setShowConsultantDropdown(true)}
+                    placeholder="Search or enter consultant name..."
+                    required
+                    disabled={loading}
+                  />
+                  {showConsultantDropdown && (
+                    <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                      {(() => {
+                        const filtered = consultantCompanies
+                          .filter(c => !consultantSearch || c.company_name.toLowerCase().includes(consultantSearch.toLowerCase()))
+                        const hasExactMatch = consultantSearch && filtered.some(c => c.company_name.toLowerCase() === consultantSearch.toLowerCase().trim())
+                        const showAddButton = consultantSearch && consultantSearch.trim().length > 0 && !hasExactMatch && filtered.length > 0
+                        const showAddButtonNoResults = consultantSearch && consultantSearch.trim().length > 0 && filtered.length === 0
+                        
+                        return (
+                          <>
+                            {filtered.map((company) => (
+                              <div
+                                key={company.id}
+                                onClick={() => {
+                                  setConsultantName(company.company_name)
+                                  setConsultantSearch('')
+                                  setShowConsultantDropdown(false)
+                                }}
+                                className="px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer flex items-center gap-2"
+                              >
+                                <Briefcase className="h-4 w-4 text-gray-400" />
+                                <span>{company.company_name}</span>
+                              </div>
+                            ))}
+                            {showAddButton && (
+                              <div
+                                onClick={() => {
+                                  setNewCompanyType('Consultant')
+                                  setNewCompanyName(consultantSearch)
+                                  setShowAddCompanyModal(true)
+                                  setShowConsultantDropdown(false)
+                                }}
+                                className="px-4 py-2 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 cursor-pointer border-t border-gray-200 dark:border-gray-700 flex items-center gap-2 text-blue-600 dark:text-blue-400 font-medium"
+                              >
+                                <Plus className="h-4 w-4" />
+                                <span>Add "{consultantSearch}" as Consultant</span>
+                              </div>
+                            )}
+                            {showAddButtonNoResults && (
+                              <div
+                                onClick={() => {
+                                  setNewCompanyType('Consultant')
+                                  setNewCompanyName(consultantSearch)
+                                  setShowAddCompanyModal(true)
+                                  setShowConsultantDropdown(false)
+                                }}
+                                className="px-4 py-3 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 cursor-pointer flex items-center gap-2 text-blue-600 dark:text-blue-400 font-medium"
+                              >
+                                <Plus className="h-4 w-4" />
+                                <span>Add "{consultantSearch}" as Consultant</span>
+                              </div>
+                            )}
+                            {filtered.length === 0 && !showAddButton && !showAddButtonNoResults && (
+                              <div className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 text-center">
+                                Start typing to search...
+                              </div>
+                            )}
+                          </>
+                        )
+                      })()}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
+
+          {/* Add New Company Modal */}
+          {showAddCompanyModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                    <Plus className="h-5 w-5 text-blue-600" />
+                    Add New {newCompanyType}
+                  </h3>
+                  <button
+                    onClick={() => {
+                      setShowAddCompanyModal(false)
+                      setNewCompanyName('')
+                    }}
+                    className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Company Name <span className="text-red-500">*</span>
+                    </label>
+                    <Input
+                      value={newCompanyName}
+                      onChange={(e) => setNewCompanyName(e.target.value)}
+                      placeholder={`Enter ${newCompanyType.toLowerCase()} name...`}
+                      disabled={addingCompany}
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !addingCompany && newCompanyName.trim()) {
+                          handleAddNewCompany()
+                        }
+                      }}
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Company Type
+                    </label>
+                    <div className="px-3 py-2 bg-gray-50 dark:bg-gray-700 rounded-md text-sm text-gray-600 dark:text-gray-400">
+                      {newCompanyType}
+                    </div>
+                  </div>
+                  
+                  <div className="flex gap-2 pt-2">
+                    <ModernButton
+                      onClick={handleAddNewCompany}
+                      disabled={addingCompany || !newCompanyName.trim()}
+                      className="flex-1 flex items-center justify-center gap-2"
+                    >
+                      {addingCompany ? (
+                        <>
+                          <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+                          Adding...
+                        </>
+                      ) : (
+                        <>
+                          <Check className="h-4 w-4" />
+                          Add {newCompanyType}
+                        </>
+                      )}
+                    </ModernButton>
+                    <ModernButton
+                      onClick={() => {
+                        setShowAddCompanyModal(false)
+                        setNewCompanyName('')
+                      }}
+                      variant="outline"
+                      disabled={addingCompany}
+                    >
+                      Cancel
+                    </ModernButton>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Location Information */}
           <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
@@ -1340,7 +1920,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                 Management Team
               </h3>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* Project Manager Email */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -1370,6 +1950,23 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                     value={areaManagerEmail}
                     onChange={(e) => setAreaManagerEmail(e.target.value)}
                     placeholder="area.manager@company.com"
+                    disabled={loading}
+                    className="focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                
+                {/* Division Head Email */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <Users className="inline h-4 w-4 mr-1" />
+                    Division Head Email
+                    <X className="inline h-4 w-4 ml-1 text-red-500" />
+                  </label>
+                  <Input
+                    type="email"
+                    value={divisionHeadEmail}
+                    onChange={(e) => setDivisionHeadEmail(e.target.value)}
+                    placeholder="division.head@company.com"
                     disabled={loading}
                     className="focus:ring-blue-500 focus:border-blue-500"
                   />

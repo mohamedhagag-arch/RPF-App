@@ -48,16 +48,20 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   const [editingActivity, setEditingActivity] = useState<BOQActivity | null>(null)
   // ✅ Standard View - only enable if user has permission
   const [useCustomizedTable, setUseCustomizedTable] = useState(false)
+  const [hasInitializedView, setHasInitializedView] = useState(false)
   
-  // Ensure Standard View is only enabled if user has permission
+  // Ensure Standard View is only enabled if user has permission (only on initial load)
   useEffect(() => {
-    // Only enable table view if user has permission
-    if (guard.hasAccess('boq.view')) {
-      setUseCustomizedTable(true)
-    } else {
-      setUseCustomizedTable(false)
+    // Only set initial value once, not on every guard change
+    if (!hasInitializedView) {
+      if (guard.hasAccess('boq.view')) {
+        setUseCustomizedTable(true)
+      } else {
+        setUseCustomizedTable(false)
+      }
+      setHasInitializedView(true)
     }
-  }, [guard])
+  }, [guard, hasInitializedView])
   
   // Zone Management
   const [selectedZone, setSelectedZone] = useState<string | null>(null)

@@ -731,137 +731,104 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                 </CardContent>
               </Card>
               
-              {/* KPI Summary */}
+              {/* Project Information - Full Width */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Target className="h-5 w-5" />
-                    KPI Summary
-                  </CardTitle>
+                  <CardTitle className="text-lg font-semibold">Project Information</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Total KPIs</p>
-                      <p className="text-2xl font-bold">{analytics.totalKPIs}</p>
-                      <p className="text-xs text-gray-500">Planned: {analytics.plannedKPIs} | Actual: {analytics.actualKPIs}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Completed</p>
-                      <p className="text-2xl font-bold text-green-600">{analytics.completedKPIs}</p>
-                      <p className="text-xs text-gray-500">{analytics.totalKPIs > 0 ? formatPercent((analytics.completedKPIs / analytics.totalKPIs) * 100) : '0%'}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">On Track</p>
-                      <p className="text-2xl font-bold text-blue-600">{analytics.onTrackKPIs}</p>
-                      <p className="text-xs text-gray-500">{analytics.totalKPIs > 0 ? formatPercent((analytics.onTrackKPIs / analytics.totalKPIs) * 100) : '0%'}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Delayed/At Risk</p>
-                      <p className="text-2xl font-bold text-red-600">{analytics.delayedKPIs + analytics.atRiskKPIs}</p>
-                      <p className="text-xs text-gray-500">{analytics.totalKPIs > 0 ? formatPercent(((analytics.delayedKPIs + analytics.atRiskKPIs) / analytics.totalKPIs) * 100) : '0%'}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-              
-              {/* Time Performance */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-sm font-medium">Schedule Performance</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-base">
                       <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-600 dark:text-gray-400">On Schedule</span>
-                        <span className="font-bold text-green-600">{analytics.activitiesOnSchedule}</span>
+                        <span className="text-gray-600 dark:text-gray-400 font-medium">SCOPE:</span>
+                        <span className="font-semibold text-gray-900 dark:text-white">{project.project_type || 'N/A'}</span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-600 dark:text-gray-400">Behind Schedule</span>
-                        <span className="font-bold text-red-600">{analytics.activitiesBehindSchedule}</span>
+                        <span className="text-gray-600 dark:text-gray-400 font-medium">Division:</span>
+                        <span className="font-semibold text-gray-900 dark:text-white">{project.responsible_division || 'N/A'}</span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-600 dark:text-gray-400">Average Delay</span>
-                        <span className="font-bold text-orange-600">{formatPercent(analytics.averageDelay)}</span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-                
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-sm font-medium">Project Information</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-gray-600 dark:text-gray-400">SCOPE:</span>
-                        <span className="font-medium">{project.project_type || 'N/A'}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600 dark:text-gray-400">Division:</span>
-                        <span className="font-medium">{project.responsible_division || 'N/A'}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600 dark:text-gray-400">Plot:</span>
-                        <span className="font-medium">{project.plot_number || 'N/A'}</span>
+                        <span className="text-gray-600 dark:text-gray-400 font-medium">Plot:</span>
+                        <span className="font-semibold text-gray-900 dark:text-white">{project.plot_number || 'N/A'}</span>
                       </div>
                       
                       {/* Additional Project Details */}
                       {project.client_name && (
-                        <div className="flex justify-between">
-                          <span className="text-gray-600 dark:text-gray-400">Client:</span>
-                          <span className="font-medium">{project.client_name}</span>
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-600 dark:text-gray-400 font-medium">Client:</span>
+                          <span className="font-semibold text-gray-900 dark:text-white">{project.client_name}</span>
                         </div>
                       )}
                       
                       {project.first_party_name && (
-                        <div className="flex justify-between">
-                          <span className="text-gray-600 dark:text-gray-400">First Party:</span>
-                          <span className="font-medium">{project.first_party_name}</span>
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-600 dark:text-gray-400 font-medium">First Party:</span>
+                          <span className="font-semibold text-gray-900 dark:text-white">{project.first_party_name}</span>
                         </div>
                       )}
                       
                       {project.consultant_name && (
-                        <div className="flex justify-between">
-                          <span className="text-gray-600 dark:text-gray-400">Consultant:</span>
-                          <span className="font-medium">{project.consultant_name}</span>
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-600 dark:text-gray-400 font-medium">Consultant:</span>
+                          <span className="font-semibold text-gray-900 dark:text-white">{project.consultant_name}</span>
                         </div>
                       )}
                       
                       {project.project_manager_email && (
-                        <div className="flex justify-between">
-                          <span className="text-gray-600 dark:text-gray-400">Project Manager:</span>
-                          <span className="font-medium text-blue-600 dark:text-blue-400">{project.project_manager_email}</span>
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-600 dark:text-gray-400 font-medium">Project Manager:</span>
+                          <a 
+                            href={`mailto:${project.project_manager_email}`}
+                            className="font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline"
+                          >
+                            {project.project_manager_email}
+                          </a>
                         </div>
                       )}
                       
                       {project.area_manager_email && (
-                        <div className="flex justify-between">
-                          <span className="text-gray-600 dark:text-gray-400">Area Manager:</span>
-                          <span className="font-medium text-blue-600 dark:text-blue-400">{project.area_manager_email}</span>
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-600 dark:text-gray-400 font-medium">Area Manager:</span>
+                          <a 
+                            href={`mailto:${project.area_manager_email}`}
+                            className="font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline"
+                          >
+                            {project.area_manager_email}
+                          </a>
+                        </div>
+                      )}
+                      
+                      {project.division_head_email && (
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-600 dark:text-gray-400 font-medium">Division Head:</span>
+                          <a 
+                            href={`mailto:${project.division_head_email}`}
+                            className="font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline"
+                          >
+                            {project.division_head_email}
+                          </a>
                         </div>
                       )}
                       
                       
                       {project.contract_status && (
-                        <div className="flex justify-between">
-                          <span className="text-gray-600 dark:text-gray-400">Contract Status:</span>
-                          <span className="font-medium capitalize">{project.contract_status}</span>
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-600 dark:text-gray-400 font-medium">Contract Status:</span>
+                          <span className="font-semibold text-gray-900 dark:text-white capitalize">{project.contract_status}</span>
                         </div>
                       )}
                       
                       {project.currency && project.currency !== 'AED' && (
-                        <div className="flex justify-between">
-                          <span className="text-gray-600 dark:text-gray-400">Currency:</span>
-                          <span className="font-medium">{project.currency}</span>
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-600 dark:text-gray-400 font-medium">Currency:</span>
+                          <span className="font-semibold text-gray-900 dark:text-white">{project.currency}</span>
                         </div>
                       )}
-                      
-                      {/* Location Information */}
-                      {(project.latitude || project.longitude) && (
-                        <div className="border-t pt-2 mt-2">
+                    </div>
+                    
+                    {/* Location Information */}
+                    {(project.latitude || project.longitude) && (
+                      <div className="border-t pt-4 mt-4">
                           <div className="flex justify-between items-center mb-2">
                             <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Location</p>
                             {(project.latitude && project.longitude) && (
@@ -939,12 +906,12 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                               </div>
                             </div>
                           )}
-                        </div>
-                      )}
-                      
-                      {/* Management Team */}
-                      {(project.project_manager_email || project.area_manager_email) && (
-                        <div className="border-t pt-2 mt-2">
+                      </div>
+                    )}
+                    
+                    {/* Management Team */}
+                    {(project.project_manager_email || project.area_manager_email || project.division_head_email) && (
+                      <div className="border-t pt-4 mt-4">
                           <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2">Management Team</p>
                           {project.project_manager_email && (
                             <div className="flex justify-between items-center">
@@ -970,13 +937,24 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                               </a>
                             </div>
                           )}
-                        </div>
-                      )}
-                      
-                      
-                      {/* Contract Details */}
-                      {(project.workmanship_only || project.advance_payment_required || project.virtual_material_value) && (
-                        <div className="border-t pt-2 mt-2">
+                          {project.division_head_email && (
+                            <div className="flex justify-between items-center">
+                              <span className="text-gray-600 dark:text-gray-400">Division Head:</span>
+                              <a 
+                                href={`mailto:${project.division_head_email}`}
+                                className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline cursor-pointer"
+                                title="Click to send email"
+                              >
+                                {project.division_head_email}
+                              </a>
+                            </div>
+                          )}
+                      </div>
+                    )}
+                    
+                    {/* Contract Details */}
+                    {(project.workmanship_only || project.advance_payment_required || project.virtual_material_value) && (
+                      <div className="border-t pt-4 mt-4">
                           <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2">Contract Details</p>
                           {project.workmanship_only && (
                             <div className="flex justify-between">
@@ -998,10 +976,9 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                           )}
                         </div>
                       )}
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           )}
           
