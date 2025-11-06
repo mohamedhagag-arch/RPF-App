@@ -90,6 +90,12 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>([])
   const [selectedTypes, setSelectedTypes] = useState<string[]>([])
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([])
+  const [selectedZones, setSelectedZones] = useState<string[]>([])
+  const [selectedUnits, setSelectedUnits] = useState<string[]>([])
+  const [selectedDivisionsFilter, setSelectedDivisionsFilter] = useState<string[]>([])
+  const [dateRange, setDateRange] = useState<{ from?: string; to?: string }>({})
+  const [valueRange, setValueRange] = useState<{ min?: number; max?: number }>({})
+  const [quantityRange, setQuantityRange] = useState<{ min?: number; max?: number }>({})
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
@@ -943,12 +949,48 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
           setCurrentPage(1)
           // ✅ No re-fetch! Filtering happens client-side via filteredProjects
         }}
+        selectedZones={selectedZones}
+        selectedUnits={selectedUnits}
+        selectedDivisions={selectedDivisionsFilter}
+        dateRange={dateRange}
+        valueRange={valueRange}
+        quantityRange={quantityRange}
+        onZonesChange={(zones) => {
+          setSelectedZones(zones)
+          setCurrentPage(1)
+        }}
+        onUnitsChange={(units) => {
+          setSelectedUnits(units)
+          setCurrentPage(1)
+        }}
+        onDivisionsChange={(divisions) => {
+          setSelectedDivisionsFilter(divisions)
+          setCurrentPage(1)
+        }}
+        onDateRangeChange={(range) => {
+          setDateRange(range)
+          setCurrentPage(1)
+        }}
+        onValueRangeChange={(range) => {
+          setValueRange(range)
+          setCurrentPage(1)
+        }}
+        onQuantityRangeChange={(range) => {
+          setQuantityRange(range)
+          setCurrentPage(1)
+        }}
         onClearAll={() => {
           console.log('🔄 Clearing all project filters...')
           setSelectedProjectCodes([])
           setSelectedDivisions([])
           setSelectedTypes([])
           setSelectedStatuses([])
+          setSelectedZones([])
+          setSelectedUnits([])
+          setSelectedDivisionsFilter([])
+          setDateRange({})
+          setValueRange({})
+          setQuantityRange({})
           setCurrentPage(1)
         }}
       />
