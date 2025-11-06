@@ -9,6 +9,7 @@ import { PermissionButton } from '@/components/ui/PermissionButton'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { CheckCircle, Clock, AlertCircle, Calendar, Building, Activity, TrendingUp, Target, Info, Filter, X, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
+import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 
 interface KPITableWithCustomizationProps {
   kpis: KPIRecord[]
@@ -21,20 +22,20 @@ interface KPITableWithCustomizationProps {
 
 // Default column configuration for KPI
 const defaultKPIColumns: ColumnConfig[] = [
-  { id: 'select', label: 'Select', visible: true, order: 0, fixed: true, width: '60px' },
-  { id: 'activity_details', label: 'Activity Details', visible: true, order: 1, width: '250px' },
-  { id: 'date', label: 'Date', visible: true, order: 2, width: '120px' },
-  { id: 'input_type', label: 'Input Type', visible: true, order: 3, width: '130px' },
-  { id: 'quantities', label: 'Quantities', visible: true, order: 4, width: '180px' },
-  { id: 'value', label: 'Value', visible: true, order: 5, width: '180px' },
-  { id: 'virtual_value', label: 'Virtual Value', visible: true, order: 6, width: '180px' },
-  { id: 'activity_commencement_relation', label: 'Activity Commencement Relation', visible: true, order: 7, width: '220px' },
-  { id: 'activity_division', label: 'Activity Division', visible: true, order: 8, width: '180px' },
-  { id: 'activity_scope', label: 'Activity Scope', visible: true, order: 9, width: '180px' },
-  { id: 'key_dates', label: 'Key Dates', visible: true, order: 10, width: '150px' },
-  { id: 'cumulative_quantity', label: 'Cumulative Quantity', visible: true, order: 11, width: '180px' },
-  { id: 'cumulative_value', label: 'Cumulative Value', visible: true, order: 12, width: '180px' },
-  { id: 'actions', label: 'Actions', visible: true, order: 13, fixed: true, width: '150px' }
+  { id: 'select', label: 'Select', visible: true, order: 0, fixed: true, width: '70px' },
+  { id: 'activity_details', label: 'Activity Details', visible: true, order: 1, width: '280px' },
+  { id: 'date', label: 'Date', visible: true, order: 2, width: '140px' },
+  { id: 'input_type', label: 'Input Type', visible: true, order: 3, width: '150px' },
+  { id: 'quantities', label: 'Quantities', visible: true, order: 4, width: '200px' },
+  { id: 'value', label: 'Value', visible: true, order: 5, width: '200px' },
+  { id: 'virtual_value', label: 'Virtual Value', visible: true, order: 6, width: '200px' },
+  { id: 'activity_commencement_relation', label: 'Activity Commencement Relation', visible: true, order: 7, width: '260px' },
+  { id: 'activity_division', label: 'Activity Division', visible: true, order: 8, width: '200px' },
+  { id: 'activity_scope', label: 'Activity Scope', visible: true, order: 9, width: '200px' },
+  { id: 'key_dates', label: 'Key Dates', visible: true, order: 10, width: '170px' },
+  { id: 'cumulative_quantity', label: 'Cumulative Quantity', visible: true, order: 11, width: '200px' },
+  { id: 'cumulative_value', label: 'Cumulative Value', visible: true, order: 12, width: '200px' },
+  { id: 'actions', label: 'Actions', visible: true, order: 13, fixed: true, width: '160px' }
 ]
 
 export function KPITableWithCustomization({ 
@@ -48,6 +49,8 @@ export function KPITableWithCustomization({
   const guard = usePermissionGuard()
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [showCustomizer, setShowCustomizer] = useState(false)
+  // ✅ Cache for activity-to-scope mapping from project_type_activities table
+  const [activityScopeMap, setActivityScopeMap] = useState<Map<string, string>>(new Map())
   
   // Sorting state
   const [sortColumn, setSortColumn] = useState<string | null>(null)
@@ -84,6 +87,46 @@ export function KPITableWithCustomization({
       setSelectedIds([])
     }
   }
+
+  // ✅ Load Activity Scope mapping from project_type_activities table (Settings)
+  useEffect(() => {
+    const loadActivityScopes = async () => {
+      try {
+        const supabase = getSupabaseClient()
+        const { data, error } = await supabase
+          .from('project_type_activities')
+          .select('activity_name, project_type')
+          .eq('is_active', true)
+        
+        if (error) {
+          console.error('❌ Error loading activity scopes:', error)
+          return
+        }
+        
+        // Create a map: activity_name -> project_type (scope)
+        const scopeMap = new Map<string, string>()
+        if (data) {
+          data.forEach((item: any) => {
+            const activityName = item.activity_name?.trim().toLowerCase()
+            const projectType = item.project_type?.trim()
+            if (activityName && projectType) {
+              // Store the first scope found for each activity (or could store all as array)
+              if (!scopeMap.has(activityName)) {
+                scopeMap.set(activityName, projectType)
+              }
+            }
+          })
+        }
+        
+        setActivityScopeMap(scopeMap)
+        console.log(`✅ Loaded ${scopeMap.size} activity scope mappings`)
+      } catch (error) {
+        console.error('❌ Error in loadActivityScopes:', error)
+      }
+    }
+    
+    loadActivityScopes()
+  }, []) // Load once on mount
 
   // Enhanced Analysis Functions with Advanced Calculations
   const getProjectName = (projectCode: string) => {
@@ -374,8 +417,59 @@ export function KPITableWithCustomization({
         )
       
       case 'activity_details':
+        // ✅ Find project by matching project_code
         const project = projects.find(p => p.project_code === kpi.project_code)
         const projectFullName = getProjectName(kpi.project_code || '') || kpi.project_full_code || kpi.project_code || 'N/A'
+        
+        // ✅ Get project full code and name
+        // Try to get full code from project object first, then from kpi
+        let projectFullCode = 'N/A'
+        let projectName = ''
+        
+        if (project) {
+          // Use project's full code if available
+          // ✅ FIX: Check if project_sub_code already contains project_code to avoid duplication
+          if (project.project_sub_code) {
+            const projectCode = (project.project_code || '').trim().toUpperCase()
+            const projectSubCode = (project.project_sub_code || '').trim()
+            // If sub_code already starts with project_code, use it as is
+            if (projectSubCode.toUpperCase().startsWith(projectCode)) {
+              projectFullCode = projectSubCode
+            } else {
+              projectFullCode = `${projectCode}${projectSubCode}`
+            }
+          } else {
+            projectFullCode = project.project_code || 'N/A'
+          }
+          projectName = project.project_name || ''
+        } else {
+          // Fallback to kpi's full code
+          // ✅ FIX: Check if project_sub_code already contains project_code to avoid duplication
+          if (kpi.project_code && kpi.project_sub_code) {
+            const projectCode = (kpi.project_code || '').trim().toUpperCase()
+            const projectSubCode = (kpi.project_sub_code || '').trim()
+            // If sub_code already starts with project_code, use it as is
+            if (projectSubCode.toUpperCase().startsWith(projectCode)) {
+              projectFullCode = projectSubCode
+            } else {
+              projectFullCode = `${projectCode}${projectSubCode}`
+            }
+          } else {
+            projectFullCode = kpi.project_full_code || 
+                             kpi.project_code ||
+                             'N/A'
+          }
+          // Try to get project name from getProjectName if project object not found
+          const foundProjectName = getProjectName(kpi.project_code || '')
+          projectName = foundProjectName && foundProjectName !== kpi.project_code ? foundProjectName : ''
+        }
+        
+        // Always show full code | project name format if we have both
+        const projectDisplay = projectFullCode !== 'N/A' && projectName && projectName.trim() !== ''
+          ? `${projectFullCode} | ${projectName}`
+          : projectFullCode !== 'N/A' 
+            ? projectFullCode
+            : projectFullName || 'N/A'
         
         // Get Zone from multiple sources
         const rawKPIDetails = (kpi as any).raw || {}
@@ -420,10 +514,10 @@ export function KPITableWithCustomization({
             <div className="font-medium text-gray-900 dark:text-white text-sm">
               {kpi.activity_name || 'N/A'}
             </div>
-            {projectFullName && projectFullName !== 'N/A' && (
-              <div className="text-xs text-gray-600 dark:text-gray-400">
-                {projectFullName}
-              </div>
+            {projectDisplay && projectDisplay !== 'N/A' && (
+            <div className="text-xs text-gray-600 dark:text-gray-400">
+                {projectDisplay}
+            </div>
             )}
             {zoneValue && zoneValue !== 'N/A' && (
               <div className="text-xs text-gray-600 dark:text-gray-400">
@@ -590,7 +684,7 @@ export function KPITableWithCustomization({
         
         return (
           <div className="space-y-1">
-            <div className="text-sm font-medium text-gray-900 dark:text-white">
+          <div className="text-sm text-gray-900 dark:text-white">
               Total: {formatCurrencyByCodeSync(totalValue, currencyCode)}
             </div>
             {rateForValue > 0 && (
@@ -700,7 +794,7 @@ export function KPITableWithCustomization({
           <div className="space-y-1">
             <div className="text-xs text-gray-600 dark:text-gray-400">Virtual Material: {formatCurrencyByCodeSync(virtualMaterialValue, currencyCodeForVirtual)}</div>
             <div className="text-xs text-gray-600 dark:text-gray-400">Value: {formatCurrencyByCodeSync(baseValue, currencyCodeForVirtual)}</div>
-            <div className="text-sm font-medium text-gray-900 dark:text-white">Total: {formatCurrencyByCodeSync(totalVirtualValue, currencyCodeForVirtual)}</div>
+            <div className="text-sm text-gray-900 dark:text-white">Total: {formatCurrencyByCodeSync(totalVirtualValue, currencyCodeForVirtual)}</div>
           </div>
         )
       
@@ -772,72 +866,26 @@ export function KPITableWithCustomization({
         )
       
       case 'activity_scope':
-        // ✅ Get Activity Scope from Project (project_type / Scope of Works)
+        // ✅ Get Activity Scope from project_type_activities table (Settings)
         const rawKPIScope = (kpi as any).raw || {}
         let activityScope = 'N/A'
+        const activityName = kpi.activity_name?.trim()
         
-        // Priority 1: Get from Project (project_type / Scope of Works)
-        const projectForScope = projects.find(p => 
-          p.project_code === kpi.project_code || 
-          p.project_sub_code === kpi.project_code ||
-          p.project_code === kpi.project_full_code
-        )
-        
-        if (projectForScope) {
-          // Get from project.project_type (Scope of Works)
-          activityScope = projectForScope.project_type || 
-                        (projectForScope as any)['Scope of Works'] ||
-                        (projectForScope as any).scope_of_works ||
-                        'N/A'
-          
-          // If project_type contains multiple scopes (comma-separated), try to match with activity
-          if (activityScope && activityScope !== 'N/A' && activityScope.includes(',')) {
-            // If we have activity division, try to match it with one of the scopes
-            if (allActivities.length > 0) {
-              const relatedActivityForScope = allActivities.find((activity: any) => {
-                const activityNameMatch = (
-                  activity.activity_name?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim() ||
-                  activity.activity?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim()
-                )
-                
-                const projectCodeMatch = (
-                  activity.project_code === kpi.project_code ||
-                  activity.project_full_code === kpi.project_code ||
-                  activity.project_code === kpi.project_full_code ||
-                  activity.project_full_code === kpi.project_full_code
-                )
-                
-                return activityNameMatch && projectCodeMatch
-              })
-              
-              if (relatedActivityForScope) {
-                const activityDivision = relatedActivityForScope.activity_division || 
-                                       (relatedActivityForScope as any).raw?.['Activity Division'] ||
-                                       ''
-                
-                if (activityDivision) {
-                  // Try to find matching scope from project_type
-                  const scopesList = activityScope.split(',').map((s: string) => s.trim())
-                  const matchedScope = scopesList.find((scope: string) => 
-                    scope.toLowerCase().includes(activityDivision.toLowerCase()) ||
-                    activityDivision.toLowerCase().includes(scope.toLowerCase())
-                  )
-                  
-                  if (matchedScope) {
-                    activityScope = matchedScope
-                  }
-                }
-              }
-            }
+        // Priority 1: Get from project_type_activities table (Settings) - cached map
+        if (activityName && activityScopeMap.size > 0) {
+          const activityNameLower = activityName.toLowerCase()
+          const scope = activityScopeMap.get(activityNameLower)
+          if (scope) {
+            activityScope = scope
           }
         }
         
-        // Priority 2: Fallback to BOQ Activity if project scope not found
-        if ((activityScope === 'N/A' || !activityScope) && allActivities.length > 0) {
+        // Priority 2: Fallback to BOQ Activity raw data if scope not found in settings
+        if ((activityScope === 'N/A' || !activityScope) && allActivities.length > 0 && activityName) {
           const relatedActivityScope = allActivities.find((activity: any) => {
             const activityNameMatch = (
-              activity.activity_name?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim() ||
-              activity.activity?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim()
+              activity.activity_name?.toLowerCase().trim() === activityName.toLowerCase() ||
+              activity.activity?.toLowerCase().trim() === activityName.toLowerCase()
             )
             
             const projectCodeMatch = (
@@ -852,21 +900,25 @@ export function KPITableWithCustomization({
           
           if (relatedActivityScope) {
             const rawActivityScope = (relatedActivityScope as any).raw || {}
+            // Try to get scope from raw data
             activityScope = rawActivityScope['Activity Scope'] ||
+                          rawActivityScope['Activity Scope of Works'] ||
+                          rawActivityScope['Scope of Works'] ||
                           rawActivityScope['Scope'] ||
-                          relatedActivityScope.activity_scope ||
-                          relatedActivityScope.scope ||
                           'N/A'
           }
         }
         
-        // Priority 3: Fallback to KPI data
+        // Priority 3: Fallback to KPI data if activity scope not found
         if (activityScope === 'N/A' || !activityScope) {
           activityScope = getKPIField(kpi, 'Activity Scope') || 
+                         getKPIField(kpi, 'Activity Scope of Works') ||
+                         getKPIField(kpi, 'Scope of Works') ||
                          getKPIField(kpi, 'Scope') || 
                          rawKPIScope['Activity Scope'] ||
+                         rawKPIScope['Activity Scope of Works'] ||
+                         rawKPIScope['Scope of Works'] ||
                          rawKPIScope['Scope'] ||
-                         kpi.section || 
                          'N/A'
         }
         

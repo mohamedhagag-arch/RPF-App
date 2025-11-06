@@ -89,7 +89,6 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
   const [selectedProjectCodes, setSelectedProjectCodes] = useState<string[]>([])
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>([])
   const [selectedTypes, setSelectedTypes] = useState<string[]>([])
-  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([])
   const [selectedZones, setSelectedZones] = useState<string[]>([])
   const [selectedUnits, setSelectedUnits] = useState<string[]>([])
   const [selectedDivisionsFilter, setSelectedDivisionsFilter] = useState<string[]>([])
@@ -733,13 +732,6 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
       if (!selectedProjectCodes.includes(project.project_code)) return false
     }
     
-    // Multi-Status filter (Smart Filter)
-    if (selectedStatuses.length > 0) {
-      const matchesStatus = selectedStatuses.some(status =>
-        project.project_status?.toLowerCase() === status.toLowerCase()
-      )
-      if (!matchesStatus) return false
-    }
     
     // Multi-Division filter (Smart Filter)
     if (selectedDivisions.length > 0) {
@@ -956,7 +948,6 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
         selectedProjects={selectedProjectCodes}
         selectedActivities={selectedDivisions} // Use divisions as "activities"
         selectedTypes={selectedTypes}
-        selectedStatuses={selectedStatuses}
         onProjectsChange={(projectCodes) => {
           console.log(`🔍 Filter: Selected ${projectCodes.length} project(s)`)
           setSelectedProjectCodes(projectCodes)
@@ -972,12 +963,6 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
           console.log(`🔍 Filter: Selected types:`, types)
           setSelectedTypes(types)
           setCurrentPage(1)
-        }}
-        onStatusesChange={(statuses) => {
-          console.log(`🔍 Filter: Selected statuses:`, statuses)
-          setSelectedStatuses(statuses)
-          setCurrentPage(1)
-          // ✅ No re-fetch! Filtering happens client-side via filteredProjects
         }}
         selectedZones={selectedZones}
         selectedUnits={selectedUnits}
@@ -1014,7 +999,6 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
           setSelectedProjectCodes([])
           setSelectedDivisions([])
           setSelectedTypes([])
-          setSelectedStatuses([])
           setSelectedZones([])
           setSelectedUnits([])
           setSelectedDivisionsFilter([])

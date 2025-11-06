@@ -11,6 +11,8 @@ import { PermissionGuard } from '@/components/common/PermissionGuard'
 import { CheckCircle, Clock, AlertCircle, Calendar, Building, Activity, TrendingUp, Target, Info, Filter, X, RotateCcw, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { calculateProjectAnalytics, ProjectAnalytics } from '@/lib/projectAnalytics'
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
+import { getProjectStatusText, getProjectStatusColor } from '@/lib/projectStatusManager'
+import { getStatusDisplayInfo, calculateProjectStatus, ProjectStatusData } from '@/lib/projectStatusCalculator'
 
 interface ProjectsTableWithCustomizationProps {
   projects: Project[]
@@ -1902,50 +1904,91 @@ export function ProjectsTableWithCustomization({
           )
         
         case 'project_status':
-          // ✅ Display Project Status based on Variance Percentage (same as Cards)
-          // Project Ahead: Variance Percentage > 5%
-          // Project On Track: Variance Percentage between -5% to 5%
-          // Project Delayed: Variance Percentage < -5%
-          const projectStatus = analytics?.projectStatus || 'on_track'
-          const variancePercentageStatus = analytics?.variancePercentage || 0
+          // ✅ Display Project Status calculated automatically based on activities and KPIs
+          // Default status is 'upcoming' when project is created, but changes automatically based on activities
+          let calculatedStatus: string = 'upcoming'
           
-          // Determine badge styling based on project status
-          const statusBadgeClass = projectStatus === 'ahead' 
-            ? 'bg-green-100 text-green-800 border border-green-300 dark:bg-green-900/30 dark:text-green-300 dark:border-green-700'
-            : projectStatus === 'on_track'
-            ? 'bg-blue-100 text-blue-800 border border-blue-300 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700'
-            : 'bg-red-100 text-red-800 border border-red-300 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700'
+          // Get project activities and KPIs from analytics
+          const statusActivities = analytics?.activities || []
+          const statusKPIs = analytics?.kpis || []
           
-          const statusText = projectStatus === 'ahead' 
-            ? 'Project Ahead'
-            : projectStatus === 'on_track'
-            ? 'Project On Track'
-            : 'Project Delayed'
+          // Calculate status automatically if we have activities or KPIs
+          if (statusActivities.length > 0 || statusKPIs.length > 0) {
+            try {
+              // Prepare data for status calculation
+              const statusData: ProjectStatusData = {
+                project_id: project.id,
+                project_code: project.project_code || '',
+                project_name: project.project_name || '',
+                project_start_date: project.project_start_date || project.created_at || new Date().toISOString(),
+                project_end_date: project.project_completion_date || getProjectField(project, 'Planned Completion Date') || new Date().toISOString(),
+                current_date: new Date().toISOString(),
+                activities: statusActivities.map((activity: any) => ({
+                  id: activity.id || activity.activity_id || '',
+                  activity_timing: activity.activity_timing || (activity as any).raw?.['Activity Timing'] || 'post-commencement',
+                  planned_units: activity.planned_units || activity.total_units || 0,
+                  actual_units: activity.actual_units || 0,
+                  planned_activity_start_date: activity.planned_start_date || (activity as any).raw?.['Planned Start Date'] || '',
+                  deadline: activity.deadline || (activity as any).raw?.['Deadline'] || '',
+                  status: activity.status || (activity as any).raw?.['Status'] || 'not_started'
+                })),
+                kpis: statusKPIs.map((kpi: any) => ({
+                  id: kpi.id || '',
+                  input_type: kpi.input_type || (kpi as any).raw?.['Input Type'] || 'Planned',
+                  quantity: kpi.quantity || kpi.Quantity || 0,
+                  target_date: kpi.target_date || kpi.activity_date || (kpi as any).raw?.['Target Date'] || (kpi as any).raw?.['Activity Date'] || '',
+                  actual_date: kpi.actual_date || (kpi as any).raw?.['Actual Date']
+                }))
+              }
+              
+              // Calculate status
+              const statusResult = calculateProjectStatus(statusData)
+              calculatedStatus = statusResult.status
+            } catch (error) {
+              console.error('Error calculating project status:', error)
+              // Fallback to database status if calculation fails
+              calculatedStatus = project.project_status || 'upcoming'
+            }
+          } else {
+            // No activities or KPIs, use database status or default to 'upcoming'
+            calculatedStatus = project.project_status || 'upcoming'
+          }
           
-          // Get status icon
-          const getStatusIcon = () => {
-            if (projectStatus === 'ahead') {
-              return <TrendingUp className="h-3 w-3 text-green-600 dark:text-green-400" />
-            } else if (projectStatus === 'on_track') {
-              return <CheckCircle className="h-3 w-3 text-blue-600 dark:text-blue-400" />
-            } else {
-              return <AlertCircle className="h-3 w-3 text-red-600 dark:text-red-400" />
+          // Get display info for the calculated status
+          const statusText = getProjectStatusText(calculatedStatus)
+          const projectStatusColor = getProjectStatusColor(calculatedStatus)
+          const statusInfo = getStatusDisplayInfo(calculatedStatus as any)
+          
+          // Map icon emoji to React component
+          const getStatusIconComponent = () => {
+            switch (statusInfo.icon) {
+              case '⏳':
+                return <Clock className="h-3 w-3" />
+              case '🏗️':
+                return <Building className="h-3 w-3" />
+              case '🚀':
+                return <Activity className="h-3 w-3" />
+              case '✅':
+                return <CheckCircle className="h-3 w-3" />
+              case '⏰':
+                return <Clock className="h-3 w-3" />
+              case '📋':
+                return <Target className="h-3 w-3" />
+              case '⏸️':
+                return <Clock className="h-3 w-3" />
+              case '❌':
+                return <AlertCircle className="h-3 w-3" />
+              default:
+                return <Info className="h-3 w-3" />
             }
           }
           
           return (
-            <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
-                {getStatusIcon()}
-                <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${statusBadgeClass}`}>
-                  {statusText}
+              {getStatusIconComponent()}
+              <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${projectStatusColor}`}>
+                {statusText}
               </span>
-              </div>
-              {variancePercentageStatus !== 0 && (
-                <span className="text-xs text-gray-600 dark:text-gray-400 px-1">
-                  Variance: {variancePercentageStatus > 0 ? '+' : ''}{variancePercentageStatus.toFixed(1)}%
-                </span>
-              )}
             </div>
           )
         

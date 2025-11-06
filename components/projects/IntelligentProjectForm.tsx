@@ -62,7 +62,9 @@ import {
   Download,
   Plus,
   Check,
-  Percent
+  Percent,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react'
 
 interface IntelligentProjectFormProps {
@@ -107,7 +109,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
   
   // Add new company modal state
   const [showAddCompanyModal, setShowAddCompanyModal] = useState(false)
-  const [newCompanyType, setNewCompanyType] = useState<'Client' | 'Consultant' | 'Contractor'>('Client')
+  const [newCompanyType, setNewCompanyType] = useState<'Client' | 'Consultant' | 'Contractor' | 'First Party'>('Client')
   const [newCompanyName, setNewCompanyName] = useState('')
   const [addingCompany, setAddingCompany] = useState(false)
   const [projectManagerEmail, setProjectManagerEmail] = useState('')
@@ -123,6 +125,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
   const [projectStartDate, setProjectStartDate] = useState('')
   const [projectCompletionDate, setProjectCompletionDate] = useState('')
   const [projectDuration, setProjectDuration] = useState<number | undefined>(undefined)
+  const [showDateFields, setShowDateFields] = useState(false) // ✅ Toggle for Start/Completion dates
   const [dateProjectAwarded, setDateProjectAwarded] = useState('')
   const [retentionAfterCompletion, setRetentionAfterCompletion] = useState('')
   const [retentionAfter6Month, setRetentionAfter6Month] = useState('')
@@ -411,6 +414,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
       setRetentionAfter6Month('')
       setRetentionAfter12Month('')
       setProjectDuration(undefined)
+      setProjectStatus('upcoming') // ✅ Default value for new projects
       
       // Load metadata for suggestions
       const metadata = getProjectMetadata()
@@ -496,14 +500,16 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
   // Load companies from database
   const loadCompanies = async () => {
     try {
-      const [clients, consultants, contractors] = await Promise.all([
+      const [clients, consultants, contractors, firstParties] = await Promise.all([
         getCompaniesByType('Client'),
         getCompaniesByType('Consultant'),
-        getCompaniesByType('Contractor')
+        getCompaniesByType('Contractor'),
+        getCompaniesByType('First Party')
       ])
       setClientCompanies(clients)
       setConsultantCompanies(consultants)
-      setContractorCompanies(contractors)
+      // Merge Contractor, First Party, and Client companies for First Party field
+      setContractorCompanies([...contractors, ...firstParties, ...clients])
     } catch (error) {
       console.error('Error loading companies:', error)
     }
@@ -536,7 +542,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
       } else if (newCompanyType === 'Consultant') {
         setConsultantName(newCompanyName.trim())
         setShowConsultantDropdown(false)
-      } else if (newCompanyType === 'Contractor') {
+      } else if (newCompanyType === 'Contractor' || newCompanyType === 'First Party') {
         setContractorName(newCompanyName.trim())
         setShowContractorDropdown(false)
       }
@@ -686,6 +692,16 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
       if (!projectName.trim()) throw new Error('Project name is required')
       if (!workmanshipOnly.trim()) throw new Error('Workmanship Only is required')
       if (!advancePaymentRequired.trim()) throw new Error('Advance Payment Required is required')
+      
+      // Validate Virtual Material Value when Workmanship Only = Yes
+      if (workmanshipOnly === 'Yes' && !virtualMaterialValue.trim()) {
+        throw new Error('Virtual Material Value is required when Workmanship Only is Yes')
+      }
+      
+      // Validate Project Duration (Required)
+      if (!projectDuration || projectDuration <= 0) {
+        throw new Error('Project Duration is required and must be greater than 0')
+      }
       
       // Validate project code format
       if (!codeValidation.valid) {
@@ -1142,7 +1158,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               <Calendar className="inline h-4 w-4 mr-1" />
-              Project Award Date (تاريخ التعاقد)
+              Project Award Date
             </label>
             <Input
               type="date"
@@ -1156,60 +1172,84 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
             </p>
           </div>
           
-          {/* Project Start Date, Completion Date & Duration */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Project Start Date */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                <Calendar className="inline h-4 w-4 mr-1" />
-                Project Start Date
-              </label>
-              <Input
-                type="date"
-                value={projectStartDate}
-                onChange={(e) => setProjectStartDate(e.target.value)}
-                disabled={loading}
-                min={dateProjectAwarded || undefined}
-                className="focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-            
-            {/* Project Completion Date */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                <Calendar className="inline h-4 w-4 mr-1" />
-                Project Completion Date
-              </label>
-              <Input
-                type="date"
-                value={projectCompletionDate}
-                onChange={(e) => setProjectCompletionDate(e.target.value)}
-                disabled={loading}
-                min={projectStartDate || dateProjectAwarded || undefined}
-                className="focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-            
-            {/* Project Duration (Auto-calculated) */}
+          {/* Project Duration & Date Fields Toggle */}
+          <div className="space-y-4">
+            {/* Project Duration - Always Visible and Required */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 <Clock className="inline h-4 w-4 mr-1" />
-                Project Duration (Days)
+                Project Duration (Days) <span className="text-red-500">*</span>
               </label>
               <Input
                 type="number"
                 value={projectDuration || ''}
-                readOnly
+                onChange={(e) => {
+                  const value = e.target.value
+                  setProjectDuration(value ? parseInt(value) : undefined)
+                }}
                 disabled={loading}
-                placeholder="Auto-calculated"
-                className="bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-400 cursor-not-allowed"
+                required
+                placeholder="Enter project duration in days"
+                min="0"
+                className="focus:ring-blue-500 focus:border-blue-500"
               />
-              {projectDuration !== undefined && (
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  {projectDuration} {projectDuration === 1 ? 'day' : 'days'}
-                </p>
-              )}
             </div>
+            
+            {/* Toggle Button for Start/Completion Dates */}
+            <button
+              type="button"
+              onClick={() => setShowDateFields(!showDateFields)}
+              className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+            >
+              {showDateFields ? (
+                <>
+                  <ChevronUp className="h-4 w-4" />
+                  <span>Hide Start & Completion Dates</span>
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="h-4 w-4" />
+                  <span>Show Start & Completion Dates</span>
+                </>
+              )}
+            </button>
+            
+            {/* Project Start Date & Completion Date - Hidden by Default */}
+            {showDateFields && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                {/* Project Start Date */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <Calendar className="inline h-4 w-4 mr-1" />
+                    Project Start Date
+                  </label>
+                  <Input
+                    type="date"
+                    value={projectStartDate}
+                    onChange={(e) => setProjectStartDate(e.target.value)}
+                    disabled={loading}
+                    min={dateProjectAwarded || undefined}
+                    className="focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                
+                {/* Project Completion Date */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <Calendar className="inline h-4 w-4 mr-1" />
+                    Project Completion Date
+                  </label>
+                  <Input
+                    type="date"
+                    value={projectCompletionDate}
+                    onChange={(e) => setProjectCompletionDate(e.target.value)}
+                    disabled={loading}
+                    min={projectStartDate || dateProjectAwarded || undefined}
+                    className="focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+            )}
           </div>
           
           {/* Retention Information */}
@@ -1288,7 +1328,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
             </div>
           </div>
           
-          {/* Workmanship Only & Advance Payment Required - Required Fields */}
+          {/* Workmanship Only & Virtual Material Value - Linked Fields */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Workmanship Only */}
             <div>
@@ -1309,51 +1349,41 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
               </select>
             </div>
             
-            {/* Advance Payment Required */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                <DollarSign className="inline h-4 w-4 mr-1" />
-                Advance Payment Required <span className="text-red-500">*</span>
-              </label>
-              <Input
-                value={advancePaymentRequired}
-                onChange={(e) => setAdvancePaymentRequired(e.target.value)}
-                placeholder="e.g., Yes, No, 10%"
-                disabled={loading}
-                required
-                className="focus:ring-orange-500 focus:border-orange-500"
-              />
-            </div>
+            {/* Virtual Material Value - Shows only when Workmanship Only = Yes */}
+            {workmanshipOnly === 'Yes' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <DollarSign className="inline h-4 w-4 mr-1" />
+                  Virtual Material Value <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  value={virtualMaterialValue}
+                  onChange={(e) => setVirtualMaterialValue(e.target.value)}
+                  placeholder="Enter virtual material value..."
+                  disabled={loading}
+                  required
+                  className="focus:ring-orange-500 focus:border-orange-500"
+                />
+              </div>
+            )}
           </div>
           
-          {/* Project Status */}
+          {/* Advance Payment Required */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              <Calendar className="inline h-4 w-4 mr-1" />
-              Project Status <span className="text-red-500">*</span>
+              <DollarSign className="inline h-4 w-4 mr-1" />
+              Advance Payment Required <span className="text-red-500">*</span>
             </label>
-            <select
-              value={projectStatus}
-              onChange={(e) => setProjectStatus(e.target.value as any)}
-              className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+            <Input
+              value={advancePaymentRequired}
+              onChange={(e) => setAdvancePaymentRequired(e.target.value)}
+              placeholder="e.g., Yes, No, 10%"
               disabled={loading}
-            >
-              {PROJECT_STATUSES.map((status) => (
-                <option key={status.value} value={status.value}>
-                  {status.label}
-                </option>
-              ))}
-            </select>
-            <div className="mt-2">
-              <ModernBadge
-                variant={PROJECT_STATUSES.find(s => s.value === projectStatus)?.color as any || 'gray'}
-                size="sm"
-              >
-                {PROJECT_STATUSES.find(s => s.value === projectStatus)?.label}
-              </ModernBadge>
-            </div>
+              required
+              className="focus:ring-orange-500 focus:border-orange-500"
+            />
           </div>
-
+          
           {/* Stakeholder Information */}
           <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
@@ -1447,11 +1477,11 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                 </div>
               </div>
               
-              {/* Contractor Name */}
+              {/* First Party Name */}
               <div className="relative company-dropdown-container">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   <Users className="inline h-4 w-4 mr-1" />
-                  Contractor <span className="text-red-500">*</span>
+                  First Party <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                 <Input
@@ -1462,7 +1492,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                       setShowContractorDropdown(true)
                     }}
                     onFocus={() => setShowContractorDropdown(true)}
-                    placeholder="Search or enter contractor name..."
+                    placeholder="Search or enter first party name..."
                   required
                   disabled={loading}
                 />
@@ -1485,16 +1515,21 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                                   setContractorSearch('')
                                   setShowContractorDropdown(false)
                                 }}
-                                className="px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer flex items-center gap-2"
+                                className="px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer flex items-center justify-between gap-2"
                               >
-                                <Users className="h-4 w-4 text-gray-400" />
-                                <span>{company.company_name}</span>
+                                <div className="flex items-center gap-2">
+                                  <Users className="h-4 w-4 text-gray-400" />
+                                  <span>{company.company_name}</span>
+                                </div>
+                                <span className="text-xs text-gray-500 dark:text-gray-400 px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700">
+                                  {company.company_type}
+                                </span>
                               </div>
                             ))}
                             {showAddButton && (
                               <div
                                 onClick={() => {
-                                  setNewCompanyType('Contractor')
+                                  setNewCompanyType('First Party')
                                   setNewCompanyName(contractorSearch)
                                   setShowAddCompanyModal(true)
                                   setShowContractorDropdown(false)
@@ -1502,13 +1537,13 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                                 className="px-4 py-2 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 cursor-pointer border-t border-gray-200 dark:border-gray-700 flex items-center gap-2 text-blue-600 dark:text-blue-400 font-medium"
                               >
                                 <Plus className="h-4 w-4" />
-                                <span>Add "{contractorSearch}" as Contractor</span>
+                                <span>Add "{contractorSearch}" as First Party</span>
                               </div>
                             )}
                             {showAddButtonNoResults && (
                               <div
                                 onClick={() => {
-                                  setNewCompanyType('Contractor')
+                                  setNewCompanyType('First Party')
                                   setNewCompanyName(contractorSearch)
                                   setShowAddCompanyModal(true)
                                   setShowContractorDropdown(false)
@@ -1516,7 +1551,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                                 className="px-4 py-3 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 cursor-pointer flex items-center gap-2 text-blue-600 dark:text-blue-400 font-medium"
                               >
                                 <Plus className="h-4 w-4" />
-                                <span>Add "{contractorSearch}" as Contractor</span>
+                                <span>Add "{contractorSearch}" as First Party</span>
                               </div>
                             )}
                             {filtered.length === 0 && !showAddButton && !showAddButtonNoResults && (
@@ -2100,22 +2135,6 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                     className="focus:ring-orange-500 focus:border-orange-500"
                   />
                 </div>
-                
-                {/* Virtual Material Value */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    <DollarSign className="inline h-4 w-4 mr-1" />
-                    Virtual Material Value
-                    <X className="inline h-4 w-4 ml-1 text-red-500" />
-                  </label>
-                  <Input
-                    value={virtualMaterialValue}
-                    onChange={(e) => setVirtualMaterialValue(e.target.value)}
-                    placeholder="Enter virtual material value..."
-                    disabled={loading}
-                    className="focus:ring-orange-500 focus:border-orange-500"
-                  />
-                </div>
               </div>
             </div>
           </div>
@@ -2140,6 +2159,39 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
               </div>
             </div>
           </ModernCard>
+          
+          {/* Project Status - Auto-updated, shown at bottom */}
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <Calendar className="inline h-4 w-4 mr-1" />
+                Project Status <span className="text-xs text-gray-500 dark:text-gray-400">(Auto-updated)</span>
+              </label>
+              <select
+                value={projectStatus}
+                onChange={(e) => setProjectStatus(e.target.value as any)}
+                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+                disabled={loading}
+              >
+                {PROJECT_STATUSES.map((status) => (
+                  <option key={status.value} value={status.value}>
+                    {status.label}
+                  </option>
+                ))}
+              </select>
+              <div className="mt-2">
+                <ModernBadge
+                  variant={PROJECT_STATUSES.find(s => s.value === projectStatus)?.color as any || 'gray'}
+                  size="sm"
+                >
+                  {PROJECT_STATUSES.find(s => s.value === projectStatus)?.label}
+                </ModernBadge>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                Project status is automatically calculated based on project analytics. Default value: Upcoming
+              </p>
+            </div>
+          </div>
           
           {/* Form Actions */}
           <div className="flex gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">

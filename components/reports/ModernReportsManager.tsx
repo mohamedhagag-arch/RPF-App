@@ -63,7 +63,6 @@ export function ModernReportsManager() {
   // Smart Filter State
   const [selectedProjects, setSelectedProjects] = useState<string[]>([])
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>([])
-  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([])
   const [selectedTypes, setSelectedTypes] = useState<string[]>([])
   const [selectedZones, setSelectedZones] = useState<string[]>([])
   const [selectedUnits, setSelectedUnits] = useState<string[]>([])
@@ -275,19 +274,6 @@ export function ModernReportsManager() {
     if (selectedTypes.length > 0) {
       filteredKPIs = filteredKPIs.filter(k =>
         selectedTypes.includes((k as any).input_type || k.input_type)
-      )
-    }
-
-    // Filter by statuses (for KPIs)
-    if (selectedStatuses.length > 0) {
-      filteredKPIs = filteredKPIs.filter(k =>
-        selectedStatuses.some(status =>
-          ((k as any).status || '').toLowerCase() === status.toLowerCase()
-        )
-      )
-      // Also filter projects by status if they have status field
-      filteredProjects = filteredProjects.filter(p => 
-        selectedStatuses.includes(p.project_status)
       )
     }
 
@@ -568,7 +554,6 @@ export function ModernReportsManager() {
               selectedProjects={selectedProjects}
               selectedActivities={selectedActivities}
               selectedTypes={selectedTypes}
-              selectedStatuses={selectedStatuses}
               selectedZones={selectedZones}
               selectedUnits={selectedUnits}
               selectedDivisions={selectedDivisions}
@@ -578,7 +563,6 @@ export function ModernReportsManager() {
               onProjectsChange={setSelectedProjects}
               onActivitiesChange={setSelectedActivities}
               onTypesChange={setSelectedTypes}
-              onStatusesChange={setSelectedStatuses}
               onZonesChange={setSelectedZones}
               onUnitsChange={setSelectedUnits}
               onDivisionsChange={setSelectedDivisions}
@@ -589,7 +573,6 @@ export function ModernReportsManager() {
                 setSelectedProjects([])
                 setSelectedActivities([])
                 setSelectedTypes([])
-                setSelectedStatuses([])
                 setSelectedZones([])
                 setSelectedUnits([])
                 setSelectedDivisions([])

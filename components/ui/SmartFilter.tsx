@@ -18,7 +18,6 @@ interface SmartFilterProps {
   selectedProjects: string[]
   selectedActivities: string[]
   selectedTypes: string[]
-  selectedStatuses: string[]
   selectedZones?: string[]
   selectedUnits?: string[]
   selectedDivisions?: string[]
@@ -30,7 +29,6 @@ interface SmartFilterProps {
   onProjectsChange: (projects: string[]) => void
   onActivitiesChange: (activities: string[]) => void
   onTypesChange: (types: string[]) => void
-  onStatusesChange: (statuses: string[]) => void
   onZonesChange: (zones: string[]) => void
   onUnitsChange: (units: string[]) => void
   onDivisionsChange: (divisions: string[]) => void
@@ -47,7 +45,6 @@ export function SmartFilter({
   selectedProjects,
   selectedActivities,
   selectedTypes,
-  selectedStatuses,
   selectedZones,
   selectedUnits,
   selectedDivisions,
@@ -57,7 +54,6 @@ export function SmartFilter({
   onProjectsChange,
   onActivitiesChange,
   onTypesChange,
-  onStatusesChange,
   onZonesChange,
   onUnitsChange,
   onDivisionsChange,
@@ -69,7 +65,6 @@ export function SmartFilter({
   const [showProjectDropdown, setShowProjectDropdown] = useState(false)
   const [showActivityDropdown, setShowActivityDropdown] = useState(false)
   const [showTypeDropdown, setShowTypeDropdown] = useState(false)
-  const [showStatusDropdown, setShowStatusDropdown] = useState(false)
   const [showZoneDropdown, setShowZoneDropdown] = useState(false)
   const [showUnitDropdown, setShowUnitDropdown] = useState(false)
   const [showDivisionDropdown, setShowDivisionDropdown] = useState(false)
@@ -100,7 +95,6 @@ export function SmartFilter({
   const projectDropdownRef = useRef<HTMLDivElement>(null)
   const activityDropdownRef = useRef<HTMLDivElement>(null)
   const typeDropdownRef = useRef<HTMLDivElement>(null)
-  const statusDropdownRef = useRef<HTMLDivElement>(null)
   const zoneDropdownRef = useRef<HTMLDivElement>(null)
   const unitDropdownRef = useRef<HTMLDivElement>(null)
   const divisionDropdownRef = useRef<HTMLDivElement>(null)
@@ -122,9 +116,6 @@ export function SmartFilter({
       }
       if (typeDropdownRef.current && showTypeDropdown && !typeDropdownRef.current.contains(target)) {
         setShowTypeDropdown(false)
-      }
-      if (statusDropdownRef.current && showStatusDropdown && !statusDropdownRef.current.contains(target)) {
-        setShowStatusDropdown(false)
       }
       if (zoneDropdownRef.current && showZoneDropdown && !zoneDropdownRef.current.contains(target)) {
         setShowZoneDropdown(false)
@@ -154,7 +145,7 @@ export function SmartFilter({
       document.removeEventListener('mousedown', handleClickOutside)
       document.removeEventListener('click', handleClickOutside)
     }
-  }, [showProjectDropdown, showActivityDropdown, showTypeDropdown, showStatusDropdown, showZoneDropdown, showUnitDropdown, showDivisionDropdown, showDateRangeModal, showValueRangeModal, showQuantityRangeModal])
+  }, [showProjectDropdown, showActivityDropdown, showTypeDropdown, showZoneDropdown, showUnitDropdown, showDivisionDropdown, showDateRangeModal, showValueRangeModal, showQuantityRangeModal])
   
   // 🔧 FIX: Close dropdowns when pressing Escape
   useEffect(() => {
@@ -163,7 +154,6 @@ export function SmartFilter({
         setShowProjectDropdown(false)
         setShowActivityDropdown(false)
         setShowTypeDropdown(false)
-        setShowStatusDropdown(false)
         setShowZoneDropdown(false)
         setShowUnitDropdown(false)
         setShowDivisionDropdown(false)
@@ -215,8 +205,6 @@ export function SmartFilter({
   ])).filter(division => division && division.trim() !== '') : []
   
   const types = ['Planned', 'Actual']
-  const statuses = ['Active', 'Completed', 'Delayed', 'Not Started']
-  
   // Filter zones, units, and divisions by search
   const filteredZones = uniqueZones.filter(zone =>
     zone.toLowerCase().includes(zoneSearch.toLowerCase())
@@ -233,7 +221,6 @@ export function SmartFilter({
   const hasActiveFilters = (selectedProjects?.length || 0) > 0 || 
                            (selectedActivities?.length || 0) > 0 || 
                            (selectedTypes?.length || 0) > 0 || 
-                           (selectedStatuses?.length || 0) > 0 ||
                            (selectedZones?.length || 0) > 0 ||
                            (selectedUnits?.length || 0) > 0 ||
                            (selectedDivisions?.length || 0) > 0 ||
@@ -262,14 +249,6 @@ export function SmartFilter({
       onTypesChange(selectedTypes.filter(t => t !== type))
     } else {
       onTypesChange([...selectedTypes, type])
-    }
-  }
-  
-  const toggleStatus = (status: string) => {
-    if (selectedStatuses.includes(status)) {
-      onStatusesChange(selectedStatuses.filter(s => s !== status))
-    } else {
-      onStatusesChange([...selectedStatuses, status])
     }
   }
   
@@ -329,7 +308,6 @@ export function SmartFilter({
     setShowProjectDropdown(false)
     setShowActivityDropdown(false)
     setShowTypeDropdown(false)
-    setShowStatusDropdown(false)
   }
   
   // 🔧 FIX: Add functions to handle dropdown toggle with better UX
@@ -340,7 +318,6 @@ export function SmartFilter({
     if (!showProjectDropdown) {
       setShowActivityDropdown(false)
       setShowTypeDropdown(false)
-      setShowStatusDropdown(false)
       setShowZoneDropdown(false)
       setShowUnitDropdown(false)
       setShowDivisionDropdown(false)
@@ -357,7 +334,6 @@ export function SmartFilter({
     if (!showActivityDropdown) {
       setShowProjectDropdown(false)
       setShowTypeDropdown(false)
-      setShowStatusDropdown(false)
       setShowZoneDropdown(false)
       setShowUnitDropdown(false)
       setShowDivisionDropdown(false)
@@ -374,24 +350,6 @@ export function SmartFilter({
     if (!showTypeDropdown) {
       setShowProjectDropdown(false)
       setShowActivityDropdown(false)
-      setShowStatusDropdown(false)
-      setShowZoneDropdown(false)
-      setShowUnitDropdown(false)
-      setShowDivisionDropdown(false)
-      setShowDateRangeModal(false)
-      setShowValueRangeModal(false)
-      setShowQuantityRangeModal(false)
-    }
-  }
-  
-  const toggleStatusDropdown = (e?: React.MouseEvent<HTMLButtonElement>) => {
-    if (e) e.stopPropagation()
-    setShowStatusDropdown(!showStatusDropdown)
-    // Close other dropdowns when opening this one
-    if (!showStatusDropdown) {
-      setShowProjectDropdown(false)
-      setShowActivityDropdown(false)
-      setShowTypeDropdown(false)
       setShowZoneDropdown(false)
       setShowUnitDropdown(false)
       setShowDivisionDropdown(false)
@@ -616,54 +574,6 @@ export function SmartFilter({
         </div>
         )}
         
-        {/* Status Filter - Only show if projects selected */}
-        {selectedProjects.length > 0 && (
-        <div className="relative" ref={statusDropdownRef}>
-          <button
-            onClick={(e) => toggleStatusDropdown(e)}
-            className={`px-3 py-1.5 text-sm border rounded-lg flex items-center space-x-2 transition-all duration-200 ${
-              selectedStatuses.length > 0
-                ? 'bg-orange-50 dark:bg-orange-900/30 border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300 shadow-sm'
-                : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-gray-400 dark:hover:border-gray-500'
-            } ${showStatusDropdown ? 'ring-2 ring-orange-500 ring-opacity-50' : ''}`}
-          >
-            <span>Status</span>
-            {selectedStatuses.length > 0 && (
-              <span className="px-1.5 py-0.5 bg-orange-500 text-white rounded-full text-xs font-bold">
-                {selectedStatuses.length}
-              </span>
-            )}
-            <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showStatusDropdown ? 'rotate-180' : ''}`} />
-          </button>
-          
-          {showStatusDropdown && (
-            <div 
-              className="absolute z-50 mt-1 w-56 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="p-2">
-                {statuses.map(status => (
-                  <label
-                    key={status}
-                    className="flex items-center space-x-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer transition-colors"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedStatuses.includes(status)}
-                      onChange={() => toggleStatus(status)}
-                      className="w-4 h-4 text-orange-600 rounded focus:ring-orange-500"
-                    />
-                    <span className="text-sm text-gray-900 dark:text-gray-100">
-                      {status}
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-        )}
-        
         {/* Zone Filter - Only show if projects selected and zones available */}
         {selectedProjects.length > 0 && uniqueZones.length > 0 && (
           <div className="relative" ref={zoneDropdownRef}>
@@ -675,7 +585,6 @@ export function SmartFilter({
                   setShowProjectDropdown(false)
                   setShowActivityDropdown(false)
                   setShowTypeDropdown(false)
-                  setShowStatusDropdown(false)
                   setShowUnitDropdown(false)
                   setShowDivisionDropdown(false)
                   setShowDateRangeModal(false)
@@ -756,7 +665,6 @@ export function SmartFilter({
                   setShowProjectDropdown(false)
                   setShowActivityDropdown(false)
                   setShowTypeDropdown(false)
-                  setShowStatusDropdown(false)
                   setShowZoneDropdown(false)
                   setShowDivisionDropdown(false)
                   setShowDateRangeModal(false)
@@ -837,7 +745,6 @@ export function SmartFilter({
                   setShowProjectDropdown(false)
                   setShowActivityDropdown(false)
                   setShowTypeDropdown(false)
-                  setShowStatusDropdown(false)
                   setShowZoneDropdown(false)
                   setShowUnitDropdown(false)
                   setShowDateRangeModal(false)
@@ -918,7 +825,6 @@ export function SmartFilter({
                 setShowProjectDropdown(false)
                 setShowActivityDropdown(false)
                 setShowTypeDropdown(false)
-                setShowStatusDropdown(false)
                 setShowZoneDropdown(false)
                 setShowUnitDropdown(false)
                 setShowDivisionDropdown(false)
@@ -1004,7 +910,6 @@ export function SmartFilter({
                 setShowProjectDropdown(false)
                 setShowActivityDropdown(false)
                 setShowTypeDropdown(false)
-                setShowStatusDropdown(false)
                 setShowZoneDropdown(false)
                 setShowUnitDropdown(false)
                 setShowDivisionDropdown(false)
@@ -1092,7 +997,6 @@ export function SmartFilter({
                 setShowProjectDropdown(false)
                 setShowActivityDropdown(false)
                 setShowTypeDropdown(false)
-                setShowStatusDropdown(false)
                 setShowZoneDropdown(false)
                 setShowUnitDropdown(false)
                 setShowDivisionDropdown(false)
@@ -1213,20 +1117,6 @@ export function SmartFilter({
               <button
                 onClick={() => toggleType(type)}
                 className="hover:bg-purple-200 dark:hover:bg-purple-800 rounded-full p-0.5"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-          ))}
-          {selectedStatuses.map(status => (
-            <div
-              key={status}
-              className="inline-flex items-center space-x-1 px-2 py-1 bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 rounded-md text-xs"
-            >
-              <span className="font-medium">{status}</span>
-              <button
-                onClick={() => toggleStatus(status)}
-                className="hover:bg-orange-200 dark:hover:bg-orange-800 rounded-full p-0.5"
               >
                 <X className="w-3 h-3" />
               </button>

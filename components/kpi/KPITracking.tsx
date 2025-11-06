@@ -77,7 +77,6 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   const [selectedProjects, setSelectedProjects] = useState<string[]>([])
   const [selectedActivities, setSelectedActivities] = useState<string[]>([])
   const [selectedTypes, setSelectedTypes] = useState<string[]>([])
-  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([])
   const [selectedZones, setSelectedZones] = useState<string[]>([])
   const [selectedUnits, setSelectedUnits] = useState<string[]>([])
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>([])
@@ -1025,14 +1024,6 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       if (!selectedTypes.includes(kpi.input_type)) return false
     }
     
-    // Multi-Status filter (Smart Filter)
-    if (selectedStatuses.length > 0) {
-      const matchesStatus = selectedStatuses.some(status =>
-        kpi.status?.toLowerCase() === status.toLowerCase()
-      )
-      if (!matchesStatus) return false
-    }
-    
     // Zone filter (Smart Filter)
     if (selectedZones.length > 0) {
       const kpiZone = (kpi.zone || kpi.section || (kpi as any).zone_ref || (kpi as any).zone_number || '').toLowerCase().trim()
@@ -1112,10 +1103,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       if (!matchesProject) return false
     }
     
-    // Legacy status filter
-    if (filters.status && selectedStatuses.length === 0) {
-      if (kpi.status !== filters.status) return false
-    }
+    // Legacy status filter (removed - Status filter no longer available)
     
     // Legacy type filter
     if (filters.type && selectedTypes.length === 0) {
@@ -1459,7 +1447,6 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         selectedProjects={selectedProjects}
         selectedActivities={selectedActivities}
         selectedTypes={selectedTypes}
-        selectedStatuses={selectedStatuses}
         selectedZones={selectedZones}
         selectedUnits={selectedUnits}
         selectedDivisions={selectedDivisions}
@@ -1482,7 +1469,6 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         }}
         onActivitiesChange={setSelectedActivities}
         onTypesChange={setSelectedTypes}
-        onStatusesChange={setSelectedStatuses}
         onZonesChange={setSelectedZones}
         onUnitsChange={setSelectedUnits}
         onDivisionsChange={setSelectedDivisions}
@@ -1494,7 +1480,6 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           setSelectedProjects([])
           setSelectedActivities([])
           setSelectedTypes([])
-          setSelectedStatuses([])
           setSelectedZones([])
           setSelectedUnits([])
           setSelectedDivisions([])

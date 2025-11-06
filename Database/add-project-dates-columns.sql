@@ -65,10 +65,12 @@ BEGIN
     -- ✅ Always calculate duration if both dates exist (even if duration is already set)
     IF NEW."Project Start Date" IS NOT NULL AND NEW."Project Completion Date" IS NOT NULL THEN
         -- Calculate duration in days (including both start and end days)
-        NEW."Project Duration" := EXTRACT(DAY FROM (NEW."Project Completion Date" - NEW."Project Start Date"))::INTEGER + 1;
+        -- ✅ FIX: Use direct date subtraction which returns INTEGER (days)
+        NEW."Project Duration" := (NEW."Project Completion Date" - NEW."Project Start Date")::INTEGER + 1;
     ELSIF NEW."Project Start Date" IS NOT NULL AND NEW."Project Completion Date" IS NULL THEN
         -- If only start date exists, calculate from start date to today
-        NEW."Project Duration" := EXTRACT(DAY FROM (CURRENT_DATE - NEW."Project Start Date"))::INTEGER + 1;
+        -- ✅ FIX: Use direct date subtraction which returns INTEGER (days)
+        NEW."Project Duration" := (CURRENT_DATE - NEW."Project Start Date")::INTEGER + 1;
         -- If duration is negative (future date), set to 0
         IF NEW."Project Duration" < 0 THEN
             NEW."Project Duration" := 0;

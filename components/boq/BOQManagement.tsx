@@ -72,7 +72,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   const [showFilters, setShowFilters] = useState(false)
   const [filters, setFilters] = useState({
     search: '',
-    project: '',
+    project: [] as string[], // ✅ Changed to array to support multiple projects
     division: '',
     status: '',
     zone: ''
@@ -106,12 +106,54 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     }
   }, [])
   
-  // ✅ Get selected project name for display
-  const getSelectedProjectName = () => {
-    if (!filters.project) return ''
-    const selectedProject = projects.find(p => p.project_code === filters.project)
-    return selectedProject ? `${selectedProject.project_code} - ${selectedProject.project_name}` : filters.project
+  // ✅ Get selected projects names for display
+  const getSelectedProjectsNames = () => {
+    if (!filters.project || filters.project.length === 0) return ''
+    if (filters.project.length === 1) {
+      const selectedProject = projects.find(p => p.project_code === filters.project[0])
+      return selectedProject ? `${selectedProject.project_code} - ${selectedProject.project_name}` : filters.project[0]
+    }
+    return `${filters.project.length} projects selected`
   }
+  
+  // ✅ Toggle project selection
+  const toggleProject = (projectCode: string) => {
+    setFilters(prev => {
+      const currentProjects = prev.project || []
+      if (currentProjects.includes(projectCode)) {
+        // Remove project
+        return { ...prev, project: currentProjects.filter(p => p !== projectCode) }
+      } else {
+        // Add project
+        return { ...prev, project: [...currentProjects, projectCode] }
+      }
+    })
+  }
+  
+  // ✅ Apply filters automatically when project selection changes (via toggleProject)
+  // Note: handleFilterChange already calls applyFiltersToDatabase, so we only need to handle toggleProject
+  const prevProjectsRef = useRef<string[]>([])
+  useEffect(() => {
+    // Only trigger if project selection actually changed (not from handleFilterChange)
+    const projectsChanged = JSON.stringify(prevProjectsRef.current) !== JSON.stringify(filters.project)
+    if (projectsChanged) {
+      prevProjectsRef.current = [...filters.project] // Deep copy
+      
+      // Only apply if projects are selected (toggleProject was used)
+      // handleFilterChange already handles other filter changes
+      if (filters.project.length > 0) {
+        console.log('🔄 Project selection changed via toggleProject, applying filters...')
+        applyFiltersToDatabase(filters)
+        setCurrentPage(1)
+      } else if (filters.project.length === 0 && !filters.search && !filters.division && !filters.status && !filters.zone) {
+        // Clear activities if no filters are applied
+        console.log('🧹 No filters applied, clearing activities...')
+        setActivities([])
+        setFilteredActivities([])
+        setTotalCount(0)
+      }
+    }
+  }, [filters.project]) // Only trigger when project selection changes
   
   // ✅ Filter projects based on search
   const getFilteredProjects = () => {
@@ -160,10 +202,10 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       )
     }
     
-    // Project filter
-    if (filters.project) {
+    // Project filter (supports multiple projects)
+    if (filters.project && filters.project.length > 0) {
       filtered = filtered.filter(activity => 
-        activity.project_code === filters.project
+        filters.project.includes(activity.project_code || '')
       )
     }
     
@@ -222,7 +264,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   }
 
   // ✅ Handle filter changes
-  const handleFilterChange = (key: string, value: string) => {
+  const handleFilterChange = (key: string, value: string | string[]) => {
     const newFilters = { ...filters, [key]: value }
     setFilters(newFilters)
     
@@ -240,7 +282,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   const clearFilters = () => {
     setFilters({
       search: '',
-      project: '',
+      project: [],
       division: '',
       status: '',
       zone: ''
@@ -272,7 +314,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       console.log('🔄 Applying filters to database:', filtersToApply)
       
       // ✅ Check if any filters are applied
-      if (!filtersToApply.search && !filtersToApply.project && !filtersToApply.division && !filtersToApply.status) {
+      if (!filtersToApply.search && (!filtersToApply.project || filtersToApply.project.length === 0) && !filtersToApply.division && !filtersToApply.status) {
         console.log('💡 No filters applied - showing empty state')
         setActivities([])
         setFilteredActivities([])
@@ -288,8 +330,13 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         .order('created_at', { ascending: false })
       
       // ✅ Apply database-level filters
-      if (filtersToApply.project) {
-        activitiesQuery = activitiesQuery.eq('Project Code', filtersToApply.project)
+      if (filtersToApply.project && filtersToApply.project.length > 0) {
+        // Use 'in' filter for multiple projects
+        if (filtersToApply.project.length === 1) {
+          activitiesQuery = activitiesQuery.eq('Project Code', filtersToApply.project[0])
+        } else {
+          activitiesQuery = activitiesQuery.in('Project Code', filtersToApply.project)
+        }
         console.log('🔍 Applied project filter:', filtersToApply.project)
       }
       
@@ -309,7 +356,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       }
       
       console.log('🔍 Final query filters:', {
-        project: filtersToApply.project || 'none',
+        project: filtersToApply.project && filtersToApply.project.length > 0 ? filtersToApply.project.join(', ') : 'none',
         division: filtersToApply.division || 'none', 
         status: filtersToApply.status || 'none',
         search: filtersToApply.search || 'none'
@@ -420,7 +467,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       console.log(`📄 BOQManagement: Fetching activities (page ${page}, applyFilters: ${applyFilters})...`)
       
       // ✅ Smart loading: Only load data when filters are applied
-      if (!applyFilters && !filters.search && !filters.project && !filters.division && !filters.status) {
+      if (!applyFilters && !filters.search && (!filters.project || filters.project.length === 0) && !filters.division && !filters.status) {
         console.log('💡 No filters applied - showing empty state')
         setActivities([])
         setFilteredActivities([])
@@ -447,8 +494,13 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       // ✅ Apply database-level filters
       console.log('🔍 Current filters:', filters)
       
-      if (filters.project) {
-        activitiesQuery = activitiesQuery.eq('Project Code', filters.project)
+      if (filters.project && filters.project.length > 0) {
+        // Use 'in' filter for multiple projects
+        if (filters.project.length === 1) {
+          activitiesQuery = activitiesQuery.eq('Project Code', filters.project[0])
+        } else {
+          activitiesQuery = activitiesQuery.in('Project Code', filters.project)
+        }
         console.log('🔍 Applied project filter:', filters.project)
       }
       
@@ -464,7 +516,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       
       // ✅ Debug: Show final query
       console.log('🔍 Final query filters:', {
-        project: filters.project || 'none',
+        project: filters.project && filters.project.length > 0 ? filters.project.join(', ') : 'none',
         division: filters.division || 'none', 
         status: filters.status || 'none',
         search: filters.search || 'none'
@@ -472,7 +524,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       
       // ✅ Debug: Show what will be queried
       console.log('🔍 Database query will filter by:', {
-        project_code: filters.project || 'ALL',
+        project_code: filters.project && filters.project.length > 0 ? filters.project.join(', ') : 'ALL',
         activity_division: filters.division || 'ALL',
         activity_progress_percentage: filters.status || 'ALL'
       })
@@ -723,7 +775,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     window.scrollTo({ top: 0, behavior: 'smooth' })
     
     // ✅ Only fetch data if filters are applied
-    if (filters.search || filters.project || filters.division || filters.status || filters.zone) {
+    if (filters.search || (filters.project && filters.project.length > 0) || filters.division || filters.status || filters.zone) {
       console.log('🔄 Page changed with filters applied - fetching data...')
       fetchData(page, true)
     }
@@ -1205,7 +1257,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
                 <Filter className="h-4 w-4" />
                 {showFilters ? 'Hide Filters' : 'Show Filters'}
               </Button>
-              {(filters.search || filters.project || filters.division || filters.status || filters.zone) && (
+              {(filters.search || (filters.project && filters.project.length > 0) || filters.division || filters.status || filters.zone) && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -1248,37 +1300,23 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                     <Input
                       type="text"
-                      value={filters.project ? getSelectedProjectName() : projectSearch}
+                      value={projectSearch}
                       onChange={(e) => {
                         const value = e.target.value
                         setProjectSearch(value)
                         setShowProjectDropdown(true)
-                        // Clear filter if input is cleared
-                        if (!value.trim()) {
-                          handleFilterChange('project', '')
-                          setProjectSearch('')
-                        }
                       }}
                       onFocus={() => {
                         setShowProjectDropdown(true)
-                        if (filters.project) {
-                          // Show search when focusing, but keep selected project
-                          const selectedProject = projects.find(p => p.project_code === filters.project)
-                          setProjectSearch(selectedProject ? `${selectedProject.project_code} - ${selectedProject.project_name}` : '')
-                        }
                       }}
                       onClick={() => setShowProjectDropdown(true)}
-                      placeholder="Search projects..."
+                      placeholder={filters.project && filters.project.length > 0 ? `${filters.project.length} project(s) selected` : "Search projects..."}
                       className="pl-10 pr-10 w-full"
                     />
                     <button
                       type="button"
                       onClick={() => {
                         setShowProjectDropdown(!showProjectDropdown)
-                        if (!showProjectDropdown && filters.project) {
-                          const selectedProject = projects.find(p => p.project_code === filters.project)
-                          setProjectSearch(selectedProject ? `${selectedProject.project_code} - ${selectedProject.project_name}` : '')
-                        }
                       }}
                       className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
                     >
@@ -1290,45 +1328,55 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
                     <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                       <div
                         onClick={() => {
-                          handleFilterChange('project', '')
+                          handleFilterChange('project', [])
                           setProjectSearch('')
                           setShowProjectDropdown(false)
                         }}
-                        className={`px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer flex items-center gap-2 ${!filters.project ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
+                        className={`px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer flex items-center gap-2 ${(!filters.project || filters.project.length === 0) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
                       >
                         <Building2 className="h-4 w-4 text-gray-400" />
-                        <span className={!filters.project ? 'font-medium text-blue-600 dark:text-blue-400' : ''}>
+                        <span className={(!filters.project || filters.project.length === 0) ? 'font-medium text-blue-600 dark:text-blue-400' : ''}>
                           All Projects
                         </span>
                       </div>
-                      {getFilteredProjects().map((project) => (
-                        <div
-                          key={project.id}
-                          onClick={() => {
-                            handleFilterChange('project', project.project_code)
-                            setProjectSearch('')
-                            setShowProjectDropdown(false)
-                          }}
-                          className={`px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer flex items-center gap-2 ${
-                            filters.project === project.project_code ? 'bg-blue-50 dark:bg-blue-900/20' : ''
-                          }`}
-                        >
-                          <Building2 className="h-4 w-4 text-gray-400" />
-                          <div className="flex-1">
-                            <div className={`text-sm ${filters.project === project.project_code ? 'font-medium text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-white'}`}>
-                              {project.project_code} - {project.project_name}
-                            </div>
-                            {project.project_sub_code && (
-                              <div className="text-xs text-gray-500 dark:text-gray-400">
-                                Sub: {project.project_sub_code}
+                      {getFilteredProjects().map((project) => {
+                        const isSelected = filters.project && filters.project.includes(project.project_code)
+                        return (
+                          <div
+                            key={project.id}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              toggleProject(project.project_code)
+                              setProjectSearch('')
+                            }}
+                            className={`px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer flex items-center gap-2 ${
+                              isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected || false}
+                              onChange={() => toggleProject(project.project_code)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                            />
+                            <Building2 className="h-4 w-4 text-gray-400" />
+                            <div className="flex-1">
+                              <div className={`text-sm ${isSelected ? 'font-medium text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-white'}`}>
+                                {project.project_code} - {project.project_name}
                               </div>
+                              {project.project_sub_code && (
+                                <div className="text-xs text-gray-500 dark:text-gray-400">
+                                  Sub: {project.project_sub_code}
+                                </div>
+                              )}
+                            </div>
+                            {isSelected && (
+                              <CheckCircle className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                             )}
                           </div>
-                          {filters.project === project.project_code && (
-                            <CheckCircle className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                          )}
-                        </div>
-                      ))}
+                        )
+                      })}
                       {getFilteredProjects().length === 0 && (
                         <div className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 text-center">
                           No projects found matching "{projectSearch}"
@@ -1396,6 +1444,40 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
             </div>
           )}
         </div>
+        
+        {/* ✅ Display selected projects as pills - moved to after Zone filter */}
+        {filters.project && filters.project.length > 0 && (
+          <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+            <div className="flex flex-wrap gap-1">
+              {filters.project.map((projectCode) => {
+                const project = projects.find(p => p.project_code === projectCode)
+                if (!project) return null
+                return (
+                  <div
+                    key={projectCode}
+                    className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-[10px] font-normal"
+                  >
+                    <Building2 className="h-2.5 w-2.5" />
+                    <span className="max-w-[120px] truncate">
+                      {project.project_code} - {project.project_name}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        toggleProject(projectCode)
+                      }}
+                      className="ml-0.5 hover:bg-blue-200 dark:hover:bg-blue-800 rounded p-0.5 transition-colors"
+                      title="Remove project"
+                    >
+                      <X className="h-2.5 w-2.5" />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
         
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
