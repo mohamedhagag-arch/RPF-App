@@ -42,6 +42,9 @@ export function mapProjectFromDB(row: any): Project {
     project_start_date: row['Project Start Date'] || '',
     project_completion_date: row['Project Completion Date'] || '',
     project_duration: row['Project Duration'] ? parseInt(String(row['Project Duration'])) : undefined,
+    retention_after_completion: row['Retention after Completion'] ? parseFloat(String(row['Retention after Completion'])) : undefined,
+    retention_after_6_month: row['Retention after 6 Month'] ? parseFloat(String(row['Retention after 6 Month'])) : undefined,
+    retention_after_12_month: row['Retention after 12 Month'] ? parseFloat(String(row['Retention after 12 Month'])) : undefined,
     created_at: row.created_at || new Date().toISOString(),
     updated_at: row.updated_at || new Date().toISOString(),
     created_by: row.created_by || ''
@@ -85,6 +88,9 @@ export function mapProjectToDB(project: Partial<Project>): any {
   if (project.project_start_date) dbData['Project Start Date'] = project.project_start_date
   if (project.project_completion_date) dbData['Project Completion Date'] = project.project_completion_date
   if (project.project_duration !== undefined) dbData['Project Duration'] = project.project_duration
+  if (project.retention_after_completion !== undefined) dbData['Retention after Completion'] = project.retention_after_completion
+  if (project.retention_after_6_month !== undefined) dbData['Retention after 6 Month'] = project.retention_after_6_month
+  if (project.retention_after_12_month !== undefined) dbData['Retention after 12 Month'] = project.retention_after_12_month
   
   return dbData
 }

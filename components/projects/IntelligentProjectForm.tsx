@@ -61,7 +61,8 @@ import {
   Link,
   Download,
   Plus,
-  Check
+  Check,
+  Percent
 } from 'lucide-react'
 
 interface IntelligentProjectFormProps {
@@ -123,6 +124,9 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
   const [projectCompletionDate, setProjectCompletionDate] = useState('')
   const [projectDuration, setProjectDuration] = useState<number | undefined>(undefined)
   const [dateProjectAwarded, setDateProjectAwarded] = useState('')
+  const [retentionAfterCompletion, setRetentionAfterCompletion] = useState('')
+  const [retentionAfter6Month, setRetentionAfter6Month] = useState('')
+  const [retentionAfter12Month, setRetentionAfter12Month] = useState('')
   
   // Currency Management
   const [selectedCurrency, setSelectedCurrency] = useState<Currency | null>(null)
@@ -381,11 +385,31 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
       } else {
         setDateProjectAwarded('')
       }
+      
+      // Load retention values
+      if (project.retention_after_completion !== undefined && project.retention_after_completion !== null) {
+        setRetentionAfterCompletion(project.retention_after_completion.toString())
+      } else {
+        setRetentionAfterCompletion('')
+      }
+      if (project.retention_after_6_month !== undefined && project.retention_after_6_month !== null) {
+        setRetentionAfter6Month(project.retention_after_6_month.toString())
+      } else {
+        setRetentionAfter6Month('')
+      }
+      if (project.retention_after_12_month !== undefined && project.retention_after_12_month !== null) {
+        setRetentionAfter12Month(project.retention_after_12_month.toString())
+      } else {
+        setRetentionAfter12Month('')
+      }
     } else {
       // Reset form fields for new project
       setDateProjectAwarded('')
       setProjectStartDate('')
       setProjectCompletionDate('')
+      setRetentionAfterCompletion('')
+      setRetentionAfter6Month('')
+      setRetentionAfter12Month('')
       setProjectDuration(undefined)
       
       // Load metadata for suggestions
@@ -694,7 +718,10 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
         virtual_material_value: virtualMaterialValue.trim() || undefined,
         project_start_date: projectStartDate.trim() || undefined,
         project_completion_date: projectCompletionDate.trim() || undefined,
-        date_project_awarded: dateProjectAwarded.trim() || undefined
+        date_project_awarded: dateProjectAwarded.trim() || undefined,
+        retention_after_completion: retentionAfterCompletion.trim() ? parseFloat(retentionAfterCompletion.trim()) : undefined,
+        retention_after_6_month: retentionAfter6Month.trim() ? parseFloat(retentionAfter6Month.trim()) : undefined,
+        retention_after_12_month: retentionAfter12Month.trim() ? parseFloat(retentionAfter12Month.trim()) : undefined
         // ✅ Note: project_duration will be calculated automatically by database trigger
         // But we can also send it if calculated in frontend for immediate display
       }
@@ -1182,6 +1209,82 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                   {projectDuration} {projectDuration === 1 ? 'day' : 'days'}
                 </p>
               )}
+            </div>
+          </div>
+          
+          {/* Retention Information */}
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+              <Percent className="h-5 w-5 text-purple-600" />
+              Retention Information
+            </h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Retention after Completion */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <Percent className="inline h-4 w-4 mr-1" />
+                  Retention after Completion (%)
+                </label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  value={retentionAfterCompletion}
+                  onChange={(e) => setRetentionAfterCompletion(e.target.value)}
+                  disabled={loading}
+                  placeholder="e.g., 5.00"
+                  className="focus:ring-purple-500 focus:border-purple-500"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Percentage retained after project completion
+                </p>
+              </div>
+              
+              {/* Retention after 6 Month */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <Percent className="inline h-4 w-4 mr-1" />
+                  Retention after 6 Month (%)
+                </label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  value={retentionAfter6Month}
+                  onChange={(e) => setRetentionAfter6Month(e.target.value)}
+                  disabled={loading}
+                  placeholder="e.g., 3.00"
+                  className="focus:ring-purple-500 focus:border-purple-500"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Percentage retained after 6 months
+                </p>
+              </div>
+              
+              {/* Retention after 12 Month */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <Percent className="inline h-4 w-4 mr-1" />
+                  Retention after 12 Month (%)
+                </label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  value={retentionAfter12Month}
+                  onChange={(e) => setRetentionAfter12Month(e.target.value)}
+                  disabled={loading}
+                  placeholder="e.g., 2.00"
+                  className="focus:ring-purple-500 focus:border-purple-500"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Percentage retained after 12 months
+                </p>
+              </div>
             </div>
           </div>
           

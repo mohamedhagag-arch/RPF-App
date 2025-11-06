@@ -86,7 +86,7 @@ export function EnhancedSmartActualKPIForm({
   const [dailyRate, setDailyRate] = useState<number>(0)
   const [isAutoCalculated, setIsAutoCalculated] = useState(false)
   
-  // Temporary storage for completed activities
+  // Temporary storage for reported activities
   const [completedActivitiesData, setCompletedActivitiesData] = useState<Map<string, any>>(new Map())
   const [showPreview, setShowPreview] = useState(false)
   
@@ -626,7 +626,7 @@ export function EnhancedSmartActualKPIForm({
         return newMap
       })
       
-      // Mark as completed (even though no work was done)
+      // Mark as reported (even though no work was done)
       setCompletedActivities(prev => new Set([...Array.from(prev), activityId]))
       
       // Go back to activities list
@@ -703,13 +703,13 @@ export function EnhancedSmartActualKPIForm({
         return newMap
       })
       
-      // Mark activity as completed
+      // Mark activity as reported
       setCompletedActivities(prev => new Set([...Array.from(prev), selectedActivity!.id]))
       
-      // Check if all activities are completed
+      // Check if all activities are reported
       const isLastActivity = currentActivityIndex + 1 >= projectActivities.length
       if (isLastActivity) {
-        setSuccess('🎉 All activities completed! Redirecting to preview...')
+        setSuccess('🎉 All activities reported! Redirecting to preview...')
       } else {
         setSuccess('KPI data saved temporarily!')
       }
@@ -719,7 +719,7 @@ export function EnhancedSmartActualKPIForm({
       if (nextIndex < projectActivities.length) {
         handleNextActivity()
       } else {
-        // All activities completed, show preview automatically
+        // All activities reported, show preview automatically
         setTimeout(() => {
           setShowPreview(true)
           setCurrentStep('activities')
@@ -1582,13 +1582,13 @@ export function EnhancedSmartActualKPIForm({
                         Quick Summary
                       </h4>
                       <p className="text-xs text-gray-600 dark:text-gray-400">
-                        {completedActivities.size} completed, {projectActivities.filter(activity => !completedActivities.has(activity.id)).length} remaining
+                        {completedActivities.size} reported, {projectActivities.filter(activity => !completedActivities.has(activity.id)).length} remaining
                       </p>
                     </div>
                   </div>
                 </div>
 
-                {/* Submit All Button - Show when all activities are completed */}
+                {/* Submit All Button - Show when all activities are reported */}
                 {completedActivities.size === projectActivities.length && projectActivities.length > 0 && (
                   <div className="mt-6 p-4 bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-900/20 dark:to-blue-900/20 rounded-lg border border-green-200 dark:border-green-700">
                     <div className="text-center">
@@ -1596,7 +1596,7 @@ export function EnhancedSmartActualKPIForm({
                         <CheckCircle2 className="w-6 h-6 text-white" />
                       </div>
                       <h4 className="font-semibold text-gray-900 dark:text-white mb-2">
-                        All Activities Completed!
+                        All Activities Reported!
                       </h4>
                       <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
                         Review your data and submit all activities at once
@@ -1650,55 +1650,76 @@ export function EnhancedSmartActualKPIForm({
                       Activities Preview
                     </h2>
                     <p className="text-gray-600 dark:text-gray-400">
-                      Review all completed activities before submitting
+                      Review all reported activities before submitting
                     </p>
                   </div>
 
                   {/* Summary Stats */}
-                  <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-900/20 dark:to-blue-900/20 p-4 rounded-lg border border-green-200 dark:border-green-700">
-                      <div className="flex items-center">
-                        <CheckCircle2 className="w-8 h-8 text-green-600 mr-3" />
-                        <div>
-                          <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                            {completedActivities.size}
+                  {(() => {
+                    // Calculate actual counts based on activity data
+                    let activitiesProgressReported = 0
+                    let activitiesNotWorkedOn = 0
+                    
+                    projectActivities.forEach((activity) => {
+                      const hasData = completedActivitiesData.has(activity.id)
+                      const data = completedActivitiesData.get(activity.id)
+                      const isNotWorkedOn = data?.notWorkedOn === true || data?.hasWorked === false
+                      const hasWorked = hasData && !isNotWorkedOn
+                      
+                      if (hasWorked) {
+                        activitiesProgressReported++
+                      } else if (isNotWorkedOn) {
+                        activitiesNotWorkedOn++
+                      }
+                    })
+                    
+                    return (
+                      <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-900/20 dark:to-blue-900/20 p-4 rounded-lg border border-green-200 dark:border-green-700">
+                          <div className="flex items-center">
+                            <CheckCircle2 className="w-8 h-8 text-green-600 mr-3" />
+                            <div>
+                              <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                                {activitiesProgressReported}
+                              </div>
+                              <div className="text-sm text-gray-600 dark:text-gray-400">
+                                Activities Progress Reported
+                              </div>
+                            </div>
                           </div>
-                          <div className="text-sm text-gray-600 dark:text-gray-400">
-                            Activities Completed
+                        </div>
+                        <div className="bg-gradient-to-r from-orange-50 to-red-50 dark:from-orange-900/20 dark:to-red-900/20 p-4 rounded-lg border border-orange-200 dark:border-orange-700">
+                          <div className="flex items-center">
+                            <X className="w-8 h-8 text-orange-600 mr-3" />
+                            <div>
+                              <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                                {activitiesNotWorkedOn}
+                              </div>
+                              <div className="text-sm text-gray-600 dark:text-gray-400">
+                                Activities Not Worked On
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-700">
+                          <div className="flex items-center">
+                            <Calendar className="w-8 h-8 text-blue-600 mr-3" />
+                            <div>
+                              <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                                {globalDate ? new Date(globalDate).toLocaleDateString('en-US', { 
+                                  month: 'short', 
+                                  day: 'numeric' 
+                                }) : 'N/A'}
+                              </div>
+                              <div className="text-sm text-gray-600 dark:text-gray-400">
+                                Work Date
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                    <div className="bg-gradient-to-r from-orange-50 to-red-50 dark:from-orange-900/20 dark:to-red-900/20 p-4 rounded-lg border border-orange-200 dark:border-orange-700">
-                      <div className="flex items-center">
-                        <X className="w-8 h-8 text-orange-600 mr-3" />
-                        <div>
-                          <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                            {projectActivities.length - completedActivities.size}
-                          </div>
-                          <div className="text-sm text-gray-600 dark:text-gray-400">
-                            Activities Not Worked On
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-700">
-                      <div className="flex items-center">
-                        <Calendar className="w-8 h-8 text-blue-600 mr-3" />
-                        <div>
-                          <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                            {globalDate ? new Date(globalDate).toLocaleDateString('en-US', { 
-                              month: 'short', 
-                              day: 'numeric' 
-                            }) : 'N/A'}
-                          </div>
-                          <div className="text-sm text-gray-600 dark:text-gray-400">
-                            Work Date
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                    )
+                  })()}
 
                   {/* All Activities Table */}
                   <div className="mb-6">
@@ -1830,7 +1851,7 @@ export function EnhancedSmartActualKPIForm({
                                     {hasWorked ? (
                                       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
                                         <CheckCircle className="w-3 h-3 mr-1" />
-                                        Completed
+                                        Progress Reported
                                       </span>
                                     ) : isNotWorkedOn ? (
                                       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300">
@@ -1930,19 +1951,19 @@ export function EnhancedSmartActualKPIForm({
                       </div>
                     </div>
                   ) : !selectedActivity && completedActivities.size === projectActivities.length && projectActivities.length > 0 ? (
-                    // All Activities Completed - Show Preview Message
+                    // All Activities Reported - Show Preview Message
                     <div className="text-center py-12">
                       <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
                         <CheckCircle2 className="w-8 h-8 text-white" />
                       </div>
                       <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-                        All Activities Completed!
+                        All Activities Reported!
                       </h2>
                       <p className="text-gray-600 dark:text-gray-400 mb-4">
-                        All activities have been completed. You can review and submit your data.
+                        All activities have been reported. You can review and submit your data.
                       </p>
                       <div className="text-sm text-gray-500 dark:text-gray-400">
-                        {completedActivities.size} activities completed
+                        {completedActivities.size} activities reported
                       </div>
                     </div>
                   ) : selectedActivity ? (
@@ -2133,7 +2154,7 @@ export function EnhancedSmartActualKPIForm({
                   <div className="mb-4 p-2 sm:p-3 bg-yellow-50 border border-yellow-200 rounded-lg mx-2">
                     <div className="flex items-center gap-2 text-yellow-800">
                       <Edit className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-                      <span className="text-xs sm:text-sm font-medium">Edit Mode: This activity was previously completed</span>
+                      <span className="text-xs sm:text-sm font-medium">Edit Mode: This activity was previously reported</span>
                     </div>
                   </div>
                 )}
@@ -2314,7 +2335,7 @@ export function EnhancedSmartActualKPIForm({
                   ) : (
                     <>
                       <CheckCircle className="w-4 h-4 mr-2" />
-                      Complete Activity
+                      Report Activity
                     </>
                   )}
                 </Button>

@@ -452,25 +452,30 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
         
         let projectsResult: any, activitiesResult: any, kpisResult: any;
         
-        // ✅ استخدام الاستعلامات المباشرة بدلاً من lazy loading
-        console.log('📊 Loading data with direct queries...')
+        // ✅ تحسين الأداء: تحميل Projects أولاً، ثم Activities و KPIs بشكل lazy
+        console.log('📊 Loading projects first (lazy loading activities/KPIs)...')
         
-        const fallbackResults = await Promise.all([
-          supabase
-            .from(TABLES.PROJECTS)
-            .select('*')
-            .order('created_at', { ascending: false }), // ✅ FIXED: Always use created_at, never project_code
-          supabase
-            .from(TABLES.BOQ_ACTIVITIES)
-            .select('*'),
-          supabase
-            .from(TABLES.KPI)
-            .select('*')
-        ])
+        // Load projects first (always needed)
+        projectsResult = await supabase
+          .from(TABLES.PROJECTS)
+          .select('*')
+          .order('created_at', { ascending: false })
         
-        projectsResult = fallbackResults[0]
-        activitiesResult = fallbackResults[1]
-        kpisResult = fallbackResults[2]
+        // ✅ Lazy load Activities and KPIs only if table view is active
+        // This significantly improves initial page load time
+        if (canUseCustomizedTable) {
+          console.log('📊 Table view active - loading activities and KPIs...')
+          const [activitiesRes, kpisRes] = await Promise.all([
+            supabase.from(TABLES.BOQ_ACTIVITIES).select('*'),
+            supabase.from(TABLES.KPI).select('*')
+          ])
+          activitiesResult = activitiesRes
+          kpisResult = kpisRes
+        } else {
+          console.log('📊 Cards view active - skipping activities/KPIs for faster load')
+          activitiesResult = { data: [], error: null }
+          kpisResult = { data: [], error: null }
+        }
         
         console.log('✅ Direct queries successful:', { 
           projects: projectsResult.data?.length || 0, 
@@ -557,7 +562,38 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
       console.log('👋 Projects: Stopped listening for database updates')
       // Connection monitoring is handled globally
     }
-  }, []) // Empty dependency - run ONCE only!
+  }, [canUseCustomizedTable]) // ✅ Re-fetch when view mode changes
+  
+  // ✅ Lazy load Activities and KPIs when switching to table view
+  useEffect(() => {
+    if (canUseCustomizedTable && allActivities.length === 0 && allKPIs.length === 0) {
+      console.log('📊 Lazy loading activities and KPIs for table view...')
+      const loadAnalyticsData = async () => {
+        try {
+          const [activitiesRes, kpisRes] = await Promise.all([
+            supabase.from(TABLES.BOQ_ACTIVITIES).select('*'),
+            supabase.from(TABLES.KPI).select('*')
+          ])
+          
+          if (activitiesRes.data) {
+            const mappedActivities = activitiesRes.data.map(mapBOQFromDB)
+            setAllActivities(mappedActivities)
+            console.log('✅ Activities loaded:', mappedActivities.length)
+          }
+          
+          if (kpisRes.data) {
+            const mappedKPIs = kpisRes.data.map(mapKPIFromDB)
+            setAllKPIs(mappedKPIs)
+            console.log('✅ KPIs loaded:', mappedKPIs.length)
+          }
+        } catch (error) {
+          console.error('❌ Error loading analytics data:', error)
+        }
+      }
+      
+      loadAnalyticsData()
+    }
+  }, [canUseCustomizedTable, allActivities.length, allKPIs.length])
   
   // Handle page change
   const handlePageChange = (page: number) => {

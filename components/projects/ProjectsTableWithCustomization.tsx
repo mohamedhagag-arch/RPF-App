@@ -54,16 +54,19 @@ const defaultProjectsColumns: ColumnConfig[] = [
   { id: 'project_start_date', label: 'Project Start Date', visible: true, order: 28, width: '150px' },
   { id: 'project_completion_date', label: 'Project Completion Date', visible: true, order: 29, width: '180px' },
   { id: 'project_duration', label: 'Project Duration', visible: true, order: 30, width: '150px' },
-  { id: 'work_programme', label: 'Work Programme', visible: false, order: 31, width: '180px' },
-  { id: 'contract_status', label: 'Contract Status', visible: false, order: 32, width: '150px' },
-  { id: 'currency', label: 'Currency', visible: false, order: 33, width: '120px' },
-  { id: 'workmanship', label: 'Workmanship', visible: true, order: 34, width: '130px' },
-  { id: 'advance_payment_required', label: 'Advance Payment Required', visible: false, order: 35, width: '200px' },
-  { id: 'virtual_material_value', label: 'Virtual Material Value', visible: false, order: 36, width: '180px' },
-  { id: 'created_at', label: 'Created At', visible: false, order: 37, width: '150px' },
-  { id: 'updated_at', label: 'Updated At', visible: false, order: 38, width: '150px' },
-  { id: 'created_by', label: 'Created By', visible: false, order: 39, width: '150px' },
-  { id: 'actions', label: 'Actions', visible: true, order: 40, fixed: true, width: '150px' }
+  { id: 'retention_after_completion', label: 'Retention after Completion', visible: true, order: 31, width: '200px' },
+  { id: 'retention_after_6_month', label: 'Retention after 6 Month', visible: true, order: 32, width: '200px' },
+  { id: 'retention_after_12_month', label: 'Retention after 12 Month', visible: true, order: 33, width: '200px' },
+  { id: 'work_programme', label: 'Work Programme', visible: false, order: 34, width: '180px' },
+  { id: 'contract_status', label: 'Contract Status', visible: false, order: 35, width: '150px' },
+  { id: 'currency', label: 'Currency', visible: false, order: 36, width: '120px' },
+  { id: 'workmanship', label: 'Workmanship', visible: true, order: 37, width: '130px' },
+  { id: 'advance_payment_required', label: 'Advance Payment Required', visible: false, order: 38, width: '200px' },
+  { id: 'virtual_material_value', label: 'Virtual Material Value', visible: false, order: 39, width: '180px' },
+  { id: 'created_at', label: 'Created At', visible: false, order: 40, width: '150px' },
+  { id: 'updated_at', label: 'Updated At', visible: false, order: 41, width: '150px' },
+  { id: 'created_by', label: 'Created By', visible: false, order: 42, width: '150px' },
+  { id: 'actions', label: 'Actions', visible: true, order: 43, fixed: true, width: '150px' }
 ]
 
 export function ProjectsTableWithCustomization({ 
@@ -2874,6 +2877,36 @@ export function ProjectsTableWithCustomization({
             </div>
           )
         
+        case 'retention_after_completion':
+          const retentionAfterCompletion = project.retention_after_completion ?? getProjectField(project, 'Retention after Completion')
+          return (
+            <div className="text-sm text-gray-900 dark:text-white">
+              {retentionAfterCompletion !== undefined && retentionAfterCompletion !== null && retentionAfterCompletion !== '' 
+                ? `${retentionAfterCompletion}%` 
+                : <span className="text-gray-400 dark:text-gray-500">N/A</span>}
+            </div>
+          )
+        
+        case 'retention_after_6_month':
+          const retentionAfter6Month = project.retention_after_6_month ?? getProjectField(project, 'Retention after 6 Month')
+          return (
+            <div className="text-sm text-gray-900 dark:text-white">
+              {retentionAfter6Month !== undefined && retentionAfter6Month !== null && retentionAfter6Month !== '' 
+                ? `${retentionAfter6Month}%` 
+                : <span className="text-gray-400 dark:text-gray-500">N/A</span>}
+            </div>
+          )
+        
+        case 'retention_after_12_month':
+          const retentionAfter12Month = project.retention_after_12_month ?? getProjectField(project, 'Retention after 12 Month')
+          return (
+            <div className="text-sm text-gray-900 dark:text-white">
+              {retentionAfter12Month !== undefined && retentionAfter12Month !== null && retentionAfter12Month !== '' 
+                ? `${retentionAfter12Month}%` 
+                : <span className="text-gray-400 dark:text-gray-500">N/A</span>}
+            </div>
+          )
+        
         case 'workmanship':
           const hasWorkmanship = project.workmanship_only || getProjectField(project, 'Workmanship?') || 'No'
           const virtualMaterialPercent = project.virtual_material_value || getProjectField(project, 'Virtual Material %') || '0'
@@ -3187,6 +3220,12 @@ export function ProjectsTableWithCustomization({
         return completionDate ? new Date(completionDate).getTime() : 0
       case 'project_duration':
         return project.project_duration ?? 0
+      case 'retention_after_completion':
+        return project.retention_after_completion ?? getProjectField(project, 'Retention after Completion') ?? 0
+      case 'retention_after_6_month':
+        return project.retention_after_6_month ?? getProjectField(project, 'Retention after 6 Month') ?? 0
+      case 'retention_after_12_month':
+        return project.retention_after_12_month ?? getProjectField(project, 'Retention after 12 Month') ?? 0
       case 'work_programme':
         return project.work_programme || getProjectField(project, 'Work Programme') || ''
       case 'contract_status':

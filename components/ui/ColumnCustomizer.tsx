@@ -122,8 +122,26 @@ export function ColumnCustomizer({
           const defaultView = views.find(v => v.isDefault) || views[0]
           if (defaultView) {
             setCurrentViewId(defaultView.id)
-            setLocalColumns(defaultView.columns)
-            onColumnsChange(defaultView.columns)
+            
+            // Merge saved columns with current columns to ensure new columns are included
+            const currentIds = new Set(columns.map(c => c.id))
+            const savedIds = new Set(defaultView.columns.map((c: ColumnConfig) => c.id))
+            
+            // Merge: use saved settings for existing columns, add new columns from defaults
+            const mergedColumns = columns.map(defaultCol => {
+              const savedCol = defaultView.columns.find((c: ColumnConfig) => c.id === defaultCol.id)
+              if (savedCol) {
+                return { ...defaultCol, visible: savedCol.visible, order: savedCol.order }
+              }
+              return defaultCol
+            })
+            
+            // Add any saved columns that don't exist in defaults (for backwards compatibility)
+            const newSavedColumns = defaultView.columns.filter((c: ColumnConfig) => !currentIds.has(c.id))
+            const finalColumns = [...mergedColumns, ...newSavedColumns].sort((a, b) => a.order - b.order)
+            
+            setLocalColumns(finalColumns)
+            onColumnsChange(finalColumns)
           }
         } else {
           // Fallback to localStorage if no views in database
@@ -132,8 +150,26 @@ export function ColumnCustomizer({
             if (saved) {
               try {
                 const parsedColumns = JSON.parse(saved)
-                setLocalColumns(parsedColumns)
-                onColumnsChange(parsedColumns)
+                
+                // Merge saved columns with current columns to ensure new columns are included
+                const currentIds = new Set(columns.map(c => c.id))
+                const savedIds = new Set(parsedColumns.map((c: ColumnConfig) => c.id))
+                
+                // Merge: use saved settings for existing columns, add new columns from defaults
+                const mergedColumns = columns.map(defaultCol => {
+                  const savedCol = parsedColumns.find((c: ColumnConfig) => c.id === defaultCol.id)
+                  if (savedCol) {
+                    return { ...defaultCol, visible: savedCol.visible, order: savedCol.order }
+                  }
+                  return defaultCol
+                })
+                
+                // Add any saved columns that don't exist in defaults (for backwards compatibility)
+                const newSavedColumns = parsedColumns.filter((c: ColumnConfig) => !currentIds.has(c.id))
+                const finalColumns = [...mergedColumns, ...newSavedColumns].sort((a, b) => a.order - b.order)
+                
+                setLocalColumns(finalColumns)
+                onColumnsChange(finalColumns)
               } catch (error) {
                 console.warn('Failed to load column configuration:', error)
               }
@@ -144,14 +180,32 @@ export function ColumnCustomizer({
         console.error('Error loading saved views from database:', error)
         // Fallback to localStorage on error
         if (typeof window !== 'undefined') {
-          const saved = localStorage.getItem(`column-config-${storageKey}`)
-          if (saved) {
-            try {
-              const parsedColumns = JSON.parse(saved)
-              setLocalColumns(parsedColumns)
-              onColumnsChange(parsedColumns)
-            } catch (error) {
-              console.warn('Failed to load column configuration:', error)
+      const saved = localStorage.getItem(`column-config-${storageKey}`)
+      if (saved) {
+        try {
+          const parsedColumns = JSON.parse(saved)
+              
+              // Merge saved columns with current columns to ensure new columns are included
+              const currentIds = new Set(columns.map(c => c.id))
+              const savedIds = new Set(parsedColumns.map((c: ColumnConfig) => c.id))
+              
+              // Merge: use saved settings for existing columns, add new columns from defaults
+              const mergedColumns = columns.map(defaultCol => {
+                const savedCol = parsedColumns.find((c: ColumnConfig) => c.id === defaultCol.id)
+                if (savedCol) {
+                  return { ...defaultCol, visible: savedCol.visible, order: savedCol.order }
+                }
+                return defaultCol
+              })
+              
+              // Add any saved columns that don't exist in defaults (for backwards compatibility)
+              const newSavedColumns = parsedColumns.filter((c: ColumnConfig) => !currentIds.has(c.id))
+              const finalColumns = [...mergedColumns, ...newSavedColumns].sort((a, b) => a.order - b.order)
+              
+              setLocalColumns(finalColumns)
+              onColumnsChange(finalColumns)
+        } catch (error) {
+          console.warn('Failed to load column configuration:', error)
             }
           }
         }
@@ -159,7 +213,7 @@ export function ColumnCustomizer({
     }
 
     loadViews()
-  }, [storageKey, onColumnsChange])
+  }, [storageKey, onColumnsChange, columns])
 
   // Save configuration and update current view
   const saveConfiguration = async (newColumns: ColumnConfig[]) => {
@@ -190,7 +244,7 @@ export function ColumnCustomizer({
     } else {
       // Save to localStorage as fallback if no view is selected
       if (typeof window !== 'undefined') {
-        localStorage.setItem(`column-config-${storageKey}`, JSON.stringify(newColumns))
+      localStorage.setItem(`column-config-${storageKey}`, JSON.stringify(newColumns))
       }
     }
     

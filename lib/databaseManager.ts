@@ -466,7 +466,14 @@ function getCorrectColumnNames(tableName: string): string[] {
       'Client Name',
       'Consultant Name',
       'First Party name',
-      'Virtual Material Value'
+      'Virtual Material Value',
+      'Project Start Date',
+      'Project Completion Date',
+      'Project Duration',
+      'Division Head Email',
+      'Retention after Completion',
+      'Retention after 6 Month',
+      'Retention after 12 Month'
     ],
     [TABLES.BOQ_ACTIVITIES]: [
       // ✅ Basic Information (Required for Import)

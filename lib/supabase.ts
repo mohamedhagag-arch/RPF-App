@@ -52,6 +52,9 @@ export interface Project {
   project_start_date?: string
   project_completion_date?: string
   project_duration?: number // Calculated in days
+  retention_after_completion?: number // Percentage
+  retention_after_6_month?: number // Percentage
+  retention_after_12_month?: number // Percentage
   created_at: string
   updated_at: string
   created_by: string
