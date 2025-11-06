@@ -814,19 +814,22 @@ export function BOQTableWithCustomization({
         // ✅ Calculate Progress Summary based on Actual Units vs Planned Units
         const rawActivityProgress = (activity as any).raw || {}
         
-        // Get planned units
-        const plannedUnitsProgress = activity.planned_units || 
-                            parseFloat(String(rawActivityProgress['Planned Units'] || '0').replace(/,/g, '')) || 
-                            0
+        // ✅ Get Total Units (this is the base for calculations)
+        const totalUnitsProgress = activity.total_units || 
+                          parseFloat(String(rawActivityProgress['Total Units'] || '0').replace(/,/g, '')) || 
+                          activity.planned_units ||
+                          parseFloat(String(rawActivityProgress['Planned Units'] || '0').replace(/,/g, '')) || 
+                          0
         
-        // Get actual units from multiple sources
-        let actualUnitsProgress = activity.actual_units || 
-                        parseFloat(String(rawActivityProgress['Actual Units'] || '0').replace(/,/g, '')) || 
-                        0
+        // ✅ Calculate yesterday date for filtering KPIs
+        const yesterday = new Date()
+        yesterday.setDate(yesterday.getDate() - 1)
+        yesterday.setHours(23, 59, 59, 999) // End of yesterday
         
-        // ✅ If actual_units is 0, try to get from KPIs (Actual KPIs)
-        if (actualUnitsProgress === 0 && allKPIs.length > 0) {
-          // Match KPIs to this activity (same logic as work_value_status)
+        // ✅ Get Planned Units from Planned KPIs until yesterday only
+        let plannedUnitsProgress = 0
+        if (allKPIs.length > 0) {
+          // Match KPIs to this activity
           const activityKPIsProgress = allKPIs.filter((kpi: any) => {
             const rawKPIProgress = (kpi as any).raw || {}
             
@@ -867,33 +870,126 @@ export function BOQTableWithCustomization({
             return activityMatchProgress || zoneMatchProgress
           })
           
-          // Sum actual quantities from Actual KPIs
-          const actualKPIsProgress = activityKPIsProgress.filter((kpi: any) => {
+          // Filter for Planned KPIs only
+          const plannedKPIsProgress = activityKPIsProgress.filter((kpi: any) => {
+            const inputType = (kpi.input_type || kpi['Input Type'] || kpi.raw?.['Input Type'] || '').toLowerCase()
+            return inputType === 'planned'
+          })
+          
+          // ✅ Filter Planned KPIs until yesterday only and sum quantities
+          if (plannedKPIsProgress.length > 0) {
+            plannedUnitsProgress = plannedKPIsProgress
+              .filter((kpi: any) => {
+                // Get KPI date from multiple sources
+                const kpiDateStr = kpi.activity_date || kpi.target_date || kpi['Activity Date'] || kpi['Target Date'] || kpi.raw?.['Activity Date'] || kpi.raw?.['Target Date'] || ''
+                if (!kpiDateStr) return true // Include if no date (assume it's valid)
+                
+                try {
+                  const kpiDate = new Date(kpiDateStr)
+                  if (isNaN(kpiDate.getTime())) return true // Include if invalid date
+                  return kpiDate <= yesterday // Only include KPIs until yesterday
+                } catch {
+                  return true // Include if date parsing fails
+                }
+              })
+              .reduce((sum: number, kpi: any) => {
+                const quantity = parseFloat(String(kpi.quantity || kpi['Quantity'] || kpi.raw?.['Quantity'] || '0').replace(/,/g, '')) || 0
+                return sum + quantity
+              }, 0)
+          }
+        }
+        
+        // ✅ Fallback: If no Planned KPIs found, use activity.planned_units
+        if (plannedUnitsProgress === 0) {
+          plannedUnitsProgress = activity.planned_units || 
+                        parseFloat(String(rawActivityProgress['Planned Units'] || '0').replace(/,/g, '')) || 
+                        0
+        }
+        
+        // Get actual units from multiple sources
+        let actualUnitsProgress = activity.actual_units || 
+                        parseFloat(String(rawActivityProgress['Actual Units'] || '0').replace(/,/g, '')) || 
+                        0
+        
+        // ✅ If actual_units is 0, try to get from KPIs (Actual KPIs until yesterday)
+        if (actualUnitsProgress === 0 && allKPIs.length > 0) {
+          // Match KPIs to this activity (same logic as above)
+          const activityKPIsActual = allKPIs.filter((kpi: any) => {
+            const rawKPIProgress = (kpi as any).raw || {}
+            
+            const kpiProjectCodeProgress = (kpi.project_code || kpi['Project Code'] || rawKPIProgress['Project Code'] || '').toString().trim().toUpperCase()
+            const kpiProjectFullCodeProgress = (kpi.project_full_code || kpi['Project Full Code'] || rawKPIProgress['Project Full Code'] || '').toString().trim().toUpperCase()
+            const activityProjectCodeProgress = (activity.project_code || '').toString().trim().toUpperCase()
+            const activityProjectFullCodeProgress = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+            
+            const kpiActivityNameProgress = (kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPIProgress['Activity Name'] || '').toLowerCase().trim()
+            const activityNameProgress = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+            
+            const kpiZoneProgress = (kpi.zone || kpi['Zone'] || kpi.section || rawKPIProgress['Zone'] || '').toLowerCase().trim()
+            const activityZoneProgress = (activity.zone_ref || activity.zone_number || '').toLowerCase().trim()
+            
+            const projectMatchProgress = (
+              (kpiProjectCodeProgress && activityProjectCodeProgress && kpiProjectCodeProgress === activityProjectCodeProgress) ||
+              (kpiProjectFullCodeProgress && activityProjectFullCodeProgress && kpiProjectFullCodeProgress === activityProjectFullCodeProgress) ||
+              (kpiProjectCodeProgress && activityProjectFullCodeProgress && kpiProjectCodeProgress === activityProjectFullCodeProgress) ||
+              (kpiProjectFullCodeProgress && activityProjectCodeProgress && kpiProjectFullCodeProgress === activityProjectCodeProgress) ||
+              (kpiProjectCodeProgress && activityProjectCodeProgress && (
+                kpiProjectCodeProgress.includes(activityProjectCodeProgress) || 
+                activityProjectCodeProgress.includes(kpiProjectCodeProgress)
+              ))
+            )
+            
+            if (!projectMatchProgress) return false
+            
+            const activityMatchProgress = kpiActivityNameProgress && activityNameProgress && 
+              (kpiActivityNameProgress === activityNameProgress || 
+               kpiActivityNameProgress.includes(activityNameProgress) || 
+               activityNameProgress.includes(kpiActivityNameProgress))
+            
+            const zoneMatchProgress = kpiZoneProgress && activityZoneProgress && 
+              (kpiZoneProgress === activityZoneProgress || 
+               kpiZoneProgress.includes(activityZoneProgress) || 
+               activityZoneProgress.includes(kpiZoneProgress))
+            
+            return activityMatchProgress || zoneMatchProgress
+          })
+          
+          // Sum actual quantities from Actual KPIs until yesterday
+          const actualKPIsProgress = activityKPIsActual.filter((kpi: any) => {
             const inputType = (kpi.input_type || kpi['Input Type'] || kpi.raw?.['Input Type'] || '').toLowerCase()
             return inputType === 'actual'
           })
           
           if (actualKPIsProgress.length > 0) {
-            actualUnitsProgress = actualKPIsProgress.reduce((sum: number, kpi: any) => {
-              const quantity = parseFloat(String(kpi.quantity || kpi['Quantity'] || kpi.raw?.['Quantity'] || '0').replace(/,/g, '')) || 0
-              return sum + quantity
-            }, 0)
+            actualUnitsProgress = actualKPIsProgress
+              .filter((kpi: any) => {
+                // Get KPI date from multiple sources
+                const kpiDateStr = kpi.actual_date || kpi.activity_date || kpi['Actual Date'] || kpi['Activity Date'] || kpi.raw?.['Actual Date'] || kpi.raw?.['Activity Date'] || ''
+                if (!kpiDateStr) return true // Include if no date
+                
+                try {
+                  const kpiDate = new Date(kpiDateStr)
+                  if (isNaN(kpiDate.getTime())) return true
+                  return kpiDate <= yesterday // Only include KPIs until yesterday
+                } catch {
+                  return true
+                }
+              })
+              .reduce((sum: number, kpi: any) => {
+                const quantity = parseFloat(String(kpi.quantity || kpi['Quantity'] || kpi.raw?.['Quantity'] || '0').replace(/,/g, '')) || 0
+                return sum + quantity
+              }, 0)
           }
         }
         
-        // ✅ Calculate Planned Progress: (Planned Units / Total Units) × 100
-        const totalUnitsProgress = activity.total_units || 
-                          parseFloat(String(rawActivityProgress['Total Units'] || '0').replace(/,/g, '')) || 
-                          plannedUnitsProgress || 
-                          0
-        
+        // ✅ Calculate Planned Progress: (Planned Units until today / Total Units) × 100
         const plannedProgress = totalUnitsProgress > 0 
           ? (plannedUnitsProgress / totalUnitsProgress) * 100 
           : 0
         
-        // ✅ Calculate Actual Progress: (Actual Units / Planned Units) × 100
-        const actualProgress = plannedUnitsProgress > 0 
-          ? (actualUnitsProgress / plannedUnitsProgress) * 100 
+        // ✅ Calculate Actual Progress: (Actual Units / Total Units) × 100
+        const actualProgress = totalUnitsProgress > 0 
+          ? (actualUnitsProgress / totalUnitsProgress) * 100 
           : 0
         
         const varianceProgress = actualProgress - plannedProgress

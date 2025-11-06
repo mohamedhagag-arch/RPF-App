@@ -99,16 +99,21 @@ export function ProjectsTableWithCustomization({
 
   // ✅ Calculate analytics for all projects (same as Cards use) - OPTIMIZED for performance
   const projectsAnalytics = useMemo(() => {
-    if (!projects.length || (!allActivities.length && !allKPIs.length)) {
-      return new Map<string, ProjectAnalytics>()
-    }
+    // ✅ DEBUG: Always log to diagnose zero values issue
+    console.log(`📊 ProjectsTable: Calculating analytics`, {
+      projectsCount: projects.length,
+      allActivitiesCount: allActivities.length,
+      allKPIsCount: allKPIs.length,
+      hasData: projects.length > 0 && (allActivities.length > 0 || allKPIs.length > 0)
+    })
     
-    // ✅ PERFORMANCE: Only log in development mode and reduce frequency
-    if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
-      console.log(`📊 ProjectsTable: Calculating analytics for ${projects.length} projects`, {
-        allActivitiesCount: allActivities.length,
-        allKPIsCount: allKPIs.length
+    if (!projects.length || (!allActivities.length && !allKPIs.length)) {
+      console.warn('⚠️ ProjectsTable: No data available for analytics calculation', {
+        projectsLength: projects.length,
+        activitiesLength: allActivities.length,
+        kpisLength: allKPIs.length
       })
+      return new Map<string, ProjectAnalytics>()
     }
     
     // ✅ PERFORMANCE: Use Map for O(1) lookups and batch calculation
@@ -125,22 +130,65 @@ export function ProjectsTableWithCustomization({
     )
     
     // Pre-filter activities and KPIs that might match any project
+    // ✅ EXPANDED: Use case-insensitive matching and check all possible sources
     const potentiallyRelevantActivities = allActivities.filter((a: any) => {
-      const code = a.project_code || a['Project Code'] || (a as any).raw?.['Project Code'] || ''
-      const fullCode = a.project_full_code || a['Project Full Code'] || (a as any).raw?.['Project Full Code'] || ''
-      return projectCodesSet.has(code) || 
-             projectFullCodesSet.has(fullCode) ||
-             projectCodesSet.has(fullCode) ||
-             Array.from(projectCodesSet).some(pc => fullCode.startsWith(pc))
+      const rawActivity = a.raw || {}
+      const code = (a.project_code || 
+                   a['Project Code'] || 
+                   rawActivity['Project Code'] || 
+                   '').toString().trim().toUpperCase()
+      const fullCode = (a.project_full_code || 
+                       a['Project Full Code'] || 
+                       rawActivity['Project Full Code'] || 
+                       '').toString().trim().toUpperCase()
+      
+      if (!code && !fullCode) return false
+      
+      // Check if code matches any project code (case-insensitive)
+      const codeMatches = Array.from(projectCodesSet).some(pc => 
+        pc.toString().trim().toUpperCase() === code || 
+        code.includes(pc.toString().trim().toUpperCase()) ||
+        pc.toString().trim().toUpperCase().includes(code)
+      )
+      
+      // Check if fullCode matches any project code (case-insensitive)
+      const fullCodeMatches = Array.from(projectCodesSet).some(pc => 
+        fullCode.startsWith(pc.toString().trim().toUpperCase()) ||
+        fullCode.includes(pc.toString().trim().toUpperCase()) ||
+        pc.toString().trim().toUpperCase().includes(fullCode)
+      )
+      
+      return codeMatches || fullCodeMatches
     })
     
     const potentiallyRelevantKPIs = allKPIs.filter((k: any) => {
-      const code = k.project_code || k['Project Code'] || (k as any).raw?.['Project Code'] || ''
-      const fullCode = k.project_full_code || k['Project Full Code'] || (k as any).raw?.['Project Full Code'] || ''
-      return projectCodesSet.has(code) || 
-             projectFullCodesSet.has(fullCode) ||
-             projectCodesSet.has(fullCode) ||
-             Array.from(projectCodesSet).some(pc => fullCode.startsWith(pc))
+      const rawKPI = k.raw || {}
+      const code = (k.project_code || 
+                   k['Project Code'] || 
+                   rawKPI['Project Code'] || 
+                   '').toString().trim().toUpperCase()
+      const fullCode = (k.project_full_code || 
+                       k['Project Full Code'] || 
+                       rawKPI['Project Full Code'] || 
+                       '').toString().trim().toUpperCase()
+      
+      if (!code && !fullCode) return false
+      
+      // Check if code matches any project code (case-insensitive)
+      const codeMatches = Array.from(projectCodesSet).some(pc => 
+        pc.toString().trim().toUpperCase() === code || 
+        code.includes(pc.toString().trim().toUpperCase()) ||
+        pc.toString().trim().toUpperCase().includes(code)
+      )
+      
+      // Check if fullCode matches any project code (case-insensitive)
+      const fullCodeMatches = Array.from(projectCodesSet).some(pc => 
+        fullCode.startsWith(pc.toString().trim().toUpperCase()) ||
+        fullCode.includes(pc.toString().trim().toUpperCase()) ||
+        pc.toString().trim().toUpperCase().includes(fullCode)
+      )
+      
+      return codeMatches || fullCodeMatches
     })
     
     // ✅ PERFORMANCE: Calculate analytics only for visible/relevant data
@@ -149,14 +197,33 @@ export function ProjectsTableWithCustomization({
         // Use pre-filtered data instead of all data
         const analytics = calculateProjectAnalytics(project, potentiallyRelevantActivities, potentiallyRelevantKPIs)
         analyticsMap.set(project.id, analytics)
-      } catch (error) {
-        // Only log errors in development
-        if (process.env.NODE_ENV === 'development') {
-        console.error(`Error calculating analytics for ${project.project_code}:`, error)
+        
+        // ✅ DEBUG: Log analytics for first project to diagnose zero values
+        if (project === projects[0]) {
+          console.log(`📊 ProjectsTable: Analytics for ${project.project_code}:`, {
+            totalValue: analytics.totalValue,
+            totalPlannedValue: analytics.totalPlannedValue,
+            totalEarnedValue: analytics.totalEarnedValue,
+            actualProgress: analytics.actualProgress,
+            plannedProgress: analytics.plannedProgress,
+            variance: analytics.variance,
+            matchedActivities: potentiallyRelevantActivities.filter(a => {
+              const code = a.project_code || a['Project Code'] || (a as any).raw?.['Project Code'] || ''
+              return code === project.project_code
+            }).length,
+            matchedKPIs: potentiallyRelevantKPIs.filter(k => {
+              const code = k.project_code || k['Project Code'] || (k as any).raw?.['Project Code'] || ''
+              return code === project.project_code
+            }).length
+          })
         }
+      } catch (error) {
+        // Always log errors to diagnose issues
+        console.error(`❌ Error calculating analytics for ${project.project_code}:`, error)
       }
     })
     
+    console.log(`✅ ProjectsTable: Calculated analytics for ${analyticsMap.size} projects`)
     return analyticsMap
   }, [projects, allActivities, allKPIs])
 
@@ -2340,20 +2407,19 @@ export function ProjectsTableWithCustomization({
           )
         
         case 'progress_summary':
-          // ✅ Use analytics from calculateProjectAnalytics (SAME AS CARDS)
-          // Cards display: analytics.overallProgress (from ModernProjectCard.tsx line 187)
-          // Cards use: calculateProjectAnalytics(project, allActivities, allKPIs) - SAME SOURCE
-          const overallProgress = analytics?.overallProgress || 0
-          const financialProgress = analytics?.financialProgress || 0
-          const averageProgress = analytics?.averageActivityProgress || 0
+          // ✅ NEW CONCEPTS: 
+          // Planned = مجموع KPI Planned / Total Value
+          // Actual = مجموع KPI Actual / Total Value
+          // - plannedProgress = (Planned Value / Total Value) × 100
+          //   where Planned Value = مجموع KPI Planned حتى اليوم فقط (yesterday)
+          // - actualProgress = (Earned Value / Total Value) × 100
+          //   where Earned Value = مجموع KPI Actual حتى اليوم فقط (yesterday)
+          const progressActualProgress = analytics?.actualProgress || 0
+          const progressPlannedProgress = analytics?.plannedProgress || 0
           
-          // ✅ SAME LOGIC AS CARDS:
-          // - overallProgress = (Earned Value / Contract Value) × 100 (from projectAnalytics.ts line 330)
-          // - financialProgress = (Earned Value / Planned Value) × 100 (from projectAnalytics.ts line 299)
-          // Use overallProgress (from contract amount) as actual, financialProgress as planned
           const progress = {
-            planned: financialProgress,
-            actual: overallProgress,
+            planned: progressPlannedProgress, // مجموع KPI Planned / Total Value
+            actual: progressActualProgress,   // مجموع KPI Actual / Total Value
             source: analytics ? 'analytics' : 'none'
           }
           const varianceProgress = progress.actual - progress.planned
@@ -2426,66 +2492,78 @@ export function ProjectsTableWithCustomization({
           )
         
         case 'work_value_status':
-          // ✅ Use analytics from calculateProjectAnalytics (SAME AS CARDS)
-          // Cards use: calculateProjectAnalytics(project, allActivities, allKPIs) - SAME SOURCE
-          // Calculation logic from projectAnalytics.ts:
-          // - totalPlannedValue = sum of all BOQ activities planned values (line 282)
-          // - totalEarnedValue = from KPIs if available, else from BOQ activities (line 285-296)
+          // ✅ NEW CONCEPTS: Use updated analytics with new concepts
+          const totalValue = analytics?.totalValue || 0
           const totalPlannedValue = analytics?.totalPlannedValue || 0
           const totalEarnedValue = analytics?.totalEarnedValue || 0
-          const totalContractValue = analytics?.totalContractValue || project.contract_amount || 0
-          
-          // ✅ SAME DATA AS CARDS: Uses analytics.totalPlannedValue and analytics.totalEarnedValue
-          // Use totalPlannedValue as planned, totalEarnedValue as done
-          const workValue = {
-            planned: totalPlannedValue,
-            done: totalEarnedValue,
-            source: analytics ? 'analytics' : 'none'
-          }
-          const varianceWorkValue = workValue.done - workValue.planned
-          const variancePercentage = workValue.planned > 0 ? (varianceWorkValue / workValue.planned) * 100 : 0
-          
-          // Get source indicator
-          const getWorkValueSourceIndicator = () => {
-            return analytics ? '📊 Analytics (Same as Cards)' : 'N/A'
-          }
-          
-          // Calculate completion percentage
-          const completionPercentage = workValue.planned > 0 
-            ? (workValue.done / workValue.planned) * 100 
-            : 0
+          const totalRemainingValue = analytics?.totalRemainingValue || 0
+          const variance = analytics?.variance || 0
+          const actualProgress = analytics?.actualProgress || 0
+          const plannedProgress = analytics?.plannedProgress || 0
           
           return (
-            <div className="space-y-1">
+            <div className="space-y-2">
+              {/* Total Value */}
               <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-600 dark:text-gray-400">Planned</span>
-                <span className="font-medium">${workValue.planned.toLocaleString()}</span>
+                <span className="text-gray-600 dark:text-gray-400">Total Value</span>
+                <span className="font-medium">{formatCurrencyByCodeSync(totalValue, project.currency)}</span>
               </div>
+              
+              {/* Planned Value */}
               <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-600 dark:text-gray-400">Done</span>
-                <span className="font-medium">${workValue.done.toLocaleString()}</span>
+                <span className="text-gray-600 dark:text-gray-400">Planned Value</span>
+                <span className="font-medium text-blue-600 dark:text-blue-400">{formatCurrencyByCodeSync(totalPlannedValue, project.currency)}</span>
               </div>
               
-              {/* Progress bar */}
-              {workValue.planned > 0 && (
-                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 mt-1">
-                  <div 
-                    className={`h-1.5 rounded-full transition-all ${completionPercentage >= 100 ? 'bg-green-500' : completionPercentage >= 80 ? 'bg-blue-500' : completionPercentage >= 50 ? 'bg-yellow-500' : 'bg-orange-500'}`} 
-                    style={{ width: `${Math.min(100, Math.max(0, completionPercentage))}%` }}
-                  />
-                </div>
-              )}
-              
-              <div className="flex items-center justify-between pt-1">
-                <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Currency: {project.currency || getProjectField(project, 'Currency') || 'AED'}
-                </div>
+              {/* Earned Value */}
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-600 dark:text-gray-400">Earned Value</span>
+                <span className="font-medium text-green-600 dark:text-green-400">{formatCurrencyByCodeSync(totalEarnedValue, project.currency)}</span>
               </div>
               
-              {workValue.planned > 0 && (
-                <div className="text-xs text-gray-500 dark:text-gray-400">
-                  {completionPercentage.toFixed(1)}% Complete
-                </div>
+              {/* Remaining Value */}
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-600 dark:text-gray-400">Remaining Value</span>
+                <span className="font-medium text-orange-600 dark:text-orange-400">{formatCurrencyByCodeSync(totalRemainingValue, project.currency)}</span>
+              </div>
+              
+              {/* Variance */}
+              <div className="flex items-center justify-between text-xs pt-1 border-t border-gray-200 dark:border-gray-700">
+                <span className="text-gray-600 dark:text-gray-400">Variance</span>
+                <span className={`font-medium ${variance >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                  {formatCurrencyByCodeSync(variance, project.currency)}
+                </span>
+              </div>
+              
+              {/* Progress bars */}
+              {totalValue > 0 && (
+                <>
+                  <div className="pt-1 space-y-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-gray-600 dark:text-gray-400">Actual Progress</span>
+                      <span className="font-medium text-green-600 dark:text-green-400">{actualProgress.toFixed(1)}%</span>
+                    </div>
+                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                      <div 
+                        className="bg-green-500 h-1.5 rounded-full transition-all" 
+                        style={{ width: `${Math.min(100, Math.max(0, actualProgress))}%` }}
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-gray-600 dark:text-gray-400">Planned Progress</span>
+                      <span className="font-medium text-blue-600 dark:text-blue-400">{plannedProgress.toFixed(1)}%</span>
+                    </div>
+                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                      <div 
+                        className="bg-blue-500 h-1.5 rounded-full transition-all" 
+                        style={{ width: `${Math.min(100, Math.max(0, plannedProgress))}%` }}
+                      />
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           )

@@ -25,12 +25,25 @@ export interface ProjectAnalytics {
   delayedActivities: number
   notStartedActivities: number
   
-  // Financial Metrics
-  totalContractValue: number
-  totalPlannedValue: number
-  totalEarnedValue: number
-  totalRemainingValue: number
-  financialProgress: number
+  // Financial Metrics - New Concepts
+  totalContractValue: number // قيمة المشروع الإجمالية - القيمة التي يتم إدخالها عند إنشاء المشروع (قيمة العقد)
+  totalValue: number // قيمة مجموع كل الأنشطة للمشروع (BOQ) أو كل KPI Planned للمشروع (المفترض أنهما دائماً نفس القيمة)
+  totalPlannedValue: number // مجموع KPI Planned حتى اليوم فقط (yesterday)
+  totalEarnedValue: number // مجموع KPI Actual (Actual Value / Earned Value / Work Done)
+  totalRemainingValue: number // Total Value – Earned Value
+  variance: number // Earned Value – Planned Value
+  actualProgress: number // (Earned Value / Total Value) × 100
+  plannedProgress: number // (Planned Value / Total Value) × 100
+  financialProgress: number // Legacy field (kept for compatibility)
+  
+  // Quantity Metrics - Same concepts applied to quantities
+  totalQuantity: number // مجموع الكميات لجميع أنشطة المشروع (BOQ) أو كل KPI Planned للمشروع
+  totalPlannedQuantity: number // مجموع الكميات المخططة حتى اليوم فقط (من KPI Planned)
+  totalEarnedQuantity: number // مجموع الكميات الفعلية حتى اليوم فقط (من KPI Actual)
+  totalRemainingQuantity: number // Total Quantity – Earned Quantity
+  quantityVariance: number // Earned Quantity – Planned Quantity
+  actualQuantityProgress: number // (Earned Quantity / Total Quantity) × 100
+  plannedQuantityProgress: number // (Planned Quantity / Total Quantity) × 100
   
   // Progress Metrics
   overallProgress: number
@@ -78,12 +91,25 @@ function createEmptyAnalytics(project: Project): ProjectAnalytics {
     delayedActivities: 0,
     notStartedActivities: 0,
     
-    // Financial Metrics
+    // Financial Metrics - New Concepts
     totalContractValue: project.contract_amount || 0,
+    totalValue: 0,
     totalPlannedValue: 0,
     totalEarnedValue: 0,
     totalRemainingValue: 0,
+    variance: 0,
+    actualProgress: 0,
+    plannedProgress: 0,
     financialProgress: 0,
+    
+    // Quantity Metrics
+    totalQuantity: 0,
+    totalPlannedQuantity: 0,
+    totalEarnedQuantity: 0,
+    totalRemainingQuantity: 0,
+    quantityVariance: 0,
+    actualQuantityProgress: 0,
+    plannedQuantityProgress: 0,
     
     // Progress Metrics
     overallProgress: 0,
@@ -131,102 +157,181 @@ export function calculateProjectAnalytics(
     return createEmptyAnalytics(project)
   }
   
-  // ✅ PERFORMANCE: Pre-calculate project codes once
-  const projectCode = project.project_code || ''
-  const projectSubCode = project.project_sub_code || ''
-  const fullCode = `${projectCode}${projectSubCode}`
+  // ✅ SIMPLIFIED: Pre-calculate project codes once
+  const projectCode = (project.project_code || '').toString().trim().toUpperCase()
+  const projectSubCode = (project.project_sub_code || '').toString().trim().toUpperCase()
   
-  // ✅ PERFORMANCE: Filter activities with optimized matching
-  // ✅ DEBUG: Add logging to diagnose matching issues
+  // ✅ Build all possible project code variations for matching
+  const projectCodeVariations = new Set<string>()
+  projectCodeVariations.add(projectCode)
+  
+  if (projectSubCode) {
+    projectCodeVariations.add(projectSubCode)
+    // If sub-code contains project code, add it
+    if (projectSubCode.includes(projectCode)) {
+      projectCodeVariations.add(projectSubCode)
+    } else {
+      // Otherwise, combine them
+      projectCodeVariations.add(`${projectCode}${projectSubCode}`)
+      projectCodeVariations.add(`${projectCode}-${projectSubCode}`)
+    }
+  }
+  
+  // Helper function to extract project code from any source
+  const extractProjectCode = (item: any): string[] => {
+    const codes: string[] = []
+    const raw = (item as any).raw || {}
+    
+    // Try all possible sources
+    const sources = [
+      item.project_code,
+      item.project_full_code,
+      (item as any)['Project Code'],
+      (item as any)['Project Full Code'],
+      raw['Project Code'],
+      raw['Project Full Code']
+    ]
+    
+    for (const source of sources) {
+      if (source) {
+        const code = source.toString().trim().toUpperCase()
+        if (code) {
+          codes.push(code)
+        }
+      }
+    }
+    
+    return codes
+  }
+  
+  // Helper function to check if codes match
+  const codesMatch = (itemCodes: string[], projectCodes: Set<string>): boolean => {
+    const projectCodesArray = Array.from(projectCodes)
+    
+    for (const itemCode of itemCodes) {
+      // Direct match
+      if (projectCodes.has(itemCode)) return true
+      
+      // Check if item code contains any project code
+      for (const projCode of projectCodesArray) {
+        if (itemCode.includes(projCode) || projCode.includes(itemCode)) {
+          return true
+        }
+        // Check if item code starts with project code (e.g., P9999 matches P9999-01)
+        if (itemCode.startsWith(projCode) || projCode.startsWith(itemCode)) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+  
+  // ✅ DEBUG: Log actual data structure for first project only
+  if (process.env.NODE_ENV === 'development' && Math.random() < 0.05) {
+    console.log(`🔍 DEBUG calculateProjectAnalytics for ${projectCode}:`, {
+      project: {
+        project_code: project.project_code,
+        project_sub_code: project.project_sub_code,
+        projectCode_normalized: projectCode,
+        projectSubCode_normalized: projectSubCode,
+        projectCodeVariations: Array.from(projectCodeVariations)
+      },
+      sampleActivity: allActivities[0] ? {
+        project_code: allActivities[0].project_code,
+        project_full_code: allActivities[0].project_full_code,
+        rawProjectCode: (allActivities[0] as any).raw?.['Project Code'],
+        rawProjectFullCode: (allActivities[0] as any).raw?.['Project Full Code'],
+        'Project Code': (allActivities[0] as any)['Project Code'],
+        'Project Full Code': (allActivities[0] as any)['Project Full Code']
+      } : null,
+      sampleKPI: allKPIs[0] ? {
+        project_code: allKPIs[0].project_code,
+        project_full_code: allKPIs[0].project_full_code,
+        rawProjectCode: (allKPIs[0] as any).raw?.['Project Code'],
+        rawProjectFullCode: (allKPIs[0] as any).raw?.['Project Full Code'],
+        'Project Code': (allKPIs[0] as any)['Project Code'],
+        'Project Full Code': (allKPIs[0] as any)['Project Full Code']
+      } : null,
+      allActivitiesCount: allActivities.length,
+      allKPIsCount: allKPIs.length
+    })
+  }
+  
+  // ✅ SIMPLIFIED: Filter activities with improved matching
   const projectActivities = allActivities.filter(a => {
-    if (!a.project_code && !a.project_full_code) return false
+    const activityCodes = extractProjectCode(a)
+    if (activityCodes.length === 0) return false
     
-    // Direct project code match
-    if (a.project_code === projectCode) return true
-    
-    // Project full code starts with project code (e.g., P5067 matches P5067-01)
-    if (a.project_full_code?.startsWith(projectCode)) return true
-    
-    // Exact full code match (if project has sub-code)
-    if (fullCode && a.project_full_code === fullCode) return true
-    
-    // ✅ Also check raw data if available (for database column names with spaces)
-    const rawActivity = (a as any).raw
-    if (rawActivity) {
-      const rawProjectCode = rawActivity['Project Code'] || rawActivity['Project Full Code']
-      if (rawProjectCode === projectCode || rawProjectCode?.startsWith(projectCode)) return true
-    }
-    
-    return false
+    return codesMatch(activityCodes, projectCodeVariations)
   })
   
-  // ✅ PERFORMANCE: Filter KPIs with optimized matching
-  // ✅ DEBUG: Add logging to diagnose matching issues
+  // ✅ SIMPLIFIED: Filter KPIs with improved matching
   const projectKPIs = allKPIs.filter(k => {
-    if (!k.project_code && !k.project_full_code) return false
+    const kpiCodes = extractProjectCode(k)
+    if (kpiCodes.length === 0) return false
     
-    // Direct project code match
-    if (k.project_code === projectCode) return true
-    
-    // Project full code starts with project code (e.g., P5067 matches P5067-01, P5067-02, etc.)
-    if (k.project_full_code?.startsWith(projectCode)) return true
-    
-    // Exact full code match (if project has sub-code)
-    if (fullCode && k.project_full_code === fullCode) return true
-    
-    // ✅ Also check raw data if available (for database column names with spaces)
-    const rawKPI = (k as any).raw
-    if (rawKPI) {
-      const rawProjectCode = rawKPI['Project Code'] || rawKPI['Project Full Code']
-      if (rawProjectCode === projectCode || rawProjectCode?.startsWith(projectCode)) return true
-    }
-    
-    return false
+    return codesMatch(kpiCodes, projectCodeVariations)
   })
   
-  // ✅ DEBUG: Log matching results for ALL projects to diagnose matching issues
-  console.log(`🔍 calculateProjectAnalytics [${projectCode}]:`, {
-    projectCode,
-    projectSubCode,
-    fullCode,
-    allActivitiesCount: allActivities.length,
-    allKPIsCount: allKPIs.length,
-    matchedActivitiesCount: projectActivities.length,
-    matchedKPIsCount: projectKPIs.length,
-    // ✅ Show sample activity codes for debugging (first 5 activities)
-    sampleActivities: allActivities.slice(0, 5).map((a: any) => ({
-      project_code: a.project_code,
-      project_full_code: a.project_full_code,
-      rawProjectCode: a.raw?.['Project Code'],
-      rawProjectFullCode: a.raw?.['Project Full Code'],
-      matches: {
-        directCodeMatch: a.project_code === projectCode,
-        fullCodeStartsWith: a.project_full_code?.startsWith(projectCode),
-        fullCodeExact: fullCode && a.project_full_code === fullCode,
-        rawCodeMatch: a.raw?.['Project Code'] === projectCode || a.raw?.['Project Full Code']?.startsWith(projectCode)
-      }
-    })),
-    // ✅ Show sample KPI codes for debugging (first 5 KPIs)
-    sampleKPIs: allKPIs.slice(0, 5).map((k: any) => ({
-      project_code: k.project_code,
-      project_full_code: k.project_full_code,
-      rawProjectCode: k.raw?.['Project Code'],
-      rawProjectFullCode: k.raw?.['Project Full Code'],
-      matches: {
-        directCodeMatch: k.project_code === projectCode,
-        fullCodeStartsWith: k.project_full_code?.startsWith(projectCode),
-        fullCodeExact: fullCode && k.project_full_code === fullCode,
-        rawCodeMatch: k.raw?.['Project Code'] === projectCode || k.raw?.['Project Full Code']?.startsWith(projectCode)
-      }
-    })),
-    // ✅ Show final calculated values
-    calculatedValues: {
-      totalActivities: projectActivities.length,
-      totalKPIs: projectKPIs.length
-    }
-  })
+  // ✅ DEBUG: Always log matching results for ALL projects to diagnose issues
+  // Log for first few projects to see what's happening
+  const isFirstProject = allActivities.length > 0 && allActivities[0] && 
+    ((allActivities[0].project_code || (allActivities[0] as any)['Project Code'] || (allActivities[0] as any).raw?.['Project Code'] || '').toString().trim().toUpperCase() === projectCode.toUpperCase())
   
-  // ✅ PERFORMANCE: Remove logging in production
+  // ✅ DEBUG: Log matching results for first few projects
+  const shouldLog = projectCode === 'P9999' || projectCode === 'P8888' || projectCode === 'P5096' || projectActivities.length > 0 || projectKPIs.length > 0
+  if (shouldLog) {
+    // Sample first few activities and KPIs to see their actual codes
+    const sampleActivities = allActivities.slice(0, 3).map((a: any) => {
+      const codes = extractProjectCode(a)
+      return {
+        codes,
+        project_code: a.project_code,
+        project_full_code: a.project_full_code,
+        rawProjectCode: (a as any).raw?.['Project Code'],
+        rawProjectFullCode: (a as any).raw?.['Project Full Code'],
+        'Project Code': (a as any)['Project Code'],
+        'Project Full Code': (a as any)['Project Full Code'],
+        activity_name: a.activity_name
+      }
+    })
+    
+    const sampleKPIs = allKPIs.slice(0, 3).map((k: any) => {
+      const codes = extractProjectCode(k)
+      return {
+        codes,
+        project_code: k.project_code,
+        project_full_code: k.project_full_code,
+        rawProjectCode: (k as any).raw?.['Project Code'],
+        rawProjectFullCode: (k as any).raw?.['Project Full Code'],
+        'Project Code': (k as any)['Project Code'],
+        'Project Full Code': (k as any)['Project Full Code'],
+        activity_name: k.activity_name,
+        input_type: k.input_type
+      }
+    })
+    
+    console.log(`🔍 calculateProjectAnalytics [${projectCode}]:`, {
+      projectCode,
+      projectSubCode,
+      projectCodeVariations: Array.from(projectCodeVariations),
+      matchedActivitiesCount: projectActivities.length,
+      matchedKPIsCount: projectKPIs.length,
+      allActivitiesCount: allActivities.length,
+      allKPIsCount: allKPIs.length,
+      sampleActivities,
+      sampleKPIs,
+      matchedActivities: projectActivities.slice(0, 2).map((a: any) => ({
+        codes: extractProjectCode(a),
+        activity_name: a.activity_name
+      })),
+      matchedKPIs: projectKPIs.slice(0, 2).map((k: any) => ({
+        codes: extractProjectCode(k),
+        activity_name: k.activity_name,
+        input_type: k.input_type
+      }))
+    })
+  }
   
   // BOQ Statistics
   const totalActivities = projectActivities.length
@@ -237,18 +342,110 @@ export function calculateProjectAnalytics(
     !a.activity_completed && !a.activity_on_track && !a.activity_delayed
   ).length
   
+  // ✅ NEW CONCEPTS: Calculate yesterday's date for filtering KPIs
+  const yesterday = new Date()
+  yesterday.setDate(yesterday.getDate() - 1)
+  yesterday.setHours(23, 59, 59, 999) // End of yesterday
+  
+  // ✅ DEBUG: Log matching results
+  if (process.env.NODE_ENV === 'development' && project === (allActivities[0]?.project_code || allKPIs[0]?.project_code ? undefined : project)) {
+    console.log(`🔍 calculateProjectAnalytics for ${project.project_code}:`, {
+      projectActivitiesCount: projectActivities.length,
+      projectKPIsCount: projectKPIs.length,
+      allActivitiesCount: allActivities.length,
+      allKPIsCount: allKPIs.length
+    })
+  }
+  
+  // ✅ NEW CONCEPT: Total Value = Sum of value of all project activities (BOQ)
+  // OR Sum of all KPI Planned for the project (should be the same)
+  let totalValueFromBOQ = 0
+  for (const activity of projectActivities) {
+    totalValueFromBOQ += activity.total_value || 0
+  }
+  
+  // ✅ NEW CONCEPT: Also calculate Total Value from all KPI Planned (not filtered by date)
+  let totalValueFromKPIPlanned = 0
+  for (const kpi of projectKPIs) {
+    if (kpi.input_type === 'Planned') {
+      // Find the related activity to get the rate
+      const relatedActivity = projectActivities.find(a => {
+        const activityMatch = a.activity_name === kpi.activity_name
+        if (!activityMatch) return false
+        const kpiProjectCode = kpi.project_code || kpi.project_full_code
+        return (
+          a.project_code === kpiProjectCode ||
+          a.project_full_code === kpiProjectCode ||
+          a.project_code === kpi.project_full_code ||
+          a.project_full_code === kpi.project_full_code
+        )
+      })
+      
+      let financialValue = 0
+      if (relatedActivity) {
+        const activityRate = calculateActivityRate(relatedActivity)
+        const rate = activityRate.rate
+        const quantityValue = parseFloat(kpi.quantity?.toString() || '0') || 0
+        if (rate > 0) {
+          financialValue = quantityValue * rate
+        } else {
+          financialValue = parseFloat(kpi.value?.toString() || '0') || 0
+        }
+      } else {
+        financialValue = parseFloat(kpi.value?.toString() || '0') || 0
+      }
+      totalValueFromKPIPlanned += financialValue
+    }
+  }
+  
+  // ✅ Use both methods: prefer BOQ if available, otherwise use KPI Planned
+  // If both are available, they should be the same (use BOQ as primary)
+  const totalValue = totalValueFromBOQ > 0 ? totalValueFromBOQ : totalValueFromKPIPlanned
+  
+  // ✅ NEW CONCEPT: Total Quantity = Sum of quantity of all project activities (BOQ)
+  // OR Sum of all KPI Planned quantities (should be the same)
+  let totalQuantityFromBOQ = 0
+  for (const activity of projectActivities) {
+    totalQuantityFromBOQ += activity.total_units || 0
+  }
+  
+  // ✅ Also calculate Total Quantity from all KPI Planned
+  let totalQuantityFromKPIPlanned = 0
+  for (const kpi of projectKPIs) {
+    if (kpi.input_type === 'Planned') {
+      const quantityValue = parseFloat(kpi.quantity?.toString() || '0') || 0
+      totalQuantityFromKPIPlanned += quantityValue
+    }
+  }
+  
+  // ✅ Use both methods: prefer BOQ if available, otherwise use KPI Planned
+  const totalQuantity = totalQuantityFromBOQ > 0 ? totalQuantityFromBOQ : totalQuantityFromKPIPlanned
+  
   // ✅ Financial Metrics - Using correct business logic with KPI data
   // Calculate using Rate × Units logic with KPI actuals
   let totalPlannedValue = 0
   let totalEarnedValue = 0
+  let totalPlannedQuantity = 0
+  let totalEarnedQuantity = 0
   
   // Prepare KPI data for more accurate calculation
   const kpiData: Record<string, KPIAggregate> = {}
   let totalPlannedValueFromKPIs = 0
   let totalEarnedValueFromKPIs = 0
+  let totalPlannedQuantityFromKPIs = 0
+  let totalEarnedQuantityFromKPIs = 0
   
-  // Group KPI data by activity
+  // Group KPI data by activity - Filter by date (till yesterday)
   for (const kpi of projectKPIs) {
+    // ✅ NEW CONCEPT: Filter KPIs till yesterday
+    const kpiDate = kpi.activity_date || kpi.target_date || kpi.created_at
+    if (kpiDate) {
+      const kpiDateObj = new Date(kpiDate)
+      if (kpiDateObj > yesterday) {
+        // Skip KPIs after yesterday
+        continue
+      }
+    }
     // Use project_full_code if available, otherwise use project_code
     const projectKey = kpi.project_full_code || kpi.project_code || project.project_code
     const key = `${projectKey}-${kpi.activity_name}`
@@ -302,48 +499,37 @@ export function calculateProjectAnalytics(
       kpiData[key].totalActual += quantityValue
       kpiData[key].totalActualValue += financialValue
       totalEarnedValueFromKPIs += financialValue
+      totalEarnedQuantityFromKPIs += quantityValue
     } else if (kpi.input_type === 'Planned') {
       kpiData[key].totalPlanned += quantityValue
       kpiData[key].totalPlannedValue += financialValue
       totalPlannedValueFromKPIs += financialValue
+      totalPlannedQuantityFromKPIs += quantityValue
     }
   }
   
-  // ✅ FIXED: Calculate Planned Value from ALL BOQ activities
-  // Planned Value = القيمة الكلية المخططة من جميع الأنشطة في BOQ (بغض النظر عن KPIs)
-  let totalPlannedValueFromAllActivities = 0
-  for (const activity of projectActivities) {
-    let activityPlannedValue = 0
-    
-    // ✅ Use calculateActivityRate for consistent calculation
-    const activityRate = calculateActivityRate(activity)
-    const rate = activityRate.rate
-    
-    // Calculate planned value = rate × planned units
-    const plannedUnits = activity.planned_units || 0
-    if (rate > 0 && plannedUnits > 0) {
-      activityPlannedValue = plannedUnits * rate
-    } else if (activity.planned_value && activity.planned_value > 0) {
-      // Use planned_value directly if available
-      activityPlannedValue = activity.planned_value
-    } else if (activity.total_value && activity.total_value > 0) {
-      // Fallback: use total_value
-      activityPlannedValue = activity.total_value
+  // ✅ NEW CONCEPT: Planned Value = Sum of KPI Planned till yesterday only
+  // This is already calculated in the loop above (filtered by date <= yesterday)
+  // Use KPIs if available (most accurate), otherwise calculate from BOQ activities
+  if (totalPlannedValueFromKPIs > 0) {
+    totalPlannedValue = totalPlannedValueFromKPIs
+  } else {
+    // Fallback: Calculate from BOQ activities if no KPIs (but this is less accurate)
+    for (const activity of projectActivities) {
+      const activityRate = calculateActivityRate(activity)
+      const plannedUnits = activity.planned_units || 0
+      const plannedValue = plannedUnits * activityRate.rate
+      totalPlannedValue += plannedValue
     }
-    
-    totalPlannedValueFromAllActivities += activityPlannedValue
   }
   
-  // ✅ FIXED: Planned Value = مجموع Planned Values من جميع الأنشطة في BOQ
-  // Always use all BOQ activities to ensure complete coverage
-  totalPlannedValue = totalPlannedValueFromAllActivities
-  
-  // ✅ Calculate Earned Value from KPIs (more accurate), fallback to BOQ if no KPIs
+  // ✅ NEW CONCEPT: Actual Value (Earned Value) = Sum of KPI Actual till yesterday only
+  // This is already calculated in the loop above (filtered by date <= yesterday)
+  // Use KPIs if available (most accurate), otherwise calculate from BOQ activities
   if (totalEarnedValueFromKPIs > 0) {
-    // Use KPIs if available (most accurate)
     totalEarnedValue = totalEarnedValueFromKPIs
   } else {
-    // Calculate from BOQ activities if no KPIs
+    // Fallback: Calculate from BOQ activities if no KPIs (but this is less accurate)
     for (const activity of projectActivities) {
       const activityRate = calculateActivityRate(activity)
       const actualUnits = activity.actual_units || 0
@@ -352,7 +538,69 @@ export function calculateProjectAnalytics(
     }
   }
   
-  const totalRemainingValue = totalPlannedValue - totalEarnedValue
+  // ✅ NEW CONCEPT: Planned Quantity = Sum of planned quantities till yesterday only (from KPI Planned)
+  // This is already calculated in the loop above (filtered by date <= yesterday)
+  if (totalPlannedQuantityFromKPIs > 0) {
+    totalPlannedQuantity = totalPlannedQuantityFromKPIs
+  } else {
+    // Fallback: Calculate from BOQ activities (but this is less accurate)
+    for (const activity of projectActivities) {
+      totalPlannedQuantity += activity.planned_units || 0
+    }
+  }
+  
+  // ✅ NEW CONCEPT: Earned Quantity = Sum of actual quantities till yesterday only (from KPI Actual)
+  // This is already calculated in the loop above (filtered by date <= yesterday)
+  if (totalEarnedQuantityFromKPIs > 0) {
+    totalEarnedQuantity = totalEarnedQuantityFromKPIs
+  } else {
+    // Fallback: Calculate from BOQ activities (but this is less accurate)
+    for (const activity of projectActivities) {
+      totalEarnedQuantity += activity.actual_units || 0
+    }
+  }
+  
+  // ✅ NEW CONCEPT: Remaining Work Value = Total Value – Earned Value
+  const totalRemainingValue = totalValue - totalEarnedValue
+  
+  // ✅ NEW CONCEPT: Remaining Quantity = Total Quantity – Earned Quantity
+  const totalRemainingQuantity = totalQuantity - totalEarnedQuantity
+  
+  // ✅ NEW CONCEPT: Variance = Earned Value – Planned Value
+  const variance = totalEarnedValue - totalPlannedValue
+  
+  // ✅ NEW CONCEPT: Quantity Variance = Earned Quantity – Planned Quantity
+  const quantityVariance = totalEarnedQuantity - totalPlannedQuantity
+  
+  // ✅ NEW CONCEPT: Actual Progress = (Earned Value / Total Value)
+  const actualProgress = totalValue > 0 ? (totalEarnedValue / totalValue) * 100 : 0
+  
+  // ✅ NEW CONCEPT: Planned Progress = (Planned Value / Total Value)
+  const plannedProgress = totalValue > 0 ? (totalPlannedValue / totalValue) * 100 : 0
+  
+  // ✅ DEBUG: Log calculated values for first project
+  if (process.env.NODE_ENV === 'development' && projectActivities.length > 0) {
+    console.log(`📊 calculateProjectAnalytics results for ${project.project_code}:`, {
+      totalValue,
+      totalValueFromBOQ,
+      totalValueFromKPIPlanned,
+      totalPlannedValue,
+      totalEarnedValue,
+      actualProgress,
+      plannedProgress,
+      variance,
+      projectActivitiesCount: projectActivities.length,
+      projectKPIsCount: projectKPIs.length
+    })
+  }
+  
+  // ✅ NEW CONCEPT: Actual Quantity Progress = (Earned Quantity / Total Quantity)
+  const actualQuantityProgress = totalQuantity > 0 ? (totalEarnedQuantity / totalQuantity) * 100 : 0
+  
+  // ✅ NEW CONCEPT: Planned Quantity Progress = (Planned Quantity / Total Quantity)
+  const plannedQuantityProgress = totalQuantity > 0 ? (totalPlannedQuantity / totalQuantity) * 100 : 0
+  
+  // Legacy field for compatibility
   const financialProgress = totalPlannedValue > 0 ? (totalEarnedValue / totalPlannedValue) * 100 : 0
   
   // ✅ PERFORMANCE: Remove logging in production
@@ -368,11 +616,9 @@ export function calculateProjectAnalytics(
   const averageActivityProgress = projectProgress.progress
   const weightedProgress = projectProgress.progress
   
-  // ✅ FIXED: Overall Progress = (Earned Value / Contract Value) × 100
-  // Calculate overall progress based on contract value (will be defined later)
-  // We'll use project.contract_amount directly here
-  const contractAmount = project.contract_amount || 0
-  const overallProgress = contractAmount > 0 ? (totalEarnedValue / contractAmount) * 100 : projectProgress.progress
+  // ✅ NEW CONCEPT: Overall Progress = Actual Progress (Earned Value / Total Value)
+  // Use actualProgress which is calculated based on Total Value
+  const overallProgress = actualProgress
   
   // KPI Metrics
   const totalKPIs = projectKPIs.length
@@ -443,19 +689,17 @@ export function calculateProjectAnalytics(
     riskLevel = 'critical'
   }
   
-  // ✅ FIXED: Contract Value should always show the original contract amount entered when creating the project
-  // This is the total contract value that the user manually entered
+  // ✅ NEW CONCEPT: Contract Value = Entered manually during project creation
   const totalContractValue = project.contract_amount || 0
   
-  // ✅ Calculate Variance Percentage
+  // ✅ Calculate Variance Percentage based on new concepts
   // Variance Percentage = ((Actual Progress - Planned Progress) / Planned Progress) × 100
-  // Actual Progress = overallProgress (based on contract value)
-  // Planned Progress = financialProgress (based on planned value)
-  // If Planned Progress is 0, variance is 0
+  // Actual Progress = actualProgress (Earned Value / Total Value)
+  // Planned Progress = plannedProgress (Planned Value / Total Value)
   let variancePercentage = 0
-  if (financialProgress > 0) {
-    variancePercentage = ((overallProgress - financialProgress) / financialProgress) * 100
-  } else if (overallProgress > 0) {
+  if (plannedProgress > 0) {
+    variancePercentage = ((actualProgress - plannedProgress) / plannedProgress) * 100
+  } else if (actualProgress > 0) {
     // If planned is 0 but actual > 0, we're ahead
     variancePercentage = 100
   }
@@ -476,12 +720,20 @@ export function calculateProjectAnalytics(
   // ✅ PERFORMANCE: Remove logging in production
   // Only log in development mode and very rarely
   if (process.env.NODE_ENV === 'development' && Math.random() < 0.01) {
-    console.log('💵 Contract Value:', {
-      fromProject: project.contract_amount,
-      fromAllActivities: totalPlannedValueFromAllActivities,
-      fromKPIs: totalPlannedValue,
-      final: totalContractValue,
-      note: 'Contract Value always uses project.contract_amount (original value entered when creating project)'
+    console.log('💵 New Concepts:', {
+      contractValue: totalContractValue,
+      totalValue,
+      totalPlannedValue,
+      totalEarnedValue,
+      variance,
+      actualProgress,
+      plannedProgress,
+      totalQuantity,
+      totalPlannedQuantity,
+      totalEarnedQuantity,
+      quantityVariance,
+      actualQuantityProgress,
+      plannedQuantityProgress
     })
   }
   
@@ -495,12 +747,25 @@ export function calculateProjectAnalytics(
     delayedActivities,
     notStartedActivities,
     
-    // Financial Metrics
+    // Financial Metrics - New Concepts
     totalContractValue,
+    totalValue,
     totalPlannedValue,
     totalEarnedValue,
     totalRemainingValue,
+    variance,
+    actualProgress,
+    plannedProgress,
     financialProgress,
+    
+    // Quantity Metrics
+    totalQuantity,
+    totalPlannedQuantity,
+    totalEarnedQuantity,
+    totalRemainingQuantity,
+    quantityVariance,
+    actualQuantityProgress,
+    plannedQuantityProgress,
     
     // Progress Metrics
     overallProgress,

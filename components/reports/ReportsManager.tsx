@@ -626,21 +626,24 @@ export function ReportsManager({ userRole = 'viewer' }: ReportsManagerProps) {
                 <div className="text-2xl font-bold text-indigo-900 dark:text-indigo-100">
                   ${portfolioProgress.totalPlannedValue.toLocaleString()}
                 </div>
-                <div className="text-sm text-indigo-700 dark:text-indigo-300">Total Planned Value</div>
+                <div className="text-sm text-indigo-700 dark:text-indigo-300">Planned Value</div>
+                <div className="text-xs text-indigo-600 dark:text-indigo-400 mt-1">Till yesterday (Planned KPI)</div>
               </div>
               
               <div className="text-center">
                 <div className="text-2xl font-bold text-green-600 dark:text-green-400">
                   ${portfolioProgress.totalEarnedValue.toLocaleString()}
                 </div>
-                <div className="text-sm text-indigo-700 dark:text-indigo-300">Total Earned Value</div>
+                <div className="text-sm text-indigo-700 dark:text-indigo-300">Earned Value</div>
+                <div className="text-xs text-indigo-600 dark:text-indigo-400 mt-1">Till yesterday (Actual KPI)</div>
               </div>
               
               <div className="text-center">
                 <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
                   {portfolioProgress.overallProgress.toFixed(1)}%
                 </div>
-                <div className="text-sm text-indigo-700 dark:text-indigo-300">Overall Progress</div>
+                <div className="text-sm text-indigo-700 dark:text-indigo-300">Actual Progress</div>
+                <div className="text-xs text-indigo-600 dark:text-indigo-400 mt-1">(Earned / Total Value)</div>
               </div>
               
               <div className="text-center">

@@ -14,6 +14,7 @@ import { SmartFilter } from '@/components/ui/SmartFilter'
 import { PrintableReport } from './PrintableReport'
 import { PrintButton } from '@/components/ui/PrintButton'
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
+import { getAllProjectsAnalytics } from '@/lib/projectAnalytics'
 import {
   FileText,
   Download,
@@ -348,7 +349,18 @@ export function ModernReportsManager() {
 
   const { filteredProjects, filteredActivities, filteredKPIs } = getFilteredData()
 
-  // Calculate summary statistics
+  // Calculate summary statistics using NEW CONCEPTS
+  // Calculate analytics for filtered projects
+  const filteredProjectsAnalytics = getAllProjectsAnalytics(filteredProjects, filteredActivities, filteredKPIs)
+  
+  // Aggregate values from analytics
+  const totalValue = filteredProjectsAnalytics.reduce((sum, a) => sum + a.totalValue, 0)
+  const totalPlannedValue = filteredProjectsAnalytics.reduce((sum, a) => sum + a.totalPlannedValue, 0)
+  const totalEarnedValue = filteredProjectsAnalytics.reduce((sum, a) => sum + a.totalEarnedValue, 0)
+  const variance = filteredProjectsAnalytics.reduce((sum, a) => sum + a.variance, 0)
+  const actualProgress = totalValue > 0 ? (totalEarnedValue / totalValue) * 100 : 0
+  const plannedProgress = totalValue > 0 ? (totalPlannedValue / totalValue) * 100 : 0
+  
   const summary = {
     totalProjects: filteredProjects.length,
     activeProjects: filteredProjects.filter(p => p.project_status === 'on-going').length,
@@ -364,18 +376,20 @@ export function ModernReportsManager() {
     plannedKPIs: filteredKPIs.filter(k => k.input_type === 'Planned').length,
     actualKPIs: filteredKPIs.filter(k => k.input_type === 'Actual').length,
     
+    // NEW CONCEPTS - Financial Metrics
     totalContractValue: filteredProjects.reduce((sum, p) => sum + (p.contract_amount || 0), 0),
-    totalPlannedValue: filteredActivities.reduce((sum, a) => sum + (a.planned_value || 0), 0),
-    totalActualValue: filteredActivities.reduce((sum, a) => sum + (a.total_value || 0), 0),
+    totalValue,
+    totalPlannedValue,
+    totalEarnedValue,
+    variance,
+    actualProgress,
+    plannedProgress,
+    
+    // Legacy fields for compatibility
+    totalActualValue: totalEarnedValue, // Map to totalEarnedValue
     
     // Calculate average progress from KPIs
-    averageProgress: (() => {
-      const planned = filteredKPIs.filter(k => k.input_type === 'Planned')
-      const actual = filteredKPIs.filter(k => k.input_type === 'Actual')
-      const totalPlanned = planned.reduce((sum, k) => sum + (parseFloat(k.quantity?.toString() || '0') || 0), 0)
-      const totalActual = actual.reduce((sum, k) => sum + (parseFloat(k.quantity?.toString() || '0') || 0), 0)
-      return totalPlanned > 0 ? (totalActual / totalPlanned) * 100 : 0
-    })()
+    averageProgress: actualProgress
   }
 
   const exportToCSV = () => {
@@ -1529,8 +1543,10 @@ const formatCurrency = (amount: number, currencyCode?: string) => {
   return formatCurrencyByCodeSync(amount || 0, currencyCode)
 }
 
-// Financial Report Component
+// Financial Report Component - NEW CONCEPTS
 function FinancialReport({ summary, projects, activities }: { summary: any, projects: Project[], activities: BOQActivity[] }) {
+  // Get currency from first project or default to AED
+  const defaultCurrency = projects[0]?.currency || 'AED'
 
   return (
     <div className="space-y-6">
@@ -1538,31 +1554,50 @@ function FinancialReport({ summary, projects, activities }: { summary: any, proj
         Financial Report
       </h3>
 
-      {/* Financial Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* Financial Overview - NEW CONCEPTS */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="p-6 bg-gray-50 dark:bg-gray-900/20 rounded-lg border-2 border-gray-300 dark:border-gray-700">
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="font-semibold text-gray-900 dark:text-gray-100">Contract Value</h4>
+            <DollarSign className="h-8 w-8 text-gray-600" />
+          </div>
+          <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">
+            {formatCurrency(summary.totalContractValue, defaultCurrency)}
+          </p>
+          <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">Entered manually</p>
+        </div>
+
         <div className="p-6 bg-blue-50 dark:bg-blue-900/20 rounded-lg border-2 border-blue-300 dark:border-blue-700">
           <div className="flex items-center justify-between mb-2">
-            <h4 className="font-semibold text-blue-900 dark:text-blue-100">Total Contract Value</h4>
+            <h4 className="font-semibold text-blue-900 dark:text-blue-100">Total Value</h4>
             <DollarSign className="h-8 w-8 text-blue-600" />
           </div>
           <p className="text-3xl font-bold text-blue-900 dark:text-blue-100">
-            {formatCurrency(summary.totalContractValue)}
+            {formatCurrency(summary.totalValue, defaultCurrency)}
           </p>
+          <p className="text-xs text-blue-700 dark:text-blue-400 mt-1">Sum of all activities</p>
+        </div>
+
+        <div className="p-6 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg border-2 border-indigo-300 dark:border-indigo-700">
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="font-semibold text-indigo-900 dark:text-indigo-100">Planned Value</h4>
+            <TrendingUp className="h-8 w-8 text-indigo-600" />
+          </div>
+          <p className="text-3xl font-bold text-indigo-900 dark:text-indigo-100">
+            {formatCurrency(summary.totalPlannedValue, defaultCurrency)}
+          </p>
+          <p className="text-xs text-indigo-700 dark:text-indigo-400 mt-1">Till yesterday (Planned KPI)</p>
         </div>
 
         <div className="p-6 bg-green-50 dark:bg-green-900/20 rounded-lg border-2 border-green-300 dark:border-green-700">
           <div className="flex items-center justify-between mb-2">
-            <h4 className="font-semibold text-green-900 dark:text-green-100">Completed Value</h4>
+            <h4 className="font-semibold text-green-900 dark:text-green-100">Earned Value</h4>
             <CheckCircle className="h-8 w-8 text-green-600" />
           </div>
           <p className="text-3xl font-bold text-green-900 dark:text-green-100">
-            {formatCurrency(summary.totalActualValue)}
+            {formatCurrency(summary.totalEarnedValue, defaultCurrency)}
           </p>
-          <p className="text-sm text-green-700 dark:text-green-400 mt-1">
-            {summary.totalContractValue > 0 
-              ? ((summary.totalActualValue / summary.totalContractValue) * 100).toFixed(1)
-              : 0}% of total
-          </p>
+          <p className="text-xs text-green-700 dark:text-green-400 mt-1">Till yesterday (Actual KPI)</p>
         </div>
 
         <div className="p-6 bg-orange-50 dark:bg-orange-900/20 rounded-lg border-2 border-orange-300 dark:border-orange-700">
@@ -1571,12 +1606,46 @@ function FinancialReport({ summary, projects, activities }: { summary: any, proj
             <Clock className="h-8 w-8 text-orange-600" />
           </div>
           <p className="text-3xl font-bold text-orange-900 dark:text-orange-100">
-            {formatCurrency(summary.totalContractValue - summary.totalActualValue)}
+            {formatCurrency(summary.totalValue - summary.totalEarnedValue, defaultCurrency)}
           </p>
-          <p className="text-sm text-orange-700 dark:text-orange-400 mt-1">
-            {summary.totalContractValue > 0 
-              ? (((summary.totalContractValue - summary.totalActualValue) / summary.totalContractValue) * 100).toFixed(1)
-              : 0}% remaining
+          <p className="text-xs text-orange-700 dark:text-orange-400 mt-1">Total - Earned</p>
+        </div>
+      </div>
+
+      {/* Progress and Variance - NEW CONCEPTS */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="p-6 bg-green-50 dark:bg-green-900/20 rounded-lg border-2 border-green-300 dark:border-green-700">
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="font-semibold text-green-900 dark:text-green-100">Actual Progress</h4>
+            <BarChart3 className="h-8 w-8 text-green-600" />
+          </div>
+          <p className="text-3xl font-bold text-green-900 dark:text-green-100">
+            {summary.actualProgress.toFixed(1)}%
+          </p>
+          <p className="text-xs text-green-700 dark:text-green-400 mt-1">(Earned Value / Total Value)</p>
+        </div>
+
+        <div className="p-6 bg-blue-50 dark:bg-blue-900/20 rounded-lg border-2 border-blue-300 dark:border-blue-700">
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="font-semibold text-blue-900 dark:text-blue-100">Planned Progress</h4>
+            <BarChart3 className="h-8 w-8 text-blue-600" />
+          </div>
+          <p className="text-3xl font-bold text-blue-900 dark:text-blue-100">
+            {summary.plannedProgress.toFixed(1)}%
+          </p>
+          <p className="text-xs text-blue-700 dark:text-blue-400 mt-1">(Planned Value / Total Value)</p>
+        </div>
+
+        <div className={`p-6 rounded-lg border-2 ${summary.variance >= 0 ? 'bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-700' : 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700'}`}>
+          <div className="flex items-center justify-between mb-2">
+            <h4 className={`font-semibold ${summary.variance >= 0 ? 'text-green-900 dark:text-green-100' : 'text-red-900 dark:text-red-100'}`}>Variance</h4>
+            <AlertTriangle className={`h-8 w-8 ${summary.variance >= 0 ? 'text-green-600' : 'text-red-600'}`} />
+          </div>
+          <p className={`text-3xl font-bold ${summary.variance >= 0 ? 'text-green-900 dark:text-green-100' : 'text-red-900 dark:text-red-100'}`}>
+            {summary.variance >= 0 ? '+' : ''}{formatCurrency(summary.variance, defaultCurrency)}
+          </p>
+          <p className={`text-xs mt-1 ${summary.variance >= 0 ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}`}>
+            Earned - Planned
           </p>
         </div>
       </div>
@@ -1638,31 +1707,23 @@ function FinancialReport({ summary, projects, activities }: { summary: any, proj
   )
 }
 
-// Performance Report Component
+// Performance Report Component - NEW CONCEPTS
 function PerformanceReport({ projects, activities, kpis }: { projects: Project[], activities: BOQActivity[], kpis: ProcessedKPI[] }) {
-  // Calculate project performance
-  const projectPerformance = projects.map(project => {
-    const projectActivities = activities.filter(a => 
-      a.project_code === project.project_code || 
-      a.project_full_code?.startsWith(project.project_code)
-    )
-    const projectKPIs = kpis.filter(k => 
-      (k as any).project_code === project.project_code || 
-      k.project_full_code?.startsWith(project.project_code)
-    )
-    
-    const plannedKPIs = projectKPIs.filter(k => k.input_type === 'Planned')
-    const actualKPIs = projectKPIs.filter(k => k.input_type === 'Actual')
-    
-    const totalPlanned = plannedKPIs.reduce((sum, k) => sum + (parseFloat(k.quantity?.toString() || '0') || 0), 0)
-    const totalActual = actualKPIs.reduce((sum, k) => sum + (parseFloat(k.quantity?.toString() || '0') || 0), 0)
-    const progress = totalPlanned > 0 ? (totalActual / totalPlanned) * 100 : 0
+  // Calculate project performance using NEW CONCEPTS
+  const allAnalytics = getAllProjectsAnalytics(projects, activities, kpis as any[])
+  
+  const projectPerformance = allAnalytics.map(analytics => {
+    const progress = analytics.actualProgress
 
     return {
-      project,
-      activitiesCount: projectActivities.length,
-      kpisCount: projectKPIs.length,
+      project: analytics.project,
+      activitiesCount: analytics.totalActivities,
+      kpisCount: analytics.totalKPIs,
       progress,
+      totalValue: analytics.totalValue,
+      totalPlannedValue: analytics.totalPlannedValue,
+      totalEarnedValue: analytics.totalEarnedValue,
+      variance: analytics.variance,
       status: progress >= 75 ? 'Excellent' : progress >= 50 ? 'Good' : progress >= 25 ? 'Fair' : 'Needs Attention'
     }
   }).sort((a, b) => b.progress - a.progress)

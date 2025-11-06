@@ -14,11 +14,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Alert } from '@/components/ui/Alert'
+import { Input } from '@/components/ui/Input'
 import { IntelligentBOQForm } from './IntelligentBOQForm'
 import { BOQTable } from './BOQTable'
 import { BOQTableWithCustomization } from './BOQTableWithCustomization'
 import { Pagination } from '@/components/ui/Pagination'
-import { Plus, ClipboardList, CheckCircle, Clock, AlertCircle, Filter, X, Search, Lock } from 'lucide-react'
+import { Plus, ClipboardList, CheckCircle, Clock, AlertCircle, Filter, X, Search, Lock, Building2, ChevronDown } from 'lucide-react'
 import { ExportButton } from '@/components/ui/ExportButton'
 import { ImportButton } from '@/components/ui/ImportButton'
 import { PrintButton } from '@/components/ui/PrintButton'
@@ -78,6 +79,11 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   })
   const [filteredActivities, setFilteredActivities] = useState<BOQActivity[]>([])
   
+  // ✅ Project Searchable Dropdown State
+  const [projectSearch, setProjectSearch] = useState('')
+  const [showProjectDropdown, setShowProjectDropdown] = useState(false)
+  const projectDropdownRef = useRef<HTMLDivElement>(null)
+  
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage] = useState(50) // 50 items per page for better performance
@@ -85,6 +91,43 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   const supabase = getSupabaseClient()
   const isMountedRef = useRef(true) // ✅ Track if component is mounted
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('boq') // ✅ Smart loading
+  
+  // ✅ Close project dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (projectDropdownRef.current && !projectDropdownRef.current.contains(event.target as Node)) {
+        setShowProjectDropdown(false)
+      }
+    }
+    
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [])
+  
+  // ✅ Get selected project name for display
+  const getSelectedProjectName = () => {
+    if (!filters.project) return ''
+    const selectedProject = projects.find(p => p.project_code === filters.project)
+    return selectedProject ? `${selectedProject.project_code} - ${selectedProject.project_name}` : filters.project
+  }
+  
+  // ✅ Filter projects based on search
+  const getFilteredProjects = () => {
+    if (!projectSearch.trim()) return projects
+    
+    const searchTerm = projectSearch.toLowerCase().trim()
+    return projects.filter(project => {
+      const matchesCode = project.project_code?.toLowerCase().includes(searchTerm)
+      const matchesName = project.project_name?.toLowerCase().includes(searchTerm)
+      const matchesSubCode = project.project_sub_code?.toLowerCase().includes(searchTerm)
+      const fullCode = `${project.project_code || ''}${project.project_sub_code || ''}`.toLowerCase()
+      const matchesFullCode = fullCode.includes(searchTerm)
+      
+      return matchesCode || matchesName || matchesSubCode || matchesFullCode
+    })
+  }
   
   // ✅ Permission check - return access denied if user doesn't have permission
   if (!guard.hasAccess('boq.view')) {
@@ -1195,23 +1238,105 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
                 </div>
               </div>
               
-              {/* Project Filter */}
-              <div>
+              {/* Project Filter - Searchable Dropdown */}
+              <div className="relative" ref={projectDropdownRef}>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Project
                 </label>
-                <select
-                  value={filters.project}
-                  onChange={(e) => handleFilterChange('project', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                >
-                  <option value="">All Projects</option>
-                  {projects.map(project => (
-                    <option key={project.id} value={project.project_code}>
-                      {project.project_code} - {project.project_name}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                      type="text"
+                      value={filters.project ? getSelectedProjectName() : projectSearch}
+                      onChange={(e) => {
+                        const value = e.target.value
+                        setProjectSearch(value)
+                        setShowProjectDropdown(true)
+                        // Clear filter if input is cleared
+                        if (!value.trim()) {
+                          handleFilterChange('project', '')
+                          setProjectSearch('')
+                        }
+                      }}
+                      onFocus={() => {
+                        setShowProjectDropdown(true)
+                        if (filters.project) {
+                          // Show search when focusing, but keep selected project
+                          const selectedProject = projects.find(p => p.project_code === filters.project)
+                          setProjectSearch(selectedProject ? `${selectedProject.project_code} - ${selectedProject.project_name}` : '')
+                        }
+                      }}
+                      onClick={() => setShowProjectDropdown(true)}
+                      placeholder="Search projects..."
+                      className="pl-10 pr-10 w-full"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowProjectDropdown(!showProjectDropdown)
+                        if (!showProjectDropdown && filters.project) {
+                          const selectedProject = projects.find(p => p.project_code === filters.project)
+                          setProjectSearch(selectedProject ? `${selectedProject.project_code} - ${selectedProject.project_name}` : '')
+                        }
+                      }}
+                      className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                    >
+                      <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${showProjectDropdown ? 'rotate-180' : ''}`} />
+                    </button>
+                  </div>
+                  
+                  {showProjectDropdown && (
+                    <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                      <div
+                        onClick={() => {
+                          handleFilterChange('project', '')
+                          setProjectSearch('')
+                          setShowProjectDropdown(false)
+                        }}
+                        className={`px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer flex items-center gap-2 ${!filters.project ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
+                      >
+                        <Building2 className="h-4 w-4 text-gray-400" />
+                        <span className={!filters.project ? 'font-medium text-blue-600 dark:text-blue-400' : ''}>
+                          All Projects
+                        </span>
+                      </div>
+                      {getFilteredProjects().map((project) => (
+                        <div
+                          key={project.id}
+                          onClick={() => {
+                            handleFilterChange('project', project.project_code)
+                            setProjectSearch('')
+                            setShowProjectDropdown(false)
+                          }}
+                          className={`px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer flex items-center gap-2 ${
+                            filters.project === project.project_code ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+                          }`}
+                        >
+                          <Building2 className="h-4 w-4 text-gray-400" />
+                          <div className="flex-1">
+                            <div className={`text-sm ${filters.project === project.project_code ? 'font-medium text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-white'}`}>
+                              {project.project_code} - {project.project_name}
+                            </div>
+                            {project.project_sub_code && (
+                              <div className="text-xs text-gray-500 dark:text-gray-400">
+                                Sub: {project.project_sub_code}
+                              </div>
+                            )}
+                          </div>
+                          {filters.project === project.project_code && (
+                            <CheckCircle className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                          )}
+                        </div>
+                      ))}
+                      {getFilteredProjects().length === 0 && (
+                        <div className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 text-center">
+                          No projects found matching "{projectSearch}"
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
               
               {/* Division Filter */}

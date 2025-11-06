@@ -328,18 +328,23 @@ export function calculatePortfolioProgress(
   healthDistribution: Record<string, number>
   recommendations: string[]
 } {
+  // Use calculateProjectProgress for health and recommendations
   const projectProgresses = projects.map(project => 
     calculateProjectProgress(project, activities, kpis)
   )
   
-  const totalPlannedValue = projectProgresses.reduce(
-    (sum, project) => sum + project.overallMetrics.plannedValue, 0
-  )
-  const totalEarnedValue = projectProgresses.reduce(
-    (sum, project) => sum + project.overallMetrics.earnedValue, 0
-  )
-  const overallProgress = totalPlannedValue > 0 
-    ? (totalEarnedValue / totalPlannedValue) * 100 
+  // ✅ NEW CONCEPTS: Use getAllProjectsAnalytics for accurate value calculations
+  const { getAllProjectsAnalytics } = require('./projectAnalytics')
+  const allAnalytics = getAllProjectsAnalytics(projects, activities, kpis as any[])
+  
+  // Calculate values using NEW CONCEPTS
+  const totalValue = allAnalytics.reduce((sum: number, a: any) => sum + a.totalValue, 0)
+  const totalPlannedValue = allAnalytics.reduce((sum: number, a: any) => sum + a.totalPlannedValue, 0)
+  const totalEarnedValue = allAnalytics.reduce((sum: number, a: any) => sum + a.totalEarnedValue, 0)
+  
+  // ✅ NEW CONCEPT: Actual Progress = (Earned Value / Total Value)
+  const overallProgress = totalValue > 0 
+    ? (totalEarnedValue / totalValue) * 100 
     : 0
   
   const healthDistribution = {

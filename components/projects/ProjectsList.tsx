@@ -457,25 +457,19 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
         
         // Load projects first (always needed)
         projectsResult = await supabase
-          .from(TABLES.PROJECTS)
-          .select('*')
+            .from(TABLES.PROJECTS)
+            .select('*')
           .order('created_at', { ascending: false })
         
-        // ✅ Lazy load Activities and KPIs only if table view is active
-        // This significantly improves initial page load time
-        if (canUseCustomizedTable) {
-          console.log('📊 Table view active - loading activities and KPIs...')
-          const [activitiesRes, kpisRes] = await Promise.all([
-            supabase.from(TABLES.BOQ_ACTIVITIES).select('*'),
-            supabase.from(TABLES.KPI).select('*')
-          ])
-          activitiesResult = activitiesRes
-          kpisResult = kpisRes
-        } else {
-          console.log('📊 Cards view active - skipping activities/KPIs for faster load')
-          activitiesResult = { data: [], error: null }
-          kpisResult = { data: [], error: null }
-        }
+        // ✅ ALWAYS load Activities and KPIs - Cards need them for analytics!
+        // Both Card View and Table View need Activities and KPIs to calculate analytics
+        console.log('📊 Loading activities and KPIs for analytics...')
+        const [activitiesRes, kpisRes] = await Promise.all([
+          supabase.from(TABLES.BOQ_ACTIVITIES).select('*'),
+          supabase.from(TABLES.KPI).select('*')
+        ])
+        activitiesResult = activitiesRes
+        kpisResult = kpisRes
         
         console.log('✅ Direct queries successful:', { 
           projects: projectsResult.data?.length || 0, 
@@ -879,9 +873,9 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
               <MapPin className="h-4 w-4 flex-shrink-0 relative z-10" />
               <span className="whitespace-nowrap relative z-10">Manage Zones</span>
             </PermissionButton>
-
+          
             {/* Add New Project Button - Purple */}
-            {guard.hasAccess('projects.create') && (
+          {guard.hasAccess('projects.create') && (
               <button 
                 onClick={() => setShowForm(true)} 
                 className="group relative flex items-center justify-center gap-2 min-w-[170px] h-11 px-6 py-2.5 bg-gradient-to-r from-[#6a4ee4] to-[#7a5ef4] dark:from-[#7a5ef4] dark:to-[#8a6ef4] hover:from-[#5a3ed4] hover:to-[#6a4ee4] dark:hover:from-[#6a4ee4] dark:hover:to-[#7a5ef4] text-white font-semibold text-sm rounded-xl transition-all duration-300 shadow-md hover:shadow-xl hover:shadow-[#6a4ee4]/40 hover:scale-[1.03] active:scale-[0.97] border-0 focus:outline-none focus:ring-2 focus:ring-[#6a4ee4] focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-md overflow-hidden"
@@ -902,12 +896,12 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
                 }
               }}
               className="group relative flex items-center justify-center gap-2 min-w-[170px] h-11 px-6 py-2.5 bg-gradient-to-r from-[#2962ff] to-[#3573ff] dark:from-[#3d72ff] dark:to-[#4d82ff] hover:from-[#1e53e6] hover:to-[#2d62ff] dark:hover:from-[#2d62ff] dark:hover:to-[#3d72ff] text-white font-semibold text-sm rounded-xl transition-all duration-300 shadow-md hover:shadow-xl hover:shadow-[#2962ff]/40 hover:scale-[1.03] active:scale-[0.97] border-0 focus:outline-none focus:ring-2 focus:ring-[#2962ff] focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-md overflow-hidden"
-            >
+              >
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
               <Grid className="h-4 w-4 flex-shrink-0 relative z-10" />
               <span className="whitespace-nowrap relative z-10">{useCustomizedTable ? 'Standard View' : 'Customize Columns'}</span>
             </PermissionButton>
-          </div>
+            </div>
         </div>
         
         {/* Action Buttons and Controls */}
@@ -926,15 +920,15 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
             </PermissionGuard>
             
             <PermissionGuard permission="projects.print">
-              <PrintButton
-                label="Print"
-                variant="outline"
-                printTitle="Projects Report"
-                printSettings={{
-                  fontSize: '11px',
-                  compactMode: true
-                }}
-              />
+            <PrintButton
+              label="Print"
+              variant="outline"
+              printTitle="Projects Report"
+              printSettings={{
+                fontSize: '11px',
+                compactMode: true
+              }}
+            />
             </PermissionGuard>
             
             <PermissionGuard permission="projects.import">
@@ -1044,38 +1038,38 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
       )}
 
       {guard.hasAccess('projects.view') && (
-        <Card className="card-modern transition-opacity duration-300">
-          <CardHeader>
-            <div className="flex flex-col md:flex-row gap-4">
-              <div className="flex-1">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <Input
-                    placeholder="Search projects..."
-                    value={searchTerm}
-                    onChange={(e) => {
-                      setSearchTerm(e.target.value)
-                      setCurrentPage(1) // ✅ Reset to first page when searching
-                    }}
-                    className="pl-10"
-                  />
-                </div>
-              </div>
-              <div className="md:w-auto">
-                <AdvancedSorting
-                  sortOptions={sortOptions}
-                  filterOptions={filterOptions}
-                  onSortChange={handleSortChange}
-                  onFilterChange={handleFilterChange}
-                  onProjectCodeFilter={handleProjectCodeFilter}
-                  projects={projects.map(p => ({ project_code: p.project_code, project_name: p.project_name }))}
-                  currentSort={currentSort || undefined}
-                  currentFilters={currentFilters}
-                  currentProjectCode={currentProjectCode}
+      <Card className="card-modern transition-opacity duration-300">
+        <CardHeader>
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  placeholder="Search projects..."
+                  value={searchTerm}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value)
+                    setCurrentPage(1) // ✅ Reset to first page when searching
+                  }}
+                  className="pl-10"
                 />
               </div>
             </div>
-          </CardHeader>
+            <div className="md:w-auto">
+              <AdvancedSorting
+                sortOptions={sortOptions}
+                filterOptions={filterOptions}
+                onSortChange={handleSortChange}
+                onFilterChange={handleFilterChange}
+                onProjectCodeFilter={handleProjectCodeFilter}
+                projects={projects.map(p => ({ project_code: p.project_code, project_name: p.project_name }))}
+                currentSort={currentSort || undefined}
+                currentFilters={currentFilters}
+                currentProjectCode={currentProjectCode}
+              />
+            </div>
+          </div>
+        </CardHeader>
         <CardContent>
           {/* Show "no results" message only if filters are applied but no matches */}
           {filteredProjects.length === 0 ? (
@@ -1097,13 +1091,33 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
           ) : hasPermission ? (
             canUseCustomizedTable ? (
               // Table View with Customization - Triple check permission
-              <ProjectsTableWithCustomization
-                projects={filteredProjects}
-                onEdit={setEditingProject}
-                onDelete={handleDeleteProject}
-                allKPIs={allKPIs}
-                allActivities={allActivities}
-              />
+              (() => {
+                // ✅ DEBUG: Log data being passed to table
+                console.log('📊 ProjectsList: Passing data to ProjectsTableWithCustomization', {
+                  projectsCount: filteredProjects.length,
+                  allActivitiesCount: allActivities.length,
+                  allKPIsCount: allKPIs.length,
+                  firstProjectCode: filteredProjects[0]?.project_code,
+                  sampleActivity: allActivities[0] ? {
+                    projectCode: allActivities[0].project_code || allActivities[0]['Project Code'] || (allActivities[0] as any).raw?.['Project Code'],
+                    activityName: allActivities[0].activity_name
+                  } : null,
+                  sampleKPI: allKPIs[0] ? {
+                    projectCode: allKPIs[0].project_code || allKPIs[0]['Project Code'] || (allKPIs[0] as any).raw?.['Project Code'],
+                    activityName: allKPIs[0].activity_name,
+                    inputType: allKPIs[0].input_type || allKPIs[0]['Input Type']
+                  } : null
+                })
+                return (
+                  <ProjectsTableWithCustomization
+                    projects={filteredProjects}
+                    onEdit={setEditingProject}
+                    onDelete={handleDeleteProject}
+                    allKPIs={allKPIs}
+                    allActivities={allActivities}
+                  />
+                )
+              })()
             ) : (
               // Card View - Only show if user has permission
               <div className={`grid gap-6 ${getCardGridClasses(viewMode)} transition-all duration-300 ease-in-out`}>
@@ -1111,16 +1125,57 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
                   // ✅ ALL CALCULATIONS HAPPEN OUTSIDE THE CARD (in ProjectsList)
                   // Calculate analytics ONCE per project here, NOT inside ModernProjectCard
                   // This ensures better performance - calculations happen once, card just displays
-                  const shouldCalculate = shouldLoadCardAnalytics(viewMode)
-                  const analytics = shouldCalculate
-                    ? calculateProjectAnalytics(project, allActivities, allKPIs)
-                    : null
+                  // ✅ ALWAYS calculate analytics for cards (don't skip based on viewMode)
+                  // Cards need analytics to display progress, activities, and KPIs
+                  
+                  // ✅ Calculate analytics - simplified and more reliable
+                  const analytics = calculateProjectAnalytics(project, allActivities, allKPIs)
+                  
+                  // ✅ DEBUG: Log for first project only to see what's happening
+                  if (project === filteredProjects[0]) {
+                    console.log('🔍 ProjectsList - Analytics calculated:', {
+                      projectCode: project.project_code,
+                      projectSubCode: project.project_sub_code,
+                      projectName: project.project_name,
+                      allActivitiesLength: allActivities.length,
+                      allKPIsLength: allKPIs.length,
+                      analyticsResult: {
+                        totalActivities: analytics.totalActivities,
+                        totalKPIs: analytics.totalKPIs,
+                        actualProgress: analytics.actualProgress,
+                        totalValue: analytics.totalValue,
+                        totalPlannedValue: analytics.totalPlannedValue,
+                        totalEarnedValue: analytics.totalEarnedValue,
+                        matchedActivitiesCount: analytics.activities?.length || 0,
+                        matchedKPIsCount: analytics.kpis?.length || 0
+                      },
+                      // Show sample data to verify structure
+                      sampleActivity: allActivities[0] ? {
+                        project_code: allActivities[0].project_code,
+                        project_full_code: allActivities[0].project_full_code,
+                        rawProjectCode: (allActivities[0] as any).raw?.['Project Code'],
+                        rawProjectFullCode: (allActivities[0] as any).raw?.['Project Full Code'],
+                        'Project Code': (allActivities[0] as any)['Project Code'],
+                        'Project Full Code': (allActivities[0] as any)['Project Full Code'],
+                        activity_name: allActivities[0].activity_name
+                      } : null,
+                      sampleKPI: allKPIs[0] ? {
+                        project_code: allKPIs[0].project_code,
+                        project_full_code: allKPIs[0].project_full_code,
+                        rawProjectCode: (allKPIs[0] as any).raw?.['Project Code'],
+                        rawProjectFullCode: (allKPIs[0] as any).raw?.['Project Full Code'],
+                        'Project Code': (allKPIs[0] as any)['Project Code'],
+                        'Project Full Code': (allKPIs[0] as any)['Project Full Code'],
+                        activity_name: allKPIs[0].activity_name,
+                        input_type: allKPIs[0].input_type
+                      } : null
+                    })
+                  }
                   
                   // ✅ DEBUG: Log analytics calculation (first project only to avoid spam)
                   if (project === filteredProjects[0]) {
-                    console.log('🔍 ProjectsList - Calculating analytics OUTSIDE card:', {
+                    console.log('🔍 ProjectsList - AFTER calculating analytics:', {
                       projectCode: project.project_code,
-                      shouldCalculate,
                       hasAnalytics: !!analytics,
                       allActivitiesLength: allActivities.length,
                       allKPIsLength: allKPIs.length,
@@ -1129,13 +1184,20 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
                         totalActivities: analytics.totalActivities,
                         totalKPIs: analytics.totalKPIs,
                         overallProgress: analytics.overallProgress,
+                        actualProgress: analytics.actualProgress,
                         totalContractValue: analytics.totalContractValue,
+                        totalValue: analytics.totalValue,
+                        totalPlannedValue: analytics.totalPlannedValue,
+                        totalEarnedValue: analytics.totalEarnedValue,
                         financialProgress: analytics.financialProgress,
                         weightedProgress: analytics.weightedProgress,
                         completedActivities: analytics.completedActivities,
                         onTrackActivities: analytics.onTrackActivities,
                         plannedKPIs: analytics.plannedKPIs,
-                        actualKPIs: analytics.actualKPIs
+                        actualKPIs: analytics.actualKPIs,
+                        // ✅ Show matched activities and KPIs
+                        matchedActivitiesCount: analytics.activities?.length || 0,
+                        matchedKPIsCount: analytics.kpis?.length || 0
                       } : null
                     })
                   }
@@ -1174,7 +1236,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
             loading={loading}
           />
         )}
-        </Card>
+      </Card>
       )}
 
       {showForm && (

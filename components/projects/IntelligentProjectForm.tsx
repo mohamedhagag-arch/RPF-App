@@ -382,7 +382,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
         if (!isNaN(awardDate.getTime())) {
           setDateProjectAwarded(awardDate.toISOString().split('T')[0])
         }
-      } else {
+    } else {
         setDateProjectAwarded('')
       }
       
@@ -1369,8 +1369,8 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                   Client Name <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
-                  <Input
-                    value={clientName}
+                <Input
+                  value={clientName}
                     onChange={(e) => {
                       setClientName(e.target.value)
                       setClientSearch(e.target.value)
@@ -1378,9 +1378,9 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                     }}
                     onFocus={() => setShowClientDropdown(true)}
                     placeholder="Search or enter client name..."
-                    required
-                    disabled={loading}
-                  />
+                  required
+                  disabled={loading}
+                />
                   {showClientDropdown && (
                     <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
                       {(() => {
@@ -1454,7 +1454,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                   Contractor <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
-                  <Input
+                <Input
                     value={contractorName}
                     onChange={(e) => {
                       setContractorName(e.target.value)
@@ -1463,9 +1463,9 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                     }}
                     onFocus={() => setShowContractorDropdown(true)}
                     placeholder="Search or enter contractor name..."
-                    required
-                    disabled={loading}
-                  />
+                  required
+                  disabled={loading}
+                />
                   {showContractorDropdown && (
                     <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
                       {(() => {
@@ -1539,8 +1539,8 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                   Consultant <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
-                  <Input
-                    value={consultantName}
+                <Input
+                  value={consultantName}
                     onChange={(e) => {
                       setConsultantName(e.target.value)
                       setConsultantSearch(e.target.value)
@@ -1548,9 +1548,9 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                     }}
                     onFocus={() => setShowConsultantDropdown(true)}
                     placeholder="Search or enter consultant name..."
-                    required
-                    disabled={loading}
-                  />
+                  required
+                  disabled={loading}
+                />
                   {showConsultantDropdown && (
                     <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
                       {(() => {
@@ -1574,7 +1574,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                               >
                                 <Briefcase className="h-4 w-4 text-gray-400" />
                                 <span>{company.company_name}</span>
-                              </div>
+              </div>
                             ))}
                             {showAddButton && (
                               <div

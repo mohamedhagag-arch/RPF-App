@@ -42,7 +42,7 @@ interface ModernProjectCardProps {
 }
 
 export function ModernProjectCard({ 
-  project,
+  project, 
   analytics: propAnalytics, // ✅ Pre-calculated analytics from parent
   allActivities: propActivities = [], // ✅ Pre-loaded activities from parent
   allKPIs: propKPIs = [], // ✅ Pre-loaded KPIs from parent
@@ -230,7 +230,8 @@ export function ModernProjectCard({
 
   // ✅ Calculate display values from analytics - ALWAYS calculate even if analytics is null
   // This ensures we always have valid numbers for display (0 if no data)
-  const progress = analytics?.overallProgress ?? 0
+  // ✅ Use actualProgress (Earned Value / Total Value) instead of overallProgress
+  const progress = analytics?.actualProgress ?? analytics?.overallProgress ?? 0
   const totalActivities = analytics?.totalActivities ?? 0
   const totalKPIs = analytics?.totalKPIs ?? 0
 
@@ -248,7 +249,11 @@ export function ModernProjectCard({
       totalActivities: analytics.totalActivities,
       totalKPIs: analytics.totalKPIs,
       overallProgress: analytics.overallProgress,
+      actualProgress: analytics.actualProgress,
       totalContractValue: analytics.totalContractValue,
+      totalValue: analytics.totalValue,
+      totalPlannedValue: analytics.totalPlannedValue,
+      totalEarnedValue: analytics.totalEarnedValue,
       financialProgress: analytics.financialProgress,
       weightedProgress: analytics.weightedProgress,
       completedActivities: analytics.completedActivities,
@@ -270,109 +275,136 @@ export function ModernProjectCard({
       totalActivitiesType: typeof totalActivities,
       totalKPIsType: typeof totalKPIs
     },
-    contractAmount: project.contract_amount
+    contractAmount: project.contract_amount,
+    // ✅ Show what will be displayed
+    willDisplay: {
+      progress: formatPercent(progress),
+      activities: totalActivities,
+      kpis: totalKPIs
+    }
   })
 
   return (
-    <Card className="card-modern group overflow-hidden" style={{
+    <Card className="card-modern group overflow-hidden relative bg-white dark:bg-gray-800 shadow-lg hover:shadow-2xl transition-all duration-300 border-0" style={{
       borderLeftColor: getBorderColor(progress),
-      borderLeftWidth: '4px',
-      minHeight: '400px' // ✅ FIX: Prevent layout shift when analytics load
+      borderLeftWidth: '5px',
+      minHeight: '450px'
     }}>
-      {/* Header */}
-      <CardHeader className="pb-4 bg-gradient-to-r from-gray-50 to-white dark:from-gray-800 dark:to-gray-700">
-        <div className="flex justify-between items-start">
-          <div className="flex-1">
-            <CardTitle className="text-lg font-bold text-gray-900 dark:text-white mb-2 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-              {project.project_name}
-            </CardTitle>
-            {project.project_description && (
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2 line-clamp-2">
-                {project.project_description}
-              </p>
-            )}
-            <div className="flex gap-2 flex-wrap">
-              <Badge variant="outline" className="text-xs font-mono bg-gray-100 dark:bg-gray-700">
-                {project.project_code}
-              </Badge>
-              <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(project.project_status)}`}>
+      {/* Decorative Top Bar */}
+      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 opacity-60"></div>
+      
+      {/* Header Section - Redesigned */}
+      <CardHeader className="pb-5 pt-6 px-6 bg-gradient-to-br from-slate-50 via-white to-slate-50 dark:from-gray-800 dark:via-gray-800 dark:to-gray-900 border-b border-gray-100 dark:border-gray-700">
+        <div className="flex justify-between items-start gap-4">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <CardTitle className="text-xl font-bold text-gray-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors line-clamp-2 flex-1">
+                {project.project_name}
+              </CardTitle>
+              <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold shadow-sm flex-shrink-0 ${getStatusColor(project.project_status)}`}>
                 {getStatusIcon(project.project_status)}
                 {getStatusText(project.project_status)}
               </span>
+            </div>
+            {project.project_description && (
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-3 line-clamp-2 leading-relaxed">
+                {project.project_description}
+              </p>
+            )}
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-xs font-mono bg-gradient-to-r from-gray-100 to-gray-50 dark:from-gray-700 dark:to-gray-800 border-gray-200 dark:border-gray-600 px-3 py-1 font-semibold">
+                {project.project_code}
+              </Badge>
             </div>
           </div>
         </div>
       </CardHeader>
       
-      <CardContent className="p-6 space-y-6">
-        {/* Progress Section */}
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl p-4 min-h-[85px]">
-          <div className="flex justify-between items-center mb-3">
-            <div className="flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-              <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Overall Progress</span>
+      <CardContent className="p-6 space-y-5">
+        {/* Progress Section - Redesigned */}
+        <div className="relative bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50 dark:from-emerald-900/30 dark:via-green-900/30 dark:to-teal-900/30 rounded-2xl p-5 border border-emerald-100 dark:border-emerald-800/50 shadow-sm hover:shadow-md transition-shadow">
+          <div className="absolute top-3 right-3">
+            <div className="w-12 h-12 rounded-full bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm flex items-center justify-center">
+              <TrendingUp className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
             </div>
-            <span className="text-2xl font-bold text-gray-900 dark:text-white min-w-[70px] text-right">
-              {loading ? (
-                <div className="inline-block animate-pulse bg-gray-300 dark:bg-gray-600 h-8 w-16 rounded"></div>
-              ) : error ? (
-                <span className="text-red-500">Error</span>
-              ) : (
-                <span title={`Progress: ${progress}%`}>{formatPercent(progress)}</span> // ✅ Always show value, even if 0
-              )}
-            </span>
           </div>
-          
-          <div className="relative h-3">
-            <div className="bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
+          <div className="pr-16">
+            <div className="flex items-baseline justify-between mb-4">
+              <div>
+                <p className="text-xs font-medium text-emerald-700 dark:text-emerald-300 uppercase tracking-wide mb-1">Actual Progress</p>
+                <p className="text-xs text-gray-600 dark:text-gray-400">(Earned Value / Total Value)</p>
+              </div>
+              <span className="text-3xl font-bold text-gray-900 dark:text-white tabular-nums">
+                {loading ? (
+                  <div className="inline-block animate-pulse bg-gray-300 dark:bg-gray-600 h-9 w-20 rounded"></div>
+                ) : error ? (
+                  <span className="text-red-500 text-xl">Error</span>
+                ) : (
+                  <span title={`Progress: ${progress}%`} className="bg-gradient-to-r from-emerald-600 to-teal-600 dark:from-emerald-400 dark:to-teal-400 bg-clip-text text-transparent">
+                    {formatPercent(progress)}
+                  </span>
+                )}
+              </span>
+            </div>
+            
+            <div className="relative h-4 bg-white/80 dark:bg-gray-800/80 rounded-full overflow-hidden shadow-inner">
               <div 
-                className={`${getProgressColor(progress)} h-3 rounded-full transition-all duration-500 ease-out relative`}
+                className={`h-full rounded-full transition-all duration-700 ease-out relative overflow-hidden ${
+                  progress >= 90 ? 'bg-gradient-to-r from-emerald-500 to-green-500' :
+                  progress >= 70 ? 'bg-gradient-to-r from-blue-500 to-cyan-500' :
+                  progress >= 50 ? 'bg-gradient-to-r from-yellow-500 to-orange-500' :
+                  'bg-gradient-to-r from-red-500 to-pink-500'
+                }`}
                 style={{ width: loading ? '0%' : `${Math.min(progress, 100)}%` }}
               >
-                {!loading && (
-                  <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
-                )}
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer"></div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Stats Grid */}
+        {/* Stats Grid - Redesigned */}
         <div className="grid grid-cols-2 gap-4">
-          <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 rounded-lg p-4 min-h-[75px]">
-            <div className="flex items-center gap-3">
-              <div className="icon-circle cyan">
-                <Activity className="w-5 h-5 text-white" />
+          <div className="group/stat relative bg-gradient-to-br from-blue-50 via-cyan-50 to-blue-100 dark:from-blue-900/30 dark:via-cyan-900/30 dark:to-blue-800/30 rounded-xl p-5 border border-blue-100 dark:border-blue-800/50 shadow-sm hover:shadow-lg hover:scale-[1.02] transition-all duration-300 overflow-hidden">
+            <div className="absolute top-0 right-0 w-20 h-20 bg-blue-200/30 dark:bg-blue-700/20 rounded-full -mr-10 -mt-10 blur-xl"></div>
+            <div className="relative flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 shadow-lg flex items-center justify-center flex-shrink-0">
+                <Activity className="w-6 h-6 text-white" />
               </div>
-              <div className="flex-1">
-                <p className="text-xs text-gray-600 dark:text-gray-400 font-medium">Activities</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white min-h-[32px] flex items-center">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-blue-700 dark:text-blue-300 uppercase tracking-wide mb-1">Activities</p>
+                <p className="text-3xl font-bold text-gray-900 dark:text-white tabular-nums min-h-[36px] flex items-center">
                   {loading ? (
-                    <div className="animate-pulse bg-gray-300 dark:bg-gray-600 h-8 w-12 rounded"></div>
+                    <div className="animate-pulse bg-gray-300 dark:bg-gray-600 h-9 w-16 rounded"></div>
                   ) : error ? (
-                    <span className="text-red-500">-</span>
+                    <span className="text-red-500 text-xl">-</span>
                   ) : (
-                    <span>{totalActivities}</span> // ✅ Always show value, even if 0 - wrapped in span for debugging
+                    <span className="bg-gradient-to-r from-blue-600 to-cyan-600 dark:from-blue-400 dark:to-cyan-400 bg-clip-text text-transparent">
+                      {totalActivities}
+                    </span>
                   )}
                 </p>
               </div>
             </div>
           </div>
 
-          <div className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20 rounded-lg p-4 min-h-[75px]">
-            <div className="flex items-center gap-3">
-              <div className="icon-circle purple">
-                <Target className="w-5 h-5 text-white" />
+          <div className="group/stat relative bg-gradient-to-br from-purple-50 via-pink-50 to-purple-100 dark:from-purple-900/30 dark:via-pink-900/30 dark:to-purple-800/30 rounded-xl p-5 border border-purple-100 dark:border-purple-800/50 shadow-sm hover:shadow-lg hover:scale-[1.02] transition-all duration-300 overflow-hidden">
+            <div className="absolute top-0 right-0 w-20 h-20 bg-purple-200/30 dark:bg-purple-700/20 rounded-full -mr-10 -mt-10 blur-xl"></div>
+            <div className="relative flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 shadow-lg flex items-center justify-center flex-shrink-0">
+                <Target className="w-6 h-6 text-white" />
               </div>
-              <div className="flex-1">
-                <p className="text-xs text-gray-600 dark:text-gray-400 font-medium">KPIs</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white min-h-[32px] flex items-center">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-purple-700 dark:text-purple-300 uppercase tracking-wide mb-1">KPIs</p>
+                <p className="text-3xl font-bold text-gray-900 dark:text-white tabular-nums min-h-[36px] flex items-center">
                   {loading ? (
-                    <div className="animate-pulse bg-gray-300 dark:bg-gray-600 h-8 w-12 rounded"></div>
+                    <div className="animate-pulse bg-gray-300 dark:bg-gray-600 h-9 w-16 rounded"></div>
                   ) : error ? (
-                    <span className="text-red-500">-</span>
+                    <span className="text-red-500 text-xl">-</span>
                   ) : (
-                    <span>{totalKPIs}</span> // ✅ Always show value, even if 0 - wrapped in span for debugging
+                    <span className="bg-gradient-to-r from-purple-600 to-pink-600 dark:from-purple-400 dark:to-pink-400 bg-clip-text text-transparent">
+                      {totalKPIs}
+                    </span>
                   )}
                 </p>
               </div>
@@ -499,15 +531,16 @@ export function ModernProjectCard({
           )}
         </div>
 
-        {/* Contract Value */}
-        <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-lg p-4">
-          <div className="flex items-center gap-3">
-            <div className="icon-circle green">
-              <DollarSign className="w-5 h-5 text-white" />
+        {/* Contract Value - Redesigned */}
+        <div className="relative bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50 dark:from-emerald-900/30 dark:via-green-900/30 dark:to-teal-900/30 rounded-xl p-5 border border-emerald-100 dark:border-emerald-800/50 shadow-sm overflow-hidden">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-200/20 dark:bg-emerald-700/10 rounded-full -mr-16 -mt-16 blur-2xl"></div>
+          <div className="relative flex items-center gap-4">
+            <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-emerald-500 to-green-500 shadow-lg flex items-center justify-center flex-shrink-0">
+              <DollarSign className="w-7 h-7 text-white" />
             </div>
-            <div className="flex-1">
-              <p className="text-xs text-gray-600 dark:text-gray-400 font-medium">Contract Value</p>
-              <p className="text-lg font-bold text-green-600 dark:text-green-400">
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 uppercase tracking-wide mb-1">Contract Value</p>
+              <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
                 {formatCurrency(project.contract_amount || 0)}
               </p>
             </div>
@@ -528,26 +561,27 @@ export function ModernProjectCard({
             {analytics.variancePercentage !== 0 && (
               <Badge className="bg-gray-100 text-gray-800 border border-gray-300">
                 Variance: {analytics.variancePercentage > 0 ? '+' : ''}{analytics.variancePercentage.toFixed(1)}%
-              </Badge>
+            </Badge>
             )}
           </div>
         )}
 
-        {/* Action Buttons */}
-        <div className="flex justify-end space-x-2 pt-4 border-t" style={{ borderColor: 'rgba(0, 0, 0, 0.06)' }}>
+        {/* Action Buttons - Redesigned */}
+        <div className="flex justify-end gap-2 pt-5 border-t border-gray-200 dark:border-gray-700">
           {onViewDetails && (
             <button
               onClick={() => onViewDetails(project)}
-              className="btn-primary flex items-center space-x-2"
+              className="group/btn relative flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-xl font-semibold text-sm shadow-md hover:shadow-lg transition-all duration-300 hover:scale-105 active:scale-95 overflow-hidden"
             >
-              <Eye className="w-4 h-4" />
-              <span>Details</span>
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover/btn:translate-x-full transition-transform duration-700"></div>
+              <Eye className="w-4 h-4 relative z-10" />
+              <span className="relative z-10">Details</span>
             </button>
           )}
           {guard.hasAccess('projects.edit') && (
             <button
               onClick={() => onEdit(project)}
-              className="flex items-center space-x-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              className="group/btn flex items-center gap-2 px-5 py-2.5 bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 hover:border-blue-500 dark:hover:border-blue-500 rounded-xl font-semibold text-sm text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 shadow-sm hover:shadow-md transition-all duration-300 hover:scale-105 active:scale-95"
             >
               <Edit className="w-4 h-4" />
               <span>Edit</span>
@@ -556,7 +590,7 @@ export function ModernProjectCard({
           {guard.hasAccess('projects.delete') && (
             <button
               onClick={() => onDelete(project.id)}
-              className="flex items-center space-x-2 px-4 py-2 text-red-600 hover:text-red-700 hover:bg-red-50 border border-red-200 rounded-lg transition-colors"
+              className="group/btn flex items-center gap-2 px-5 py-2.5 bg-white dark:bg-gray-800 border-2 border-red-200 dark:border-red-800 hover:border-red-500 dark:hover:border-red-500 rounded-xl font-semibold text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 shadow-sm hover:shadow-md transition-all duration-300 hover:scale-105 active:scale-95"
             >
               <Trash2 className="w-4 h-4" />
             </button>

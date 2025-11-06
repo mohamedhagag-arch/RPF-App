@@ -9,6 +9,7 @@ import { TABLES } from '@/lib/supabase'
 import { mapProjectFromDB, mapBOQFromDB, mapKPIFromDB } from '@/lib/dataMappers'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { calculateProjectsRates, getRateSummary, ProjectRate } from '@/lib/rateCalculator'
+import { calculateProjectAnalytics, getAllProjectsAnalytics } from '@/lib/projectAnalytics'
 import { calculatePortfolioProgress } from '@/lib/progressCalculator'
 import { 
   FolderOpen, 
@@ -18,7 +19,8 @@ import {
   TrendingUp,
   Users,
   ClipboardList,
-  BarChart3
+  BarChart3,
+  DollarSign
 } from 'lucide-react'
 
 interface DashboardStats {
@@ -30,10 +32,14 @@ interface DashboardStats {
   delayedActivities: number
   totalKPIs: number
   onTrackKPIs: number
-  // Rate-based metrics
+  // Rate-based metrics - NEW CONCEPTS
+  totalValue: number
   totalPlannedValue: number
   totalEarnedValue: number
-  overallProgress: number
+  variance: number
+  actualProgress: number
+  plannedProgress: number
+  overallProgress: number // Legacy field
   performanceCounts: {
     excellent: number
     good: number
@@ -124,8 +130,12 @@ export function DashboardOverview() {
 
         // Calculate Rate-based metrics
         let rateMetrics = {
+          totalValue: 0,
           totalPlannedValue: 0,
           totalEarnedValue: 0,
+          variance: 0,
+          actualProgress: 0,
+          plannedProgress: 0,
           overallProgress: 0,
           performanceCounts: { excellent: 0, good: 0, fair: 0, poor: 0 },
           onSchedulePercentage: 0,
@@ -133,7 +143,7 @@ export function DashboardOverview() {
         }
 
         try {
-          // Fetch full data for rate calculation
+          // Fetch full data for analytics calculation - NEW CONCEPTS
           const [projectsData, activitiesData, kpisData] = await Promise.all([
             supabase.from(TABLES.PROJECTS).select('*'),
             supabase.from(TABLES.BOQ_ACTIVITIES).select('*'),
@@ -145,25 +155,40 @@ export function DashboardOverview() {
             const activities = activitiesData.data.map(mapBOQFromDB)
             const kpis = kpisData.data.map(mapKPIFromDB)
 
-            // Calculate project rates
+            // Calculate project analytics using NEW CONCEPTS
+            const allAnalytics = getAllProjectsAnalytics(projects, activities, kpis)
+            
+            // Aggregate values from all projects
+            const totalValue = allAnalytics.reduce((sum, a) => sum + a.totalValue, 0)
+            const totalPlannedValue = allAnalytics.reduce((sum, a) => sum + a.totalPlannedValue, 0)
+            const totalEarnedValue = allAnalytics.reduce((sum, a) => sum + a.totalEarnedValue, 0)
+            const variance = allAnalytics.reduce((sum, a) => sum + a.variance, 0)
+            const actualProgress = totalValue > 0 ? (totalEarnedValue / totalValue) * 100 : 0
+            const plannedProgress = totalValue > 0 ? (totalPlannedValue / totalValue) * 100 : 0
+
+            // Calculate project rates (for legacy compatibility)
             const rates = calculateProjectsRates(projects, activities, kpis)
             setProjectRates(rates)
 
-            // Get rate summary
+            // Get rate summary (for legacy compatibility)
             const summary = getRateSummary(rates)
             setRateSummary(summary)
 
             rateMetrics = {
-              totalPlannedValue: summary.totalPlannedValue,
-              totalEarnedValue: summary.totalEarnedValue,
-              overallProgress: summary.overallProgress,
+              totalValue,
+              totalPlannedValue,
+              totalEarnedValue,
+              variance,
+              actualProgress,
+              plannedProgress,
+              overallProgress: actualProgress, // Use actualProgress as overallProgress
               performanceCounts: summary.performanceCounts,
               onSchedulePercentage: summary.onSchedulePercentage,
               onBudgetPercentage: summary.onBudgetPercentage
             }
           }
         } catch (rateError) {
-          console.log('Rate calculation not available yet:', rateError)
+          console.log('Analytics calculation not available yet:', rateError)
         }
 
         setStats({
@@ -189,8 +214,12 @@ export function DashboardOverview() {
           delayedActivities: 0,
           totalKPIs: 0,
           onTrackKPIs: 0,
+          totalValue: 0,
           totalPlannedValue: 0,
           totalEarnedValue: 0,
+          variance: 0,
+          actualProgress: 0,
+          plannedProgress: 0,
           overallProgress: 0,
           performanceCounts: { excellent: 0, good: 0, fair: 0, poor: 0 },
           onSchedulePercentage: 0,
@@ -275,42 +304,49 @@ export function DashboardOverview() {
     }
   ]
 
-  // Rate-based metrics cards
+  // Rate-based metrics cards - NEW CONCEPTS
   const rateCards = [
     {
-      title: 'Total Planned Value',
+      title: 'Total Value',
+      value: `$${(stats?.totalValue || 0).toLocaleString()}`,
+      icon: DollarSign,
+      color: 'text-gray-600',
+      bgColor: 'bg-gray-50'
+    },
+    {
+      title: 'Planned Value',
       value: `$${(stats?.totalPlannedValue || 0).toLocaleString()}`,
       icon: TrendingUp,
       color: 'text-blue-600',
       bgColor: 'bg-blue-50'
     },
     {
-      title: 'Total Earned Value',
+      title: 'Earned Value',
       value: `$${(stats?.totalEarnedValue || 0).toLocaleString()}`,
       icon: CheckCircle,
       color: 'text-green-600',
       bgColor: 'bg-green-50'
     },
     {
-      title: 'Overall Progress',
-      value: `${(stats?.overallProgress || 0).toFixed(1)}%`,
+      title: 'Actual Progress',
+      value: `${(stats?.actualProgress || 0).toFixed(1)}%`,
       icon: BarChart3,
-      color: 'text-purple-600',
-      bgColor: 'bg-purple-50'
+      color: 'text-green-600',
+      bgColor: 'bg-green-50'
     },
     {
-      title: 'On Schedule',
-      value: `${(stats?.onSchedulePercentage || 0).toFixed(1)}%`,
-      icon: Clock,
-      color: 'text-orange-600',
-      bgColor: 'bg-orange-50'
+      title: 'Planned Progress',
+      value: `${(stats?.plannedProgress || 0).toFixed(1)}%`,
+      icon: BarChart3,
+      color: 'text-blue-600',
+      bgColor: 'bg-blue-50'
     },
     {
-      title: 'On Budget',
-      value: `${(stats?.onBudgetPercentage || 0).toFixed(1)}%`,
+      title: 'Variance',
+      value: `$${((stats?.variance || 0) >= 0 ? '+' : '')}${(stats?.variance || 0).toLocaleString()}`,
       icon: AlertTriangle,
-      color: 'text-red-600',
-      bgColor: 'bg-red-50'
+      color: (stats?.variance || 0) >= 0 ? 'text-green-600' : 'text-red-600',
+      bgColor: (stats?.variance || 0) >= 0 ? 'bg-green-50' : 'bg-red-50'
     }
   ]
 

@@ -600,39 +600,26 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
         <div className="flex-1 overflow-y-auto p-6">
           {activeView === 'overview' && (
             <div className="space-y-6">
-              {/* Progress Overview */}
+              {/* Progress Overview - NEW CONCEPTS */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card>
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                      Overall Progress
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-3xl font-bold text-blue-600">
-                      {formatPercent(analytics.overallProgress)}
-                    </div>
-                    <div className="mt-2 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                      <div 
-                        className="bg-blue-600 h-2 rounded-full transition-all"
-                        style={{ width: `${Math.min(analytics.overallProgress, 100)}%` }}
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
-                
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                      Financial Progress
+                      Actual Progress
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="text-3xl font-bold text-green-600">
-                      {formatPercent(analytics.financialProgress)}
+                      {formatPercent(analytics.actualProgress)}
                     </div>
-                    <div className="text-sm text-gray-600 dark:text-gray-400 mt-2">
-                      Earned: {formatCurrency(analytics.totalEarnedValue)}
+                    <div className="mt-2 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                      <div 
+                        className="bg-green-600 h-2 rounded-full transition-all"
+                        style={{ width: `${Math.min(analytics.actualProgress, 100)}%` }}
+                      />
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      (Earned Value / Total Value)
                     </div>
                   </CardContent>
                 </Card>
@@ -640,21 +627,43 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                 <Card>
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                      Weighted Progress
+                      Planned Progress
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-3xl font-bold text-purple-600">
-                      {formatPercent(analytics.weightedProgress)}
+                    <div className="text-3xl font-bold text-blue-600">
+                      {formatPercent(analytics.plannedProgress)}
+                    </div>
+                    <div className="mt-2 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                      <div 
+                        className="bg-blue-600 h-2 rounded-full transition-all"
+                        style={{ width: `${Math.min(analytics.plannedProgress, 100)}%` }}
+                      />
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      (Planned Value / Total Value)
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                      Variance
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className={`text-3xl font-bold ${analytics.variance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {analytics.variance >= 0 ? '+' : ''}{formatCurrency(analytics.variance)}
                     </div>
                     <div className="text-sm text-gray-600 dark:text-gray-400 mt-2">
-                      By Activity Value
+                      Earned - Planned
                     </div>
                   </CardContent>
                 </Card>
               </div>
               
-              {/* Financial Summary */}
+              {/* Financial Summary - NEW CONCEPTS */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -663,22 +672,79 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                     <div>
                       <p className="text-sm text-gray-600 dark:text-gray-400">Contract Value</p>
                       <p className="text-lg font-bold">{formatCurrency(analytics.totalContractValue)}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Entered manually</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Total Value</p>
+                      <p className="text-lg font-bold text-gray-900 dark:text-white">{formatCurrency(analytics.totalValue)}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Sum of all activities</p>
                     </div>
                     <div>
                       <p className="text-sm text-gray-600 dark:text-gray-400">Planned Value</p>
                       <p className="text-lg font-bold text-blue-600">{formatCurrency(analytics.totalPlannedValue)}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Till yesterday (Planned KPI)</p>
                     </div>
                     <div>
                       <p className="text-sm text-gray-600 dark:text-gray-400">Earned Value</p>
                       <p className="text-lg font-bold text-green-600">{formatCurrency(analytics.totalEarnedValue)}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Till yesterday (Actual KPI)</p>
                     </div>
                     <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Remaining</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Remaining Value</p>
                       <p className="text-lg font-bold text-orange-600">{formatCurrency(analytics.totalRemainingValue)}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Total - Earned</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              
+              {/* Quantity Summary - NEW CONCEPTS */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <BarChart3 className="h-5 w-5" />
+                    Quantity Summary
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                    <div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Total Quantity</p>
+                      <p className="text-lg font-bold text-gray-900 dark:text-white">{analytics.totalQuantity.toLocaleString()}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Planned Quantity</p>
+                      <p className="text-lg font-bold text-blue-600">{analytics.totalPlannedQuantity.toLocaleString()}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Till yesterday</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Earned Quantity</p>
+                      <p className="text-lg font-bold text-green-600">{analytics.totalEarnedQuantity.toLocaleString()}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Till yesterday</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Remaining Quantity</p>
+                      <p className="text-lg font-bold text-orange-600">{analytics.totalRemainingQuantity.toLocaleString()}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Quantity Variance</p>
+                      <p className={`text-lg font-bold ${analytics.quantityVariance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {analytics.quantityVariance >= 0 ? '+' : ''}{analytics.quantityVariance.toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Actual Quantity Progress</p>
+                      <p className="text-lg font-bold text-green-600">{formatPercent(analytics.actualQuantityProgress)}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Planned Quantity Progress</p>
+                      <p className="text-lg font-bold text-blue-600">{formatPercent(analytics.plannedQuantityProgress)}</p>
                     </div>
                   </div>
                 </CardContent>
