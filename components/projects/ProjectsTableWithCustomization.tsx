@@ -13,6 +13,7 @@ import { calculateProjectAnalytics, ProjectAnalytics } from '@/lib/projectAnalyt
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 import { getProjectStatusText, getProjectStatusColor } from '@/lib/projectStatusManager'
 import { getStatusDisplayInfo, calculateProjectStatus, ProjectStatusData } from '@/lib/projectStatusCalculator'
+import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 
 interface ProjectsTableWithCustomizationProps {
   projects: Project[]
@@ -85,6 +86,8 @@ export function ProjectsTableWithCustomization({
   const [expandedScopes, setExpandedScopes] = useState<Set<string>>(new Set()) // Track expanded scopes per project
   const [expandedDivisions, setExpandedDivisions] = useState<Set<string>>(new Set()) // Track expanded divisions per project
   const [copiedPlotNumber, setCopiedPlotNumber] = useState<string | null>(null) // Track copied plot number for feedback
+  // ✅ FIX: Load project types from project_types table (Project Types & Activities Management)
+  const [projectTypesMap, setProjectTypesMap] = useState<Map<string, { name: string; description?: string }>>(new Map())
   
   // Sorting state
   const [sortColumn, setSortColumn] = useState<string | null>(null)
@@ -99,6 +102,56 @@ export function ProjectsTableWithCustomization({
     storageKey: 'projects' 
   })
 
+  // ✅ FIX: Load project types from project_types table on mount
+  useEffect(() => {
+    const loadProjectTypes = async () => {
+      try {
+        const supabase = getSupabaseClient()
+        console.log('🔄 Loading project types from project_types table...')
+        
+        const { data, error } = await supabase
+          .from('project_types')
+          .select('name, description')
+          .eq('is_active', true)
+          .order('name', { ascending: true })
+        
+        if (error) {
+          console.error('❌ Error loading project types:', error)
+          console.error('Error details:', {
+            message: error.message,
+            details: error.details,
+            hint: error.hint
+          })
+          return
+        }
+        
+        // Create a map for quick lookup by name
+        const typesMap = new Map<string, { name: string; description?: string }>()
+        if (data && data.length > 0) {
+          data.forEach((type: any) => {
+            if (type.name) {
+              typesMap.set(type.name, {
+                name: type.name,
+                description: type.description
+              })
+            }
+          })
+        }
+        
+        setProjectTypesMap(typesMap)
+        console.log(`✅ Loaded ${typesMap.size} project types from project_types table:`, {
+          count: typesMap.size,
+          sampleNames: Array.from(typesMap.keys()).slice(0, 5)
+        })
+      } catch (error: any) {
+        console.error('❌ Error loading project types:', error)
+        console.error('Error stack:', error.stack)
+      }
+    }
+    
+    loadProjectTypes()
+  }, [])
+  
   // ✅ Calculate analytics for all projects (same as Cards use) - OPTIMIZED for performance
   const projectsAnalytics = useMemo(() => {
     // ✅ DEBUG: Always log to diagnose zero values issue
@@ -1777,15 +1830,95 @@ export function ProjectsTableWithCustomization({
           )
         
         case 'scope_of_works':
-          const scopeRaw = project.project_type || 'N/A'
-          const scopeList = scopeRaw !== 'N/A' 
-            ? scopeRaw.split(',').map(s => s.trim()).filter(s => s.length > 0)
-            : ['N/A']
+          // ✅ FIX: Get scope from project_types table (Project Types & Activities Management)
+          // 1. Get project type names from project.project_type field
+          const projectTypeNamesRaw = project.project_type || 
+                                     getProjectField(project, 'Project Type') || 
+                                     (project as any).raw?.['Project Type'] || 
+                                     ''
+          
+          // ✅ DEBUG: Always log for first 3 projects to diagnose
+          const isFirstProject = projects.indexOf(project) < 3
+          if (isFirstProject) {
+            console.log(`🔍 [${project.project_code}] Scope lookup - BEFORE processing:`, {
+              projectTypeNamesRaw,
+              projectTypeRaw: project.project_type,
+              projectTypesMapSize: projectTypesMap.size,
+              projectTypesMapKeys: Array.from(projectTypesMap.keys()).slice(0, 5),
+              hasProjectTypesMap: projectTypesMap.size > 0
+            })
+          }
+          
+          // 2. Split by comma (with or without space) to handle multiple project types
+          // Support both ", " and "," separators
+          const projectTypeNames = projectTypeNamesRaw && 
+                                   projectTypeNamesRaw !== 'N/A' && 
+                                   projectTypeNamesRaw.trim() !== '' && 
+                                   projectTypeNamesRaw !== 'null' && 
+                                   projectTypeNamesRaw !== 'undefined'
+            ? projectTypeNamesRaw
+                .split(/,\s*/) // Split by comma with optional space
+                .map(s => s.trim())
+                .filter(s => s.length > 0 && s !== 'N/A' && s !== 'null' && s !== 'undefined')
+            : []
+          
+          if (isFirstProject) {
+            console.log(`🔍 [${project.project_code}] Scope lookup - AFTER split:`, {
+              projectTypeNames,
+              count: projectTypeNames.length
+            })
+          }
+          
+          // 3. Look up each project type name in project_types table
+          const scopeList: string[] = []
+          if (projectTypeNames.length > 0) {
+            projectTypeNames.forEach((typeName: string) => {
+              // Try exact match first
+              const projectType = projectTypesMap.get(typeName)
+              if (projectType) {
+                scopeList.push(projectType.name)
+                if (isFirstProject) {
+                  console.log(`✅ [${project.project_code}] Found exact match for "${typeName}":`, projectType.name)
+                }
+              } else {
+                // Try case-insensitive match
+                let found = false
+                for (const [key, value] of projectTypesMap.entries()) {
+                  if (key.toLowerCase() === typeName.toLowerCase()) {
+                    scopeList.push(value.name)
+                    found = true
+                    if (isFirstProject) {
+                      console.log(`✅ [${project.project_code}] Found case-insensitive match for "${typeName}":`, value.name)
+                    }
+                    break
+                  }
+                }
+                // If not found in project_types table, use the original name as fallback
+                if (!found) {
+                  scopeList.push(typeName)
+                  if (isFirstProject) {
+                    console.log(`⚠️ [${project.project_code}] No match found for "${typeName}", using as-is`)
+                  }
+                }
+              }
+            })
+          }
+          
+          // 4. If no scopes found, show N/A
+          const finalScopeList = scopeList.length > 0 ? scopeList : ['N/A']
+          
+          if (isFirstProject) {
+            console.log(`🔍 [${project.project_code}] Scope lookup - FINAL RESULT:`, {
+              finalScopeList,
+              scopeListLength: scopeList.length,
+              projectTypeNamesLength: projectTypeNames.length
+            })
+          }
           
           const isExpanded = expandedScopes.has(project.id)
           const maxVisible = 3 // Show max 3 scopes initially
-          const visibleScopes = isExpanded ? scopeList : scopeList.slice(0, maxVisible)
-          const hasMore = scopeList.length > maxVisible
+          const visibleScopes = isExpanded ? finalScopeList : finalScopeList.slice(0, maxVisible)
+          const hasMore = finalScopeList.length > maxVisible
           
           const getScopeColor = (scope: string): string => {
             const scopeLower = scope.toLowerCase()

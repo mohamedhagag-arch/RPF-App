@@ -10,14 +10,15 @@ import { mapBOQFromDB, mapKPIFromDB } from './dataMappers'
 import { kpiCache, generateKPICacheKey } from './kpiCache'
 
 /**
- * Sync BOQ Actual Units from KPI Actual records
+ * Sync BOQ Planned Units and Actual Units from KPI records
  * 
- * When KPI Actual is updated, BOQ Actual should reflect the sum
+ * When KPI Planned/Actual is updated, BOQ should reflect the sum
+ * ✅ FIX: Now updates BOTH Planned Units and Actual Units
  */
 export async function syncBOQFromKPI(
   projectCode: string,
   activityName: string
-): Promise<{ success: boolean; message: string; updatedBOQActual: number }> {
+): Promise<{ success: boolean; message: string; updatedBOQActual: number; updatedBOQPlanned: number }> {
   const supabase = createClientComponentClient()
   
   try {
@@ -25,32 +26,53 @@ export async function syncBOQFromKPI(
     console.log('Project:', projectCode)
     console.log('Activity:', activityName)
     
-    // 1. Get all KPI Actual records for this activity from main KPI table
-    const { data: kpiRecords, error: kpiError } = await supabase
-      .from(TABLES.KPI) // ✅ From main KPI table
-      .select('*')
-      .eq('Input Type', 'Actual')
-      .eq('Project Full Code', projectCode)
-      .eq('Activity Name', activityName)
+    // ✅ FIX: Get BOTH Planned and Actual KPIs
+    const [plannedResult, actualResult] = await Promise.all([
+      supabase
+        .from(TABLES.KPI)
+        .select('*')
+        .eq('Input Type', 'Planned')
+        .eq('Project Full Code', projectCode)
+        .eq('Activity Name', activityName),
+      supabase
+        .from(TABLES.KPI)
+        .select('*')
+        .eq('Input Type', 'Actual')
+        .eq('Project Full Code', projectCode)
+        .eq('Activity Name', activityName)
+    ])
     
-    if (kpiError) throw kpiError
+    if (plannedResult.error) throw plannedResult.error
+    if (actualResult.error) throw actualResult.error
     
-    console.log('📊 Found KPI Actual records:', kpiRecords?.length || 0)
+    const kpiPlannedRecords = plannedResult.data || []
+    const kpiActualRecords = actualResult.data || []
     
-    // 2. Sum all KPI Actual quantities
-    const totalActual = (kpiRecords || []).reduce((sum, record) => {
+    console.log('📊 Found KPI Planned records:', kpiPlannedRecords.length)
+    console.log('📊 Found KPI Actual records:', kpiActualRecords.length)
+    
+    // ✅ FIX: Sum all KPI Planned quantities
+    const totalPlanned = kpiPlannedRecords.reduce((sum, record) => {
       const qty = parseFloat(record['Quantity'] || '0')
       return sum + qty
     }, 0)
     
+    // ✅ Sum all KPI Actual quantities
+    const totalActual = kpiActualRecords.reduce((sum, record) => {
+      const qty = parseFloat(record['Quantity'] || '0')
+      return sum + qty
+    }, 0)
+    
+    console.log('📈 Total KPI Planned:', totalPlanned)
     console.log('📈 Total KPI Actual:', totalActual)
     
-    // 3. Find matching BOQ activity
-    const { data: boqActivities, error: boqFindError } = await supabase
+    // Find matching BOQ activity
+    // ✅ FIX: Try both Project Code and Project Full Code for matching
+    let { data: boqActivities, error: boqFindError } = await supabase
       .from(TABLES.BOQ_ACTIVITIES)
       .select('*')
-      .eq('Project Code', projectCode)
       .eq('Activity Name', activityName)
+      .or(`Project Code.eq.${projectCode},Project Full Code.eq.${projectCode}`)
     
     if (boqFindError) throw boqFindError
     
@@ -60,20 +82,24 @@ export async function syncBOQFromKPI(
       return {
         success: false,
         message: 'No matching BOQ activity found - activity may have been deleted',
-        updatedBOQActual: 0
+        updatedBOQActual: 0,
+        updatedBOQPlanned: 0
       }
     }
     
     const boqActivity = boqActivities[0]
     console.log('🎯 Found BOQ Activity:', boqActivity.id)
     
-    // 4. Update BOQ Actual Units (DO NOT DELETE THE ACTIVITY)
-    console.log('🔄 Updating BOQ Activity Actual Units to:', totalActual)
-    console.log('⚠️ IMPORTANT: This will NOT delete the BOQ activity, only update Actual Units')
+    // ✅ FIX: Update BOTH Planned Units and Actual Units
+    console.log('🔄 Updating BOQ Activity:')
+    console.log('  - Planned Units:', totalPlanned)
+    console.log('  - Actual Units:', totalActual)
+    console.log('⚠️ IMPORTANT: This will NOT delete the BOQ activity, only update Units')
     
     const { data: updatedBOQ, error: updateError } = await supabase
       .from(TABLES.BOQ_ACTIVITIES)
       .update({
+        'Planned Units': totalPlanned.toString(),
         'Actual Units': totalActual.toString()
       })
       .eq('id', boqActivity.id)
@@ -89,15 +115,15 @@ export async function syncBOQFromKPI(
     console.log('🔍 BOQ Activity still exists with ID:', updatedBOQ.id)
     console.log('📊 BOQ Activity Name:', updatedBOQ['Activity Name'])
     console.log('📊 BOQ Project Code:', updatedBOQ['Project Code'])
-    
-    console.log('✅ BOQ Updated Successfully!')
-    console.log('New BOQ Actual Units:', totalActual)
+    console.log('📊 New BOQ Planned Units:', totalPlanned)
+    console.log('📊 New BOQ Actual Units:', totalActual)
     console.log('⚠️ IMPORTANT: BOQ Activity should still be visible in the activities list')
     
     return {
       success: true,
-      message: `BOQ updated: Actual = ${totalActual} - Activity preserved`,
-      updatedBOQActual: totalActual
+      message: `BOQ updated: Planned = ${totalPlanned}, Actual = ${totalActual} - Activity preserved`,
+      updatedBOQActual: totalActual,
+      updatedBOQPlanned: totalPlanned
     }
     
   } catch (error: any) {
@@ -105,7 +131,8 @@ export async function syncBOQFromKPI(
     return {
       success: false,
       message: error.message,
-      updatedBOQActual: 0
+      updatedBOQActual: 0,
+      updatedBOQPlanned: 0
     }
   }
 }
@@ -262,6 +289,62 @@ export async function calculateActualFromKPI(
     kpiCache.set(cacheKey, totalActual)
     
     return totalActual
+  } catch (error: any) {
+    return 0
+  }
+}
+
+/**
+ * ✅ FIX: Calculate Planned Units from KPI Planned records
+ * 
+ * This function calculates the total planned units from KPI Planned records
+ * for a specific project and activity
+ */
+export async function calculatePlannedFromKPI(
+  projectCode: string,
+  activityName: string
+): Promise<number> {
+  const supabase = createClientComponentClient()
+  
+  try {
+    // Get all KPI Planned records for this activity
+    // Try exact match first
+    let { data: kpiPlanned, error } = await supabase
+      .from(TABLES.KPI)
+      .select('Quantity, "Activity Name"')
+      .eq('Input Type', 'Planned')
+      .eq('Project Full Code', projectCode)
+      .eq('Activity Name', activityName)
+    
+    // If no exact match, try flexible match
+    if (!kpiPlanned || kpiPlanned.length === 0) {
+      const { data: allProjectKPIs } = await supabase
+        .from(TABLES.KPI)
+        .select('Quantity, "Activity Name"')
+        .eq('Input Type', 'Planned')
+        .eq('Project Full Code', projectCode)
+      
+      if (allProjectKPIs && allProjectKPIs.length > 0) {
+        const activityNameLower = (activityName || '').toLowerCase().trim()
+        kpiPlanned = allProjectKPIs.filter(kpi => {
+          const kpiActivityName = (kpi['Activity Name'] as string || '').toLowerCase().trim()
+          return kpiActivityName.includes(activityNameLower) || 
+                 activityNameLower.includes(kpiActivityName)
+        })
+      }
+    }
+    
+    if (error) {
+      return 0
+    }
+    
+    // Sum all planned quantities
+    const totalPlanned = (kpiPlanned || []).reduce((sum, record) => {
+      const qty = parseFloat(record.Quantity?.toString() || '0') || 0
+      return sum + qty
+    }, 0)
+    
+    return totalPlanned
   } catch (error: any) {
     return 0
   }

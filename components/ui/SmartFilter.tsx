@@ -6,7 +6,12 @@ import { X, Filter, ChevronDown, Search } from 'lucide-react'
 
 interface SmartFilterProps {
   // Projects data
-  projects: Array<{ project_code: string; project_name: string }>
+  projects: Array<{ 
+    project_code: string
+    project_sub_code?: string
+    project_full_code?: string
+    project_name: string 
+  }>
   
   // Activities data (for dynamic filtering)
   activities?: Array<{ activity_name: string; project_code: string; zone?: string; unit?: string; activity_division?: string }>
@@ -169,16 +174,34 @@ export function SmartFilter({
     }
   }, [])
   
-  // 🔧 FIX: Get filtered projects based on search
-  const filteredProjects = projects.filter(project =>
-    project.project_code.toLowerCase().includes(projectSearch.toLowerCase()) ||
-    project.project_name.toLowerCase().includes(projectSearch.toLowerCase())
-  )
+  // 🔧 FIX: Get filtered projects based on search (including sub_code and full_code)
+  const filteredProjects = projects.filter(project => {
+    const searchTerm = projectSearch.toLowerCase()
+    const projectCode = project.project_code?.toLowerCase() || ''
+    const projectSubCode = project.project_sub_code?.toLowerCase() || ''
+    const projectFullCode = project.project_full_code?.toLowerCase() || ''
+    const projectName = project.project_name?.toLowerCase() || ''
+    
+    return projectCode.includes(searchTerm) ||
+           projectSubCode.includes(searchTerm) ||
+           projectFullCode.includes(searchTerm) ||
+           projectName.includes(searchTerm) ||
+           `${projectCode} ${projectSubCode}`.includes(searchTerm)
+  })
   
   // 🔧 FIX: Get unique activities for selected projects with search (only if projects selected)
-  const availableActivities = selectedProjects.length > 0 ? activities.filter(a => 
-    selectedProjects.includes(a.project_code)
-  ).reduce((acc, curr) => {
+  // ✅ FIX: Match activities using project_full_code instead of project_code
+  const availableActivities = selectedProjects.length > 0 ? activities.filter(a => {
+    // Check if activity's project_code matches any selected project_full_code
+    // Since activities might only have project_code, we need to match it with selected projects
+    // Selected projects now contain project_full_code, so we check if activity's project_code
+    // is part of any selected project_full_code
+    return selectedProjects.some(selectedFullCode => {
+      // Extract project_code from project_full_code (format: "P5066-1" -> "P5066")
+      const selectedCode = selectedFullCode.split('-')[0]
+      return a.project_code === selectedCode || selectedFullCode === a.project_code
+    })
+  }).reduce((acc, curr) => {
     if (!acc.find(a => a.activity_name === curr.activity_name)) {
       acc.push(curr)
     }
@@ -228,12 +251,70 @@ export function SmartFilter({
                            valueRange?.min !== undefined || valueRange?.max !== undefined ||
                            quantityRange?.min !== undefined || quantityRange?.max !== undefined
   
-  const toggleProject = (projectCode: string) => {
-    if (selectedProjects.includes(projectCode)) {
-      onProjectsChange(selectedProjects.filter(p => p !== projectCode))
+  // ✅ FIX: Use project_full_code as unique identifier instead of project_code
+  const toggleProject = (projectFullCode: string) => {
+    if (selectedProjects.includes(projectFullCode)) {
+      onProjectsChange(selectedProjects.filter(p => p !== projectFullCode))
     } else {
-      onProjectsChange([...selectedProjects, projectCode])
+      onProjectsChange([...selectedProjects, projectFullCode])
     }
+  }
+  
+  // Helper function to get project full code (fallback to project_code if not available)
+  // ✅ FIX: Avoid duplication if project_sub_code already contains project_code
+  const getProjectFullCode = (project: { project_full_code?: string; project_code: string; project_sub_code?: string }): string => {
+    if (project.project_full_code) {
+      return project.project_full_code
+    }
+    
+    // Build full code from code + sub_code if available
+    const projectCode = (project.project_code || '').trim()
+    const projectSubCode = (project.project_sub_code || '').trim()
+    
+    if (projectSubCode) {
+      // Check if sub_code already starts with project_code (case-insensitive)
+      if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+        // project_sub_code already contains project_code (e.g., "P5066-R1")
+        return projectSubCode
+      } else {
+        // project_sub_code is just the suffix (e.g., "R1" or "-R1")
+        if (projectSubCode.startsWith('-')) {
+          return `${projectCode}${projectSubCode}`
+        } else {
+          return `${projectCode}-${projectSubCode}`
+        }
+      }
+    }
+    return projectCode
+  }
+  
+  // Helper function to get display code (shows code + sub_code if available)
+  // ✅ FIX: Avoid duplication if project_sub_code already contains project_code
+  const getProjectDisplayCode = (project: { project_code: string; project_sub_code?: string; project_full_code?: string }): string => {
+    // If project_full_code is provided, use it (it's already correctly formatted)
+    if (project.project_full_code) {
+      return project.project_full_code
+    }
+    
+    // Otherwise, build it from code and sub_code
+    const projectCode = (project.project_code || '').trim()
+    const projectSubCode = (project.project_sub_code || '').trim()
+    
+    if (projectSubCode) {
+      // Check if sub_code already starts with project_code (case-insensitive)
+      if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+        // project_sub_code already contains project_code (e.g., "P5066-R1")
+        return projectSubCode
+      } else {
+        // project_sub_code is just the suffix (e.g., "R1" or "-R1")
+        if (projectSubCode.startsWith('-')) {
+          return `${projectCode}${projectSubCode}`
+        } else {
+          return `${projectCode}-${projectSubCode}`
+        }
+      }
+    }
+    return projectCode
   }
   
   const toggleActivity = (activityName: string) => {
@@ -428,27 +509,31 @@ export function SmartFilter({
               </div>
               <div className="max-h-64 overflow-y-auto">
                 {filteredProjects.length > 0 ? (
-                  filteredProjects.map((project, idx) => (
-                    <label
-                      key={`project-${project.project_code}-${idx}`}
-                      className="flex items-center space-x-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer transition-colors"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedProjects.includes(project.project_code)}
-                        onChange={() => toggleProject(project.project_code)}
-                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                          {project.project_code}
+                  filteredProjects.map((project, idx) => {
+                    const projectFullCode = getProjectFullCode(project)
+                    const displayCode = getProjectDisplayCode(project)
+                    return (
+                      <label
+                        key={`project-${projectFullCode}-${idx}`}
+                        className="flex items-center space-x-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer transition-colors"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedProjects.includes(projectFullCode)}
+                          onChange={() => toggleProject(projectFullCode)}
+                          className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                            {displayCode}
+                          </div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                            {project.project_name}
+                          </div>
                         </div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                          {project.project_name}
-                        </div>
-                      </div>
-                    </label>
-                  ))
+                      </label>
+                    )
+                  })
                 ) : (
                   <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400 text-center">
                     No projects found

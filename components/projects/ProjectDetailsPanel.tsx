@@ -7,7 +7,7 @@ import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { Project, BOQActivity, TABLES } from '@/lib/supabase'
 import { mapBOQFromDB, mapKPIFromDB } from '@/lib/dataMappers'
 import { calculateProjectAnalytics, ProjectAnalytics } from '@/lib/projectAnalytics'
-import { calculateActualFromKPI } from '@/lib/boqKpiSync'
+import { calculateActualFromKPI, calculatePlannedFromKPI } from '@/lib/boqKpiSync'
 import { calculateBOQValues, formatCurrency, formatPercentage, calculateProjectProgressFromValues } from '@/lib/boqValueCalculator'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -46,6 +46,7 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
   const [showKpiDetails, setShowKpiDetails] = useState<{[key: string]: boolean}>({})
   const [showBOQModal, setShowBOQModal] = useState(false)
   const [activityActuals, setActivityActuals] = useState<{[key: string]: number}>({})
+  const [activityPlanneds, setActivityPlanneds] = useState<{[key: string]: number}>({})
   
   // Copy Feedback
   const [copyFeedback, setCopyFeedback] = useState<{ type: 'latitude' | 'longitude' | null; message: string }>({ type: null, message: '' })
@@ -78,30 +79,57 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
   const supabase = getSupabaseClient()
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('project-details')
 
-  // ✅ Calculate Actual from KPI for each activity
+  // ✅ FIX: Calculate BOTH Planned and Actual from KPI for each activity
   useEffect(() => {
     if (!analytics?.activities) return
 
-    const calculateActuals = async () => {
+    const calculateUnits = async () => {
       const actuals: {[key: string]: number} = {}
+      const planneds: {[key: string]: number} = {}
       
       for (const activity of analytics.activities) {
         try {
+          // Build project_full_code for matching
+          const projectCode = (activity.project_code || '').trim()
+          const projectSubCode = (activity.project_sub_code || '').trim()
+          let projectFullCode = projectCode
+          if (projectSubCode) {
+            if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+              projectFullCode = projectSubCode
+            } else {
+              if (projectSubCode.startsWith('-')) {
+                projectFullCode = `${projectCode}${projectSubCode}`
+              } else {
+                projectFullCode = `${projectCode}-${projectSubCode}`
+              }
+            }
+          }
+          
+          // Calculate Actual from KPIs
           const actual = await calculateActualFromKPI(
-            activity.project_code || '',
+            projectFullCode || projectCode,
             activity.activity_name || ''
           )
           actuals[activity.id] = actual
+          
+          // ✅ FIX: Calculate Planned from KPIs
+          const planned = await calculatePlannedFromKPI(
+            projectFullCode || projectCode,
+            activity.activity_name || ''
+          )
+          planneds[activity.id] = planned
         } catch (error) {
           // Silently fail
           actuals[activity.id] = activity.actual_units || 0
+          planneds[activity.id] = activity.planned_units || 0
         }
       }
       
       setActivityActuals(actuals)
+      setActivityPlanneds(planneds)
     }
 
-    calculateActuals()
+    calculateUnits()
   }, [analytics?.activities])
 
   // ✅ Calculate Duration from KPI Planned data
@@ -288,36 +316,49 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
       
       console.log(`📊 Fetching analytics for project: ${project.project_code} (${project.project_name})`)
       
-      // ✅ Fetch ALL activities for THIS project from 'Planning Database - BOQ Rates'
-      // Use comprehensive matching to include both new and old database entries
-      const projectCode = project.project_code
-      const projectFullCode = `${project.project_code}${project.project_sub_code || ''}`
+      // ✅ FIX: Build project_full_code correctly
+      const projectCode = (project.project_code || '').trim()
+      const projectSubCode = (project.project_sub_code || '').trim()
+      
+      let projectFullCode = projectCode
+      if (projectSubCode) {
+        // Check if sub_code already starts with project_code (case-insensitive)
+        if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+          projectFullCode = projectSubCode
+        } else {
+          if (projectSubCode.startsWith('-')) {
+            projectFullCode = `${projectCode}${projectSubCode}`
+          } else {
+            projectFullCode = `${projectCode}-${projectSubCode}`
+          }
+        }
+      }
       
       console.log(`🔍 Fetching ALL activities for project: ${projectCode} (Full: ${projectFullCode})`)
-      console.log(`📋 Using comprehensive matching strategy to include old and new entries`)
+      console.log(`📋 Using comprehensive matching strategy with project_full_code`)
       
-      // Strategy 1: Match by exact Project Code
-      const { data: activitiesByCode, error: error1 } = await executeQuery(async () =>
+      // Strategy 1: Match by exact Project Full Code (PRIMARY - most accurate)
+      const { data: activitiesByFullCodeExact, error: error1 } = await executeQuery(async () =>
+        supabase
+          .from(TABLES.BOQ_ACTIVITIES)
+          .select('*')
+          .eq('Project Full Code', projectFullCode)
+      )
+      
+      // Strategy 2: Match by exact Project Code (fallback for old data)
+      const { data: activitiesByCode, error: error2 } = await executeQuery(async () =>
         supabase
           .from(TABLES.BOQ_ACTIVITIES)
           .select('*')
           .eq('Project Code', projectCode)
       )
       
-      // Strategy 2: Match by exact Project Full Code
-      const { data: activitiesByFullCodeExact, error: error2 } = await executeQuery(async () =>
-        supabase
-          .from(TABLES.BOQ_ACTIVITIES)
-          .select('*')
-          .eq('Project Full Code', projectCode)
-      )
-      
-      // Strategy 3: Match where Project Full Code starts with Project Code (for sub-projects)
+      // Strategy 3: Match where Project Full Code starts with Project Full Code (for sub-projects)
       const { data: activitiesByFullCodeStart, error: error3 } = await executeQuery(async () =>
         supabase
           .from(TABLES.BOQ_ACTIVITIES)
           .select('*')
-          .like('Project Full Code', `${projectCode}%`)
+          .like('Project Full Code', `${projectFullCode}%`)
       )
       
       // Strategy 4: Match where Project Code contains the project code (for old data formats)
@@ -353,17 +394,21 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
         new Map(allActivitiesData.map((item: any) => [item.id, item])).values()
       )
       
-      // Additional client-side filtering to ensure all match the project
+      // ✅ FIX: Additional client-side filtering using project_full_code
       const filteredActivities = uniqueActivitiesData.filter((item: any) => {
         const itemProjectCode = (item['Project Code'] || '').toString().trim()
         const itemProjectFullCode = (item['Project Full Code'] || '').toString().trim()
         
-        // Direct matches
+        // Priority 1: Match by project_full_code (most accurate)
+        if (itemProjectFullCode === projectFullCode) return true
+        if (itemProjectFullCode.startsWith(projectFullCode)) return true
+        
+        // Priority 2: Match by project_code (fallback for old data)
         if (itemProjectCode === projectCode) return true
         if (itemProjectFullCode === projectCode) return true
         if (itemProjectFullCode.startsWith(projectCode)) return true
         
-        // For old database entries, check if project code appears anywhere
+        // Priority 3: For old database entries, check if project code appears anywhere
         if (itemProjectCode.includes(projectCode)) return true
         if (itemProjectFullCode.includes(projectCode)) return true
         
@@ -395,22 +440,22 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
         console.error('❌ Error fetching activities:', activitiesError)
       }
       
-      // ✅ Fetch ONLY KPIs for THIS project from MAIN TABLE
+      // ✅ FIX: Fetch KPIs using project_full_code (PRIMARY) and project_code (fallback)
       let { data: kpisData, error: kpisError } = await executeQuery(async () =>
         supabase
           .from(TABLES.KPI)
           .select('*')
-          .eq('Project Full Code', project.project_code)
+          .or(`Project Full Code.eq.${projectFullCode},Project Code.eq.${projectCode}`)
       )
       
-      // If no results, try with 'Project Code' column
+      // If no results, try with 'Project Code' column as additional fallback
       if (!kpisData || (Array.isArray(kpisData) && kpisData.length === 0)) {
-        console.log('🔄 No KPIs found with Project Full Code, trying Project Code...')
+        console.log('🔄 No KPIs found with Project Full Code, trying Project Code only...')
         const result = await executeQuery(async () =>
           supabase
             .from(TABLES.KPI)
             .select('*')
-            .eq('Project Code', project.project_code)
+            .eq('Project Code', projectCode)
         )
         kpisData = result.data
         kpisError = result.error
@@ -1186,9 +1231,15 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                               </div>
                               <span className="font-bold text-sm text-blue-600 dark:text-blue-400">
                                 {formatPercent(
-                                  activityActuals[activity.id] !== undefined 
-                                    ? (activityActuals[activity.id] / activity.planned_units) * 100
-                                    : activity.activity_progress_percentage || 0
+                                  (() => {
+                                    const plannedUnits = activityPlanneds[activity.id] !== undefined 
+                                      ? activityPlanneds[activity.id] 
+                                      : activity.planned_units || 0
+                                    const actualUnits = activityActuals[activity.id] !== undefined 
+                                      ? activityActuals[activity.id] 
+                                      : activity.actual_units || 0
+                                    return plannedUnits > 0 ? (actualUnits / plannedUnits) * 100 : (activity.activity_progress_percentage || 0)
+                                  })()
                                 )}
                               </span>
                             </div>
@@ -1196,9 +1247,14 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                           <div>
                             <p className="text-gray-500 dark:text-gray-400">Planned / Actual</p>
                             <p className="font-medium text-gray-900 dark:text-white">
-                              {activity.planned_units} / {activityActuals[activity.id] || activity.actual_units} {activity.unit}
+                              {activityPlanneds[activity.id] !== undefined 
+                                ? activityPlanneds[activity.id] 
+                                : activity.planned_units} / {activityActuals[activity.id] !== undefined 
+                                ? activityActuals[activity.id] 
+                                : activity.actual_units} {activity.unit}
                             </p>
-                            {activityActuals[activity.id] !== undefined && activityActuals[activity.id] !== activity.actual_units && (
+                            {(activityPlanneds[activity.id] !== undefined || activityActuals[activity.id] !== undefined) && 
+                             (activityPlanneds[activity.id] !== activity.planned_units || activityActuals[activity.id] !== activity.actual_units) && (
                               <p className="text-xs text-blue-600 dark:text-blue-400">
                                 ✅ Updated from KPI
                               </p>

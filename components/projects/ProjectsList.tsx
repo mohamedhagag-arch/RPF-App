@@ -501,7 +501,17 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
           rawActivities: rawActivities.length,
           rawKPIs: rawKPIs.length,
           firstProject: rawProjects[0] ? 'exists' : 'null',
-          projectsError: projectsResult?.error ? 'yes' : 'no'
+          projectsError: projectsResult?.error ? 'yes' : 'no',
+          kpisError: kpisResult?.error ? 'yes' : 'no',
+          // ✅ Show sample KPI structure from database
+          sampleRawKPI: rawKPIs[0] ? {
+            id: rawKPIs[0].id,
+            'Project Code': rawKPIs[0]['Project Code'],
+            'Project Sub Code': rawKPIs[0]['Project Sub Code'],
+            'Project Full Code': rawKPIs[0]['Project Full Code'],
+            'Activity Name': rawKPIs[0]['Activity Name'],
+            'Input Type': rawKPIs[0]['Input Type']
+          } : null
         })
         
         // Map all data
@@ -512,7 +522,16 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
         console.log('📊 Data mapping results:', {
           projects: mappedProjects.length,
           activities: mappedActivities.length,
-          kpis: mappedKPIs.length
+          kpis: mappedKPIs.length,
+          // ✅ Show sample mapped KPI structure
+          sampleMappedKPI: mappedKPIs[0] ? {
+            id: mappedKPIs[0].id,
+            project_code: mappedKPIs[0].project_code,
+            project_sub_code: mappedKPIs[0].project_sub_code,
+            project_full_code: mappedKPIs[0].project_full_code,
+            activity_name: mappedKPIs[0].activity_name,
+            input_type: mappedKPIs[0].input_type
+          } : null
         })
         
         // ✅ تحسين: التأكد من تحديث الحالة حتى لو كانت فارغة
@@ -728,8 +747,28 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
     if (!matchesSearch) return false
     
     // Multi-Project Code filter (Smart Filter)
+    // ✅ FIX: Use project_full_code for matching instead of project_code only
     if (selectedProjectCodes.length > 0) {
-      if (!selectedProjectCodes.includes(project.project_code)) return false
+      // Build project_full_code for comparison
+      const projectCode = (project.project_code || '').trim()
+      const projectSubCode = (project.project_sub_code || '').trim()
+      
+      let projectFullCode = projectCode
+      if (projectSubCode) {
+        // Check if sub_code already starts with project_code (case-insensitive)
+        if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+          projectFullCode = projectSubCode
+        } else {
+          if (projectSubCode.startsWith('-')) {
+            projectFullCode = `${projectCode}${projectSubCode}`
+          } else {
+            projectFullCode = `${projectCode}-${projectSubCode}`
+          }
+        }
+      }
+      
+      // Match using project_full_code
+      if (!selectedProjectCodes.includes(projectFullCode)) return false
     }
     
     
@@ -917,7 +956,7 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
               variant="outline"
               printTitle="Projects Report"
               printSettings={{
-                fontSize: '11px',
+                fontSize: 'medium',
                 compactMode: true
               }}
             />
@@ -940,10 +979,35 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
       
       {/* Smart Filter */}
       <SmartFilter
-        projects={projects.map(p => ({ 
-          project_code: p.project_code, 
-          project_name: p.project_name 
-        }))}
+        projects={projects.map(p => {
+          // ✅ FIX: Build project_full_code correctly, avoiding duplication
+          // Check if project_sub_code already contains project_code
+          const projectCode = (p.project_code || '').trim()
+          const projectSubCode = (p.project_sub_code || '').trim()
+          
+          let projectFullCode = projectCode
+          if (projectSubCode) {
+            // Check if sub_code already starts with project_code (case-insensitive)
+            if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+              // project_sub_code already contains project_code (e.g., "P5066-R1")
+              projectFullCode = projectSubCode
+            } else {
+              // project_sub_code is just the suffix (e.g., "R1" or "-R1")
+              if (projectSubCode.startsWith('-')) {
+                projectFullCode = `${projectCode}${projectSubCode}`
+              } else {
+                projectFullCode = `${projectCode}-${projectSubCode}`
+              }
+            }
+          }
+          
+          return {
+            project_code: projectCode,
+            project_sub_code: projectSubCode,
+            project_full_code: projectFullCode,
+            project_name: p.project_name 
+          }
+        })}
         activities={[]} // No activities filter for projects page
         selectedProjects={selectedProjectCodes}
         selectedActivities={selectedDivisions} // Use divisions as "activities"
@@ -1113,11 +1177,30 @@ export function ProjectsList({ globalSearchTerm = '', globalFilters = { project:
                   // Cards need analytics to display progress, activities, and KPIs
                   
                   // ✅ Calculate analytics - simplified and more reliable
+                  // ✅ DEBUG: Log BEFORE calculation to see input data
+                  if (project === filteredProjects[0] || project.project_code === 'P5096') {
+                    console.log(`🔍 [${project.project_code}] BEFORE calculateProjectAnalytics:`, {
+                      projectCode: project.project_code,
+                      projectSubCode: project.project_sub_code,
+                      allActivitiesLength: allActivities.length,
+                      allKPIsLength: allKPIs.length,
+                      // ✅ Show sample KPIs to see their structure
+                      sampleKPIs: allKPIs.slice(0, 3).map(k => ({
+                        project_code: k.project_code,
+                        project_full_code: k.project_full_code,
+                        'Project Code': (k as any)['Project Code'],
+                        'Project Full Code': (k as any)['Project Full Code'],
+                        activity_name: k.activity_name,
+                        input_type: k.input_type
+                      }))
+                    })
+                  }
+                  
                   const analytics = calculateProjectAnalytics(project, allActivities, allKPIs)
                   
-                  // ✅ DEBUG: Log for first project only to see what's happening
-                  if (project === filteredProjects[0]) {
-                    console.log('🔍 ProjectsList - Analytics calculated:', {
+                  // ✅ DEBUG: Log for first project or P5096 to see what's happening
+                  if (project === filteredProjects[0] || project.project_code === 'P5096') {
+                    console.log(`🔍 [${project.project_code}] ProjectsList - Analytics calculated:`, {
                       projectCode: project.project_code,
                       projectSubCode: project.project_sub_code,
                       projectName: project.project_name,

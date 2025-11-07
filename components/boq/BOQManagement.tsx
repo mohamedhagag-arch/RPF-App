@@ -24,6 +24,7 @@ import { ExportButton } from '@/components/ui/ExportButton'
 import { ImportButton } from '@/components/ui/ImportButton'
 import { PrintButton } from '@/components/ui/PrintButton'
 import { PermissionButton } from '@/components/ui/PermissionButton'
+import { syncBOQFromKPI } from '@/lib/boqKpiSync'
 
 interface BOQManagementProps {
   globalSearchTerm?: string
@@ -117,15 +118,35 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   }
   
   // ✅ Toggle project selection
-  const toggleProject = (projectCode: string) => {
+  // ✅ FIX: Helper function to build project_full_code
+  const getProjectFullCode = (project: Project): string => {
+    const projectCode = (project.project_code || '').trim()
+    const projectSubCode = (project.project_sub_code || '').trim()
+    
+    if (projectSubCode) {
+      // Check if sub_code already starts with project_code (case-insensitive)
+      if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+        return projectSubCode
+      } else {
+        if (projectSubCode.startsWith('-')) {
+          return `${projectCode}${projectSubCode}`
+        } else {
+          return `${projectCode}-${projectSubCode}`
+        }
+      }
+    }
+    return projectCode
+  }
+  
+  const toggleProject = (projectFullCode: string) => {
     setFilters(prev => {
       const currentProjects = prev.project || []
-      if (currentProjects.includes(projectCode)) {
+      if (currentProjects.includes(projectFullCode)) {
         // Remove project
-        return { ...prev, project: currentProjects.filter(p => p !== projectCode) }
+        return { ...prev, project: currentProjects.filter(p => p !== projectFullCode) }
       } else {
         // Add project
-        return { ...prev, project: [...currentProjects, projectCode] }
+        return { ...prev, project: [...currentProjects, projectFullCode] }
       }
     })
   }
@@ -203,10 +224,38 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     }
     
     // Project filter (supports multiple projects)
+    // ✅ FIX: Match using project_full_code instead of project_code only
     if (filters.project && filters.project.length > 0) {
-      filtered = filtered.filter(activity => 
-        filters.project.includes(activity.project_code || '')
-      )
+      filtered = filtered.filter(activity => {
+        // Build activity's project_full_code for comparison
+        const activityProjectCode = (activity.project_code || '').trim()
+        const activityProjectSubCode = (activity.project_sub_code || '').trim()
+        
+        let activityFullCode = activityProjectCode
+        if (activityProjectSubCode) {
+          if (activityProjectSubCode.toUpperCase().startsWith(activityProjectCode.toUpperCase())) {
+            activityFullCode = activityProjectSubCode
+          } else {
+            if (activityProjectSubCode.startsWith('-')) {
+              activityFullCode = `${activityProjectCode}${activityProjectSubCode}`
+            } else {
+              activityFullCode = `${activityProjectCode}-${activityProjectSubCode}`
+            }
+          }
+        }
+        
+        // Also check if activity has project_full_code field
+        const activityFullCodeFromField = activity.project_full_code || ''
+        
+        // Match against selected project_full_codes
+        return filters.project.includes(activityFullCode) || 
+               filters.project.includes(activityFullCodeFromField) ||
+               // Fallback: extract project_code from selected full_codes and match
+               filters.project.some(selectedFullCode => {
+                 const selectedCode = selectedFullCode.split('-')[0]
+                 return selectedCode === activityProjectCode
+               })
+      })
     }
     
     // Division filter
@@ -329,15 +378,63 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         .select('*', { count: 'exact' })
         .order('created_at', { ascending: false })
       
-      // ✅ Apply database-level filters
+      // ✅ FIX: Apply database-level filters with comprehensive project_full_code matching
       if (filtersToApply.project && filtersToApply.project.length > 0) {
-        // Use 'in' filter for multiple projects
-        if (filtersToApply.project.length === 1) {
-          activitiesQuery = activitiesQuery.eq('Project Code', filtersToApply.project[0])
-        } else {
-          activitiesQuery = activitiesQuery.in('Project Code', filtersToApply.project)
+        // ✅ FIX: Build comprehensive filter for project_full_code matching
+        // Support both exact match and partial match (e.g., P5066-R1 matches P5066)
+        const projectFullCodes = filtersToApply.project
+        const projectCodes = filtersToApply.project.map((fullCode: string) => {
+          // Extract project_code from project_full_code (format: "P5066-R1" -> "P5066")
+          return fullCode.split('-')[0]
+        })
+        const uniqueProjectCodes = Array.from(new Set(projectCodes))
+        
+        console.log('🔍 Building project filter (applyFiltersToDatabase):', {
+          projectFullCodes,
+          uniqueProjectCodes,
+          filterCount: projectFullCodes.length
+        })
+        
+        // ✅ FIX: Build OR condition for multiple matching strategies
+        if (projectFullCodes.length === 1) {
+          // Single project: Try multiple matching strategies
+          const fullCode = projectFullCodes[0]
+          const baseCode = uniqueProjectCodes[0]
+          
+          // Strategy 1: Exact match on Project Full Code
+          // Strategy 2: Match on Project Code
+          // Strategy 3: LIKE match for Project Full Code (in case of variations)
+          activitiesQuery = activitiesQuery.or(
+            `Project Full Code.eq.${fullCode},Project Code.eq.${baseCode},Project Full Code.like.${fullCode}%,Project Full Code.like.${baseCode}%`
+          )
+        } else if (projectFullCodes.length > 1) {
+          // Multiple projects: Build complex OR condition
+          const orConditions: string[] = []
+          
+          // Add exact matches for all full codes
+          for (const fullCode of projectFullCodes) {
+            orConditions.push(`Project Full Code.eq.${fullCode}`)
+          }
+          
+          // Add code matches for all base codes
+          for (const code of Array.from(uniqueProjectCodes) as string[]) {
+            orConditions.push(`Project Code.eq.${code}`)
+          }
+          
+          // Add LIKE matches for all full codes
+          for (const fullCode of projectFullCodes) {
+            orConditions.push(`Project Full Code.like.${fullCode}%`)
+          }
+          
+          // Add LIKE matches for all base codes
+          for (const code of Array.from(uniqueProjectCodes) as string[]) {
+            orConditions.push(`Project Full Code.like.${code}%`)
+          }
+          
+          activitiesQuery = activitiesQuery.or(orConditions.join(','))
         }
-        console.log('🔍 Applied project filter:', filtersToApply.project)
+        
+        console.log('✅ Applied project filter with comprehensive matching (applyFiltersToDatabase)')
       }
       
       if (filtersToApply.division) {
@@ -424,6 +521,46 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         setAllKPIs([])
       }
       
+      // ✅ FIX: Sync BOQ Planned Units from KPIs (background sync, don't block UI)
+      // This ensures Planned Units in BOQ match the sum of Planned KPIs
+      if (mappedActivities.length > 0 && allKPIs.length > 0) {
+        console.log('🔄 Syncing BOQ Planned Units from KPIs (background)...')
+        // Run sync in background without blocking UI
+        Promise.all(
+          mappedActivities.map(async (activity) => {
+            try {
+              // Build project_full_code for matching
+              const projectCode = (activity.project_code || '').trim()
+              const projectSubCode = (activity.project_sub_code || '').trim()
+              let projectFullCode = projectCode
+              if (projectSubCode) {
+                if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+                  projectFullCode = projectSubCode
+                } else {
+                  if (projectSubCode.startsWith('-')) {
+                    projectFullCode = `${projectCode}${projectSubCode}`
+                  } else {
+                    projectFullCode = `${projectCode}-${projectSubCode}`
+                  }
+                }
+              }
+              
+              // Sync BOQ from KPIs (updates both Planned and Actual Units)
+              await syncBOQFromKPI(projectFullCode || projectCode, activity.activity_name)
+            } catch (error) {
+              // Don't fail entire load if sync fails for one activity
+              console.warn(`⚠️ Failed to sync BOQ for ${activity.activity_name}:`, error)
+            }
+          })
+        ).then(() => {
+          console.log('✅ Background BOQ sync completed')
+          // Optionally refresh data after sync
+          // fetchData(currentPage, true)
+        }).catch(error => {
+          console.warn('⚠️ Some BOQ syncs failed:', error)
+        })
+      }
+      
       // Calculate Rate-based metrics for activities
       try {
         console.log('📊 Calculating Rate-based metrics for activities...')
@@ -495,13 +632,61 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       console.log('🔍 Current filters:', filters)
       
       if (filters.project && filters.project.length > 0) {
-        // Use 'in' filter for multiple projects
-        if (filters.project.length === 1) {
-          activitiesQuery = activitiesQuery.eq('Project Code', filters.project[0])
-        } else {
-          activitiesQuery = activitiesQuery.in('Project Code', filters.project)
+        // ✅ FIX: Build comprehensive filter for project_full_code matching
+        // Support both exact match and partial match (e.g., P5066-R1 matches P5066)
+        const projectFullCodes = filters.project as string[]
+        const projectCodes = (filters.project as string[]).map((fullCode: string) => {
+          // Extract project_code from project_full_code (format: "P5066-R1" -> "P5066")
+          return fullCode.split('-')[0]
+        })
+        const uniqueProjectCodes = Array.from(new Set(projectCodes))
+        
+        console.log('🔍 Building project filter:', {
+          projectFullCodes,
+          uniqueProjectCodes,
+          filterCount: projectFullCodes.length
+        })
+        
+        // ✅ FIX: Build OR condition for multiple matching strategies
+        if (projectFullCodes.length === 1) {
+          // Single project: Try multiple matching strategies
+          const fullCode = projectFullCodes[0]
+          const baseCode = uniqueProjectCodes[0] as string
+          
+          // Strategy 1: Exact match on Project Full Code
+          // Strategy 2: Match on Project Code
+          // Strategy 3: LIKE match for Project Full Code (in case of variations)
+          activitiesQuery = activitiesQuery.or(
+            `Project Full Code.eq.${fullCode},Project Code.eq.${baseCode},Project Full Code.like.${fullCode}%,Project Full Code.like.${baseCode}%`
+          )
+        } else if (projectFullCodes.length > 1) {
+          // Multiple projects: Build complex OR condition
+          const orConditions: string[] = []
+          
+          // Add exact matches for all full codes
+          for (const fullCode of projectFullCodes) {
+            orConditions.push(`Project Full Code.eq.${fullCode}`)
+          }
+          
+          // Add code matches for all base codes
+          for (const code of Array.from(uniqueProjectCodes) as string[]) {
+            orConditions.push(`Project Code.eq.${code}`)
+          }
+          
+          // Add LIKE matches for all full codes
+          for (const fullCode of projectFullCodes) {
+            orConditions.push(`Project Full Code.like.${fullCode}%`)
+          }
+          
+          // Add LIKE matches for all base codes
+          for (const code of Array.from(uniqueProjectCodes) as string[]) {
+            orConditions.push(`Project Full Code.like.${code}%`)
+          }
+          
+          activitiesQuery = activitiesQuery.or(orConditions.join(','))
         }
-        console.log('🔍 Applied project filter:', filters.project)
+        
+        console.log('✅ Applied project filter with comprehensive matching')
       }
       
       if (filters.division) {
@@ -1340,13 +1525,19 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
                         </span>
                       </div>
                       {getFilteredProjects().map((project) => {
-                        const isSelected = filters.project && filters.project.includes(project.project_code)
+                        const projectFullCode = getProjectFullCode(project)
+                        const displayCode = project.project_sub_code 
+                          ? (project.project_sub_code.toUpperCase().startsWith((project.project_code || '').toUpperCase())
+                              ? project.project_sub_code
+                              : `${project.project_code}-${project.project_sub_code}`)
+                          : project.project_code
+                        const isSelected = filters.project && filters.project.includes(projectFullCode)
                         return (
                           <div
                             key={project.id}
                             onClick={(e) => {
                               e.stopPropagation()
-                              toggleProject(project.project_code)
+                              toggleProject(projectFullCode)
                               setProjectSearch('')
                             }}
                             className={`px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer flex items-center gap-2 ${
@@ -1356,20 +1547,15 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
                             <input
                               type="checkbox"
                               checked={isSelected || false}
-                              onChange={() => toggleProject(project.project_code)}
+                              onChange={() => toggleProject(projectFullCode)}
                               onClick={(e) => e.stopPropagation()}
                               className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                             />
                             <Building2 className="h-4 w-4 text-gray-400" />
                             <div className="flex-1">
                               <div className={`text-sm ${isSelected ? 'font-medium text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-white'}`}>
-                                {project.project_code} - {project.project_name}
+                                {displayCode} - {project.project_name}
                               </div>
-                              {project.project_sub_code && (
-                                <div className="text-xs text-gray-500 dark:text-gray-400">
-                                  Sub: {project.project_sub_code}
-                                </div>
-                              )}
                             </div>
                             {isSelected && (
                               <CheckCircle className="h-4 w-4 text-blue-600 dark:text-blue-400" />
@@ -1449,23 +1635,33 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         {filters.project && filters.project.length > 0 && (
           <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
             <div className="flex flex-wrap gap-1">
-              {filters.project.map((projectCode) => {
-                const project = projects.find(p => p.project_code === projectCode)
+              {filters.project.map((projectFullCode) => {
+                // ✅ FIX: Find project by matching project_full_code
+                const project = projects.find(p => {
+                  const pFullCode = getProjectFullCode(p)
+                  return pFullCode === projectFullCode
+                })
                 if (!project) return null
+                
+                const displayCode = project.project_sub_code 
+                  ? (project.project_sub_code.toUpperCase().startsWith((project.project_code || '').toUpperCase())
+                      ? project.project_sub_code
+                      : `${project.project_code}-${project.project_sub_code}`)
+                  : project.project_code
                 return (
                   <div
-                    key={projectCode}
+                    key={projectFullCode}
                     className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-[10px] font-normal"
                   >
                     <Building2 className="h-2.5 w-2.5" />
                     <span className="max-w-[120px] truncate">
-                      {project.project_code} - {project.project_name}
+                      {displayCode} - {project.project_name}
                     </span>
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation()
-                        toggleProject(projectCode)
+                        toggleProject(projectFullCode)
                       }}
                       className="ml-0.5 hover:bg-blue-200 dark:hover:bg-blue-800 rounded p-0.5 transition-colors"
                       title="Remove project"
@@ -1498,7 +1694,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
               variant="outline"
               printTitle="BOQ Activities Report"
               printSettings={{
-                fontSize: '10px',
+                fontSize: 'medium',
                 compactMode: true
               }}
             />

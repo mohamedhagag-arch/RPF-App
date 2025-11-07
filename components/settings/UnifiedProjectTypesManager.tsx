@@ -95,6 +95,7 @@ export function UnifiedProjectTypesManager() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
+  const [activitySearchTerm, setActivitySearchTerm] = useState('')
   
   // UI State
   const [expandedTypes, setExpandedTypes] = useState<Set<string>>(new Set())
@@ -1120,6 +1121,21 @@ export function UnifiedProjectTypesManager() {
     scope.code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     scope.description?.toLowerCase().includes(searchTerm.toLowerCase())
   )
+  
+  // Filter activities by search term
+  const filterActivities = (activitiesList: ProjectActivity[]) => {
+    if (!activitySearchTerm.trim()) return activitiesList
+    
+    const searchLower = activitySearchTerm.toLowerCase()
+    return activitiesList.filter(activity =>
+      activity.activity_name.toLowerCase().includes(searchLower) ||
+      activity.activity_name_ar?.toLowerCase().includes(searchLower) ||
+      activity.description?.toLowerCase().includes(searchLower) ||
+      activity.category?.toLowerCase().includes(searchLower) ||
+      activity.default_unit?.toLowerCase().includes(searchLower) ||
+      activity.division?.toLowerCase().includes(searchLower)
+    )
+  }
 
   if (loading && projectScopes.length === 0) {
     return (
@@ -1422,38 +1438,77 @@ export function UnifiedProjectTypesManager() {
       </ModernCard>
 
       {/* Search and Controls */}
-      <div className="flex items-center gap-4">
-        <div className="flex-1 relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-          <Input
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search project types..."
-            className="pl-10"
-          />
+      <div className="space-y-3">
+        <div className="flex items-center gap-4">
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+            <Input
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search project types..."
+              className="pl-10"
+            />
+          </div>
+          
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+            <Input
+              value={activitySearchTerm}
+              onChange={(e) => setActivitySearchTerm(e.target.value)}
+              placeholder="Search activities..."
+              className="pl-10"
+            />
+          </div>
+          
+          <ModernButton
+            onClick={expandAll}
+            variant="outline"
+            size="sm"
+          >
+            Expand All
+          </ModernButton>
+          
+          <ModernButton
+            onClick={collapseAll}
+            variant="outline"
+            size="sm"
+          >
+            Collapse All
+          </ModernButton>
         </div>
         
-        <ModernButton
-          onClick={expandAll}
-          variant="outline"
-          size="sm"
-        >
-          Expand All
-        </ModernButton>
-        
-        <ModernButton
-          onClick={collapseAll}
-          variant="outline"
-          size="sm"
-        >
-          Collapse All
-        </ModernButton>
+        {activitySearchTerm && (
+          <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+            <Search className="h-4 w-4" />
+            <span>
+              Searching activities: "{activitySearchTerm}" - Found {
+                Object.values(activities)
+                  .flat()
+                  .filter(a => 
+                    a.activity_name.toLowerCase().includes(activitySearchTerm.toLowerCase()) ||
+                    a.activity_name_ar?.toLowerCase().includes(activitySearchTerm.toLowerCase()) ||
+                    a.description?.toLowerCase().includes(activitySearchTerm.toLowerCase()) ||
+                    a.category?.toLowerCase().includes(activitySearchTerm.toLowerCase()) ||
+                    a.default_unit?.toLowerCase().includes(activitySearchTerm.toLowerCase()) ||
+                    a.division?.toLowerCase().includes(activitySearchTerm.toLowerCase())
+                  ).length
+              } results
+            </span>
+            <button
+              onClick={() => setActivitySearchTerm('')}
+              className="ml-2 text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+            >
+              Clear
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Project Scopes List */}
       <div className="space-y-4">
         {filteredScopes.map((scope) => {
           const scopeActivities = activities[scope.name] || []
+          const filteredActivities = filterActivities(scopeActivities)
           const isExpanded = expandedTypes.has(scope.name)
           const activeActivities = scopeActivities.filter(a => a.is_active).length
           
@@ -1581,22 +1636,38 @@ export function UnifiedProjectTypesManager() {
               {/* Activities List */}
               {isExpanded && (
                 <div className="p-4">
-                  {scopeActivities.length === 0 ? (
+                  {filteredActivities.length === 0 ? (
                     <div className="text-center py-8 text-gray-500">
                       <Activity className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                      <p>No activities yet</p>
-                      <ModernButton
-                        onClick={() => handleAddActivity(scope.name)}
-                        variant="outline"
-                        size="sm"
-                        className="mt-3"
-                      >
-                        Add First Activity
-                      </ModernButton>
+                      {scopeActivities.length === 0 ? (
+                        <>
+                          <p>No activities yet</p>
+                          <ModernButton
+                            onClick={() => handleAddActivity(scope.name)}
+                            variant="outline"
+                            size="sm"
+                            className="mt-3"
+                          >
+                            Add First Activity
+                          </ModernButton>
+                        </>
+                      ) : (
+                        <>
+                          <p>No activities found matching "{activitySearchTerm}"</p>
+                          <ModernButton
+                            onClick={() => setActivitySearchTerm('')}
+                            variant="outline"
+                            size="sm"
+                            className="mt-3"
+                          >
+                            Clear Search
+                          </ModernButton>
+                        </>
+                      )}
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {scopeActivities.map((activity) => (
+                      {filteredActivities.map((activity) => (
                         <div
                           key={activity.id}
                           className={`flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg ${

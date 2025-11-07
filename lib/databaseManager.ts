@@ -778,6 +778,223 @@ function normalizeColumnNames(data: any[], tableName: string): any[] {
 }
 
 /**
+ * تشغيل الحسابات بعد استيراد BOQ Activities
+ */
+async function runCalculationsAfterBOQImport(importedData: any[]): Promise<void> {
+  try {
+    const supabase = getSupabaseClient()
+    const { mapBOQFromDB } = await import('./dataMappers')
+    const { autoSaveActivityCalculations, updateProjectCalculations } = await import('./autoCalculationSaver')
+    
+    console.log(`📊 Processing ${importedData.length} imported BOQ activities for calculations...`)
+    
+    const processedProjects = new Set<string>()
+    
+    // Process each imported activity
+    for (const row of importedData) {
+      try {
+        // Check if row already has an ID (from insert with .select())
+        let dbActivity = row
+        
+        // If no ID, fetch from database using Project Code and Activity Name
+        if (!row.id) {
+          const projectCode = row['Project Code'] || row['project_code'] || row.project_code || ''
+          const activityName = row['Activity Name'] || row['Activity'] || row['activity_name'] || row.activity_name || ''
+          
+          if (!projectCode || !activityName) {
+            console.warn('⚠️ Skipping activity without Project Code or Activity Name:', { projectCode, activityName })
+            continue
+          }
+          
+          // Fetch the activity from database (now it has an ID)
+          const { data: fetchedActivity, error: fetchError } = await supabase
+            .from(TABLES.BOQ_ACTIVITIES)
+            .select('*')
+            .eq('Project Code', projectCode)
+            .eq('Activity Name', activityName)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single()
+          
+          if (fetchError || !fetchedActivity) {
+            console.warn(`⚠️ Could not fetch activity ${activityName} for project ${projectCode}:`, fetchError)
+            continue
+          }
+          
+          dbActivity = fetchedActivity
+        }
+        
+        // Map to application format
+        const activity = mapBOQFromDB(dbActivity)
+        
+        if (!activity || !activity.id) {
+          console.warn('⚠️ Skipping activity without ID:', dbActivity)
+          continue
+        }
+        
+        // Run calculations for this activity
+        const result = await autoSaveActivityCalculations(activity)
+        
+        if (result.success) {
+          console.log(`✅ Calculated values for activity: ${activity.activity_name}`)
+        } else {
+          console.warn(`⚠️ Calculation errors for activity ${activity.activity_name}:`, result.errors)
+        }
+        
+        // Track project for later batch update
+        if (activity.project_code) {
+          processedProjects.add(activity.project_code)
+        }
+      } catch (error: any) {
+        console.warn(`⚠️ Error processing activity:`, error)
+        // Continue with next activity
+      }
+    }
+    
+    // Update project calculations for all affected projects
+    console.log(`🔄 Updating calculations for ${processedProjects.size} projects...`)
+    const projectCodes = Array.from(processedProjects)
+    for (const projectCode of projectCodes) {
+      try {
+        await updateProjectCalculations(projectCode)
+        console.log(`✅ Updated calculations for project: ${projectCode}`)
+      } catch (error: any) {
+        console.warn(`⚠️ Error updating project ${projectCode}:`, error)
+      }
+    }
+    
+    console.log(`✅ Completed calculations for ${importedData.length} BOQ activities`)
+  } catch (error: any) {
+    console.error('❌ Error running BOQ calculations:', error)
+    throw error
+  }
+}
+
+/**
+ * تشغيل الحسابات بعد استيراد Projects
+ */
+async function runCalculationsAfterProjectImport(importedData: any[]): Promise<void> {
+  try {
+    const { updateProjectCalculations } = await import('./autoCalculationSaver')
+    
+    console.log(`📊 Processing ${importedData.length} imported projects for calculations...`)
+    
+    const processedProjects = new Set<string>()
+    
+    for (const row of importedData) {
+      try {
+        const projectCode = row['Project Code'] || row['project_code'] || row.project_code
+        
+        if (!projectCode) {
+          console.warn('⚠️ Skipping project without Project Code:', row)
+          continue
+        }
+        
+        processedProjects.add(projectCode)
+      } catch (error: any) {
+        console.warn(`⚠️ Error processing project:`, error)
+      }
+    }
+    
+    // Update project calculations for all imported projects
+    console.log(`🔄 Updating calculations for ${processedProjects.size} projects...`)
+    const projectCodes = Array.from(processedProjects)
+    for (const projectCode of projectCodes) {
+      try {
+        await updateProjectCalculations(projectCode)
+        console.log(`✅ Updated calculations for project: ${projectCode}`)
+      } catch (error: any) {
+        console.warn(`⚠️ Error updating project ${projectCode}:`, error)
+      }
+    }
+    
+    console.log(`✅ Completed calculations for ${importedData.length} projects`)
+  } catch (error: any) {
+    console.error('❌ Error running project calculations:', error)
+    throw error
+  }
+}
+
+/**
+ * تشغيل الحسابات بعد استيراد KPIs
+ */
+async function runCalculationsAfterKPIImport(importedData: any[]): Promise<void> {
+  try {
+    const supabase = getSupabaseClient()
+    const { syncBOQFromKPI } = await import('./boqKpiSync')
+    const { mapKPIFromDB } = await import('./dataMappers')
+    
+    console.log(`📊 Processing ${importedData.length} imported KPIs for sync...`)
+    
+    const processedActivities = new Set<string>()
+    
+    for (const row of importedData) {
+      try {
+        // Check if row already has an ID (from insert with .select())
+        let dbKPI = row
+        
+        // If no ID, fetch from database using Project Full Code and Activity Name
+        if (!row.id) {
+          const projectFullCode = row['Project Full Code'] || row['Project Code'] || row['project_full_code'] || row['project_code'] || ''
+          const activityName = row['Activity Name'] || row['Activity'] || row['activity_name'] || row.activity_name || ''
+          
+          if (!projectFullCode || !activityName) {
+            console.warn('⚠️ Skipping KPI without Project Full Code or Activity Name:', { projectFullCode, activityName })
+            continue
+          }
+          
+          // Fetch the KPI from database (now it has an ID)
+          const { data: fetchedKPI, error: fetchError } = await supabase
+            .from(TABLES.KPI)
+            .select('*')
+            .eq('Project Full Code', projectFullCode)
+            .eq('Activity Name', activityName)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single()
+          
+          if (fetchError || !fetchedKPI) {
+            console.warn(`⚠️ Could not fetch KPI ${activityName} for project ${projectFullCode}:`, fetchError)
+            continue
+          }
+          
+          dbKPI = fetchedKPI
+        }
+        
+        // Map to application format
+        const kpi = mapKPIFromDB(dbKPI)
+        
+        if (!kpi || !kpi.id) {
+          console.warn('⚠️ Skipping KPI without ID:', dbKPI)
+          continue
+        }
+        
+        // Sync BOQ from KPI (syncBOQFromKPI takes projectCode and activityName)
+        const syncResult = await syncBOQFromKPI(kpi.project_full_code, kpi.activity_name)
+        
+        if (syncResult.success) {
+          console.log(`✅ Synced BOQ for KPI: ${kpi.activity_name}`)
+          
+          // Track activity for later calculation
+          const activityKey = `${kpi.project_full_code}-${kpi.activity_name}`
+          processedActivities.add(activityKey)
+        } else {
+          console.warn(`⚠️ Sync failed for KPI ${kpi.activity_name}:`, syncResult.message)
+        }
+      } catch (error: any) {
+        console.warn(`⚠️ Error processing KPI:`, error)
+        // Continue with next KPI
+      }
+    }
+    
+    console.log(`✅ Completed sync for ${importedData.length} KPIs`)
+  } catch (error: any) {
+    console.error('❌ Error running KPI calculations:', error)
+    throw error
+  }
+}
+
+/**
  * استيراد بيانات إلى جدول - محسّن مع validation والترابط
  */
 export async function importTableData(
@@ -873,10 +1090,11 @@ export async function importTableData(
     
     console.log(`📋 Data cleaned, importing ${cleanedData.length} rows...`)
     
-    // ✅ الخطوة 4: إدراج البيانات الجديدة
-    const { error } = await supabase
+    // ✅ الخطوة 4: إدراج البيانات الجديدة مع إرجاع البيانات المُدرجة
+    const { data: insertedData, error } = await supabase
       .from(tableName)
       .insert(cleanedData as any)
+      .select()
     
     if (error) {
       console.error(`❌ Error importing to ${tableName}:`, error)
@@ -894,14 +1112,34 @@ export async function importTableData(
       }
     }
     
-    console.log(`✅ Successfully imported ${cleanedData.length} rows to ${tableName}`)
+    const insertedRows = insertedData || []
+    console.log(`✅ Successfully imported ${insertedRows.length} rows to ${tableName}`)
     
-    // ✅ الخطوة 5: إرسال إشارة لتحديث جميع الصفحات
+    // ✅ الخطوة 5: تشغيل الحسابات بعد الاستيراد (مثل البيانات المُنشأة من الموقع)
+    try {
+      if (tableName === TABLES.BOQ_ACTIVITIES || tableName === 'Planning Database - BOQ Rates') {
+        console.log('🔄 Running calculations for imported BOQ activities...')
+        // Use inserted data if available, otherwise fall back to cleanedData
+        await runCalculationsAfterBOQImport(insertedRows.length > 0 ? insertedRows : cleanedData)
+      } else if (tableName === TABLES.PROJECTS || tableName === 'Planning Database - ProjectsList') {
+        console.log('🔄 Updating project calculations for imported projects...')
+        await runCalculationsAfterProjectImport(insertedRows.length > 0 ? insertedRows : cleanedData)
+      } else if (tableName === TABLES.KPI || tableName === 'Planning Database - KPI') {
+        console.log('🔄 Syncing KPIs with BOQ activities...')
+        await runCalculationsAfterKPIImport(insertedRows.length > 0 ? insertedRows : cleanedData)
+      }
+    } catch (calcError: any) {
+      console.warn('⚠️ Calculations after import had errors (data still imported):', calcError)
+      // Don't fail the import if calculations fail
+    }
+    
+    // ✅ الخطوة 6: إرسال إشارة لتحديث جميع الصفحات
     triggerGlobalRefresh(tableName)
     console.log(`🔄 Triggered global refresh for all pages`)
     
     // إنشاء رسالة النجاح مع التحذيرات
-    let successMessage = `Successfully imported ${cleanedData.length} rows`
+    const importedCount = insertedRows.length > 0 ? insertedRows.length : cleanedData.length
+    let successMessage = `Successfully imported ${importedCount} rows`
     if (validation.warnings.length > 0) {
       successMessage += `\n\nWarnings:\n${validation.warnings.join('\n')}`
     }
@@ -909,7 +1147,7 @@ export async function importTableData(
     return {
       success: true,
       message: successMessage,
-      affectedRows: cleanedData.length,
+      affectedRows: importedCount,
       data: validation.warnings.length > 0 ? { warnings: validation.warnings } : undefined
     }
     

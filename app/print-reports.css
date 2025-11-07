@@ -12,11 +12,21 @@
 
   @page {
     size: A4 portrait;
-    margin: 2cm 1.5cm;
+    margin: 1.5cm;
   }
 
   @page :first {
     margin-top: 1cm;
+  }
+  
+  @page :left {
+    margin-left: 2cm;
+    margin-right: 1.5cm;
+  }
+  
+  @page :right {
+    margin-left: 1.5cm;
+    margin-right: 2cm;
   }
 
   /* Body and Root */

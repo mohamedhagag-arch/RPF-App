@@ -128,18 +128,36 @@ export function ModernProjectCard({
         setTimeout(() => reject(new Error('Request timeout')), 5000)
       )
       
-      // ✅ FIXED: Use select('*') to get all fields needed by mapBOQFromDB and mapKPIFromDB
+      // ✅ FIX: Build project_full_code for accurate matching
+      const projectCode = (project.project_code || '').trim()
+      const projectSubCode = (project.project_sub_code || '').trim()
+      
+      let projectFullCode = projectCode
+      if (projectSubCode) {
+        // Check if sub_code already starts with project_code (case-insensitive)
+        if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+          projectFullCode = projectSubCode
+        } else {
+          if (projectSubCode.startsWith('-')) {
+            projectFullCode = `${projectCode}${projectSubCode}`
+          } else {
+            projectFullCode = `${projectCode}-${projectSubCode}`
+          }
+        }
+      }
+      
+      // ✅ FIXED: Use project_full_code for accurate matching
       const [activitiesResult, kpisResult] = await Promise.race([
         Promise.all([
           supabase
             .from(TABLES.BOQ_ACTIVITIES)
             .select('*')
-            .or(`Project Code.eq.${project.project_code},Project Full Code.like.${project.project_code}%`)
+            .or(`Project Full Code.eq.${projectFullCode},Project Code.eq.${projectCode},Project Full Code.like.${projectFullCode}%`)
             .limit(1000), // ✅ SPEED: Limit results to prevent huge queries
           supabase
             .from(TABLES.KPI)
             .select('*')
-            .or(`Project Full Code.eq.${project.project_code},Project Code.eq.${project.project_code},Project Full Code.like.${project.project_code}%`)
+            .or(`Project Full Code.eq.${projectFullCode},Project Code.eq.${projectCode},Project Full Code.like.${projectFullCode}%`)
             .limit(1000) // ✅ SPEED: Limit results to prevent huge queries
         ]),
         timeoutPromise
@@ -229,11 +247,81 @@ export function ModernProjectCard({
   }
 
   // ✅ Calculate display values from analytics - ALWAYS calculate even if analytics is null
+  // ✅ REBUILD: Calculate counts directly from activities and KPIs if analytics not available
   // This ensures we always have valid numbers for display (0 if no data)
-  // ✅ Use actualProgress (Earned Value / Total Value) instead of overallProgress
+  
+  // Build project_full_code for matching
+  const projectCode = (project.project_code || '').trim()
+  const projectSubCode = (project.project_sub_code || '').trim()
+  let projectFullCode = projectCode
+  if (projectSubCode) {
+    if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+      projectFullCode = projectSubCode
+    } else {
+      if (projectSubCode.startsWith('-')) {
+        projectFullCode = `${projectCode}${projectSubCode}`
+      } else {
+        projectFullCode = `${projectCode}-${projectSubCode}`
+      }
+    }
+  }
+  
+  // ✅ REBUILD: Calculate activities count directly (same logic as analytics)
+  const matchedActivities = propActivities?.filter(a => {
+    const aCode = (a.project_code || '').trim()
+    const aFullCode = (a.project_full_code || '').trim()
+    const aRawCode = (a as any).raw?.['Project Code'] || ''
+    const aRawFullCode = (a as any).raw?.['Project Full Code'] || ''
+    
+    return aCode === projectCode || 
+           aFullCode === projectFullCode || 
+           aFullCode === projectCode ||
+           aRawCode === projectCode ||
+           aRawFullCode === projectFullCode ||
+           aFullCode.startsWith(projectFullCode) ||
+           aFullCode.startsWith(projectCode)
+  }) || []
+  
+  // ✅ REBUILD: Calculate KPIs count directly (same logic as activities)
+  const matchedKPIs = propKPIs?.filter(k => {
+    const kCode = (k.project_code || '').trim()
+    const kFullCode = (k.project_full_code || '').trim()
+    const kRawCode = (k as any).raw?.['Project Code'] || ''
+    const kRawFullCode = (k as any).raw?.['Project Full Code'] || ''
+    
+    return kCode === projectCode || 
+           kFullCode === projectFullCode || 
+           kFullCode === projectCode ||
+           kRawCode === projectCode ||
+           kRawFullCode === projectFullCode ||
+           kFullCode.startsWith(projectFullCode) ||
+           kFullCode.startsWith(projectCode)
+  }) || []
+  
+  // ✅ REBUILD: Use analytics if available, otherwise use direct counts
   const progress = analytics?.actualProgress ?? analytics?.overallProgress ?? 0
-  const totalActivities = analytics?.totalActivities ?? 0
-  const totalKPIs = analytics?.totalKPIs ?? 0
+  const totalActivities = analytics?.totalActivities ?? matchedActivities.length
+  const totalKPIs = analytics?.totalKPIs ?? matchedKPIs.length
+  
+  // ✅ DEBUG: Log direct calculation results
+  console.log(`🔍 [${project.project_code}] ModernProjectCard - Direct counts:`, {
+    projectCode,
+    projectFullCode,
+    propActivitiesLength: propActivities?.length || 0,
+    propKPIsLength: propKPIs?.length || 0,
+    matchedActivitiesCount: matchedActivities.length,
+    matchedKPIsCount: matchedKPIs.length,
+    analyticsTotalActivities: analytics?.totalActivities,
+    analyticsTotalKPIs: analytics?.totalKPIs,
+    finalTotalActivities: totalActivities,
+    finalTotalKPIs: totalKPIs,
+    // Show sample matched KPIs
+    sampleMatchedKPIs: matchedKPIs.slice(0, 2).map(k => ({
+      project_code: k.project_code,
+      project_full_code: k.project_full_code,
+      activity_name: k.activity_name
+    }))
+  })
 
   // ✅ DEBUG: Log analytics state for troubleshooting - SHOW FULL VALUES AND DISPLAY VALUES
   // Log for ALL projects to see what's happening

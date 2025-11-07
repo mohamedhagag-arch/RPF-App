@@ -339,6 +339,16 @@ export function TableManager({ table, onUpdate }: TableManagerProps) {
             <FileDown className="w-4 h-4" />
             <span>Download Empty Template (CSV)</span>
           </button>
+          {table.name === 'Planning Database - BOQ Rates' && (
+            <div className="mt-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-xs text-blue-800 dark:text-blue-200">
+              <p className="font-semibold mb-1">💡 نصائح للاستيراد:</p>
+              <ul className="list-disc list-inside space-y-1">
+                <li>استخدم Template لضمان التنسيق الصحيح</li>
+                <li>تأكد من وجود Project Code في جدول Projects</li>
+                <li>الحسابات ستعمل تلقائياً بعد الاستيراد</li>
+              </ul>
+            </div>
+          )}
         </div>
 
         {/* Import */}

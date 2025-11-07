@@ -11,15 +11,44 @@ import { Project, BOQActivity, KPIRecord } from './supabase'
 export function mapProjectFromDB(row: any): Project {
   if (!row) return row
   
+  // ✅ FIX: Get project_type from multiple sources (for uploaded data compatibility)
+  // Support both database column names (with spaces) and application field names (snake_case)
+  // This ensures compatibility with both manually created projects and uploaded data
+  const projectType = row['Project Type'] || 
+                     row['project_type'] || 
+                     row.project_type || 
+                     (row as any)?.raw?.['Project Type'] ||
+                     ''
+  
+  // ✅ FIX: Get responsible_division from multiple sources
+  const responsibleDivision = row['Responsible Division'] || 
+                             row['responsible_division'] || 
+                             row.responsible_division || 
+                             (row as any)?.raw?.['Responsible Division'] ||
+                             ''
+  
+  // ✅ DEBUG: Log for first few projects to diagnose uploaded data issues
+  if (Math.random() < 0.05) { // Log 5% of projects randomly
+    console.log('🔍 mapProjectFromDB - Project Type sources:', {
+      projectCode: row['Project Code'] || row['project_code'] || row.project_code,
+      'Project Type (DB)': row['Project Type'],
+      'project_type (snake_case)': row['project_type'],
+      project_type_direct: row.project_type,
+      rawProjectType: (row as any)?.raw?.['Project Type'],
+      finalProjectType: projectType,
+      hasProjectType: !!projectType && projectType.trim() !== ''
+    })
+  }
+  
   return {
     id: row.id,
-    project_code: row['Project Code'] || '',
-    project_sub_code: row['Project Sub-Code'] || '',
-    project_name: row['Project Name'] || '',
-    project_description: row['Project Description'] || '',
-    project_type: row['Project Type'] || '',
-    responsible_division: row['Responsible Division'] || '',
-    plot_number: row['Plot Number'] || '',
+    project_code: row['Project Code'] || row['project_code'] || row.project_code || '',
+    project_sub_code: row['Project Sub-Code'] || row['Project Sub Code'] || row['project_sub_code'] || row.project_sub_code || '',
+    project_name: row['Project Name'] || row['project_name'] || row.project_name || '',
+    project_description: row['Project Description'] || row['project_description'] || row.project_description || '',
+    project_type: projectType,
+    responsible_division: responsibleDivision,
+    plot_number: row['Plot Number'] || row['plot_number'] || row.plot_number || '',
     kpi_completed: row['KPI Completed'] === 'TRUE' || row['KPI Completed'] === true,
     project_status: (row['Project Status'] || 'active').toLowerCase() as any,
     contract_amount: parseFloat((row['Contract Amount'] || '0').replace(/,/g, '')),
@@ -310,13 +339,37 @@ export function mapKPIFromDB(row: any): any {
   // Calculate smart status based on value, not just quantity
   const statusCalc = calculateKPIStatus(plannedValue, actualValue)
   
+  // ✅ FIX: Build project_full_code correctly (same logic as mapBOQFromDB)
+  const projectCode = (row['Project Code'] || row['project_code'] || '').toString().trim()
+  const projectSubCode = (row['Project Sub Code'] || row['Project Sub-Code'] || row['project_sub_code'] || '').toString().trim()
+  const projectFullCodeFromDB = (row['Project Full Code'] || row['project_full_code'] || '').toString().trim()
+  
+  // Build project_full_code if not provided in database
+  let projectFullCode = projectFullCodeFromDB
+  if (!projectFullCode && projectCode) {
+    if (projectSubCode) {
+      // Check if sub_code already starts with project_code (case-insensitive)
+      if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+        projectFullCode = projectSubCode
+      } else {
+        if (projectSubCode.startsWith('-')) {
+          projectFullCode = `${projectCode}${projectSubCode}`
+        } else {
+          projectFullCode = `${projectCode}-${projectSubCode}`
+        }
+      }
+    } else {
+      projectFullCode = projectCode
+    }
+  }
+  
   const mapped = {
     id: row.id,
     project_id: row.project_id || '',
     activity_id: row.activity_id || '',
-    project_full_code: row['Project Full Code'] || '',
-    project_code: row['Project Code'] || '',
-    project_sub_code: row['Project Sub Code'] || '',
+    project_full_code: projectFullCode || projectCode,
+    project_code: projectCode,
+    project_sub_code: projectSubCode,
     activity_name: row['Activity Name'] || '',
     activity: row['Activity'] || row['Activity Name'] || '',
     kpi_name: row['Activity Name'] || '', // Using activity name as KPI name

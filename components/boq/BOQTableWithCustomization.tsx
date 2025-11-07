@@ -10,6 +10,7 @@ import { usePermissionGuard } from '@/lib/permissionGuard'
 import { PermissionGuard } from '@/components/common/PermissionGuard'
 import { CheckCircle, Clock, AlertCircle, Calendar, Building, Activity, TrendingUp, Target, Info, Filter, X, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
+import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 
 interface BOQTableWithCustomizationProps {
   activities: BOQActivity[]
@@ -24,14 +25,15 @@ interface BOQTableWithCustomizationProps {
 const defaultBOQColumns: ColumnConfig[] = [
   { id: 'select', label: 'Select', visible: true, order: 0, fixed: true, width: '60px' },
   { id: 'activity_details', label: 'Activity Details', visible: true, order: 1, width: '250px' },
-  { id: 'quantities', label: 'Quantities', visible: true, order: 2, width: '180px' },
-  { id: 'activity_value', label: 'Activity Value', visible: true, order: 3, width: '150px' },
-  { id: 'planned_dates', label: 'Planned Dates', visible: true, order: 4, width: '180px' },
-  { id: 'actual_dates', label: 'Actual Dates', visible: true, order: 5, width: '180px' },
-  { id: 'progress_summary', label: 'Progress Summary', visible: true, order: 6, width: '180px' },
-  { id: 'work_value_status', label: 'Work Value Status', visible: true, order: 7, width: '200px' },
-  { id: 'activity_status', label: 'Activity Status', visible: true, order: 8, width: '150px' },
-  { id: 'actions', label: 'Actions', visible: true, order: 9, fixed: true, width: '150px' }
+  { id: 'scope', label: 'Scope', visible: true, order: 2, width: '200px' },
+  { id: 'quantities', label: 'Quantities', visible: true, order: 3, width: '180px' },
+  { id: 'activity_value', label: 'Activity Value', visible: true, order: 4, width: '150px' },
+  { id: 'planned_dates', label: 'Planned Dates', visible: true, order: 5, width: '180px' },
+  { id: 'actual_dates', label: 'Actual Dates', visible: true, order: 6, width: '180px' },
+  { id: 'progress_summary', label: 'Progress Summary', visible: true, order: 7, width: '180px' },
+  { id: 'work_value_status', label: 'Work Value Status', visible: true, order: 8, width: '200px' },
+  { id: 'activity_status', label: 'Activity Status', visible: true, order: 9, width: '150px' },
+  { id: 'actions', label: 'Actions', visible: true, order: 10, fixed: true, width: '150px' }
 ]
 
 export function BOQTableWithCustomization({ 
@@ -45,6 +47,8 @@ export function BOQTableWithCustomization({
   const guard = usePermissionGuard()
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [showCustomizer, setShowCustomizer] = useState(false)
+  // ✅ FIX: Load project types from project_types table for Scope display
+  const [projectTypesMap, setProjectTypesMap] = useState<Map<string, { name: string; description?: string }>>(new Map())
   
   // Sorting state
   const [sortColumn, setSortColumn] = useState<string | null>(null)
@@ -58,6 +62,47 @@ export function BOQTableWithCustomization({
     defaultColumns: defaultBOQColumns, 
     storageKey: 'boq' 
   })
+
+  // ✅ FIX: Load project types from project_types table on mount
+  useEffect(() => {
+    const loadProjectTypes = async () => {
+      try {
+        const supabase = getSupabaseClient()
+        console.log('🔄 Loading project types for BOQ Scope column...')
+        
+        const { data, error } = await supabase
+          .from('project_types')
+          .select('name, description')
+          .eq('is_active', true)
+          .order('name', { ascending: true })
+        
+        if (error) {
+          console.error('❌ Error loading project types:', error)
+          return
+        }
+        
+        // Create a map for quick lookup by name
+        const typesMap = new Map<string, { name: string; description?: string }>()
+        if (data && data.length > 0) {
+          data.forEach((type: any) => {
+            if (type.name) {
+              typesMap.set(type.name, {
+                name: type.name,
+                description: type.description
+              })
+            }
+          })
+        }
+        
+        setProjectTypesMap(typesMap)
+        console.log(`✅ Loaded ${typesMap.size} project types for BOQ Scope column`)
+      } catch (error: any) {
+        console.error('❌ Error loading project types:', error)
+      }
+    }
+    
+    loadProjectTypes()
+  }, [])
 
   const handleSelectOne = (id: string, checked: boolean) => {
     if (checked) {
@@ -468,6 +513,128 @@ export function BOQTableWithCustomization({
                 Zone {zoneValue}
               </div>
             )}
+          </div>
+        )
+      
+      case 'scope':
+        // ✅ FIX: Get scope from project_types table based on project's project_type
+        // 1. Get project associated with this activity (try multiple matching strategies)
+        let activityProject = projects.find(p => 
+          p.project_code === activity.project_code
+        )
+        
+        // If not found, try matching by project_full_code
+        if (!activityProject && activity.project_full_code) {
+          const projectCodeFromFull = activity.project_full_code.split('-')[0]
+          activityProject = projects.find(p => 
+            p.project_code === projectCodeFromFull ||
+            (p.project_code && p.project_sub_code && 
+             `${p.project_code}-${p.project_sub_code}` === activity.project_full_code)
+          )
+        }
+        
+        // 2. Get project_type from project (try multiple sources)
+        const activityProjectTypeRaw = activityProject?.project_type || 
+                                      (activityProject as any)?.raw?.['Project Type'] ||
+                                      ''
+        
+        // ✅ DEBUG: Log for first few activities to diagnose
+        const isFirstActivity = activities.indexOf(activity) < 3
+        if (isFirstActivity) {
+          console.log(`🔍 [BOQ Scope] Activity: ${activity.activity_name}`, {
+            projectCode: activity.project_code,
+            projectFullCode: activity.project_full_code,
+            foundProject: !!activityProject,
+            projectProjectType: activityProject?.project_type,
+            projectTypeRaw: activityProjectTypeRaw,
+            projectTypesMapSize: projectTypesMap.size,
+            projectTypesMapKeys: Array.from(projectTypesMap.keys()).slice(0, 5)
+          })
+        }
+        
+        // 3. Split by comma to handle multiple project types
+        const activityProjectTypeNames = activityProjectTypeRaw && 
+                                       activityProjectTypeRaw !== 'N/A' && 
+                                       activityProjectTypeRaw.trim() !== '' && 
+                                       activityProjectTypeRaw !== 'null' && 
+                                       activityProjectTypeRaw !== 'undefined'
+          ? activityProjectTypeRaw
+              .split(/,\s*/) // Split by comma with optional space
+              .map((s: string) => s.trim())
+              .filter((s: string) => s.length > 0 && s !== 'N/A' && s !== 'null' && s !== 'undefined')
+          : []
+        
+        if (isFirstActivity) {
+          console.log(`🔍 [BOQ Scope] After split:`, {
+            activityProjectTypeNames,
+            count: activityProjectTypeNames.length
+          })
+        }
+        
+        // 4. Look up each project type name in project_types table
+        const scopeList: string[] = []
+        if (activityProjectTypeNames.length > 0) {
+          activityProjectTypeNames.forEach((typeName: string) => {
+            // Try exact match first
+            const projectType = projectTypesMap.get(typeName)
+            if (projectType) {
+              scopeList.push(projectType.name)
+              if (isFirstActivity) {
+                console.log(`✅ [BOQ Scope] Found exact match for "${typeName}":`, projectType.name)
+              }
+            } else {
+              // Try case-insensitive match
+              let found = false
+              Array.from(projectTypesMap.entries()).forEach(([key, value]) => {
+                if (key.toLowerCase() === typeName.toLowerCase()) {
+                  scopeList.push(value.name)
+                  found = true
+                  if (isFirstActivity) {
+                    console.log(`✅ [BOQ Scope] Found case-insensitive match for "${typeName}":`, value.name)
+                  }
+                }
+              })
+              // If not found in project_types table, use the original name as fallback
+              if (!found) {
+                scopeList.push(typeName)
+                if (isFirstActivity) {
+                  console.log(`⚠️ [BOQ Scope] No match found for "${typeName}", using as-is`)
+                }
+              }
+            }
+          })
+        }
+        
+        // 5. If no scopes found, show N/A
+        const finalScopeList = scopeList.length > 0 ? scopeList : ['N/A']
+        
+        if (isFirstActivity) {
+          console.log(`🔍 [BOQ Scope] Final result:`, {
+            finalScopeList,
+            scopeListLength: scopeList.length,
+            hasProject: !!activityProject,
+            hasProjectType: !!activityProjectTypeRaw && activityProjectTypeRaw.trim() !== ''
+          })
+        }
+        
+        return (
+          <div className="flex flex-wrap gap-1.5 items-center">
+            {finalScopeList.map((scope, index) => {
+              const scopeLower = scope.toLowerCase()
+              let scopeColor = 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300'
+              
+              if (scopeLower.includes('infrastructure') || scopeLower.includes('enabling')) {
+                scopeColor = 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
+              } else if (scopeLower.includes('construction') || scopeLower.includes('excavation')) {
+                scopeColor = 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300'
+              }
+              
+              return (
+                <span key={index} className={`px-2.5 py-1 text-xs font-medium rounded-full ${scopeColor}`}>
+                  {scope}
+                </span>
+              )
+            })}
           </div>
         )
       

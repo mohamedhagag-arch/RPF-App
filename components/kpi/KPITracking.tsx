@@ -244,21 +244,43 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       // ✅ إذا تم اختيار مشاريع، حمل البيانات
       console.log(`📊 Fetching KPIs for ${projectCodesArray.length} selected project(s):`, projectCodesArray)
       
+      // ✅ FIX: Extract project_code from project_full_code if needed
+      // selectedProjects now contains project_full_code (e.g., "P5066-1"), but Activities table
+      // might use "Project Code" (e.g., "P5066") or "Project Full Code"
+      // We'll try both: first with project_full_code, then fallback to project_code
+      const extractProjectCode = (fullCode: string): string => {
+        // If it contains "-", extract the part before it (project_code)
+        if (fullCode.includes('-')) {
+          return fullCode.split('-')[0]
+        }
+        return fullCode
+      }
+      
+      const projectCodesForActivities = projectCodesArray.map(extractProjectCode)
+      const uniqueProjectCodes = Array.from(new Set(projectCodesForActivities))
+      
       // تحميل Activities و KPIs معاً
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('KPI fetch timeout')), 60000) // زيادة إلى 60 ثانية
       )
       
       // تحميل Activities مع فلتر المشاريع المحددة
+      // ✅ FIX: Try to match using Project Full Code first, then fallback to Project Code
       let activitiesQuery = supabase
         .from(TABLES.BOQ_ACTIVITIES)
         .select('*')
       
       // تطبيق فلتر المشاريع على الأنشطة
-      if (projectCodesArray.length === 1) {
-        activitiesQuery = activitiesQuery.eq('Project Code', projectCodesArray[0])
-      } else if (projectCodesArray.length > 1) {
-        activitiesQuery = activitiesQuery.in('Project Code', projectCodesArray)
+      // Try matching by Project Full Code first (if available in DB)
+      if (uniqueProjectCodes.length === 1) {
+        // Try both Project Full Code and Project Code
+        activitiesQuery = activitiesQuery.or(`Project Full Code.eq.${projectCodesArray[0]},Project Code.eq.${uniqueProjectCodes[0]}`)
+      } else if (uniqueProjectCodes.length > 1) {
+        // For multiple projects, we need to check both fields
+        // Use 'in' for Project Code and 'in' for Project Full Code
+        const fullCodeFilter = projectCodesArray.map(code => `Project Full Code.eq.${code}`).join(',')
+        const codeFilter = uniqueProjectCodes.map(code => `Project Code.eq.${code}`).join(',')
+        activitiesQuery = activitiesQuery.or(`${fullCodeFilter},${codeFilter}`)
       }
       
       const activitiesResult = await activitiesQuery
@@ -270,46 +292,99 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         console.log('🔍 Activities loaded:', mappedActivities.map(a => a.activity_name))
       }
       
-      // تحميل KPIs للمشاريع المحددة مع تحسين
-      let kpisData = null
+      // تحميل KPIs للمشاريع المحددة مع pagination لتحميل جميع السجلات
+      let kpisData: any[] = []
       let count = 0
       
-      // ✅ تحسين: استعلام أبسط وأسرع
-      let kpiQuery = supabase
-        .from(TABLES.KPI)
-        .select('*', { count: 'exact' })
-        .order('created_at', { ascending: false })
-        .limit(500) // تقليل الحد الأقصى لتحسين الأداء
+      // ✅ FIX: استخدام pagination لتحميل جميع السجلات (بدلاً من limit 500)
+      // Supabase default limit is 1000, so we need to fetch in chunks
+      const chunkSize = 1000
+      let offset = 0
+      let hasMore = true
       
-      // Filter by multiple projects
-      if (projectCodesArray.length === 1) {
-        kpiQuery = kpiQuery.eq('Project Full Code', projectCodesArray[0])
-      } else if (projectCodesArray.length > 1) {
-        kpiQuery = kpiQuery.in('Project Full Code', projectCodesArray)
+      // Build base query with filters
+      const buildKPIQuery = (includeCount = false, useHead = false, rangeStart?: number, rangeEnd?: number) => {
+        let query = supabase
+          .from(TABLES.KPI)
+          .select('*', includeCount ? { count: 'exact', head: useHead } : undefined)
+          .order('created_at', { ascending: false })
+        
+        // Filter by multiple projects
+        if (projectCodesArray.length === 1) {
+          query = query.eq('Project Full Code', projectCodesArray[0])
+        } else if (projectCodesArray.length > 1) {
+          query = query.in('Project Full Code', projectCodesArray)
+        }
+        
+        // Apply range if provided
+        if (rangeStart !== undefined && rangeEnd !== undefined) {
+          query = query.range(rangeStart, rangeEnd)
+        }
+        
+        return query
       }
       
-      const { data, error, count: totalCount } = await Promise.race([
-        kpiQuery,
-        timeoutPromise
-      ]) as any
+      // Get total count first (using head: true for faster count)
+      const { count: totalCount, error: countError } = await buildKPIQuery(true, true)
       
-      if (error) {
-        console.error('❌ KPITracking: Error fetching KPIs:', error)
-        // ✅ تحسين: معالجة أفضل للأخطاء
-        if (error.message.includes('timeout')) {
-          setError('Loading KPIs is taking longer than expected. Please try again or select fewer projects.')
-        } else {
-          setError(`Failed to load KPIs: ${error.message}`)
-        }
+      if (countError) {
+        console.error('❌ KPITracking: Error getting KPI count:', countError)
+        setError(`Failed to load KPIs: ${countError.message}`)
         setKpis([])
         setTotalKPICount(0)
         return
       }
       
-      kpisData = data
       count = totalCount || 0
+      console.log(`📊 Total KPIs to fetch: ${count} for ${projectCodesArray.length} project(s)`)
       
-      console.log(`✅ Fetched ${data?.length || 0} KPIs out of ${count} total for ${projectCodesArray.length} project(s)`)
+      // Fetch all KPIs in chunks
+      while (hasMore) {
+        try {
+          const { data: chunkData, error: chunkError } = await Promise.race([
+            buildKPIQuery(false, false, offset, offset + chunkSize - 1),
+            timeoutPromise
+          ]) as any
+          
+          if (chunkError) {
+            if (chunkError.message?.includes('timeout')) {
+              console.warn(`⚠️ Timeout fetching chunk at offset ${offset}, stopping pagination`)
+              hasMore = false
+              break
+            } else {
+              throw chunkError
+            }
+          }
+          
+          if (!chunkData || chunkData.length === 0) {
+            hasMore = false
+            break
+          }
+          
+          kpisData = [...kpisData, ...chunkData]
+          console.log(`📥 Fetched chunk: ${chunkData.length} KPIs (total so far: ${kpisData.length}/${count})`)
+          
+          // If we got less than chunkSize, we're done
+          if (chunkData.length < chunkSize) {
+            hasMore = false
+          } else {
+            offset += chunkSize
+            // Small delay to prevent overwhelming the database
+            await new Promise(resolve => setTimeout(resolve, 50))
+          }
+        } catch (error: any) {
+          console.error('❌ KPITracking: Error fetching KPI chunk:', error)
+          if (error.message?.includes('timeout')) {
+            setError('Loading KPIs is taking longer than expected. Some data may be missing.')
+            hasMore = false
+            break
+          } else {
+            throw error
+          }
+        }
+      }
+      
+      console.log(`✅ Fetched ${kpisData.length} KPIs out of ${count} total for ${projectCodesArray.length} project(s)`)
       
       // ✅ ALWAYS update state (React handles unmounted components safely)
       setTotalKPICount(count)
@@ -386,8 +461,35 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       
       // Calculate progress for all activities
       try {
+        // ✅ FIX: Convert ProcessedKPI[] to KPIRecord[] for calculateActivityProgress
+        // calculateActivityProgress expects KPIRecord[] but we have ProcessedKPI[]
+        const kpiRecordsForProgress: KPIRecord[] = processedKPIs.map((processed: ProcessedKPI) => ({
+          id: processed.id,
+          project_full_code: processed.project_full_code,
+          activity_name: processed.activity_name,
+          quantity: processed.quantity,
+          input_type: processed.input_type,
+          section: processed.section,
+          zone: processed.zone,
+          drilled_meters: processed.drilled_meters,
+          unit: processed.unit,
+          value: processed.value,
+          planned_value: processed.planned_value,
+          actual_value: processed.actual_value,
+          target_date: processed.target_date,
+          activity_date: processed.activity_date,
+          created_at: processed.created_at,
+          updated_at: processed.updated_at,
+          // Map status from ProcessedKPI to KPIRecord format
+          status: processed.status === 'excellent' || processed.status === 'good' 
+            ? 'on_track' 
+            : processed.status === 'average' 
+            ? 'at_risk' 
+            : 'delayed'
+        }))
+        
         const progresses = activities.map(activity => 
-          calculateActivityProgress(activity, processedKPIs)
+          calculateActivityProgress(activity, kpiRecordsForProgress)
         )
         setActivityProgresses(progresses)
         console.log('✅ Activity progress calculated successfully')
@@ -627,15 +729,17 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         }
       }
       
-      // 🔄 AUTO-SYNC: If this is Actual, update BOQ
-      if (kpiData['Input Type'] === 'Actual' || kpiData.input_type === 'Actual') {
-        console.log('🔄 Auto-syncing BOQ from KPI Actual...')
-        const { syncBOQFromKPI } = await import('@/lib/boqKpiSync')
-        const syncResult = await syncBOQFromKPI(
-          kpiData['Project Full Code'] || kpiData.project_full_code,
-          kpiData['Activity Name'] || kpiData.activity_name
-        )
-        console.log('Sync result:', syncResult)
+      // ✅ FIX: AUTO-SYNC: Update BOQ for BOTH Planned and Actual KPIs
+      console.log('🔄 Auto-syncing BOQ from KPI...')
+      const { syncBOQFromKPI } = await import('@/lib/boqKpiSync')
+      const syncResult = await syncBOQFromKPI(
+        kpiData['Project Full Code'] || kpiData.project_full_code,
+        kpiData['Activity Name'] || kpiData.activity_name
+      )
+      console.log('✅ BOQ Sync Result:', syncResult)
+      if (syncResult.success) {
+        console.log(`📊 BOQ Planned updated to: ${syncResult.updatedBOQPlanned}`)
+        console.log(`📊 BOQ Actual updated to: ${syncResult.updatedBOQActual}`)
       }
       
       // Refresh data to show new record (reload with current project filter)
@@ -794,17 +898,16 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         console.error('Database:', verifyData['Activity Name'])
       }
       
-      // 🔄 AUTO-SYNC: If this is Actual, update BOQ
-      if (kpiData.input_type === 'Actual') {
-        console.log('🔄 Auto-syncing BOQ from KPI Actual...')
-        const syncResult = await syncBOQFromKPI(
-          kpiData.project_full_code,
-          kpiData.activity_name
-        )
-        console.log('✅ BOQ Sync Result:', syncResult)
-        if (syncResult.success) {
-          console.log(`📊 BOQ Actual updated to: ${syncResult.updatedBOQActual}`)
-        }
+      // ✅ FIX: AUTO-SYNC: Update BOQ for BOTH Planned and Actual KPIs
+      console.log('🔄 Auto-syncing BOQ from KPI...')
+      const syncResult = await syncBOQFromKPI(
+        kpiData.project_full_code,
+        kpiData.activity_name
+      )
+      console.log('✅ BOQ Sync Result:', syncResult)
+      if (syncResult.success) {
+        console.log(`📊 BOQ Planned updated to: ${syncResult.updatedBOQPlanned}`)
+        console.log(`📊 BOQ Actual updated to: ${syncResult.updatedBOQActual}`)
       }
       
       console.log('========================================')
@@ -931,9 +1034,10 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       setKpis(kpis.filter(k => k.id !== id))
       
       // 🔄 AUTO-SYNC: If this was Actual, update BOQ
-      if (kpiToDelete && kpiToDelete.input_type === 'Actual') {
+      // ✅ FIX: Sync BOQ after deletion for BOTH Planned and Actual KPIs
+      if (kpiToDelete) {
         console.log('🔄 Syncing BOQ after KPI deletion...')
-        console.log('⚠️ WARNING: This will update BOQ Actual Units to 0 if no other KPI Actual records exist')
+        console.log('⚠️ WARNING: This will update BOQ Units based on remaining KPIs')
         
         try {
           const { syncBOQFromKPI } = await import('@/lib/boqKpiSync')
@@ -942,6 +1046,10 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
             kpiToDelete.activity_name
           )
           console.log('✅ BOQ Sync Result:', syncResult)
+          if (syncResult.success) {
+            console.log(`📊 BOQ Planned updated to: ${syncResult.updatedBOQPlanned}`)
+            console.log(`📊 BOQ Actual updated to: ${syncResult.updatedBOQActual}`)
+          }
         } catch (syncError) {
           console.error('❌ BOQ Sync failed:', syncError)
           // Don't fail the entire delete operation if sync fails
@@ -1405,7 +1513,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
               variant="outline"
               printTitle="KPI Records Report"
               printSettings={{
-                fontSize: '11px',
+                fontSize: 'medium',
                 compactMode: true
               }}
             />
@@ -1426,10 +1534,35 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       
       {/* Smart Filter */}
       <SmartFilter
-        projects={projects.map(p => ({ 
-          project_code: p.project_code, 
-          project_name: p.project_name 
-        }))}
+        projects={projects.map(p => {
+          // ✅ FIX: Build project_full_code correctly, avoiding duplication
+          // Check if project_sub_code already contains project_code
+          const projectCode = (p.project_code || '').trim()
+          const projectSubCode = (p.project_sub_code || '').trim()
+          
+          let projectFullCode = projectCode
+          if (projectSubCode) {
+            // Check if sub_code already starts with project_code (case-insensitive)
+            if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+              // project_sub_code already contains project_code (e.g., "P5066-R1")
+              projectFullCode = projectSubCode
+            } else {
+              // project_sub_code is just the suffix (e.g., "R1" or "-R1")
+              if (projectSubCode.startsWith('-')) {
+                projectFullCode = `${projectCode}${projectSubCode}`
+              } else {
+                projectFullCode = `${projectCode}-${projectSubCode}`
+              }
+            }
+          }
+          
+          return {
+            project_code: projectCode,
+            project_sub_code: projectSubCode,
+            project_full_code: projectFullCode,
+            project_name: p.project_name 
+          }
+        })}
         activities={activities.map(a => ({
           activity_name: a.activity_name,
           project_code: a.project_code,

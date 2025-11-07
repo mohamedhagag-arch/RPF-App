@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import { Button } from './Button'
-import { Printer } from 'lucide-react'
+import { Printer, Settings } from 'lucide-react'
+import { PrintSettingsModal, PrintSettings } from './PrintSettingsModal'
 
 interface PrintButtonProps {
   label?: string
@@ -10,17 +11,8 @@ interface PrintButtonProps {
   className?: string
   disabled?: boolean
   printTitle?: string
-  printSettings?: {
-    orientation?: 'portrait' | 'landscape'
-    pageSize?: 'A4' | 'A3' | 'Letter'
-    margins?: string
-    fontSize?: string
-    showPageNumbers?: boolean
-    showDate?: boolean
-    compactMode?: boolean
-    showProgressBars?: boolean
-    maxRowsPerPage?: number
-  }
+  showSettings?: boolean
+  printSettings?: PrintSettings
 }
 
 export function PrintButton({
@@ -29,21 +21,55 @@ export function PrintButton({
   className = '',
   disabled = false,
   printTitle = 'Report',
-  printSettings = {}
+  showSettings = true,
+  printSettings: defaultSettings = {}
 }: PrintButtonProps) {
   const [printing, setPrinting] = useState(false)
+  const [showSettingsModal, setShowSettingsModal] = useState(false)
+  const [currentSettings, setCurrentSettings] = useState<PrintSettings>(defaultSettings)
 
-  const handlePrint = async () => {
+  const handlePrint = async (settings?: PrintSettings) => {
     try {
       setPrinting(true)
       
-      // Simple default settings
-      const settings = {
-        orientation: 'landscape',
-        pageSize: 'A4',
-        fontSize: '11px',
-        compactMode: true,
-        ...printSettings
+      // Use provided settings or current settings
+      const printSettings = settings || currentSettings
+      
+      // Calculate font size
+      let fontSize = '10pt'
+      if (printSettings.fontSize === 'small') fontSize = '8pt'
+      else if (printSettings.fontSize === 'medium') fontSize = '10pt'
+      else if (printSettings.fontSize === 'large') fontSize = '12pt'
+      else if (printSettings.fontSize === 'custom' && printSettings.customFontSize) {
+        fontSize = printSettings.customFontSize
+      }
+      
+      // Calculate margins
+      let marginValue = '1.5cm'
+      if (printSettings.margins === 'small') marginValue = '0.5cm'
+      else if (printSettings.margins === 'medium') marginValue = '1.5cm'
+      else if (printSettings.margins === 'large') marginValue = '2.5cm'
+      else if (printSettings.margins === 'custom' && printSettings.customMargins) {
+        const { top = '1.5cm', right = '1.5cm', bottom = '1.5cm', left = '1.5cm' } = printSettings.customMargins
+        marginValue = `${top} ${right} ${bottom} ${left}`
+      }
+      
+      // Final settings
+      const finalSettings = {
+        orientation: printSettings.orientation || 'landscape',
+        pageSize: printSettings.pageSize || 'A4',
+        fontSize,
+        marginValue,
+        compactMode: printSettings.compactMode ?? true,
+        showPageNumbers: printSettings.showPageNumbers ?? true,
+        showDate: printSettings.showDate ?? true,
+        showHeader: printSettings.showHeader ?? true,
+        showFooter: printSettings.showFooter ?? true,
+        showSignatures: printSettings.showSignatures ?? false,
+        includeImages: printSettings.includeImages ?? false,
+        includeCharts: printSettings.includeCharts ?? false,
+        colorMode: printSettings.colorMode || 'color',
+        pageBreak: printSettings.pageBreak || 'auto'
       }
       
       // Create a new window for printing
@@ -104,51 +130,72 @@ export function PrintButton({
             <style>
               body {
                 font-family: Arial, sans-serif;
-                font-size: ${settings.fontSize};
+                font-size: ${finalSettings.fontSize};
                 margin: 0;
                 padding: 20px;
-                color: #333;
+                color: ${finalSettings.colorMode === 'black-white' ? '#000' : finalSettings.colorMode === 'grayscale' ? '#333' : '#333'};
+              }
+              
+              ${finalSettings.showHeader ? `
+              .print-header {
+                display: block !important;
+                margin-bottom: 15px;
+                padding-bottom: 10px;
+                border-bottom: 2px solid #000;
               }
               
               .print-title {
                 font-size: 18px;
                 font-weight: bold;
-                margin-bottom: 15px;
+                margin-bottom: 10px;
                 text-align: center;
               }
+              
+              .print-meta {
+                font-size: 10px;
+                text-align: center;
+                color: #666;
+                margin-bottom: 10px;
+              }
+              ` : '.print-header { display: none !important; }'}
               
               table {
                 width: 100%;
                 border-collapse: collapse;
-                font-size: ${settings.compactMode ? '10px' : '11px'};
-                margin-bottom: 20px;
+                font-size: ${finalSettings.fontSize};
+                margin-bottom: ${finalSettings.compactMode ? '10px' : '20px'};
+                page-break-inside: ${finalSettings.pageBreak === 'avoid' ? 'avoid' : 'auto'};
               }
               
               th, td {
                 border: 1px solid #000;
-                padding: 4px 6px;
+                padding: ${finalSettings.compactMode ? '3px 4px' : '4px 6px'};
                 text-align: left;
+                font-size: ${finalSettings.fontSize};
               }
               
               th {
-                background-color: #f0f0f0;
+                background-color: ${finalSettings.colorMode === 'black-white' ? '#fff' : '#f0f0f0'};
                 font-weight: bold;
+              }
+              
+              tbody tr:nth-child(even) {
+                background-color: ${finalSettings.colorMode === 'black-white' ? '#fff' : '#fafafa'};
               }
               
               /* Reset all styles for clean print */
               * {
                 margin: 0 !important;
                 padding: 0 !important;
-                background: none !important;
-                color: #000 !important;
-                font-size: ${settings.compactMode ? '10px' : '11px'} !important;
-                line-height: 1.2 !important;
+                ${finalSettings.colorMode === 'black-white' ? 'background: white !important; color: #000 !important;' : ''}
+                ${finalSettings.colorMode === 'grayscale' ? 'background: white !important; color: #333 !important;' : ''}
+                line-height: ${finalSettings.compactMode ? '1.2' : '1.4'} !important;
               }
               
               /* Show only title and tables */
               .print-title {
                 display: block !important;
-                margin-bottom: 20px !important;
+                margin-bottom: ${finalSettings.compactMode ? '10px' : '20px'} !important;
                 font-size: 18px !important;
                 font-weight: bold !important;
                 text-align: center !important;
@@ -157,7 +204,7 @@ export function PrintButton({
               h3 {
                 display: block !important;
                 font-size: 16px !important;
-                margin: 20px 0 10px 0 !important;
+                margin: ${finalSettings.compactMode ? '10px 0 5px 0' : '20px 0 10px 0'} !important;
                 font-weight: bold !important;
               }
               
@@ -165,40 +212,68 @@ export function PrintButton({
                 display: table !important;
                 width: 100% !important;
                 border-collapse: collapse !important;
-                margin-bottom: 20px !important;
+                margin-bottom: ${finalSettings.compactMode ? '10px' : '20px'} !important;
               }
               
               th, td {
                 display: table-cell !important;
                 border: 1px solid #000 !important;
-                padding: 4px 6px !important;
+                padding: ${finalSettings.compactMode ? '3px 4px' : '4px 6px'} !important;
                 text-align: left !important;
               }
               
               th {
-                background-color: #f0f0f0 !important;
+                background-color: ${finalSettings.colorMode === 'black-white' ? '#fff' : '#f0f0f0'} !important;
                 font-weight: bold !important;
               }
               
+              ${!finalSettings.includeImages ? 'img { display: none !important; }' : ''}
+              ${!finalSettings.includeCharts ? 'canvas, svg.chart { display: none !important; }' : ''}
+              
               /* Hide everything else */
-              body > *:not(.print-title):not(.print-content),
+              body > *:not(.print-header):not(.print-title):not(.print-content):not(.print-footer),
               .print-content > *:not(table):not(h3) {
                 display: none !important;
               }
               
+              ${finalSettings.showFooter ? `
+              .print-footer {
+                display: block !important;
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                padding: 10px;
+                border-top: 1px solid #000;
+                background: white;
+                font-size: 8px;
+                text-align: center;
+              }
+              ` : '.print-footer { display: none !important; }'}
+              
               @media print {
                 @page {
-                  margin: 0.5in;
-                  size: ${settings.pageSize} ${settings.orientation};
+                  margin: ${finalSettings.marginValue};
+                  size: ${finalSettings.pageSize} ${finalSettings.orientation};
                 }
               }
             </style>
           </head>
           <body>
-            <div class="print-title">${pageTitle}</div>
+            ${finalSettings.showHeader ? `
+            <div class="print-header">
+              <div class="print-title">${pageTitle}</div>
+              ${finalSettings.showDate ? `<div class="print-meta">Generated on ${new Date().toLocaleString()}</div>` : ''}
+            </div>
+            ` : ''}
             <div class="print-content">
               ${currentPageContent}
             </div>
+            ${finalSettings.showFooter ? `
+            <div class="print-footer">
+              ${finalSettings.showDate ? `${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}` : ''}
+            </div>
+            ` : ''}
             
             <script>
               window.onload = function() {
@@ -231,16 +306,54 @@ export function PrintButton({
     }
   }
 
+  const handleQuickPrint = () => {
+    if (showSettings) {
+      setShowSettingsModal(true)
+    } else {
+      handlePrint()
+    }
+  }
+
+  const handleSettingsApply = (settings: PrintSettings) => {
+    setCurrentSettings(settings)
+    handlePrint(settings)
+  }
+
   return (
-    <Button
-      variant={variant}
-      onClick={handlePrint}
-      disabled={disabled || printing}
-      className={className}
-    >
-      <Printer className="w-4 h-4 mr-2" />
-      {printing ? 'Printing...' : label}
-    </Button>
+    <>
+      <div className="flex items-center gap-2">
+        <Button
+          variant={variant}
+          onClick={handleQuickPrint}
+          disabled={disabled || printing}
+          className={className}
+        >
+          <Printer className="w-4 h-4 mr-2" />
+          {printing ? 'Printing...' : label}
+        </Button>
+        
+        {showSettings && (
+          <Button
+            variant="outline"
+            onClick={() => setShowSettingsModal(true)}
+            disabled={disabled || printing}
+            className="px-3"
+            title="Print Settings"
+          >
+            <Settings className="w-4 h-4" />
+          </Button>
+        )}
+      </div>
+      
+      {showSettings && (
+        <PrintSettingsModal
+          isOpen={showSettingsModal}
+          onClose={() => setShowSettingsModal(false)}
+          onApply={handleSettingsApply}
+          defaultSettings={currentSettings}
+        />
+      )}
+    </>
   )
 }
 
@@ -281,10 +394,11 @@ export function SimplePrintButton({
       variant="outline"
       printTitle={title}
       printSettings={{
-        fontSize: '11px',
+        fontSize: 'medium',
         compactMode: true
       }}
       className={className}
     />
   )
 }
+

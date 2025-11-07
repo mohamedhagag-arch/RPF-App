@@ -13,6 +13,7 @@ import { Alert } from '@/components/ui/Alert'
 import { SmartFilter } from '@/components/ui/SmartFilter'
 import { PrintableReport } from './PrintableReport'
 import { PrintButton } from '@/components/ui/PrintButton'
+import { PrintSettings } from '@/components/ui/PrintSettingsModal'
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 import { getAllProjectsAnalytics } from '@/lib/projectAnalytics'
 import {
@@ -431,16 +432,16 @@ export function ModernReportsManager() {
     }
   }
 
-  const getPrintSettingsForReport = (reportType: ReportType) => {
+  const getPrintSettingsForReport = (reportType: ReportType): PrintSettings => {
     switch (reportType) {
       case 'activities':
         return {
-          fontSize: '10px',
+          fontSize: 'medium',
           compactMode: true
         }
       default:
         return {
-          fontSize: '11px',
+          fontSize: 'medium',
           compactMode: true
         }
     }
