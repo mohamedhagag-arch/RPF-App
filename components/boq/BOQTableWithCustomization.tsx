@@ -63,45 +63,88 @@ export function BOQTableWithCustomization({
     storageKey: 'boq' 
   })
 
-  // ✅ FIX: Load project types from project_types table on mount
+  // ✅ FIX: Load project types and project_type_activities for Scope lookup and Unit Rate
+  const [activityProjectTypesMap, setActivityProjectTypesMap] = useState<Map<string, string>>(new Map()) // activity_name -> project_type
+  const [activityRatesMap, setActivityRatesMap] = useState<Map<string, number>>(new Map()) // activity_name -> estimated_rate
+  
   useEffect(() => {
-    const loadProjectTypes = async () => {
+    const loadData = async () => {
       try {
         const supabase = getSupabaseClient()
-        console.log('🔄 Loading project types for BOQ Scope column...')
+        console.log('🔄 Loading project types and activities for BOQ Scope column and Unit Rate...')
         
-        const { data, error } = await supabase
+        // 1. Load project types from project_types table
+        const { data: typesData, error: typesError } = await supabase
           .from('project_types')
           .select('name, description')
           .eq('is_active', true)
           .order('name', { ascending: true })
         
-        if (error) {
-          console.error('❌ Error loading project types:', error)
-          return
+        if (typesError) {
+          console.error('❌ Error loading project types:', typesError)
+        } else {
+          // Create a map for quick lookup by name
+          const typesMap = new Map<string, { name: string; description?: string }>()
+          if (typesData && typesData.length > 0) {
+            typesData.forEach((type: any) => {
+              if (type.name) {
+                typesMap.set(type.name, {
+                  name: type.name,
+                  description: type.description
+                })
+              }
+            })
+          }
+          setProjectTypesMap(typesMap)
+          console.log(`✅ Loaded ${typesMap.size} project types`)
         }
         
-        // Create a map for quick lookup by name
-        const typesMap = new Map<string, { name: string; description?: string }>()
-        if (data && data.length > 0) {
-          data.forEach((type: any) => {
-            if (type.name) {
-              typesMap.set(type.name, {
-                name: type.name,
-                description: type.description
-              })
-            }
-          })
-        }
+        // 2. Load project_type_activities to map activity_name to project_type and estimated_rate
+        const { data: activitiesData, error: activitiesError } = await supabase
+          .from('project_type_activities')
+          .select('activity_name, project_type, estimated_rate')
+          .eq('is_active', true)
         
-        setProjectTypesMap(typesMap)
-        console.log(`✅ Loaded ${typesMap.size} project types for BOQ Scope column`)
+        if (activitiesError) {
+          console.error('❌ Error loading project_type_activities:', activitiesError)
+        } else {
+          // Create a map: activity_name -> project_type
+          const activityTypesMap = new Map<string, string>()
+          // Create a map: activity_name -> estimated_rate
+          const ratesMap = new Map<string, number>()
+          
+          if (activitiesData && activitiesData.length > 0) {
+            activitiesData.forEach((item: any) => {
+              if (item.activity_name) {
+                const activityNameLower = item.activity_name.toLowerCase().trim()
+                
+                // Store project_type (both exact and lowercase for flexible matching)
+                if (item.project_type) {
+                  activityTypesMap.set(item.activity_name, item.project_type)
+                  activityTypesMap.set(activityNameLower, item.project_type)
+                }
+                
+                // Store estimated_rate (both exact and lowercase for flexible matching)
+                if (item.estimated_rate != null && item.estimated_rate > 0) {
+                  const rate = parseFloat(String(item.estimated_rate)) || 0
+                  if (rate > 0) {
+                    ratesMap.set(item.activity_name, rate)
+                    ratesMap.set(activityNameLower, rate)
+                  }
+                }
+              }
+            })
+          }
+          setActivityProjectTypesMap(activityTypesMap)
+          setActivityRatesMap(ratesMap)
+          console.log(`✅ Loaded ${activitiesData?.length || 0} activities from project_type_activities (${ratesMap.size} with rates)`)
+        }
       } catch (error: any) {
-        console.error('❌ Error loading project types:', error)
+        console.error('❌ Error loading data:', error)
       }
     }
     
-    loadProjectTypes()
+    loadData()
   }, [])
 
   const handleSelectOne = (id: string, checked: boolean) => {
@@ -517,103 +560,91 @@ export function BOQTableWithCustomization({
         )
       
       case 'scope':
-        // ✅ FIX: Get scope from project_types table based on project's project_type
-        // 1. Get project associated with this activity (try multiple matching strategies)
-        let activityProject = projects.find(p => 
-          p.project_code === activity.project_code
-        )
+        // ✅ FIX: Get scope from project_type_activities table (same source as Project Types & Activities Management)
+        // 1. Get activity name from activity
+        const activityName = activity.activity_name || 
+                             activity.activity || 
+                             (activity as any).raw?.['Activity Name'] ||
+                             (activity as any).raw?.['Activity'] ||
+                             ''
         
-        // If not found, try matching by project_full_code
-        if (!activityProject && activity.project_full_code) {
-          const projectCodeFromFull = activity.project_full_code.split('-')[0]
-          activityProject = projects.find(p => 
-            p.project_code === projectCodeFromFull ||
-            (p.project_code && p.project_sub_code && 
-             `${p.project_code}-${p.project_sub_code}` === activity.project_full_code)
-          )
+        // 2. Look up project_type from project_type_activities table using activity_name
+        let activityProjectType: string | undefined = undefined
+        
+        if (activityName) {
+          // Try exact match first
+          activityProjectType = activityProjectTypesMap.get(activityName)
+          
+          // If not found, try case-insensitive match
+          if (!activityProjectType) {
+            const activityNameLower = activityName.toLowerCase().trim()
+            activityProjectType = activityProjectTypesMap.get(activityNameLower)
+            
+            // If still not found, try partial match
+            if (!activityProjectType) {
+              Array.from(activityProjectTypesMap.entries()).forEach(([key, value]) => {
+                if (!activityProjectType && 
+                    (key.toLowerCase().includes(activityNameLower) || 
+                     activityNameLower.includes(key.toLowerCase()))) {
+                  activityProjectType = value
+                }
+              })
+            }
+          }
         }
-        
-        // 2. Get project_type from project (try multiple sources)
-        const activityProjectTypeRaw = activityProject?.project_type || 
-                                      (activityProject as any)?.raw?.['Project Type'] ||
-                                      ''
         
         // ✅ DEBUG: Log for first few activities to diagnose
         const isFirstActivity = activities.indexOf(activity) < 3
         if (isFirstActivity) {
-          console.log(`🔍 [BOQ Scope] Activity: ${activity.activity_name}`, {
-            projectCode: activity.project_code,
-            projectFullCode: activity.project_full_code,
-            foundProject: !!activityProject,
-            projectProjectType: activityProject?.project_type,
-            projectTypeRaw: activityProjectTypeRaw,
-            projectTypesMapSize: projectTypesMap.size,
-            projectTypesMapKeys: Array.from(projectTypesMap.keys()).slice(0, 5)
+          console.log(`🔍 [BOQ Scope] Activity: ${activityName}`, {
+            activityName,
+            foundProjectType: activityProjectType,
+            activityProjectTypesMapSize: activityProjectTypesMap.size,
+            sampleKeys: Array.from(activityProjectTypesMap.keys()).slice(0, 5)
           })
         }
         
-        // 3. Split by comma to handle multiple project types
-        const activityProjectTypeNames = activityProjectTypeRaw && 
-                                       activityProjectTypeRaw !== 'N/A' && 
-                                       activityProjectTypeRaw.trim() !== '' && 
-                                       activityProjectTypeRaw !== 'null' && 
-                                       activityProjectTypeRaw !== 'undefined'
-          ? activityProjectTypeRaw
-              .split(/,\s*/) // Split by comma with optional space
-              .map((s: string) => s.trim())
-              .filter((s: string) => s.length > 0 && s !== 'N/A' && s !== 'null' && s !== 'undefined')
-          : []
-        
-        if (isFirstActivity) {
-          console.log(`🔍 [BOQ Scope] After split:`, {
-            activityProjectTypeNames,
-            count: activityProjectTypeNames.length
-          })
-        }
-        
-        // 4. Look up each project type name in project_types table
+        // 3. If project_type found, look it up in project_types table to get the scope name
         const scopeList: string[] = []
-        if (activityProjectTypeNames.length > 0) {
-          activityProjectTypeNames.forEach((typeName: string) => {
-            // Try exact match first
-            const projectType = projectTypesMap.get(typeName)
-            if (projectType) {
-              scopeList.push(projectType.name)
-              if (isFirstActivity) {
-                console.log(`✅ [BOQ Scope] Found exact match for "${typeName}":`, projectType.name)
-              }
-            } else {
-              // Try case-insensitive match
-              let found = false
-              Array.from(projectTypesMap.entries()).forEach(([key, value]) => {
-                if (key.toLowerCase() === typeName.toLowerCase()) {
-                  scopeList.push(value.name)
-                  found = true
-                  if (isFirstActivity) {
-                    console.log(`✅ [BOQ Scope] Found case-insensitive match for "${typeName}":`, value.name)
-                  }
-                }
-              })
-              // If not found in project_types table, use the original name as fallback
-              if (!found) {
-                scopeList.push(typeName)
+        if (activityProjectType) {
+          // Try exact match first
+          const projectType = projectTypesMap.get(activityProjectType)
+          if (projectType) {
+            scopeList.push(projectType.name)
+            if (isFirstActivity) {
+              console.log(`✅ [BOQ Scope] Found scope for "${activityName}":`, projectType.name)
+            }
+          } else {
+            // Try case-insensitive match
+            let found = false
+            Array.from(projectTypesMap.entries()).forEach(([key, value]) => {
+              if (key.toLowerCase() === activityProjectType!.toLowerCase()) {
+                scopeList.push(value.name)
+                found = true
                 if (isFirstActivity) {
-                  console.log(`⚠️ [BOQ Scope] No match found for "${typeName}", using as-is`)
+                  console.log(`✅ [BOQ Scope] Found case-insensitive scope for "${activityName}":`, value.name)
                 }
+              }
+            })
+            // If not found in project_types table, use the project_type from project_type_activities as fallback
+            if (!found) {
+              scopeList.push(activityProjectType)
+              if (isFirstActivity) {
+                console.log(`⚠️ [BOQ Scope] Project type "${activityProjectType}" not found in project_types, using as-is`)
               }
             }
-          })
+          }
         }
         
-        // 5. If no scopes found, show N/A
+        // 4. If no scopes found, show N/A
         const finalScopeList = scopeList.length > 0 ? scopeList : ['N/A']
         
         if (isFirstActivity) {
           console.log(`🔍 [BOQ Scope] Final result:`, {
+            activityName,
+            activityProjectType,
             finalScopeList,
-            scopeListLength: scopeList.length,
-            hasProject: !!activityProject,
-            hasProjectType: !!activityProjectTypeRaw && activityProjectTypeRaw.trim() !== ''
+            scopeListLength: scopeList.length
           })
         }
         
@@ -859,9 +890,54 @@ export function BOQTableWithCustomization({
         )
       
       case 'activity_value':
-        const unitRate = activity.rate || (activity.total_value && activity.planned_units && activity.planned_units > 0 
-          ? activity.total_value / activity.planned_units 
-          : 0)
+        // ✅ FIX: Calculate Unit Rate from multiple sources with priority order
+        let unitRate = 0
+        
+        // Priority 1: Use activity.rate if available
+        if (activity.rate && activity.rate > 0) {
+          unitRate = activity.rate
+        }
+        // Priority 2: Calculate from total_value / total_units (if total_units > 0)
+        else if (activity.total_value && activity.total_units && activity.total_units > 0) {
+          unitRate = activity.total_value / activity.total_units
+        }
+        // Priority 3: Calculate from total_value / planned_units (if planned_units > 0)
+        else if (activity.total_value && activity.planned_units && activity.planned_units > 0) {
+          unitRate = activity.total_value / activity.planned_units
+        }
+        // Priority 4: Calculate from total_value / actual_units (if actual_units > 0)
+        else if (activity.total_value && activity.actual_units && activity.actual_units > 0) {
+          unitRate = activity.total_value / activity.actual_units
+        }
+        // Priority 5: Get estimated_rate from project_type_activities table
+        else if (activity.activity_name) {
+          const activityName = activity.activity_name
+          const activityNameLower = activityName.toLowerCase().trim()
+          
+          // Try exact match first
+          let estimatedRate = activityRatesMap.get(activityName)
+          
+          // If not found, try case-insensitive match
+          if (!estimatedRate || estimatedRate === 0) {
+            estimatedRate = activityRatesMap.get(activityNameLower) || 0
+          }
+          
+          // If still not found, try partial match
+          if (!estimatedRate || estimatedRate === 0) {
+            Array.from(activityRatesMap.entries()).forEach(([key, value]) => {
+              if (!estimatedRate && value > 0 &&
+                  (key.toLowerCase().includes(activityNameLower) || 
+                   activityNameLower.includes(key.toLowerCase()))) {
+                estimatedRate = value
+              }
+            })
+          }
+          
+          if (estimatedRate && estimatedRate > 0) {
+            unitRate = estimatedRate
+          }
+        }
+        
         return (
           <div className="space-y-1">
             <div className="text-xs text-gray-600 dark:text-gray-400">Total Value: {formatCurrencyByCodeSync(activity.total_value || 0, currencyCode)}</div>
