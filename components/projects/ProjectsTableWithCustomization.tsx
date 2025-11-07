@@ -1858,8 +1858,8 @@ export function ProjectsTableWithCustomization({
                                    projectTypeNamesRaw !== 'undefined'
             ? projectTypeNamesRaw
                 .split(/,\s*/) // Split by comma with optional space
-                .map(s => s.trim())
-                .filter(s => s.length > 0 && s !== 'N/A' && s !== 'null' && s !== 'undefined')
+                .map((s: string) => s.trim())
+                .filter((s: string) => s.length > 0 && s !== 'N/A' && s !== 'null' && s !== 'undefined')
             : []
           
           if (isFirstProject) {
