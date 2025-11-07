@@ -88,6 +88,8 @@ export function ProjectsTableWithCustomization({
   const [copiedPlotNumber, setCopiedPlotNumber] = useState<string | null>(null) // Track copied plot number for feedback
   // ✅ FIX: Load project types from project_types table (Project Types & Activities Management)
   const [projectTypesMap, setProjectTypesMap] = useState<Map<string, { name: string; description?: string }>>(new Map())
+  // ✅ FIX: Load project_type_activities to map activity_name to project_type
+  const [activityProjectTypesMap, setActivityProjectTypesMap] = useState<Map<string, string>>(new Map()) // activity_name -> project_type
   
   // Sorting state
   const [sortColumn, setSortColumn] = useState<string | null>(null)
@@ -102,56 +104,77 @@ export function ProjectsTableWithCustomization({
     storageKey: 'projects' 
   })
 
-  // ✅ FIX: Load project types from project_types table on mount
+  // ✅ FIX: Load project types and project_type_activities on mount
   useEffect(() => {
-    const loadProjectTypes = async () => {
+    const loadData = async () => {
       try {
         const supabase = getSupabaseClient()
-        console.log('🔄 Loading project types from project_types table...')
+        console.log('🔄 Loading project types and activities from database...')
         
-        const { data, error } = await supabase
+        // 1. Load project types from project_types table
+        const { data: typesData, error: typesError } = await supabase
           .from('project_types')
           .select('name, description')
           .eq('is_active', true)
           .order('name', { ascending: true })
         
-        if (error) {
-          console.error('❌ Error loading project types:', error)
+        if (typesError) {
+          console.error('❌ Error loading project types:', typesError)
           console.error('Error details:', {
-            message: error.message,
-            details: error.details,
-            hint: error.hint
+            message: typesError.message,
+            details: typesError.details,
+            hint: typesError.hint
           })
-          return
+        } else {
+          // Create a map for quick lookup by name
+          const typesMap = new Map<string, { name: string; description?: string }>()
+          if (typesData && typesData.length > 0) {
+            typesData.forEach((type: any) => {
+              if (type.name) {
+                typesMap.set(type.name, {
+                  name: type.name,
+                  description: type.description
+                })
+              }
+            })
+          }
+          setProjectTypesMap(typesMap)
+          console.log(`✅ Loaded ${typesMap.size} project types from project_types table`)
         }
         
-        // Create a map for quick lookup by name
-        const typesMap = new Map<string, { name: string; description?: string }>()
-        if (data && data.length > 0) {
-          data.forEach((type: any) => {
-            if (type.name) {
-              typesMap.set(type.name, {
-                name: type.name,
-                description: type.description
-              })
-            }
-          })
-        }
+        // 2. Load project_type_activities to map activity_name to project_type
+        const { data: activitiesData, error: activitiesError } = await supabase
+          .from('project_type_activities')
+          .select('activity_name, project_type')
+          .eq('is_active', true)
         
-        setProjectTypesMap(typesMap)
-        console.log(`✅ Loaded ${typesMap.size} project types from project_types table:`, {
-          count: typesMap.size,
-          sampleNames: Array.from(typesMap.keys()).slice(0, 5)
-        })
+        if (activitiesError) {
+          console.error('❌ Error loading project_type_activities:', activitiesError)
+        } else {
+          // Create a map: activity_name -> project_type
+          const activityTypesMap = new Map<string, string>()
+          if (activitiesData && activitiesData.length > 0) {
+            activitiesData.forEach((item: any) => {
+              if (item.activity_name && item.project_type) {
+                const activityNameLower = item.activity_name.toLowerCase().trim()
+                // Store both exact and lowercase for flexible matching
+                activityTypesMap.set(item.activity_name, item.project_type)
+                activityTypesMap.set(activityNameLower, item.project_type)
+              }
+            })
+          }
+          setActivityProjectTypesMap(activityTypesMap)
+          console.log(`✅ Loaded ${activitiesData?.length || 0} activities from project_type_activities`)
+        }
       } catch (error: any) {
-        console.error('❌ Error loading project types:', error)
+        console.error('❌ Error loading data:', error)
         console.error('Error stack:', error.stack)
       }
     }
     
-    loadProjectTypes()
+    loadData()
   }, [])
-  
+
   // ✅ Calculate analytics for all projects (same as Cards use) - OPTIMIZED for performance
   const projectsAnalytics = useMemo(() => {
     // ✅ DEBUG: Always log to diagnose zero values issue
@@ -1723,26 +1746,16 @@ export function ProjectsTableWithCustomization({
           )
         
         case 'project_name':
-          // Display only the first activity name from the project
-          const projectActivitiesForName = allActivities.filter((activity: any) => matchesProject(activity, project))
+          // ✅ FIX: Display project name directly (not activity name)
+          // Get project name from multiple sources (for uploaded data compatibility)
+          const projectName = project.project_name || 
+                             getProjectField(project, 'Project Name') || 
+                             (project as any).raw?.['Project Name'] || 
+                             'N/A'
           
-          if (projectActivitiesForName.length > 0) {
-            const firstActivityName = projectActivitiesForName[0].activity_name || 
-                                      projectActivitiesForName[0].activity || 
-                                      ''
-            if (firstActivityName) {
               return (
                 <div className="font-medium text-gray-900 dark:text-white text-sm">
-                  {firstActivityName}
-                  </div>
-              )
-            }
-          }
-          
-          // Fallback to project name if no activities found
-          return (
-              <div className="font-medium text-gray-900 dark:text-white text-sm">
-                {project.project_name || 'N/A'}
+              {projectName}
               </div>
           )
         
@@ -1830,12 +1843,34 @@ export function ProjectsTableWithCustomization({
           )
         
         case 'scope_of_works':
-          // ✅ FIX: Get scope from project_types table (Project Types & Activities Management)
-          // 1. Get project type names from project.project_type field
+          // ✅ FIX: Get scope from project_type_activities table (same source as BOQ Scope)
+          // Strategy 1: Get from project.project_type field (if available)
           const projectTypeNamesRaw = project.project_type || 
                                      getProjectField(project, 'Project Type') || 
                                      (project as any).raw?.['Project Type'] || 
                                      ''
+          
+          // Strategy 2: Get from activities associated with this project
+          // Find activities for this project from allActivities prop
+          const projectActivitiesForScope = allActivities.filter((act: any) => {
+            const actProjectCode = act.project_code || act['Project Code'] || (act as any).raw?.['Project Code'] || ''
+            const actProjectFullCode = act.project_full_code || act['Project Full Code'] || (act as any).raw?.['Project Full Code'] || ''
+            const projectCode = project.project_code || ''
+            const projectFullCode = project.project_sub_code ? `${project.project_code}-${project.project_sub_code}` : project.project_code || ''
+            
+            // Match by project code or project full code
+            return (actProjectCode === projectCode) || 
+                   (actProjectFullCode === projectFullCode) ||
+                   (actProjectFullCode?.startsWith(projectCode)) ||
+                   (projectFullCode && actProjectFullCode?.startsWith(projectFullCode))
+          })
+          
+          // Get unique activity names from project activities
+          const projectActivityNames = Array.from(new Set(
+            projectActivitiesForScope
+              .map((act: any) => act.activity_name || act.activity || act['Activity Name'] || (act as any).raw?.['Activity Name'] || '')
+              .filter((name: string) => name && name.trim() !== '')
+          ))
           
           // ✅ DEBUG: Always log for first 3 projects to diagnose
           const isFirstProject = projects.indexOf(project) < 3
@@ -1843,33 +1878,76 @@ export function ProjectsTableWithCustomization({
             console.log(`🔍 [${project.project_code}] Scope lookup - BEFORE processing:`, {
               projectTypeNamesRaw,
               projectTypeRaw: project.project_type,
+              projectActivitiesCount: projectActivitiesForScope.length,
+              projectActivityNames,
               projectTypesMapSize: projectTypesMap.size,
-              projectTypesMapKeys: Array.from(projectTypesMap.keys()).slice(0, 5),
-              hasProjectTypesMap: projectTypesMap.size > 0
+              activityProjectTypesMapSize: activityProjectTypesMap.size,
+              hasProjectTypesMap: projectTypesMap.size > 0,
+              hasActivityProjectTypesMap: activityProjectTypesMap.size > 0
             })
           }
           
-          // 2. Split by comma (with or without space) to handle multiple project types
-          // Support both ", " and "," separators
-          const projectTypeNames = projectTypeNamesRaw && 
-                                   projectTypeNamesRaw !== 'N/A' && 
-                                   projectTypeNamesRaw.trim() !== '' && 
-                                   projectTypeNamesRaw !== 'null' && 
-                                   projectTypeNamesRaw !== 'undefined'
-            ? projectTypeNamesRaw
-                .split(/,\s*/) // Split by comma with optional space
-                .map((s: string) => s.trim())
-                .filter((s: string) => s.length > 0 && s !== 'N/A' && s !== 'null' && s !== 'undefined')
-            : []
+          // 3. Get project types from activities using project_type_activities table
+          const projectTypesFromActivities = new Set<string>()
+          projectActivityNames.forEach((activityName: string) => {
+            if (!activityName) return
+            
+            // Try exact match first
+            let projectType = activityProjectTypesMap.get(activityName)
+            
+            // If not found, try case-insensitive match
+            if (!projectType) {
+              const activityNameLower = activityName.toLowerCase().trim()
+              projectType = activityProjectTypesMap.get(activityNameLower)
+              
+              // If still not found, try partial match
+              if (!projectType) {
+                Array.from(activityProjectTypesMap.entries()).forEach(([key, value]) => {
+                  if (!projectType && 
+                      (key.toLowerCase().includes(activityNameLower) || 
+                       activityNameLower.includes(key.toLowerCase()))) {
+                    projectType = value
+                  }
+                })
+              }
+            }
+            
+            if (projectType) {
+              projectTypesFromActivities.add(projectType)
+            }
+          })
+          
+          // 4. Combine project types from project.project_type and from activities
+          const allProjectTypeNames = new Set<string>()
+          
+          // Add from project.project_type field
+          if (projectTypeNamesRaw && 
+              projectTypeNamesRaw !== 'N/A' && 
+              projectTypeNamesRaw.trim() !== '' && 
+              projectTypeNamesRaw !== 'null' && 
+              projectTypeNamesRaw !== 'undefined') {
+            projectTypeNamesRaw
+              .split(/,\s*/)
+              .map((s: string) => s.trim())
+              .filter((s: string) => s.length > 0 && s !== 'N/A' && s !== 'null' && s !== 'undefined')
+              .forEach((typeName: string) => allProjectTypeNames.add(typeName))
+          }
+          
+          // Add from activities
+          projectTypesFromActivities.forEach((typeName: string) => allProjectTypeNames.add(typeName))
+          
+          const projectTypeNames = Array.from(allProjectTypeNames)
           
           if (isFirstProject) {
-            console.log(`🔍 [${project.project_code}] Scope lookup - AFTER split:`, {
+            console.log(`🔍 [${project.project_code}] Scope lookup - AFTER processing:`, {
               projectTypeNames,
-              count: projectTypeNames.length
+              count: projectTypeNames.length,
+              fromProjectField: projectTypeNamesRaw ? projectTypeNamesRaw.split(/,\s*/).length : 0,
+              fromActivities: projectTypesFromActivities.size
             })
           }
           
-          // 3. Look up each project type name in project_types table
+          // 5. Look up each project type name in project_types table
           const scopeList: string[] = []
           if (projectTypeNames.length > 0) {
             projectTypeNames.forEach((typeName: string) => {
@@ -1903,7 +1981,7 @@ export function ProjectsTableWithCustomization({
             })
           }
           
-          // 4. If no scopes found, show N/A
+          // 6. If no scopes found, show N/A
           const finalScopeList = scopeList.length > 0 ? scopeList : ['N/A']
           
           if (isFirstProject) {
@@ -1966,27 +2044,120 @@ export function ProjectsTableWithCustomization({
           )
         
         case 'kpi_added':
-          // ✅ Use EXACT same logic as calculateProjectAnalytics (from lib/projectAnalytics.ts line 150-164)
+          // ✅ Use EXACT same logic as calculateProjectAnalytics (from lib/projectAnalytics.ts)
           // This ensures 100% consistency and accuracy
-          const projectKPIs = allKPIs.filter((k: any) => {
-            // Get project codes from KPI (check mapped fields first, then raw)
-            const rawKPI = (k as any).raw || {}
-            const kpiProjectCode = k.project_code || rawKPI['Project Code'] || ''
-            const kpiProjectFullCode = k.project_full_code || rawKPI['Project Full Code'] || ''
+          
+          // Build project_full_code correctly (same as calculateProjectAnalytics)
+          const projectCode = (project.project_code || '').toString().trim()
+          const projectSubCode = (project.project_sub_code || '').toString().trim()
+          
+          // Build project_full_code (case-sensitive for exact matching)
+          let projectFullCode = projectCode
+          if (projectSubCode) {
+            // Check if sub_code already starts with project_code (case-insensitive)
+            if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+              projectFullCode = projectSubCode
+            } else {
+              if (projectSubCode.startsWith('-')) {
+                projectFullCode = `${projectCode}${projectSubCode}`
+              } else {
+                projectFullCode = `${projectCode}-${projectSubCode}`
+              }
+            }
+          }
+          
+          // Build all possible project code variations for matching (uppercase for comparison)
+          const projectCodeUpper = projectCode.toUpperCase()
+          const projectSubCodeUpper = projectSubCode.toUpperCase()
+          const projectFullCodeUpper = projectFullCode.toUpperCase()
+          
+          const projectCodeVariations = new Set<string>()
+          projectCodeVariations.add(projectCodeUpper)
+          projectCodeVariations.add(projectFullCodeUpper) // ✅ PRIMARY: Add project_full_code
+          
+          if (projectSubCode) {
+            projectCodeVariations.add(projectSubCodeUpper)
+            // If sub-code contains project code, add it
+            if (projectSubCodeUpper.includes(projectCodeUpper)) {
+              projectCodeVariations.add(projectSubCodeUpper)
+            } else {
+              // Otherwise, combine them
+              projectCodeVariations.add(`${projectCodeUpper}${projectSubCodeUpper}`)
+              projectCodeVariations.add(`${projectCodeUpper}-${projectSubCodeUpper}`)
+            }
+          }
+          
+          // ✅ Helper function to extract project code from any source (same as calculateProjectAnalytics)
+          const extractProjectCode = (item: any): string[] => {
+            const codes: string[] = []
+            const raw = (item as any).raw || {}
             
-            if (!kpiProjectCode && !kpiProjectFullCode) return false
+            // ✅ PRIORITY 1: Try project_full_code first (most accurate)
+            const sources = [
+              item.project_full_code, // ✅ PRIMARY: project_full_code first
+              (item as any)['Project Full Code'], // ✅ PRIMARY: Database column name
+              raw['Project Full Code'], // ✅ PRIMARY: Raw database column
+              item.project_code, // Fallback: project_code
+              (item as any)['Project Code'], // Fallback: Database column name
+              raw['Project Code'] // Fallback: Raw database column
+            ]
             
-            // Strategy 1: Direct project code match
-            if (kpiProjectCode === project.project_code) return true
+            for (const source of sources) {
+              if (source) {
+                const code = source.toString().trim()
+                // Keep original case for exact matching, also add uppercase for comparison
+                if (code) {
+                  codes.push(code) // Original case
+                  codes.push(code.toUpperCase()) // Uppercase for comparison
+                }
+              }
+            }
             
-            // Strategy 2: Project full code starts with project code (e.g., P9999 matches P9999-01, P9999-02, etc.)
-            if (kpiProjectFullCode?.startsWith(project.project_code)) return true
+            // Remove duplicates
+            return Array.from(new Set(codes))
+          }
+          
+          // ✅ Helper function to check if codes match (same as calculateProjectAnalytics)
+          const codesMatch = (itemCodes: string[], projectCodes: Set<string>): boolean => {
+            const projectCodesArray = Array.from(projectCodes)
             
-            // Strategy 3: Exact full code match (if project has sub-code)
-            const fullCode = `${project.project_code}${project.project_sub_code || ''}`
-            if (kpiProjectFullCode === fullCode) return true
+            for (const itemCode of itemCodes) {
+              const itemCodeUpper = itemCode.toUpperCase()
+              
+              // ✅ PRIORITY 1: Direct exact match with project_full_code (most accurate)
+              if (projectFullCodeUpper && itemCodeUpper === projectFullCodeUpper) return true
+              
+              // ✅ PRIORITY 2: Direct exact match with any project code variation (case-insensitive)
+              for (const projCode of projectCodesArray) {
+                if (itemCodeUpper === projCode) return true
+              }
+              
+              // ✅ PRIORITY 3: Check if item code starts with project_full_code (for sub-projects)
+              if (projectFullCodeUpper && itemCodeUpper.startsWith(projectFullCodeUpper)) return true
+              
+              // ✅ PRIORITY 4: Check if project_full_code starts with item code
+              if (projectFullCodeUpper && projectFullCodeUpper.startsWith(itemCodeUpper)) return true
+              
+              // ✅ PRIORITY 5: Check if item code contains any project code (fallback for old data)
+              for (const projCode of projectCodesArray) {
+                if (itemCodeUpper.includes(projCode) || projCode.includes(itemCodeUpper)) {
+                  return true
+                }
+                // Check if item code starts with project code (e.g., P9999 matches P9999-01)
+                if (itemCodeUpper.startsWith(projCode) || projCode.startsWith(itemCodeUpper)) {
+                  return true
+                }
+              }
+            }
             
             return false
+          }
+          
+          // Filter KPIs using the same matching logic as calculateProjectAnalytics
+          const projectKPIs = allKPIs.filter((k: any) => {
+            const kpiCodes = extractProjectCode(k)
+            if (kpiCodes.length === 0) return false
+            return codesMatch(kpiCodes, projectCodeVariations)
           })
           
           const hasKPIs = projectKPIs.length > 0
@@ -1995,21 +2166,18 @@ export function ProjectsTableWithCustomization({
           // ✅ DEBUG: Always log for troubleshooting
           if (process.env.NODE_ENV === 'development') {
             console.log(`🔍 [${project.project_code}] KPI Added? Check:`, {
-              projectCode: project.project_code,
-              projectSubCode: project.project_sub_code,
-              projectFullCode: `${project.project_code}${project.project_sub_code || ''}`,
+              projectCode,
+              projectSubCode,
+              projectFullCode,
+              projectFullCodeUpper,
+              projectCodeVariations: Array.from(projectCodeVariations),
               allKPIsCount: allKPIs.length,
               foundKPIs: totalKPIs,
               sampleKPIs: allKPIs.slice(0, 5).map((k: any) => {
-                const rawK = (k as any).raw || {}
-                const kCode = k.project_code || rawK['Project Code'] || ''
-                const kFullCode = k.project_full_code || rawK['Project Full Code'] || ''
+                const kpiCodes = extractProjectCode(k)
                 return {
-                  kpiProjectCode: kCode,
-                  kpiProjectFullCode: kFullCode,
-                  matches: kCode === project.project_code || 
-                           kFullCode?.startsWith(project.project_code) ||
-                           kFullCode === `${project.project_code}${project.project_sub_code || ''}`
+                  kpiCodes,
+                  matches: codesMatch(kpiCodes, projectCodeVariations)
                 }
               })
             })
@@ -2241,62 +2409,141 @@ export function ProjectsTableWithCustomization({
           )
         
         case 'planned_dates':
-          // ✅ USE BOQ ACTIVITIES FIRST (SAME AS CARDS)
-          // Cards (ProjectDetailsPanel) use: activity.planned_activity_start_date and activity.deadline
-          // Table now uses: getPlannedDatesFromActivities FIRST (same as Cards), then KPIs as fallback
-          // Calculation logic (SAME AS CARDS):
-          // 1. Get dates from BOQ Activities: planned_activity_start_date (Start) and deadline (Completion)
-          // 2. Start = أول planned_activity_start_date من جميع الأنشطة
-          // 3. Completion = آخر deadline من جميع الأنشطة
-          // 4. Fallback to KPIs if Activities don't have dates
+          // ✅ PRIORITY: Start = أول Planned KPI date
+          // Calculation logic:
+          // 1. Start = أول Planned KPI date (PRIMARY SOURCE)
+          // 2. Completion = آخر Planned KPI date (PRIMARY SOURCE)
+          // 3. Fallback to BOQ Activities if no Planned KPIs
+          // 4. Fallback to Project Fields if no Activities
           
-          // ✅ DEBUG: Log data availability
-          if (process.env.NODE_ENV === 'development') {
-            const projectActivities = allActivities.filter((activity: any) => matchesProject(activity, project))
-            console.log(`🔍 [${project.project_code}] Planned Dates Debug:`, {
-              allActivitiesCount: allActivities.length,
-              projectActivitiesCount: projectActivities.length,
-              projectCode: project.project_code,
-              sampleActivity: projectActivities[0] ? {
-                projectCode: projectActivities[0].project_code || projectActivities[0]['Project Code'],
-                activityName: projectActivities[0].activity_name,
-                plannedStart: projectActivities[0].planned_activity_start_date || projectActivities[0]['Planned Activity Start Date'],
-                deadline: projectActivities[0].deadline || projectActivities[0]['Deadline']
-              } : 'No activities found'
+          let plannedStart: string | null = null
+          let plannedCompletion: string | null = null
+          let plannedDuration = 0
+          let datesSource = 'none'
+          
+          // ✅ METHOD 1: From Planned KPIs (PRIMARY SOURCE - أول Planned KPI = Start, آخر Planned KPI = Completion)
+          if (allKPIs.length > 0) {
+            // Get all Planned KPIs for this project
+            const projectKPIs = allKPIs.filter((kpi: any) => {
+              // Check if matches project
+              const rawKPI = (kpi as any).raw || {}
+              const kpiProjectCode = kpi.project_code || rawKPI['Project Code'] || ''
+              const kpiProjectFullCode = kpi.project_full_code || rawKPI['Project Full Code'] || ''
+              const projectCode = project.project_code || ''
+              const projectFullCode = project.project_sub_code ? `${project.project_code}-${project.project_sub_code}` : project.project_code || ''
+              
+              // Match by project code or project full code
+              const matches = (kpiProjectCode === projectCode) || 
+                             (kpiProjectFullCode === projectFullCode) ||
+                             (kpiProjectFullCode?.startsWith(projectCode)) ||
+                             (projectFullCode && kpiProjectFullCode?.startsWith(projectFullCode))
+              
+              if (!matches) return false
+              
+              // Check if it's Planned
+              const inputType = String(
+                kpi.input_type || 
+                kpi['Input Type'] || 
+                rawKPI['Input Type'] || 
+                rawKPI['input_type'] ||
+                ''
+              ).trim().toLowerCase()
+              
+              return inputType === 'planned'
             })
+            
+            if (projectKPIs.length > 0) {
+              // Get all dates from Planned KPIs
+              const kpiDates = projectKPIs
+                .map((kpi: any) => {
+                  const rawKpi = (kpi as any).raw || {}
+                  
+                  // Try to get date from multiple sources
+                  let dateStr = rawKpi['Activity Date'] || rawKpi.activity_date || 
+                               kpi.activity_date || kpi['Activity Date'] ||
+                               rawKpi['Target Date'] || rawKpi.target_date ||
+                               kpi.target_date || kpi['Target Date'] ||
+                               rawKpi['Day'] || rawKpi.day ||
+                               kpi.day || kpi['Day'] ||
+                               ''
+                  
+                  const parsed = parseDateString(dateStr)
+                  return parsed ? { date: parsed, kpi } : null
+                })
+                .filter((item): item is { date: Date, kpi: any } => item !== null)
+                .sort((a, b) => a.date.getTime() - b.date.getTime())
+              
+              if (kpiDates.length > 0) {
+                // ✅ Start = أول Planned KPI date
+                plannedStart = kpiDates[0].date.toISOString()
+                // ✅ Completion = آخر Planned KPI date
+                plannedCompletion = kpiDates[kpiDates.length - 1].date.toISOString()
+                datesSource = 'first_last_planned_kpi'
+                
+                // Calculate duration
+                if (plannedStart && plannedCompletion) {
+                  const startDate = new Date(plannedStart)
+                  const endDate = new Date(plannedCompletion)
+                  if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+                    plannedDuration = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
+                  }
+                }
+                
+                // ✅ DEBUG: Log calculation
+          if (process.env.NODE_ENV === 'development') {
+                  console.log(`📅 [${project.project_code}] Planned Dates from Planned KPIs:`, {
+                    firstKpiDate: kpiDates[0].date.toISOString(),
+                    lastKpiDate: kpiDates[kpiDates.length - 1].date.toISOString(),
+                    totalPlannedKPIs: projectKPIs.length,
+                    datesFound: kpiDates.length,
+                    duration: plannedDuration
+                  })
+                }
+              }
+            }
           }
           
-          // ✅ METHOD 1: From BOQ Activities (Primary Source - SAME AS CARDS)
+          // ✅ METHOD 2: Fallback to BOQ Activities (if no Planned KPIs found)
+          if ((!plannedStart || !plannedCompletion) && allActivities.length > 0) {
           const plannedDatesFromActivities = getPlannedDatesFromActivities(project)
-          let plannedStart = plannedDatesFromActivities.start || null
-          let plannedCompletion = plannedDatesFromActivities.completion || null
-          let plannedDuration = plannedDatesFromActivities.duration || 0
-          let datesSource = plannedDatesFromActivities.source || 'none'
+            
+            if (!plannedStart && plannedDatesFromActivities.start) {
+              plannedStart = plannedDatesFromActivities.start
+              datesSource = datesSource === 'none' ? 'activities' : 'kpis_activities'
+            }
+            
+            if (!plannedCompletion && plannedDatesFromActivities.completion) {
+              plannedCompletion = plannedDatesFromActivities.completion
+              datesSource = datesSource === 'none' ? 'activities' : 'kpis_activities'
+            }
+            
+            if (plannedDatesFromActivities.duration > 0 && plannedDuration === 0) {
+              plannedDuration = plannedDatesFromActivities.duration
+            }
           
           // ✅ DEBUG: Log result from Activities
           if (process.env.NODE_ENV === 'development') {
-            console.log(`📅 [${project.project_code}] Planned Dates from Activities:`, {
+              console.log(`📅 [${project.project_code}] Planned Dates from Activities (fallback):`, {
               start: plannedStart,
               completion: plannedCompletion,
               duration: plannedDuration,
-              source: datesSource,
-              formattedStart: plannedStart ? formatDate(plannedStart) : 'N/A',
-              formattedCompletion: plannedCompletion ? formatDate(plannedCompletion) : 'N/A'
+                source: datesSource
             })
+            }
           }
           
-          // ✅ METHOD 2: Fallback to KPIs (only if Activities don't have dates)
+          // ✅ METHOD 3: Fallback to getPlannedDatesFromKPIs (if no direct Planned KPIs found)
           if ((!plannedStart || !plannedCompletion) && allKPIs.length > 0) {
           const plannedDatesFromKPIs = getPlannedDatesFromKPIs(project)
           
             if (!plannedStart && plannedDatesFromKPIs.start) {
               plannedStart = plannedDatesFromKPIs.start
-              datesSource = datesSource === 'none' ? 'kpis' : 'activities_kpis'
+              datesSource = datesSource === 'none' ? 'kpis' : datesSource
             }
             
             if (!plannedCompletion && plannedDatesFromKPIs.completion) {
               plannedCompletion = plannedDatesFromKPIs.completion
-              datesSource = datesSource === 'none' ? 'kpis' : 'activities_kpis'
+              datesSource = datesSource === 'none' ? 'kpis' : datesSource
             }
           }
           
@@ -2310,30 +2557,293 @@ export function ProjectsTableWithCustomization({
             })
           }
           
-          // ✅ Fallback ONLY if no KPIs found (to project fields)
+          // ✅ METHOD 3: Fallback to project fields
           if (!plannedStart || !plannedCompletion) {
             // Only use project fields as fallback if KPIs don't exist
             if (!plannedStart) {
+              // ✅ EXPANDED: Try multiple project field sources for start date
               const projectStart = getProjectField(project, 'Planned Start Date') || 
                                   getProjectField(project, 'Planned Start') || 
                                   getProjectField(project, 'Project Start Date') ||
                                   getProjectField(project, 'Start Date') ||
                                   getProjectField(project, 'Commencement Date') ||
+                                  project.project_start_date || // ✅ Direct field access
+                                  (project as any).raw?.['Project Start Date'] ||
+                                  (project as any).raw?.['Start Date'] ||
                                   ''
               if (projectStart) {
                 plannedStart = projectStart
+                datesSource = datesSource === 'none' ? 'project_fields' : datesSource
               }
             }
             
             if (!plannedCompletion) {
+              // ✅ EXPANDED: Try multiple project field sources for completion date
               const projectCompletion = getProjectField(project, 'Planned Completion Date') || 
                                        getProjectField(project, 'Planned Completion') ||
                                        getProjectField(project, 'Project End Date') ||
                                        getProjectField(project, 'End Date') ||
                                        getProjectField(project, 'Completion Date') ||
+                                       project.project_completion_date || // ✅ Direct field access
+                                       (project as any).raw?.['Project Completion Date'] ||
+                                       (project as any).raw?.['Completion Date'] ||
                                        ''
               if (projectCompletion) {
                 plannedCompletion = projectCompletion
+                datesSource = datesSource === 'none' ? 'project_fields' : datesSource
+              }
+            }
+          }
+          
+          // ✅ METHOD 4: Calculate from first Planned KPI date (if not found from activities or project fields)
+          if (!plannedStart && allKPIs.length > 0) {
+            // Get all Planned KPIs for this project
+            const projectKPIs = allKPIs.filter((kpi: any) => {
+              // Check if matches project
+              const rawKPI = (kpi as any).raw || {}
+              const kpiProjectCode = kpi.project_code || rawKPI['Project Code'] || ''
+              const kpiProjectFullCode = kpi.project_full_code || rawKPI['Project Full Code'] || ''
+              const projectCode = project.project_code || ''
+              const projectFullCode = project.project_sub_code ? `${project.project_code}-${project.project_sub_code}` : project.project_code || ''
+              
+              // Match by project code or project full code
+              const matches = (kpiProjectCode === projectCode) || 
+                             (kpiProjectFullCode === projectFullCode) ||
+                             (kpiProjectFullCode?.startsWith(projectCode)) ||
+                             (projectFullCode && kpiProjectFullCode?.startsWith(projectFullCode))
+              
+              if (!matches) return false
+              
+              // Check if it's Planned
+              const inputType = String(
+                kpi.input_type || 
+                kpi['Input Type'] || 
+                rawKPI['Input Type'] || 
+                rawKPI['input_type'] ||
+                ''
+              ).trim().toLowerCase()
+              
+              return inputType === 'planned'
+            })
+            
+            if (projectKPIs.length > 0) {
+              // Get all dates from Planned KPIs
+              const kpiDates = projectKPIs
+                .map((kpi: any) => {
+                  const rawKpi = (kpi as any).raw || {}
+                  
+                  // Try to get date from multiple sources
+                  let dateStr = rawKpi['Activity Date'] || rawKpi.activity_date || 
+                               kpi.activity_date || kpi['Activity Date'] ||
+                               rawKpi['Target Date'] || rawKpi.target_date ||
+                               kpi.target_date || kpi['Target Date'] ||
+                               rawKpi['Day'] || rawKpi.day ||
+                               kpi.day || kpi['Day'] ||
+                               ''
+                  
+                  const parsed = parseDateString(dateStr)
+                  return parsed ? { date: parsed, kpi } : null
+                })
+                .filter((item): item is { date: Date, kpi: any } => item !== null)
+                .sort((a, b) => a.date.getTime() - b.date.getTime())
+              
+              if (kpiDates.length > 0) {
+                // Use first Planned KPI date as Planned Start Date
+                plannedStart = kpiDates[0].date.toISOString()
+                datesSource = datesSource === 'none' ? 'first_planned_kpi' : datesSource
+                
+                // ✅ DEBUG: Log calculation
+                if (process.env.NODE_ENV === 'development') {
+                  console.log(`📅 [${project.project_code}] Calculated Planned Start from first Planned KPI:`, {
+                    firstKpiDate: kpiDates[0].date.toISOString(),
+                    totalPlannedKPIs: projectKPIs.length,
+                    datesFound: kpiDates.length
+                  })
+                }
+              }
+            }
+          }
+          
+          // ✅ METHOD 5: Calculate from Project Award Date + buffer (if not found)
+          if (!plannedStart) {
+            const projectAwardDate = getProjectField(project, 'Date Project Awarded') || 
+                                    getProjectField(project, 'Project Award Date') ||
+                                    project.date_project_awarded ||
+                                    (project as any).raw?.['Date Project Awarded'] ||
+                                    (project as any).raw?.['Project Award Date'] ||
+                                    ''
+            
+            if (projectAwardDate) {
+              try {
+                const awardDate = parseDateString(projectAwardDate)
+                if (awardDate && !isNaN(awardDate.getTime())) {
+                  // Add 30 days buffer (typical time between award and start)
+                  const startDate = new Date(awardDate)
+                  startDate.setDate(startDate.getDate() + 30)
+                  plannedStart = startDate.toISOString()
+                  datesSource = datesSource === 'none' ? 'award_date_plus_buffer' : datesSource
+                  
+                  // ✅ DEBUG: Log calculation
+                  if (process.env.NODE_ENV === 'development') {
+                    console.log(`📅 [${project.project_code}] Calculated Planned Start from Award Date + 30 days:`, {
+                      awardDate: awardDate.toISOString(),
+                      calculatedStart: plannedStart
+                    })
+                  }
+                }
+              } catch (error) {
+                console.error('Error calculating start date from award date:', error)
+              }
+            }
+          }
+          
+          // ✅ METHOD 6: Calculate completion from last Planned KPI date (if not found from activities or project fields)
+          if (!plannedCompletion && allKPIs.length > 0) {
+            // Get all Planned KPIs for this project
+            const projectKPIs = allKPIs.filter((kpi: any) => {
+              // Check if matches project
+              const rawKPI = (kpi as any).raw || {}
+              const kpiProjectCode = kpi.project_code || rawKPI['Project Code'] || ''
+              const kpiProjectFullCode = kpi.project_full_code || rawKPI['Project Full Code'] || ''
+              const projectCode = project.project_code || ''
+              const projectFullCode = project.project_sub_code ? `${project.project_code}-${project.project_sub_code}` : project.project_code || ''
+              
+              // Match by project code or project full code
+              const matches = (kpiProjectCode === projectCode) || 
+                             (kpiProjectFullCode === projectFullCode) ||
+                             (kpiProjectFullCode?.startsWith(projectCode)) ||
+                             (projectFullCode && kpiProjectFullCode?.startsWith(projectFullCode))
+              
+              if (!matches) return false
+              
+              // Check if it's Planned
+              const inputType = String(
+                kpi.input_type || 
+                kpi['Input Type'] || 
+                rawKPI['Input Type'] || 
+                rawKPI['input_type'] ||
+                ''
+              ).trim().toLowerCase()
+              
+              return inputType === 'planned'
+            })
+            
+            if (projectKPIs.length > 0) {
+              // Get all dates from Planned KPIs
+              const kpiDates = projectKPIs
+                .map((kpi: any) => {
+                  const rawKpi = (kpi as any).raw || {}
+                  
+                  // Try to get date from multiple sources
+                  let dateStr = rawKpi['Activity Date'] || rawKpi.activity_date || 
+                               kpi.activity_date || kpi['Activity Date'] ||
+                               rawKpi['Target Date'] || rawKpi.target_date ||
+                               kpi.target_date || kpi['Target Date'] ||
+                               rawKpi['Day'] || rawKpi.day ||
+                               kpi.day || kpi['Day'] ||
+                               ''
+                  
+                  const parsed = parseDateString(dateStr)
+                  return parsed ? { date: parsed, kpi } : null
+                })
+                .filter((item): item is { date: Date, kpi: any } => item !== null)
+                .sort((a, b) => a.date.getTime() - b.date.getTime())
+              
+              if (kpiDates.length > 0) {
+                // Use last Planned KPI date as Planned Completion Date
+                plannedCompletion = kpiDates[kpiDates.length - 1].date.toISOString()
+                datesSource = datesSource === 'none' ? 'last_planned_kpi' : datesSource
+                
+                // ✅ DEBUG: Log calculation
+                if (process.env.NODE_ENV === 'development') {
+                  console.log(`📅 [${project.project_code}] Calculated Planned Completion from last Planned KPI:`, {
+                    lastKpiDate: kpiDates[kpiDates.length - 1].date.toISOString(),
+                    totalPlannedKPIs: projectKPIs.length,
+                    datesFound: kpiDates.length
+                  })
+                }
+              }
+            }
+          }
+          
+          // ✅ METHOD 7: Calculate completion from start + duration (if start found but completion not)
+          if (plannedStart && !plannedCompletion) {
+            // Try to get duration from contract or activities
+            const contractDuration = parseFloat(String(
+              getProjectField(project, 'Contract Duration') || 
+              getProjectField(project, 'Duration') ||
+              project.project_duration ||
+              (project as any).raw?.['Contract Duration'] ||
+              (project as any).raw?.['Duration'] ||
+              '0'
+            ).replace(/,/g, '')) || 0
+            
+            if (contractDuration > 0) {
+              try {
+                const startDate = new Date(plannedStart)
+                if (!isNaN(startDate.getTime())) {
+                  const endDate = new Date(startDate)
+                  endDate.setDate(endDate.getDate() + contractDuration)
+                  plannedCompletion = endDate.toISOString()
+                  datesSource = datesSource === 'none' ? 'start_plus_duration' : datesSource
+                  
+                  // ✅ DEBUG: Log calculation
+                  if (process.env.NODE_ENV === 'development') {
+                    console.log(`📅 [${project.project_code}] Calculated Planned Completion from Start + Duration:`, {
+                      startDate: startDate.toISOString(),
+                      duration: contractDuration,
+                      calculatedCompletion: plannedCompletion
+                    })
+                  }
+                }
+              } catch (error) {
+                console.error('Error calculating completion date from start + duration:', error)
+              }
+            }
+          }
+          
+          // ✅ METHOD 8: Calculate completion from Project Award Date + duration (if start not found)
+          if (!plannedCompletion) {
+            const projectAwardDate = getProjectField(project, 'Date Project Awarded') || 
+                                    getProjectField(project, 'Project Award Date') ||
+                                    project.date_project_awarded ||
+                                    (project as any).raw?.['Date Project Awarded'] ||
+                                    (project as any).raw?.['Project Award Date'] ||
+                                    ''
+            
+            if (projectAwardDate) {
+              try {
+                const awardDate = parseDateString(projectAwardDate)
+                if (awardDate && !isNaN(awardDate.getTime())) {
+                  // Try to get duration
+                  const contractDuration = parseFloat(String(
+                    getProjectField(project, 'Contract Duration') || 
+                    getProjectField(project, 'Duration') ||
+                    project.project_duration ||
+                    (project as any).raw?.['Contract Duration'] ||
+                    (project as any).raw?.['Duration'] ||
+                    '0'
+                  ).replace(/,/g, '')) || 0
+                  
+                  if (contractDuration > 0) {
+                    // Add 30 days buffer + duration
+                    const endDate = new Date(awardDate)
+                    endDate.setDate(endDate.getDate() + 30 + contractDuration)
+                    plannedCompletion = endDate.toISOString()
+                    datesSource = datesSource === 'none' ? 'award_date_plus_duration' : datesSource
+                    
+                    // ✅ DEBUG: Log calculation
+                    if (process.env.NODE_ENV === 'development') {
+                      console.log(`📅 [${project.project_code}] Calculated Planned Completion from Award Date + Duration:`, {
+                        awardDate: awardDate.toISOString(),
+                        duration: contractDuration,
+                        calculatedCompletion: plannedCompletion
+                      })
+                    }
+                  }
+                }
+              } catch (error) {
+                console.error('Error calculating completion date from award date + duration:', error)
               }
             }
           }
