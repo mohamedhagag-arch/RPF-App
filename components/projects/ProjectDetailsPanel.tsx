@@ -47,6 +47,9 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
   const [showBOQModal, setShowBOQModal] = useState(false)
   const [activityActuals, setActivityActuals] = useState<{[key: string]: number}>({})
   const [activityPlanneds, setActivityPlanneds] = useState<{[key: string]: number}>({})
+  // ✅ Load project types and activity-project type mappings
+  const [projectTypesMap, setProjectTypesMap] = useState<Map<string, { name: string; description?: string }>>(new Map())
+  const [activityProjectTypesMap, setActivityProjectTypesMap] = useState<Map<string, string>>(new Map())
   
   // Copy Feedback
   const [copyFeedback, setCopyFeedback] = useState<{ type: 'latitude' | 'longitude' | null; message: string }>({ type: null, message: '' })
@@ -78,6 +81,67 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
   
   const supabase = getSupabaseClient()
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('project-details')
+
+  // ✅ Load project types and activity-project type mappings on mount
+  useEffect(() => {
+    const loadProjectTypes = async () => {
+      try {
+        console.log('🔄 Loading project types and activities from database...')
+        
+        // 1. Load project types from project_types table
+        const { data: typesData, error: typesError } = await supabase
+          .from('project_types')
+          .select('name, description')
+          .eq('is_active', true)
+          .order('name', { ascending: true })
+        
+        if (typesError) {
+          console.error('❌ Error loading project types:', typesError)
+        } else {
+          const typesMap = new Map<string, { name: string; description?: string }>()
+          if (typesData && typesData.length > 0) {
+            typesData.forEach((type: any) => {
+              if (type.name) {
+                typesMap.set(type.name, {
+                  name: type.name,
+                  description: type.description
+                })
+              }
+            })
+          }
+          setProjectTypesMap(typesMap)
+          console.log(`✅ Loaded ${typesMap.size} project types`)
+        }
+        
+        // 2. Load project_type_activities to map activity_name to project_type
+        const { data: activitiesData, error: activitiesError } = await supabase
+          .from('project_type_activities')
+          .select('activity_name, project_type')
+          .eq('is_active', true)
+        
+        if (activitiesError) {
+          console.error('❌ Error loading project_type_activities:', activitiesError)
+        } else {
+          const activityTypesMap = new Map<string, string>()
+          if (activitiesData && activitiesData.length > 0) {
+            activitiesData.forEach((item: any) => {
+              if (item.activity_name && item.project_type) {
+                activityTypesMap.set(item.activity_name, item.project_type)
+                // Also add lowercase version for case-insensitive matching
+                activityTypesMap.set(item.activity_name.toLowerCase(), item.project_type)
+              }
+            })
+          }
+          setActivityProjectTypesMap(activityTypesMap)
+          console.log(`✅ Loaded ${activityTypesMap.size} activity-project type mappings`)
+        }
+      } catch (error) {
+        console.error('❌ Error loading project types data:', error)
+      }
+    }
+    
+    loadProjectTypes()
+  }, [supabase])
 
   // ✅ FIX: Calculate BOTH Planned and Actual from KPI for each activity (filtered by Zone)
   useEffect(() => {
@@ -737,7 +801,7 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
       console.log(`🔍 Fetching ALL activities for project: ${projectCode} (Full: ${projectFullCode})`)
       console.log(`📋 Using comprehensive matching strategy with project_full_code`)
       
-      // Strategy 1: Match by exact Project Full Code (PRIMARY - most accurate)
+      // ✅ Strategy 1: Match by exact Project Full Code (PRIMARY - most accurate)
       const { data: activitiesByFullCodeExact, error: error1 } = await executeQuery(async () =>
         supabase
           .from(TABLES.BOQ_ACTIVITIES)
@@ -745,48 +809,30 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
           .eq('Project Full Code', projectFullCode)
       )
       
-      // Strategy 2: Match by exact Project Code (fallback for old data)
-      const { data: activitiesByCode, error: error2 } = await executeQuery(async () =>
-        supabase
-          .from(TABLES.BOQ_ACTIVITIES)
-          .select('*')
-          .eq('Project Code', projectCode)
-      )
-      
-      // Strategy 3: Match where Project Full Code starts with Project Full Code (for sub-projects)
-      const { data: activitiesByFullCodeStart, error: error3 } = await executeQuery(async () =>
+      // ✅ Strategy 2: Match where Project Full Code starts with our project_full_code (for sub-projects)
+      // Only if project has sub_code (to avoid matching other projects)
+      const { data: activitiesByFullCodeStart, error: error3 } = projectSubCode ? await executeQuery(async () =>
         supabase
           .from(TABLES.BOQ_ACTIVITIES)
           .select('*')
           .like('Project Full Code', `${projectFullCode}%`)
-      )
+      ) : { data: null, error: null }
       
-      // Strategy 4: Match where Project Code contains the project code (for old data formats)
-      // Some old entries might have project code in different format
-      const { data: activitiesByCodeContains, error: error4 } = await executeQuery(async () =>
+      // ✅ Strategy 3: Fallback to Project Code ONLY if project has no sub_code (to avoid mixing projects)
+      // This prevents fetching activities from other projects with same project_code but different sub_code
+      const { data: activitiesByCode, error: error2 } = !projectSubCode ? await executeQuery(async () =>
         supabase
           .from(TABLES.BOQ_ACTIVITIES)
           .select('*')
-          .ilike('Project Code', `%${projectCode}%`)
-          .neq('Project Code', projectCode) // Exclude exact matches already fetched
-      )
+          .eq('Project Code', projectCode)
+          .or('Project Full Code.is.null,Project Full Code.eq.')
+      ) : { data: null, error: null }
       
-      // Strategy 5: Match where Project Full Code contains the project code (for old data)
-      const { data: activitiesByFullCodeContains, error: error5 } = await executeQuery(async () =>
-        supabase
-          .from(TABLES.BOQ_ACTIVITIES)
-          .select('*')
-          .ilike('Project Full Code', `%${projectCode}%`)
-          .neq('Project Full Code', projectCode) // Exclude exact matches already fetched
-      )
-      
-      // Merge ALL results
+      // Merge results (only include strategies that were executed)
       const allActivitiesData = [
-        ...(Array.isArray(activitiesByCode) ? activitiesByCode : []),
         ...(Array.isArray(activitiesByFullCodeExact) ? activitiesByFullCodeExact : []),
         ...(Array.isArray(activitiesByFullCodeStart) ? activitiesByFullCodeStart : []),
-        ...(Array.isArray(activitiesByCodeContains) ? activitiesByCodeContains : []),
-        ...(Array.isArray(activitiesByFullCodeContains) ? activitiesByFullCodeContains : [])
+        ...(Array.isArray(activitiesByCode) ? activitiesByCode : [])
       ]
       
       // Remove duplicates based on id (primary key)
@@ -794,39 +840,66 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
         new Map(allActivitiesData.map((item: any) => [item.id, item])).values()
       )
       
-      // ✅ FIX: Additional client-side filtering using project_full_code
+      // ✅ FIX: Strict client-side filtering using project_full_code ONLY
+      // This ensures we only get activities for THIS specific project (not other projects with same project_code)
       const filteredActivities = uniqueActivitiesData.filter((item: any) => {
-        const itemProjectCode = (item['Project Code'] || '').toString().trim()
         const itemProjectFullCode = (item['Project Full Code'] || '').toString().trim()
+        const itemProjectCode = (item['Project Code'] || '').toString().trim()
+        const itemProjectSubCode = (item['Project Sub Code'] || '').toString().trim()
         
-        // Priority 1: Match by project_full_code (most accurate)
-        if (itemProjectFullCode === projectFullCode) return true
-        if (itemProjectFullCode.startsWith(projectFullCode)) return true
+        // ✅ PRIORITY 1: Exact match on project_full_code (MOST ACCURATE)
+        if (itemProjectFullCode === projectFullCode) {
+          return true
+        }
         
-        // Priority 2: Match by project_code (fallback for old data)
-        if (itemProjectCode === projectCode) return true
-        if (itemProjectFullCode === projectCode) return true
-        if (itemProjectFullCode.startsWith(projectCode)) return true
+        // ✅ PRIORITY 2: Build full code from item and match
+        if (itemProjectCode && itemProjectSubCode) {
+          let itemFullCode = itemProjectCode
+          if (itemProjectSubCode) {
+            if (itemProjectSubCode.toUpperCase().startsWith(itemProjectCode.toUpperCase())) {
+              itemFullCode = itemProjectSubCode
+            } else {
+              if (itemProjectSubCode.startsWith('-')) {
+                itemFullCode = `${itemProjectCode}${itemProjectSubCode}`
+              } else {
+                itemFullCode = `${itemProjectCode}-${itemProjectSubCode}`
+              }
+            }
+          }
+          if (itemFullCode === projectFullCode) {
+            return true
+          }
+        }
         
-        // Priority 3: For old database entries, check if project code appears anywhere
-        if (itemProjectCode.includes(projectCode)) return true
-        if (itemProjectFullCode.includes(projectCode)) return true
+        // ✅ PRIORITY 3: Match where Project Full Code starts with our project_full_code (for sub-projects)
+        // Only if projectFullCode is not empty
+        if (projectFullCode && itemProjectFullCode.startsWith(projectFullCode)) {
+          return true
+        }
+        
+        // ❌ DO NOT match by project_code alone - this would include other projects with same code!
+        // Only match if project_full_code is not available (old data fallback)
+        if (!itemProjectFullCode && itemProjectCode === projectCode && !projectSubCode) {
+          // Only allow this if current project has no sub_code (to avoid mixing projects)
+          return true
+        }
         
         return false
       })
       
       const activitiesData = filteredActivities
-      const activitiesError = error1 || error2 || error3 || error4 || error5
+      const activitiesError = error1 || error2 || error3
       
-      console.log(`📊 Comprehensive fetch results:`, {
-        byCode: activitiesByCode?.length || 0,
+      console.log(`📊 Comprehensive fetch results for ${projectFullCode}:`, {
         byFullCodeExact: activitiesByFullCodeExact?.length || 0,
         byFullCodeStart: activitiesByFullCodeStart?.length || 0,
-        byCodeContains: activitiesByCodeContains?.length || 0,
-        byFullCodeContains: activitiesByFullCodeContains?.length || 0,
+        byCode: activitiesByCode?.length || 0,
         totalBeforeDedup: allActivitiesData.length,
         uniqueAfterDedup: uniqueActivitiesData.length,
-        finalAfterFilter: filteredActivities.length
+        finalAfterFilter: filteredActivities.length,
+        projectFullCode,
+        projectCode,
+        projectSubCode
       })
       
       if (filteredActivities.length === 0) {
@@ -840,17 +913,31 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
         console.error('❌ Error fetching activities:', activitiesError)
       }
       
-      // ✅ FIX: Fetch KPIs using project_full_code (PRIMARY) and project_code (fallback)
+      // ✅ FIX: Fetch KPIs using project_full_code ONLY (strict matching)
+      // Strategy 1: Exact match on Project Full Code (PRIMARY - most accurate)
       let { data: kpisData, error: kpisError } = await executeQuery(async () =>
         supabase
           .from(TABLES.KPI)
           .select('*')
-          .or(`Project Full Code.eq.${projectFullCode},Project Code.eq.${projectCode}`)
+          .eq('Project Full Code', projectFullCode)
       )
       
-      // If no results, try with 'Project Code' column as additional fallback
+      // Strategy 2: Match where Project Full Code starts with our project_full_code (for sub-projects)
       if (!kpisData || (Array.isArray(kpisData) && kpisData.length === 0)) {
-        console.log('🔄 No KPIs found with Project Full Code, trying Project Code only...')
+        console.log(`🔄 No KPIs found with exact Project Full Code match, trying starts with...`)
+        const result = await executeQuery(async () =>
+          supabase
+            .from(TABLES.KPI)
+            .select('*')
+            .like('Project Full Code', `${projectFullCode}%`)
+        )
+        kpisData = result.data
+        kpisError = result.error
+      }
+      
+      // Strategy 3: Fallback to Project Code ONLY if project has no sub_code (to avoid mixing projects)
+      if ((!kpisData || (Array.isArray(kpisData) && kpisData.length === 0)) && !projectSubCode) {
+        console.log('🔄 No KPIs found with Project Full Code, trying Project Code only (no sub_code)...')
         const result = await executeQuery(async () =>
           supabase
             .from(TABLES.KPI)
@@ -859,6 +946,56 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
         )
         kpisData = result.data
         kpisError = result.error
+      }
+      
+      // ✅ Additional client-side filtering for KPIs to ensure strict matching
+      if (kpisData && Array.isArray(kpisData) && kpisData.length > 0) {
+        const filteredKPIs = kpisData.filter((kpi: any) => {
+          const kpiProjectFullCode = (kpi['Project Full Code'] || '').toString().trim()
+          const kpiProjectCode = (kpi['Project Code'] || '').toString().trim()
+          const kpiProjectSubCode = (kpi['Project Sub Code'] || '').toString().trim()
+          
+          // ✅ PRIORITY 1: Exact match on project_full_code
+          if (kpiProjectFullCode === projectFullCode) {
+            return true
+          }
+          
+          // ✅ PRIORITY 2: Build full code from KPI and match
+          if (kpiProjectCode && kpiProjectSubCode) {
+            let kpiFullCode = kpiProjectCode
+            if (kpiProjectSubCode) {
+              if (kpiProjectSubCode.toUpperCase().startsWith(kpiProjectCode.toUpperCase())) {
+                kpiFullCode = kpiProjectSubCode
+              } else {
+                if (kpiProjectSubCode.startsWith('-')) {
+                  kpiFullCode = `${kpiProjectCode}${kpiProjectSubCode}`
+                } else {
+                  kpiFullCode = `${kpiProjectCode}-${kpiProjectSubCode}`
+                }
+              }
+            }
+            if (kpiFullCode === projectFullCode) {
+              return true
+            }
+          }
+          
+          // ✅ PRIORITY 3: Match where Project Full Code starts with our project_full_code
+          if (projectFullCode && kpiProjectFullCode.startsWith(projectFullCode)) {
+            return true
+          }
+          
+          // ❌ DO NOT match by project_code alone if project has sub_code
+          // Only allow if current project has no sub_code (to avoid mixing projects)
+          if (!projectSubCode && !kpiProjectFullCode && kpiProjectCode === projectCode) {
+            return true
+          }
+          
+          return false
+        })
+        
+        const originalKPIsCount = kpisData.length
+        kpisData = filteredKPIs
+        console.log(`✅ Filtered KPIs: ${filteredKPIs.length} out of ${originalKPIsCount} match project_full_code ${projectFullCode}`)
       }
       
       if (kpisError) {
@@ -1249,10 +1386,251 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
+                    {/* Project Dates - At the top */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-base pb-4 border-b border-gray-200 dark:border-gray-700">
+                      {/* Project Start Date */}
+                      {(() => {
+                        // Get project start date from multiple sources
+                        let projectStartDate: string | null = null
+                        
+                        // Priority 1: From Planned KPIs (first Planned KPI date)
+                        if (analytics?.kpis && analytics.kpis.length > 0) {
+                          const plannedKPIs = analytics.kpis.filter((kpi: any) => {
+                            const inputType = String(kpi.input_type || kpi['Input Type'] || (kpi as any).raw?.['Input Type'] || '').trim().toLowerCase()
+                            return inputType === 'planned'
+                          })
+                          
+                          if (plannedKPIs.length > 0) {
+                            const dates = plannedKPIs
+                              .map((kpi: any) => {
+                                const rawKpi = (kpi as any).raw || {}
+                                const dateStr = rawKpi['Activity Date'] || rawKpi.activity_date || 
+                                               kpi.activity_date || kpi['Activity Date'] ||
+                                               rawKpi['Target Date'] || rawKpi.target_date ||
+                                               kpi.target_date || kpi['Target Date'] ||
+                                               rawKpi['Day'] || rawKpi.day ||
+                                               kpi.day || kpi['Day'] ||
+                                               ''
+                                
+                                if (!dateStr) return null
+                                
+                                try {
+                                  const date = new Date(dateStr)
+                                  return isNaN(date.getTime()) ? null : { date, dateStr }
+                                } catch {
+                                  return null
+                                }
+                              })
+                              .filter((item): item is { date: Date, dateStr: string } => item !== null)
+                              .sort((a, b) => a.date.getTime() - b.date.getTime())
+                            
+                            if (dates.length > 0) {
+                              projectStartDate = dates[0].dateStr
+                            }
+                          }
+                        }
+                        
+                        // Priority 2: From project fields
+                        if (!projectStartDate) {
+                          projectStartDate = project.project_start_date || 
+                                           (project as any).raw?.['Project Start Date'] ||
+                                           (project as any).raw?.['Planned Start Date'] ||
+                                           (project as any).raw?.['Start Date'] ||
+                                           (project as any).raw?.['Commencement Date'] ||
+                                           null
+                        }
+                        
+                        return projectStartDate ? (
+                          <div className="flex justify-between items-center">
+                            <span className="text-gray-600 dark:text-gray-400 font-medium flex items-center gap-2">
+                              <Calendar className="h-4 w-4" />
+                              Start Date:
+                            </span>
+                            <span className="font-semibold text-gray-900 dark:text-white">
+                              {new Date(projectStartDate).toLocaleDateString('en-US', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric'
+                              })}
+                            </span>
+                          </div>
+                        ) : null
+                      })()}
+                      
+                      {/* Project Completion Date */}
+                      {(() => {
+                        // Get project completion date from multiple sources
+                        let projectCompletionDate: string | null = null
+                        
+                        // Priority 1: From Planned KPIs (last Planned KPI date)
+                        if (analytics?.kpis && analytics.kpis.length > 0) {
+                          const plannedKPIs = analytics.kpis.filter((kpi: any) => {
+                            const inputType = String(kpi.input_type || kpi['Input Type'] || (kpi as any).raw?.['Input Type'] || '').trim().toLowerCase()
+                            return inputType === 'planned'
+                          })
+                          
+                          if (plannedKPIs.length > 0) {
+                            const dates = plannedKPIs
+                              .map((kpi: any) => {
+                                const rawKpi = (kpi as any).raw || {}
+                                const dateStr = rawKpi['Activity Date'] || rawKpi.activity_date || 
+                                               kpi.activity_date || kpi['Activity Date'] ||
+                                               rawKpi['Target Date'] || rawKpi.target_date ||
+                                               kpi.target_date || kpi['Target Date'] ||
+                                               rawKpi['Day'] || rawKpi.day ||
+                                               kpi.day || kpi['Day'] ||
+                                               ''
+                                
+                                if (!dateStr) return null
+                                
+                                try {
+                                  const date = new Date(dateStr)
+                                  return isNaN(date.getTime()) ? null : { date, dateStr }
+                                } catch {
+                                  return null
+                                }
+                              })
+                              .filter((item): item is { date: Date, dateStr: string } => item !== null)
+                              .sort((a, b) => a.date.getTime() - b.date.getTime())
+                            
+                            if (dates.length > 0) {
+                              projectCompletionDate = dates[dates.length - 1].dateStr
+                            }
+                          }
+                        }
+                        
+                        // Priority 2: From project fields
+                        if (!projectCompletionDate) {
+                          projectCompletionDate = project.project_completion_date || 
+                                                (project as any).project_end_date ||
+                                                (project as any).raw?.['Project Completion Date'] ||
+                                                (project as any).raw?.['Planned Completion Date'] ||
+                                                (project as any).raw?.['Completion Date'] ||
+                                                (project as any).raw?.['End Date'] ||
+                                                null
+                        }
+                        
+                        return projectCompletionDate ? (
+                          <div className="flex justify-between items-center">
+                            <span className="text-gray-600 dark:text-gray-400 font-medium flex items-center gap-2">
+                              <Calendar className="h-4 w-4" />
+                              Completion Date:
+                            </span>
+                            <span className="font-semibold text-gray-900 dark:text-white">
+                              {new Date(projectCompletionDate).toLocaleDateString('en-US', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric'
+                              })}
+                            </span>
+                          </div>
+                        ) : null
+                      })()}
+                    </div>
+                    
+                    {/* Other Project Details */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-base">
                       <div className="flex justify-between items-center">
                         <span className="text-gray-600 dark:text-gray-400 font-medium">SCOPE:</span>
-                        <span className="font-semibold text-gray-900 dark:text-white">{project.project_type || 'N/A'}</span>
+                        <span className="font-semibold text-gray-900 dark:text-white">
+                          {(() => {
+                            // ✅ Get scope from multiple sources (same logic as ProjectsTableWithCustomization)
+                            // Strategy 1: Get from project.project_type field
+                            const projectTypeNamesRaw = project.project_type || 
+                                                       (project as any).raw?.['Project Type'] || 
+                                                       ''
+                            
+                            // Strategy 2: Get from activities associated with this project
+                            const projectActivityNames = analytics?.activities 
+                              ? Array.from(new Set(
+                                  analytics.activities
+                                    .map((act: any) => act.activity_name || act.activity || act['Activity Name'] || (act as any).raw?.['Activity Name'] || '')
+                                    .filter((name: string) => name && name.trim() !== '')
+                                ))
+                              : []
+                            
+                            // Strategy 3: Get project types from activities using project_type_activities table
+                            const projectTypesFromActivities = new Set<string>()
+                            projectActivityNames.forEach((activityName: string) => {
+                              if (!activityName) return
+                              
+                              // Try exact match first
+                              let projectType = activityProjectTypesMap.get(activityName)
+                              
+                              // If not found, try case-insensitive match
+                              if (!projectType) {
+                                const activityNameLower = activityName.toLowerCase().trim()
+                                projectType = activityProjectTypesMap.get(activityNameLower)
+                                
+                                // If still not found, try partial match
+                                if (!projectType) {
+                                  Array.from(activityProjectTypesMap.entries()).forEach(([key, value]) => {
+                                    if (!projectType && 
+                                        (key.toLowerCase().includes(activityNameLower) || 
+                                         activityNameLower.includes(key.toLowerCase()))) {
+                                      projectType = value
+                                    }
+                                  })
+                                }
+                              }
+                              
+                              if (projectType) {
+                                projectTypesFromActivities.add(projectType)
+                              }
+                            })
+                            
+                            // Combine project types from project.project_type and from activities
+                            const allProjectTypeNames = new Set<string>()
+                            
+                            // Add from project.project_type field
+                            if (projectTypeNamesRaw && 
+                                projectTypeNamesRaw !== 'N/A' && 
+                                projectTypeNamesRaw.trim() !== '') {
+                              projectTypeNamesRaw.split(',').forEach((type: string) => {
+                                const trimmed = type.trim()
+                                if (trimmed) {
+                                  allProjectTypeNames.add(trimmed)
+                                }
+                              })
+                            }
+                            
+                            // Add from activities
+                            projectTypesFromActivities.forEach(type => {
+                              allProjectTypeNames.add(type)
+                            })
+                            
+                            // Convert to array and look up names in projectTypesMap
+                            const scopeNames = Array.from(allProjectTypeNames)
+                              .map(typeName => {
+                                // Try exact match first
+                                const typeInfo = projectTypesMap.get(typeName)
+                                if (typeInfo) {
+                                  return typeInfo.name
+                                }
+                                
+                                // Try case-insensitive match
+                                const found = Array.from(projectTypesMap.entries()).find(([key, value]) => {
+                                  return key.toLowerCase() === typeName.toLowerCase()
+                                })
+                                
+                                if (found) {
+                                  return found[1].name
+                                }
+                                
+                                // Fallback to original name
+                                return typeName
+                              })
+                              .filter(name => name && name.trim() !== '')
+                            
+                            // Return combined scope names or fallback
+                            if (scopeNames.length > 0) {
+                              return scopeNames.join(', ')
+                            }
+                            
+                            // Fallback to project.project_type or N/A
+                            return project.project_type || 'N/A'
+                          })()}
+                        </span>
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-gray-600 dark:text-gray-400 font-medium">Division:</span>
@@ -1540,36 +1918,36 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                           {/* Activities in this Zone */}
                           <div className="space-y-3 pl-4 border-l-2 border-blue-100 dark:border-blue-900/50">
                             {zoneActivities.map((activity) => (
-                              <Card key={activity.id} className="hover:shadow-lg transition-all duration-200 border-l-4 border-l-blue-500">
-                                <CardContent className="p-6">
-                                  <div className="flex justify-between items-start mb-4">
-                                    <div className="flex-1">
-                                      <h4 className="font-semibold text-lg text-gray-900 dark:text-white mb-1">
-                                        {activity.activity_name || activity.activity}
-                                      </h4>
-                                      <div className="flex items-center gap-2 mb-2">
-                                        {(() => {
-                                          const divisionLabel = (activity.activity_division || '').toString().trim()
+                    <Card key={activity.id} className="hover:shadow-lg transition-all duration-200 border-l-4 border-l-blue-500">
+                      <CardContent className="p-6">
+                        <div className="flex justify-between items-start mb-4">
+                          <div className="flex-1">
+                            <h4 className="font-semibold text-lg text-gray-900 dark:text-white mb-1">
+                              {activity.activity_name || activity.activity}
+                            </h4>
+                            <div className="flex items-center gap-2 mb-2">
+                              {(() => {
+                                const divisionLabel = (activity.activity_division || '').toString().trim()
                                           const shouldShowDivision = divisionLabel && 
                                                                     divisionLabel.toLowerCase() !== 'enabling division' &&
                                                                     divisionLabel !== zoneKey
 
-                                          return (
-                                            <>
+                                return (
+                                  <>
                                               {shouldShowDivision && (
-                                                <Badge variant="outline" className="text-xs text-gray-600 dark:text-gray-300 border-dashed">
-                                                  {divisionLabel}
-                                                </Badge>
-                                              )}
-                                            </>
-                                          )
-                                        })()}
-                                        {activity.unit && (
-                                          <Badge variant="outline" className="text-xs">
-                                            {activity.unit}
-                                          </Badge>
-                                        )}
-                                      </div>
+                                      <Badge variant="outline" className="text-xs text-gray-600 dark:text-gray-300 border-dashed">
+                                        {divisionLabel}
+                                      </Badge>
+                                    )}
+                                  </>
+                                )
+                              })()}
+                              {activity.unit && (
+                                <Badge variant="outline" className="text-xs">
+                                  {activity.unit}
+                                </Badge>
+                              )}
+                            </div>
                             
                             {/* Activity Timeline - Always Visible */}
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
@@ -1601,11 +1979,11 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                                       const endDate = calculateActivityEndDate(activity)
                                       return endDate 
                                         ? new Date(endDate).toLocaleDateString('en-US', {
-                                            year: 'numeric',
-                                            month: 'short',
-                                            day: 'numeric'
-                                          })
-                                        : 'Not set'
+                                          year: 'numeric',
+                                          month: 'short',
+                                          day: 'numeric'
+                                        })
+                                      : 'Not set'
                                     })()}
                                   </p>
                                 </div>
@@ -1813,11 +2191,11 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                                   const endDate = calculateActivityEndDate(activity)
                                   return endDate 
                                     ? new Date(endDate).toLocaleDateString('en-US', {
-                                        year: 'numeric',
-                                        month: 'short',
-                                        day: 'numeric'
-                                      })
-                                    : 'Not set'
+                                      year: 'numeric',
+                                      month: 'short',
+                                      day: 'numeric'
+                                    })
+                                  : 'Not set'
                                 })()}
                               </p>
                               {(() => {
@@ -1916,8 +2294,8 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                         )}
                       </CardContent>
                     </Card>
-                            ))}
-                          </div>
+                  ))}
+                </div>
                         </div>
                       ))}
                     </div>

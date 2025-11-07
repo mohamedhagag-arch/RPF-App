@@ -401,7 +401,29 @@ export function ModernProjectCard({
             )}
             <div className="flex items-center gap-2">
               <Badge variant="outline" className="text-xs font-mono bg-gradient-to-r from-gray-100 to-gray-50 dark:from-gray-700 dark:to-gray-800 border-gray-200 dark:border-gray-600 px-3 py-1 font-semibold">
-                {project.project_code}
+                {(() => {
+                  // ✅ Build project_full_code to show the full code (e.g., P5066-R1) instead of just project_code (P5066)
+                  const projectCode = (project.project_code || '').trim()
+                  const projectSubCode = (project.project_sub_code || '').trim()
+                  
+                  let projectFullCode = projectCode
+                  if (projectSubCode) {
+                    // Check if sub_code already starts with project_code (case-insensitive)
+                    if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+                      // project_sub_code already contains project_code (e.g., "P5066-R1")
+                      projectFullCode = projectSubCode
+                    } else {
+                      // project_sub_code is just the suffix (e.g., "R1" or "-R1")
+                      if (projectSubCode.startsWith('-')) {
+                        projectFullCode = `${projectCode}${projectSubCode}`
+                      } else {
+                        projectFullCode = `${projectCode}-${projectSubCode}`
+                      }
+                    }
+                  }
+                  
+                  return projectFullCode || projectCode || 'N/A'
+                })()}
               </Badge>
             </div>
           </div>

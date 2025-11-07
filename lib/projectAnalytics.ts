@@ -247,34 +247,48 @@ export function calculateProjectAnalytics(
   }
   
   // ✅ FIX: Helper function to check if codes match
-  // Prioritize exact project_full_code matching
+  // STRICT matching: Prioritize exact project_full_code matching to avoid mixing projects
   const codesMatch = (itemCodes: string[], projectCodes: Set<string>): boolean => {
     const projectCodesArray = Array.from(projectCodes)
     
     for (const itemCode of itemCodes) {
       const itemCodeUpper = itemCode.toUpperCase()
       
-      // ✅ PRIORITY 1: Direct exact match with project_full_code (most accurate)
-      if (projectFullCodeUpper && itemCodeUpper === projectFullCodeUpper) return true
-      
-      // ✅ PRIORITY 2: Direct exact match with any project code variation (case-insensitive)
-      for (const projCode of projectCodesArray) {
-        if (itemCodeUpper === projCode) return true
+      // ✅ PRIORITY 1: Direct exact match with project_full_code (MOST ACCURATE - prevents mixing projects)
+      if (projectFullCodeUpper && itemCodeUpper === projectFullCodeUpper) {
+        return true
       }
       
-      // ✅ PRIORITY 3: Check if item code starts with project_full_code (for sub-projects)
-      if (projectFullCodeUpper && itemCodeUpper.startsWith(projectFullCodeUpper)) return true
+      // ✅ PRIORITY 2: Check if item code starts with project_full_code (for sub-projects)
+      // Only if project has sub_code (to avoid matching other projects with same project_code)
+      if (projectSubCode && projectFullCodeUpper && itemCodeUpper.startsWith(projectFullCodeUpper)) {
+        return true
+      }
       
-      // ✅ PRIORITY 4: Check if project_full_code starts with item code
-      if (projectFullCodeUpper && projectFullCodeUpper.startsWith(itemCodeUpper)) return true
-      
-      // ✅ PRIORITY 5: Check if item code contains any project code (fallback for old data)
+      // ✅ PRIORITY 3: Direct exact match with project_full_code variations (case-insensitive)
+      // Check if item code matches any project code variation that includes sub_code
       for (const projCode of projectCodesArray) {
-        if (itemCodeUpper.includes(projCode) || projCode.includes(itemCodeUpper)) {
-          return true
+        // Only match if it's the full code or a variation that includes sub_code
+        if (itemCodeUpper === projCode) {
+          // Additional check: if project has sub_code, only match if item code also has sub_code
+          if (projectSubCode) {
+            // Item code should contain sub_code or be the full code
+            if (itemCodeUpper.includes(projectSubCodeUpper) || itemCodeUpper === projectFullCodeUpper) {
+              return true
+            }
+          } else {
+            // If project has no sub_code, allow match
+            return true
+          }
         }
-        // Check if item code starts with project code (e.g., P9999 matches P9999-01)
-        if (itemCodeUpper.startsWith(projCode) || projCode.startsWith(itemCodeUpper)) {
+      }
+      
+      // ❌ DO NOT match by project_code alone if project has sub_code
+      // This prevents mixing projects with same project_code but different sub_code
+      // Only allow project_code matching if current project has no sub_code
+      if (!projectSubCode) {
+        // Fallback: Match by project_code only if project has no sub_code
+        if (itemCodeUpper === projectCodeUpper) {
           return true
         }
       }
