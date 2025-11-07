@@ -79,9 +79,9 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
   const supabase = getSupabaseClient()
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('project-details')
 
-  // ✅ FIX: Calculate BOTH Planned and Actual from KPI for each activity
+  // ✅ FIX: Calculate BOTH Planned and Actual from KPI for each activity (filtered by Zone)
   useEffect(() => {
-    if (!analytics?.activities) return
+    if (!analytics?.activities || !analytics?.kpis) return
 
     const calculateUnits = async () => {
       const actuals: {[key: string]: number} = {}
@@ -89,6 +89,9 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
       
       for (const activity of analytics.activities) {
         try {
+          // Get activity zone
+          const activityZone = (activity.zone_ref || activity.zone_number || activity.activity_division || '').toString().trim()
+          
           // Build project_full_code for matching
           const projectCode = (activity.project_code || '').trim()
           const projectSubCode = (activity.project_sub_code || '').trim()
@@ -105,18 +108,64 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
             }
           }
           
-          // Calculate Actual from KPIs
-          const actual = await calculateActualFromKPI(
-            projectFullCode || projectCode,
-            activity.activity_name || ''
-          )
+          // ✅ Filter KPIs by activity name AND zone
+          const activityKPIs = analytics.kpis.filter((kpi: any) => {
+            const kpiProjectCode = kpi.project_code || (kpi as any).raw?.['Project Code'] || ''
+            const kpiProjectFullCode = kpi.project_full_code || (kpi as any).raw?.['Project Full Code'] || ''
+            const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || (kpi as any).raw?.['Activity Name'] || '').toLowerCase().trim()
+            const kpiZone = (kpi.zone || kpi['Zone'] || kpi.section || (kpi as any).raw?.['Zone'] || '').toString().trim()
+            const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+            
+            // Match project code
+            const projectMatch = (kpiProjectCode === projectCode) || 
+                               (kpiProjectFullCode === projectFullCode) ||
+                               (kpiProjectFullCode?.startsWith(projectCode))
+            
+            if (!projectMatch) return false
+            
+            // Match activity name
+            const activityMatch = kpiActivityName === activityName ||
+                                 kpiActivityName.includes(activityName) ||
+                                 activityName.includes(kpiActivityName)
+            
+            if (!activityMatch) return false
+            
+            // ✅ Match zone (if activity has zone)
+            if (activityZone && activityZone !== 'N/A') {
+              const zoneMatch = kpiZone === activityZone ||
+                               kpiZone.includes(activityZone) ||
+                               activityZone.includes(kpiZone)
+              return zoneMatch
+            }
+            
+            // If activity has no zone, include all KPIs for this activity
+            return true
+          })
+          
+          // Calculate Actual from filtered KPIs
+          const actualKPIs = activityKPIs.filter((kpi: any) => {
+            const inputType = String(kpi.input_type || kpi['Input Type'] || (kpi as any).raw?.['Input Type'] || '').trim().toLowerCase()
+            return inputType === 'actual'
+          })
+          
+          const actual = actualKPIs.reduce((sum: number, kpi: any) => {
+            const qty = parseFloat(String(kpi.quantity || kpi['Quantity'] || (kpi as any).raw?.['Quantity'] || '0').replace(/,/g, '')) || 0
+            return sum + qty
+          }, 0)
+          
           actuals[activity.id] = actual
           
-          // ✅ FIX: Calculate Planned from KPIs
-          const planned = await calculatePlannedFromKPI(
-            projectFullCode || projectCode,
-            activity.activity_name || ''
-          )
+          // ✅ Calculate Planned from filtered KPIs
+          const plannedKPIs = activityKPIs.filter((kpi: any) => {
+            const inputType = String(kpi.input_type || kpi['Input Type'] || (kpi as any).raw?.['Input Type'] || '').trim().toLowerCase()
+            return inputType === 'planned'
+          })
+          
+          const planned = plannedKPIs.reduce((sum: number, kpi: any) => {
+            const qty = parseFloat(String(kpi.quantity || kpi['Quantity'] || (kpi as any).raw?.['Quantity'] || '0').replace(/,/g, '')) || 0
+            return sum + qty
+          }, 0)
+          
           planneds[activity.id] = planned
         } catch (error) {
           // Silently fail
@@ -130,107 +179,458 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
     }
 
     calculateUnits()
-  }, [analytics?.activities])
+  }, [analytics?.activities, analytics?.kpis])
 
-  // ✅ Calculate Duration from KPI Planned data
+  // ✅ Helper function to get KPIs filtered by activity AND zone
+  const getActivityKPIsByZone = (activity: any) => {
+    if (!analytics?.kpis) return []
+    
+    // Get activity zone
+    const activityZone = (activity.zone_ref || activity.zone_number || activity.activity_division || '').toString().trim()
+    
+    // Build project_full_code for matching
+    const projectCode = (activity.project_code || '').trim()
+    const projectSubCode = (activity.project_sub_code || '').trim()
+    let projectFullCode = projectCode
+    if (projectSubCode) {
+      if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+        projectFullCode = projectSubCode
+      } else {
+        if (projectSubCode.startsWith('-')) {
+          projectFullCode = `${projectCode}${projectSubCode}`
+        } else {
+          projectFullCode = `${projectCode}-${projectSubCode}`
+        }
+      }
+    }
+    
+    const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+    
+    // Filter KPIs by activity name AND zone
+    return analytics.kpis.filter((kpi: any) => {
+      const kpiProjectCode = kpi.project_code || (kpi as any).raw?.['Project Code'] || ''
+      const kpiProjectFullCode = kpi.project_full_code || (kpi as any).raw?.['Project Full Code'] || ''
+      const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || (kpi as any).raw?.['Activity Name'] || '').toLowerCase().trim()
+      const kpiZone = (kpi.zone || kpi['Zone'] || kpi.section || (kpi as any).raw?.['Zone'] || '').toString().trim()
+      
+      // Match project code
+      const projectMatch = (kpiProjectCode === projectCode) || 
+                         (kpiProjectFullCode === projectFullCode) ||
+                         (kpiProjectFullCode?.startsWith(projectCode))
+      
+      if (!projectMatch) return false
+      
+      // Match activity name
+      const activityMatch = kpiActivityName === activityName ||
+                           kpiActivityName.includes(activityName) ||
+                           activityName.includes(kpiActivityName)
+      
+      if (!activityMatch) return false
+      
+      // ✅ Match zone (if activity has zone)
+      if (activityZone && activityZone !== 'N/A') {
+        const zoneMatch = kpiZone === activityZone ||
+                         kpiZone.includes(activityZone) ||
+                         activityZone.includes(kpiZone)
+        return zoneMatch
+      }
+      
+      // If activity has no zone, include all KPIs for this activity
+      return true
+    })
+  }
+
+  // ✅ Calculate Duration from KPI Planned data (filtered by Zone)
   const calculateActivityDuration = (activity: any) => {
-    if (!analytics?.kpis) return activity.calendar_duration || 0
+    // Get KPIs filtered by Zone
+    const activityKPIs = getActivityKPIsByZone(activity)
     
-    // Find KPI records for this activity
-    const activityKPIs = analytics.kpis.filter((kpi: any) => 
-      kpi.project_code === activity.project_code && 
-      kpi.activity_name === activity.activity_name &&
-      kpi.input_type === 'Planned'
-    )
+    // Filter for Planned KPIs only
+    const plannedKPIs = activityKPIs.filter((kpi: any) => {
+      const inputType = String(kpi.input_type || kpi['Input Type'] || (kpi as any).raw?.['Input Type'] || '').trim().toLowerCase()
+      return inputType === 'planned'
+    })
     
-    if (activityKPIs.length > 0) {
-      // ✅ Duration = Number of KPI Planned records (not sum of quantities)
-      return activityKPIs.length || activity.calendar_duration || 0
+    if (plannedKPIs.length > 0) {
+      // Get all dates from Planned KPIs
+      const dates = plannedKPIs
+        .map((kpi: any) => {
+          const rawKpi = (kpi as any).raw || {}
+          const dateStr = rawKpi['Activity Date'] || rawKpi.activity_date || 
+                         kpi.activity_date || kpi['Activity Date'] ||
+                         rawKpi['Target Date'] || rawKpi.target_date ||
+                         kpi.target_date || kpi['Target Date'] ||
+                         rawKpi['Day'] || rawKpi.day ||
+                         kpi.day || kpi['Day'] ||
+                         ''
+          
+          if (!dateStr) return null
+          
+          try {
+            const date = new Date(dateStr)
+            return isNaN(date.getTime()) ? null : date
+          } catch {
+            return null
+          }
+        })
+        .filter((d): d is Date => d !== null)
+        .sort((a, b) => a.getTime() - b.getTime())
+      
+      if (dates.length > 0) {
+        // Duration = difference between first and last Planned KPI date
+        const startDate = dates[0]
+        const endDate = dates[dates.length - 1]
+        const duration = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
+        return duration > 0 ? duration : activity.calendar_duration || 0
+      }
+      
+      // Fallback: Number of Planned KPI records
+      return plannedKPIs.length || activity.calendar_duration || 0
     }
     
     return activity.calendar_duration || 0
   }
 
-  // ✅ Calculate Start Date from first planned KPI for the activity
+  // ✅ Calculate Start Date from first planned KPI for the activity (filtered by Zone)
   const calculateActivityStartDate = (activity: any) => {
-    // If activity has start date, use it
+    // Get KPIs filtered by Zone
+    const activityKPIs = getActivityKPIsByZone(activity)
+    
+    // Filter for Planned KPIs only
+    const plannedKPIs = activityKPIs.filter((kpi: any) => {
+      const inputType = String(kpi.input_type || kpi['Input Type'] || (kpi as any).raw?.['Input Type'] || '').trim().toLowerCase()
+      return inputType === 'planned'
+    })
+    
+    if (plannedKPIs.length > 0) {
+      // Get all dates from Planned KPIs and sort
+      const dates = plannedKPIs
+        .map((kpi: any) => {
+          const rawKpi = (kpi as any).raw || {}
+          const dateStr = rawKpi['Activity Date'] || rawKpi.activity_date || 
+                         kpi.activity_date || kpi['Activity Date'] ||
+                         rawKpi['Target Date'] || rawKpi.target_date ||
+                         kpi.target_date || kpi['Target Date'] ||
+                         rawKpi['Day'] || rawKpi.day ||
+                         kpi.day || kpi['Day'] ||
+                         ''
+          
+          if (!dateStr) return null
+          
+          try {
+            const date = new Date(dateStr)
+            return isNaN(date.getTime()) ? null : { date, dateStr }
+          } catch {
+            return null
+          }
+        })
+        .filter((item): item is { date: Date, dateStr: string } => item !== null)
+        .sort((a, b) => a.date.getTime() - b.date.getTime())
+      
+      if (dates.length > 0) {
+        // Return first Planned KPI date (earliest date for this Zone)
+        return dates[0].dateStr
+      }
+    }
+    
+    // Fallback: Use activity start date
     if (activity.planned_activity_start_date) {
       return activity.planned_activity_start_date
     }
     
-    // If no KPI data, return null
-    if (!analytics?.kpis) return null
+    return null
+  }
+
+  // ✅ Calculate End Date from last planned KPI for the activity (filtered by Zone)
+  const calculateActivityEndDate = (activity: any) => {
+    // Get KPIs filtered by Zone
+    const activityKPIs = getActivityKPIsByZone(activity)
     
-    // Find KPI records for this activity - try multiple matching strategies
-    const activityKPIs = analytics.kpis.filter((kpi: any) => {
-      // Strategy 1: Exact match on activity_name
-      if (kpi.activity_name === activity.activity_name && kpi.project_code === activity.project_code) {
-        return true
-      }
-      
-      // Strategy 2: Match on activity (fallback name)
-      if (kpi.activity === activity.activity && kpi.project_code === activity.project_code) {
-        return true
-      }
-      
-      // Strategy 3: Match on kpi_name (some KPIs might use kpi_name instead)
-      if (kpi.kpi_name === activity.activity_name && kpi.project_code === activity.project_code) {
-        return true
-      }
-      
-      return false
+    // Filter for Planned KPIs only
+    const plannedKPIs = activityKPIs.filter((kpi: any) => {
+      const inputType = String(kpi.input_type || kpi['Input Type'] || (kpi as any).raw?.['Input Type'] || '').trim().toLowerCase()
+      return inputType === 'planned'
     })
     
-    console.log(`🔍 Activity: ${activity.activity_name} - Found ${activityKPIs.length} KPIs`)
-    
-    if (activityKPIs.length > 0) {
-      // Find the first planned KPI (input_type = 'Planned') for this activity
-      const plannedKPIs = activityKPIs.filter((kpi: any) => kpi.input_type === 'Planned')
-      
-      console.log(`📅 Planned KPIs for ${activity.activity_name}: ${plannedKPIs.length}`)
-      
-      if (plannedKPIs.length > 0) {
-        // Sort by target_date to get the earliest planned KPI
-        const sortedPlannedKPIs = plannedKPIs.sort((a: any, b: any) => {
-          const dateA = new Date(a.target_date || a.actual_date || '')
-          const dateB = new Date(b.target_date || b.actual_date || '')
-          return dateA.getTime() - dateB.getTime()
+    if (plannedKPIs.length > 0) {
+      // Get all dates from Planned KPIs and sort
+      const dates = plannedKPIs
+        .map((kpi: any) => {
+          const rawKpi = (kpi as any).raw || {}
+          const dateStr = rawKpi['Activity Date'] || rawKpi.activity_date || 
+                         kpi.activity_date || kpi['Activity Date'] ||
+                         rawKpi['Target Date'] || rawKpi.target_date ||
+                         kpi.target_date || kpi['Target Date'] ||
+                         rawKpi['Day'] || rawKpi.day ||
+                         kpi.day || kpi['Day'] ||
+                         ''
+          
+          if (!dateStr) return null
+          
+          try {
+            const date = new Date(dateStr)
+            return isNaN(date.getTime()) ? null : { date, dateStr }
+          } catch {
+            return null
+          }
         })
-        
-        // Get the target_date from the first planned KPI
-        const firstPlannedKPI = sortedPlannedKPIs[0]
-        console.log(`🎯 First planned KPI for ${activity.activity_name}:`, firstPlannedKPI)
-        
-        if (firstPlannedKPI?.target_date) {
-          console.log(`✅ Found start date from planned KPI: ${firstPlannedKPI.target_date}`)
-          return firstPlannedKPI.target_date
-        }
-      }
+        .filter((item): item is { date: Date, dateStr: string } => item !== null)
+        .sort((a, b) => a.date.getTime() - b.date.getTime())
       
-      // Fallback: If no planned KPIs, try to find any KPI with target_date
-      const kpiWithTargetDate = activityKPIs.find((kpi: any) => kpi.target_date)
-      if (kpiWithTargetDate?.target_date) {
-        console.log(`✅ Found start date from any KPI: ${kpiWithTargetDate.target_date}`)
-        return kpiWithTargetDate.target_date
-      }
-      
-      // Fallback: Try to find any KPI with start_date
-      const kpiWithStartDate = activityKPIs.find((kpi: any) => kpi.start_date)
-      if (kpiWithStartDate?.start_date) {
-        console.log(`✅ Found start date from KPI start_date: ${kpiWithStartDate.start_date}`)
-        return kpiWithStartDate.start_date
-      }
-      
-      // If no start date in KPI, use project start date as fallback
-      const projectData = analytics.project as any
-      if (projectData?.project_start_date) {
-        console.log(`✅ Using project start date: ${projectData.project_start_date}`)
-        return projectData.project_start_date
+      if (dates.length > 0) {
+        // Return last Planned KPI date (latest date for this Zone)
+        return dates[dates.length - 1].dateStr
       }
     }
     
-    console.log(`❌ No start date found for activity: ${activity.activity_name}`)
+    // Fallback: Use activity deadline
+    if (activity.deadline) {
+      return activity.deadline
+    }
+    
     return null
+  }
+
+  // ✅ Calculate Activity Status automatically based on dates and progress (filtered by Zone)
+  // Enhanced with more detailed and descriptive statuses
+  const calculateActivityStatus = (activity: any): {
+    status: 'not_started' | 'starting_soon' | 'in_progress' | 'on_track' | 'at_risk' | 'delayed' | 'behind_schedule' | 'completed_early' | 'completed_on_time' | 'completed_late' | 'completed'
+    label: string
+    color: string
+    bgColor: string
+    description?: string
+  } => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    
+    // Get Start Date and End Date (filtered by Zone)
+    const startDateStr = calculateActivityStartDate(activity)
+    const endDateStr = calculateActivityEndDate(activity)
+    
+    // Get Planned and Actual Units (filtered by Zone)
+    const plannedUnits = activityPlanneds[activity.id] !== undefined 
+      ? activityPlanneds[activity.id] 
+      : activity.planned_units || 0
+    const actualUnits = activityActuals[activity.id] !== undefined 
+      ? activityActuals[activity.id] 
+      : activity.actual_units || 0
+    
+    // Parse dates
+    let startDate: Date | null = null
+    let endDate: Date | null = null
+    
+    if (startDateStr) {
+      try {
+        startDate = new Date(startDateStr)
+        startDate.setHours(0, 0, 0, 0)
+      } catch {
+        startDate = null
+      }
+    }
+    
+    if (endDateStr) {
+      try {
+        endDate = new Date(endDateStr)
+        endDate.setHours(0, 0, 0, 0)
+      } catch {
+        endDate = null
+      }
+    }
+    
+    // Fallback to activity dates if KPI dates not available
+    if (!startDate && activity.planned_activity_start_date) {
+      try {
+        startDate = new Date(activity.planned_activity_start_date)
+        startDate.setHours(0, 0, 0, 0)
+      } catch {
+        startDate = null
+      }
+    }
+    
+    if (!endDate && activity.deadline) {
+      try {
+        endDate = new Date(activity.deadline)
+        endDate.setHours(0, 0, 0, 0)
+      } catch {
+        endDate = null
+      }
+    }
+    
+    // Check if activity is completed (Actual >= Planned)
+    const isCompleted = plannedUnits > 0 && actualUnits >= plannedUnits
+    const completionPercentage = plannedUnits > 0 ? (actualUnits / plannedUnits) * 100 : 0
+    
+    // ========== COMPLETED STATUSES ==========
+    if (isCompleted) {
+      if (endDate && today < endDate) {
+        // Completed early (before end date)
+        const daysEarly = Math.ceil((endDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+        return {
+          status: 'completed_early',
+          label: 'Completed Early',
+          color: 'text-emerald-800',
+          bgColor: 'bg-emerald-100',
+          description: `${daysEarly} day${daysEarly !== 1 ? 's' : ''} ahead of schedule`
+        }
+      } else if (endDate && today.getTime() === endDate.getTime()) {
+        // Completed exactly on time (on end date)
+        return {
+          status: 'completed_on_time',
+          label: 'Completed On Time',
+          color: 'text-green-800',
+          bgColor: 'bg-green-100',
+          description: 'Finished exactly as planned'
+        }
+      } else if (endDate && today > endDate) {
+        // Completed late (after end date)
+        const daysLate = Math.ceil((today.getTime() - endDate.getTime()) / (1000 * 60 * 60 * 24))
+        return {
+          status: 'completed_late',
+          label: 'Completed Late',
+          color: 'text-amber-800',
+          bgColor: 'bg-amber-100',
+          description: `${daysLate} day${daysLate !== 1 ? 's' : ''} after deadline`
+        }
+      } else {
+        // Completed (no end date available)
+        return {
+          status: 'completed',
+          label: 'Completed',
+          color: 'text-green-800',
+          bgColor: 'bg-green-100',
+          description: `${completionPercentage.toFixed(1)}% completed`
+        }
+      }
+    }
+    
+    // ========== NOT STARTED STATUSES ==========
+    if (startDate && today < startDate) {
+      const daysUntilStart = Math.ceil((startDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+      
+      if (daysUntilStart <= 7) {
+        // Starting soon (within 7 days)
+        return {
+          status: 'starting_soon',
+          label: 'Starting Soon',
+          color: 'text-blue-600',
+          bgColor: 'bg-blue-50',
+          description: `Starts in ${daysUntilStart} day${daysUntilStart !== 1 ? 's' : ''}`
+        }
+      } else {
+        // Not started yet (more than 7 days away)
+        return {
+          status: 'not_started',
+          label: 'Not Started',
+          color: 'text-gray-600',
+          bgColor: 'bg-gray-100',
+          description: `Starts in ${daysUntilStart} day${daysUntilStart !== 1 ? 's' : ''}`
+        }
+      }
+    }
+    
+    // ========== IN PROGRESS STATUSES ==========
+    if (startDate && today >= startDate) {
+      // Calculate progress metrics
+      let totalDuration = 0
+      let daysElapsed = 0
+      let expectedProgress = 0
+      let actualProgress = completionPercentage
+      
+      if (startDate && endDate) {
+        totalDuration = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
+        daysElapsed = Math.ceil((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
+        expectedProgress = totalDuration > 0 ? (daysElapsed / totalDuration) * 100 : 0
+      }
+      
+      // Check if significantly behind schedule
+      const progressGap = expectedProgress - actualProgress
+      
+      // If today is past end date and not completed
+      if (endDate && today > endDate) {
+        const daysOverdue = Math.ceil((today.getTime() - endDate.getTime()) / (1000 * 60 * 60 * 24))
+        return {
+          status: 'behind_schedule',
+          label: 'Behind Schedule',
+          color: 'text-red-800',
+          bgColor: 'bg-red-100',
+          description: `${daysOverdue} day${daysOverdue !== 1 ? 's' : ''} overdue, ${actualProgress.toFixed(1)}% done`
+        }
+      }
+      
+      // If significantly behind expected progress (more than 15% gap)
+      if (progressGap > 15) {
+        return {
+          status: 'delayed',
+          label: 'Delayed',
+          color: 'text-red-700',
+          bgColor: 'bg-red-50',
+          description: `${progressGap.toFixed(1)}% behind expected progress`
+        }
+      }
+      
+      // If slightly behind expected progress (5-15% gap) - At Risk
+      if (progressGap > 5 && progressGap <= 15) {
+        return {
+          status: 'at_risk',
+          label: 'At Risk',
+          color: 'text-orange-700',
+          bgColor: 'bg-orange-50',
+          description: `${progressGap.toFixed(1)}% behind, needs attention`
+        }
+      }
+      
+      // If on track or ahead of schedule
+      if (actualProgress >= expectedProgress - 5) {
+        // Check if ahead of schedule
+        if (actualProgress > expectedProgress + 5) {
+          return {
+            status: 'on_track',
+            label: 'Ahead of Schedule',
+            color: 'text-blue-800',
+            bgColor: 'bg-blue-100',
+            description: `${(actualProgress - expectedProgress).toFixed(1)}% ahead of expected`
+          }
+        } else {
+          // On track
+          return {
+            status: 'on_track',
+            label: 'On Track',
+            color: 'text-blue-800',
+            bgColor: 'bg-blue-100',
+            description: `${actualProgress.toFixed(1)}% completed, progressing as planned`
+          }
+        }
+      }
+      
+      // Default: In Progress
+      return {
+        status: 'in_progress',
+        label: 'In Progress',
+        color: 'text-indigo-800',
+        bgColor: 'bg-indigo-100',
+        description: `${actualProgress.toFixed(1)}% completed`
+      }
+    }
+    
+    // ========== DEFAULT STATUS ==========
+    // If we can't determine status (no dates available)
+    if (actualUnits > 0) {
+      return {
+        status: 'in_progress',
+        label: 'In Progress',
+        color: 'text-indigo-800',
+        bgColor: 'bg-indigo-100',
+        description: `${completionPercentage.toFixed(1)}% completed`
+      }
+    }
+    
+    return {
+      status: 'not_started',
+      label: 'Not Started',
+      color: 'text-gray-600',
+      bgColor: 'bg-gray-100',
+      description: 'No progress data available'
+    }
   }
 
   // Toggle activity details
@@ -1102,40 +1502,74 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                   No activities found for this project
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {analytics.activities.map((activity) => (
-                    <Card key={activity.id} className="hover:shadow-lg transition-all duration-200 border-l-4 border-l-blue-500">
-                      <CardContent className="p-6">
-                        <div className="flex justify-between items-start mb-4">
-                          <div className="flex-1">
-                            <h4 className="font-semibold text-lg text-gray-900 dark:text-white mb-1">
-                              {activity.activity_name || activity.activity}
-                            </h4>
-                            <div className="flex items-center gap-2 mb-2">
-                              {(() => {
-                                const zoneLabel = (activity.zone_ref || activity.zone_number || '').toString().trim()
-                                const divisionLabel = (activity.activity_division || '').toString().trim()
-                                const shouldShowDivision = divisionLabel && divisionLabel.toLowerCase() !== 'enabling division'
+                (() => {
+                  // ✅ Group activities by Zone
+                  const activitiesByZone = new Map<string, typeof analytics.activities>()
+                  
+                  analytics.activities.forEach((activity) => {
+                    const zoneLabel = (activity.zone_ref || activity.zone_number || activity.activity_division || '').toString().trim()
+                    const zoneKey = zoneLabel || 'N/A'
+                    
+                    if (!activitiesByZone.has(zoneKey)) {
+                      activitiesByZone.set(zoneKey, [])
+                    }
+                    activitiesByZone.get(zoneKey)!.push(activity)
+                  })
+                  
+                  // Sort zones alphabetically
+                  const sortedZones = Array.from(activitiesByZone.entries()).sort((a, b) => {
+                    if (a[0] === 'N/A') return 1
+                    if (b[0] === 'N/A') return -1
+                    return a[0].localeCompare(b[0])
+                  })
+                  
+                  return (
+                    <div className="space-y-6">
+                      {sortedZones.map(([zoneKey, zoneActivities]) => (
+                        <div key={zoneKey} className="space-y-3">
+                          {/* Zone Header */}
+                          <div className="flex items-center gap-3 pb-2 border-b-2 border-blue-200 dark:border-blue-800">
+                            <Badge variant="outline" className="text-sm font-semibold px-3 py-1 bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700">
+                              Zone: {zoneKey}
+                            </Badge>
+                            <span className="text-sm text-gray-600 dark:text-gray-400">
+                              ({zoneActivities.length} {zoneActivities.length === 1 ? 'activity' : 'activities'})
+                            </span>
+                          </div>
+                          
+                          {/* Activities in this Zone */}
+                          <div className="space-y-3 pl-4 border-l-2 border-blue-100 dark:border-blue-900/50">
+                            {zoneActivities.map((activity) => (
+                              <Card key={activity.id} className="hover:shadow-lg transition-all duration-200 border-l-4 border-l-blue-500">
+                                <CardContent className="p-6">
+                                  <div className="flex justify-between items-start mb-4">
+                                    <div className="flex-1">
+                                      <h4 className="font-semibold text-lg text-gray-900 dark:text-white mb-1">
+                                        {activity.activity_name || activity.activity}
+                                      </h4>
+                                      <div className="flex items-center gap-2 mb-2">
+                                        {(() => {
+                                          const divisionLabel = (activity.activity_division || '').toString().trim()
+                                          const shouldShowDivision = divisionLabel && 
+                                                                    divisionLabel.toLowerCase() !== 'enabling division' &&
+                                                                    divisionLabel !== zoneKey
 
-                                return (
-                                  <>
-                                    <Badge variant="outline" className="text-xs">
-                                      {zoneLabel ? `Zone: ${zoneLabel}` : 'Zone: N/A'}
-                                    </Badge>
-                                    {shouldShowDivision && divisionLabel !== zoneLabel && (
-                                      <Badge variant="outline" className="text-xs text-gray-600 dark:text-gray-300 border-dashed">
-                                        {divisionLabel}
-                                      </Badge>
-                                    )}
-                                  </>
-                                )
-                              })()}
-                              {activity.unit && (
-                                <Badge variant="outline" className="text-xs">
-                                  {activity.unit}
-                                </Badge>
-                              )}
-                            </div>
+                                          return (
+                                            <>
+                                              {shouldShowDivision && (
+                                                <Badge variant="outline" className="text-xs text-gray-600 dark:text-gray-300 border-dashed">
+                                                  {divisionLabel}
+                                                </Badge>
+                                              )}
+                                            </>
+                                          )
+                                        })()}
+                                        {activity.unit && (
+                                          <Badge variant="outline" className="text-xs">
+                                            {activity.unit}
+                                          </Badge>
+                                        )}
+                                      </div>
                             
                             {/* Activity Timeline - Always Visible */}
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
@@ -1163,14 +1597,16 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                                 <div>
                                   <p className="text-xs text-gray-500 dark:text-gray-400">End Date</p>
                                   <p className="font-medium text-gray-900 dark:text-white">
-                                    {activity.deadline 
-                                      ? new Date(activity.deadline).toLocaleDateString('en-US', {
-                                          year: 'numeric',
-                                          month: 'short',
-                                          day: 'numeric'
-                                        })
-                                      : 'Not set'
-                                    }
+                                    {(() => {
+                                      const endDate = calculateActivityEndDate(activity)
+                                      return endDate 
+                                        ? new Date(endDate).toLocaleDateString('en-US', {
+                                            year: 'numeric',
+                                            month: 'short',
+                                            day: 'numeric'
+                                          })
+                                        : 'Not set'
+                                    })()}
                                   </p>
                                 </div>
                               </div>
@@ -1189,20 +1625,27 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                               </div>
                             </div>
                           </div>
-                          <div className="flex gap-2">
-                            {activity.activity_completed && (
-                              <Badge className="bg-green-100 text-green-800">Completed</Badge>
-                            )}
-                            {activity.activity_on_track && !activity.activity_completed && (
-                              <Badge className="bg-blue-100 text-blue-800">On Track</Badge>
-                            )}
-                            {activity.activity_delayed && (
-                              <Badge className="bg-red-100 text-red-800">Delayed</Badge>
-                            )}
+                          <div className="flex gap-2 items-center">
+                            {(() => {
+                              // ✅ Calculate status automatically based on dates and progress
+                              const activityStatus = calculateActivityStatus(activity)
+                              return (
+                                <div className="flex items-center gap-2">
+                                  <Badge className={`${activityStatus.bgColor} ${activityStatus.color} font-semibold text-xs px-2 py-1 whitespace-nowrap`}>
+                                    {activityStatus.label}
+                                  </Badge>
+                                  {activityStatus.description && (
+                                    <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                                      {activityStatus.description}
+                                    </span>
+                                  )}
+                                </div>
+                              )
+                            })()}
                             <button
                               type="button"
                               onClick={() => toggleActivityDetails(activity.id)}
-                              className="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded"
+                              className="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded whitespace-nowrap ml-auto"
                             >
                               {showActivityDetails[activity.id] ? "Hide Details" : "Show Details"}
                             </button>
@@ -1264,32 +1707,39 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                             <p className="text-gray-500 dark:text-gray-400">Value</p>
                             <p className="font-medium text-green-600 dark:text-green-400">
                               {(() => {
-                                const actualUnits = activityActuals[activity.id] || activity.actual_units || 0
-                                const values = calculateBOQValues(
-                                  activity.total_units || 0,
-                                  activity.planned_units || 0,
-                                  actualUnits,
-                                  activity.total_value || 0
-                                )
-                                return formatCurrency(values.value)
+                                // ✅ Use Planned/Actual filtered by Zone
+                                const plannedUnits = activityPlanneds[activity.id] !== undefined 
+                                  ? activityPlanneds[activity.id] 
+                                  : activity.planned_units || 0
+                                const actualUnits = activityActuals[activity.id] !== undefined 
+                                  ? activityActuals[activity.id] 
+                                  : activity.actual_units || 0
+                                
+                                // Calculate rate from activity (if total_units > 0)
+                                const rate = activity.total_units && activity.total_units > 0
+                                  ? (activity.total_value || 0) / activity.total_units
+                                  : 0
+                                
+                                // Value = Rate × Actual Units (for this Zone)
+                                const value = rate * actualUnits
+                                
+                                return formatCurrency(value)
                               })()}
                             </p>
                             <p className="text-xs text-gray-500">
-                              Rate × Actual Units
+                              Rate × Actual Units (Zone)
                             </p>
                           </div>
                           <div>
                             <p className="text-gray-500 dark:text-gray-400">Rate</p>
                             <p className="font-medium text-gray-900 dark:text-white">
                               {(() => {
-                                const actualUnits = activityActuals[activity.id] || activity.actual_units || 0
-                                const values = calculateBOQValues(
-                                  activity.total_units || 0,
-                                  activity.planned_units || 0,
-                                  actualUnits,
-                                  activity.total_value || 0
-                                )
-                                return `${formatCurrency(values.rate)} / ${activity.unit}`
+                                // Calculate rate from activity
+                                const rate = activity.total_units && activity.total_units > 0
+                                  ? (activity.total_value || 0) / activity.total_units
+                                  : 0
+                                
+                                return `${formatCurrency(rate)} / ${activity.unit}`
                               })()}
                             </p>
                             <p className="text-xs text-gray-500">
@@ -1359,18 +1809,21 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                             <div>
                               <p className="text-xs text-gray-500 dark:text-gray-400">End Date</p>
                               <p className="text-sm font-medium text-gray-900 dark:text-white">
-                                {activity.deadline 
-                                  ? new Date(activity.deadline).toLocaleDateString('en-US', {
-                                      year: 'numeric',
-                                      month: 'short',
-                                      day: 'numeric'
-                                    })
-                                  : 'Not set'
-                                }
+                                {(() => {
+                                  const endDate = calculateActivityEndDate(activity)
+                                  return endDate 
+                                    ? new Date(endDate).toLocaleDateString('en-US', {
+                                        year: 'numeric',
+                                        month: 'short',
+                                        day: 'numeric'
+                                      })
+                                    : 'Not set'
+                                })()}
                               </p>
                               {(() => {
-                                if (activity.deadline) {
-                                  const endDateObj = new Date(activity.deadline)
+                                const endDate = calculateActivityEndDate(activity)
+                                if (endDate) {
+                                  const endDateObj = new Date(endDate)
                                   const today = new Date()
                                   const diffTime = endDateObj.getTime() - today.getTime()
                                   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
@@ -1435,9 +1888,27 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                             </p>
                           </div>
                           <div>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">Total Value</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">Zone Value</p>
                             <p className="text-sm font-medium text-green-600 dark:text-green-400">
-                              {formatCurrency(activity.total_value || 0)}
+                              {(() => {
+                                // ✅ Calculate Zone Value = Rate × Planned Units (for this Zone)
+                                const plannedUnits = activityPlanneds[activity.id] !== undefined 
+                                  ? activityPlanneds[activity.id] 
+                                  : activity.planned_units || 0
+                                
+                                // Calculate rate from activity
+                                const rate = activity.total_units && activity.total_units > 0
+                                  ? (activity.total_value || 0) / activity.total_units
+                                  : 0
+                                
+                                // Zone Value = Rate × Planned Units (for this Zone)
+                                const zoneValue = rate * plannedUnits
+                                
+                                return formatCurrency(zoneValue)
+                              })()}
+                            </p>
+                            <p className="text-xs text-gray-400">
+                              Rate × Planned Units (Zone)
                             </p>
                           </div>
                         </div>
@@ -1445,8 +1916,13 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                         )}
                       </CardContent>
                     </Card>
-                  ))}
-                </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()
               )}
             </div>
           )}
@@ -1699,4 +2175,5 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
     </div>
   )
 }
+
 
