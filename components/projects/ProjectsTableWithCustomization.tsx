@@ -1883,16 +1883,15 @@ export function ProjectsTableWithCustomization({
               } else {
                 // Try case-insensitive match
                 let found = false
-                for (const [key, value] of projectTypesMap.entries()) {
+                Array.from(projectTypesMap.entries()).forEach(([key, value]) => {
                   if (key.toLowerCase() === typeName.toLowerCase()) {
                     scopeList.push(value.name)
                     found = true
                     if (isFirstProject) {
                       console.log(`✅ [${project.project_code}] Found case-insensitive match for "${typeName}":`, value.name)
                     }
-                    break
                   }
-                }
+                })
                 // If not found in project_types table, use the original name as fallback
                 if (!found) {
                   scopeList.push(typeName)
