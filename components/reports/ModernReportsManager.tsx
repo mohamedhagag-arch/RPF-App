@@ -68,6 +68,7 @@ export function ModernReportsManager() {
   const [selectedZones, setSelectedZones] = useState<string[]>([])
   const [selectedUnits, setSelectedUnits] = useState<string[]>([])
   const [selectedActivities, setSelectedActivities] = useState<string[]>([])
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([])
   const [smartFilterDateRange, setSmartFilterDateRange] = useState<{ from?: string; to?: string }>({})
   const [valueRange, setValueRange] = useState<{ min?: number; max?: number }>({})
   const [quantityRange, setQuantityRange] = useState<{ min?: number; max?: number }>({})
@@ -558,6 +559,7 @@ export function ModernReportsManager() {
               selectedZones={selectedZones}
               selectedUnits={selectedUnits}
               selectedDivisions={selectedDivisions}
+              selectedStatuses={selectedStatuses}
               dateRange={smartFilterDateRange}
               valueRange={valueRange}
               quantityRange={quantityRange}
@@ -567,6 +569,7 @@ export function ModernReportsManager() {
               onZonesChange={setSelectedZones}
               onUnitsChange={setSelectedUnits}
               onDivisionsChange={setSelectedDivisions}
+              onStatusesChange={setSelectedStatuses}
               onDateRangeChange={setSmartFilterDateRange}
               onValueRangeChange={setValueRange}
               onQuantityRangeChange={setQuantityRange}
@@ -577,6 +580,7 @@ export function ModernReportsManager() {
                 setSelectedZones([])
                 setSelectedUnits([])
                 setSelectedDivisions([])
+                setSelectedStatuses([])
                 setSmartFilterDateRange({})
                 setValueRange({})
                 setQuantityRange({})
