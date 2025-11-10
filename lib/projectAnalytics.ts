@@ -75,6 +75,10 @@ export interface ProjectAnalytics {
   // Variance Metrics
   variancePercentage: number
   projectStatus: 'ahead' | 'on_track' | 'delayed' // Based on variance percentage
+  
+  // ✅ PERFORMANCE: Cached work value and quantity status (calculated once, reused everywhere)
+  workValueStatus?: { total: number; planned: number; earned: number }
+  quantityStatus?: { total: number; planned: number; earned: number }
 }
 
 /**
@@ -152,26 +156,12 @@ export function calculateProjectAnalytics(
   allActivities: BOQActivity[],
   allKPIs: any[]
 ): ProjectAnalytics {
-  // ✅ DEBUG: Always log input data for debugging
-  console.log(`📊 calculateProjectAnalytics called for ${project.project_code}:`, {
-    projectCode: project.project_code,
-    projectSubCode: project.project_sub_code,
-    allActivitiesCount: allActivities.length,
-    allKPIsCount: allKPIs.length,
-    // ✅ Show sample KPIs structure
-    sampleKPIs: allKPIs.slice(0, 2).map(k => ({
-      project_code: k.project_code,
-      project_full_code: k.project_full_code,
-      'Project Code': (k as any)['Project Code'],
-      'Project Full Code': (k as any)['Project Full Code'],
-      activity_name: k.activity_name,
-      input_type: k.input_type
-    }))
-  })
-  
   // 🔧 PERFORMANCE: Early return if no data
   if (allActivities.length === 0 && allKPIs.length === 0) {
-    console.warn(`⚠️ [${project.project_code}] No activities or KPIs provided`)
+    // Only log warnings in development mode
+    if (process.env.NODE_ENV === 'development') {
+      console.warn(`⚠️ [${project.project_code}] No activities or KPIs provided`)
+    }
     return createEmptyAnalytics(project)
   }
   
@@ -247,12 +237,10 @@ export function calculateProjectAnalytics(
   }
   
   // ✅ FIX: Helper function to check if codes match
-  // STRICT matching: Prioritize exact project_full_code matching to avoid mixing projects
+  // STRICT matching: Use project_full_code ONLY to avoid mixing projects
   const codesMatch = (itemCodes: string[], projectCodes: Set<string>): boolean => {
-    const projectCodesArray = Array.from(projectCodes)
-    
     for (const itemCode of itemCodes) {
-      const itemCodeUpper = itemCode.toUpperCase()
+      const itemCodeUpper = itemCode.toUpperCase().trim()
       
       // ✅ PRIORITY 1: Direct exact match with project_full_code (MOST ACCURATE - prevents mixing projects)
       if (projectFullCodeUpper && itemCodeUpper === projectFullCodeUpper) {
@@ -265,32 +253,11 @@ export function calculateProjectAnalytics(
         return true
       }
       
-      // ✅ PRIORITY 3: Direct exact match with project_full_code variations (case-insensitive)
-      // Check if item code matches any project code variation that includes sub_code
-      for (const projCode of projectCodesArray) {
-        // Only match if it's the full code or a variation that includes sub_code
-        if (itemCodeUpper === projCode) {
-          // Additional check: if project has sub_code, only match if item code also has sub_code
-          if (projectSubCode) {
-            // Item code should contain sub_code or be the full code
-            if (itemCodeUpper.includes(projectSubCodeUpper) || itemCodeUpper === projectFullCodeUpper) {
-              return true
-            }
-          } else {
-            // If project has no sub_code, allow match
-            return true
-          }
-        }
-      }
-      
       // ❌ DO NOT match by project_code alone if project has sub_code
       // This prevents mixing projects with same project_code but different sub_code
-      // Only allow project_code matching if current project has no sub_code
-      if (!projectSubCode) {
-        // Fallback: Match by project_code only if project has no sub_code
-        if (itemCodeUpper === projectCodeUpper) {
-          return true
-        }
+      // Only allow project_code matching if current project has no sub_code (old data fallback)
+      if (!projectSubCode && itemCodeUpper === projectCodeUpper) {
+        return true
       }
     }
     return false
@@ -334,9 +301,8 @@ export function calculateProjectAnalytics(
     
     const matches = codesMatch(activityCodes, projectCodeVariations)
     
-    // ✅ ALWAYS log first few activities for debugging (not just in development)
-    const isFirstActivity = allActivities.indexOf(a) < 5
-    if (isFirstActivity) {
+    // ✅ Only log in development mode for debugging
+    if (process.env.NODE_ENV === 'development' && allActivities.indexOf(a) < 2) {
       console.log(`🔍 [${projectCode}] Activity matching:`, {
         activityName: a.activity_name,
         activityCodes,
@@ -353,16 +319,11 @@ export function calculateProjectAnalytics(
   const projectKPIs = allKPIs.filter(k => {
     const kpiCodes = extractProjectCode(k)
     if (kpiCodes.length === 0) {
-      // ✅ Log KPIs with no codes for debugging
-      const isFirstKPI = allKPIs.indexOf(k) < 5
-      if (isFirstKPI) {
+      // ✅ PERFORMANCE: Removed excessive logging - only log in development and very rarely
+      if (process.env.NODE_ENV === 'development' && Math.random() < 0.0001) {
         console.warn(`⚠️ [${projectCode}] KPI has no project codes:`, {
           kpiActivityName: k.activity_name,
-          kpiInputType: k.input_type,
-          kpiProjectCode: k.project_code,
-          kpiProjectFullCode: k.project_full_code,
-          kpiRawProjectCode: (k as any)['Project Code'],
-          kpiRawProjectFullCode: (k as any)['Project Full Code']
+          kpiInputType: k.input_type
         })
       }
       return false
@@ -370,110 +331,27 @@ export function calculateProjectAnalytics(
     
     const matches = codesMatch(kpiCodes, projectCodeVariations)
     
-    // ✅ ALWAYS log first few KPIs for debugging (not just in development)
-    const isFirstKPI = allKPIs.indexOf(k) < 5
-    if (isFirstKPI) {
+    // ✅ PERFORMANCE: Removed excessive logging - only log in development and very rarely (0.01%)
+    if (process.env.NODE_ENV === 'development' && Math.random() < 0.0001) {
       console.log(`🔍 [${projectCode}] KPI matching:`, {
         kpiActivityName: k.activity_name,
         kpiInputType: k.input_type,
         kpiCodes,
         projectFullCode,
         projectCodeVariations: Array.from(projectCodeVariations),
-        matches,
-        // ✅ Show all possible sources
-        kpiProjectCode: k.project_code,
-        kpiProjectFullCode: k.project_full_code,
-        kpiRawProjectCode: (k as any)['Project Code'],
-        kpiRawProjectFullCode: (k as any)['Project Full Code']
+        matches
       })
     }
     
     return matches
   })
   
-  // ✅ ALWAYS log matching results for debugging
-  console.log(`📊 [${projectCode}] Matching results:`, {
-    projectFullCode,
-    projectCodeVariations: Array.from(projectCodeVariations),
-    allActivitiesCount: allActivities.length,
-    matchedActivitiesCount: projectActivities.length,
-    allKPIsCount: allKPIs.length,
-    matchedKPIsCount: projectKPIs.length,
-    // ✅ Show sample of matched/unmatched KPIs
-    sampleMatchedKPIs: projectKPIs.slice(0, 2).map(k => ({
-      activityName: k.activity_name,
-      inputType: k.input_type,
-      codes: extractProjectCode(k)
-    })),
-    sampleUnmatchedKPIs: allKPIs.filter(k => {
-      const codes = extractProjectCode(k)
-      return codes.length > 0 && !codesMatch(codes, projectCodeVariations)
-    }).slice(0, 2).map(k => ({
-      activityName: k.activity_name,
-      inputType: k.input_type,
-      codes: extractProjectCode(k),
-      kpiProjectCode: k.project_code,
-      kpiProjectFullCode: k.project_full_code
-    }))
-  })
-  
-  // ✅ DEBUG: Always log matching results for ALL projects to diagnose issues
-  // Log for first few projects to see what's happening
-  const isFirstProject = allActivities.length > 0 && allActivities[0] && 
-    ((allActivities[0].project_code || (allActivities[0] as any)['Project Code'] || (allActivities[0] as any).raw?.['Project Code'] || '').toString().trim().toUpperCase() === projectCode.toUpperCase())
-  
-  // ✅ DEBUG: Log matching results for first few projects
-  const shouldLog = projectCode === 'P9999' || projectCode === 'P8888' || projectCode === 'P5096' || projectActivities.length > 0 || projectKPIs.length > 0
-  if (shouldLog) {
-    // Sample first few activities and KPIs to see their actual codes
-    const sampleActivities = allActivities.slice(0, 3).map((a: any) => {
-      const codes = extractProjectCode(a)
-      return {
-        codes,
-        project_code: a.project_code,
-        project_full_code: a.project_full_code,
-        rawProjectCode: (a as any).raw?.['Project Code'],
-        rawProjectFullCode: (a as any).raw?.['Project Full Code'],
-        'Project Code': (a as any)['Project Code'],
-        'Project Full Code': (a as any)['Project Full Code'],
-        activity_name: a.activity_name
-      }
-    })
-    
-    const sampleKPIs = allKPIs.slice(0, 3).map((k: any) => {
-      const codes = extractProjectCode(k)
-      return {
-        codes,
-        project_code: k.project_code,
-        project_full_code: k.project_full_code,
-        rawProjectCode: (k as any).raw?.['Project Code'],
-        rawProjectFullCode: (k as any).raw?.['Project Full Code'],
-        'Project Code': (k as any)['Project Code'],
-        'Project Full Code': (k as any)['Project Full Code'],
-        activity_name: k.activity_name,
-        input_type: k.input_type
-      }
-    })
-    
-    console.log(`🔍 calculateProjectAnalytics [${projectCode}]:`, {
-      projectCode,
-      projectSubCode,
-      projectCodeVariations: Array.from(projectCodeVariations),
+  // ✅ PERFORMANCE: Removed excessive logging - only log in development and very rarely (0.01%)
+  if (process.env.NODE_ENV === 'development' && Math.random() < 0.01) {
+    console.log(`📊 [${projectCode}] Matching results:`, {
+      projectFullCode,
       matchedActivitiesCount: projectActivities.length,
-      matchedKPIsCount: projectKPIs.length,
-      allActivitiesCount: allActivities.length,
-      allKPIsCount: allKPIs.length,
-      sampleActivities,
-      sampleKPIs,
-      matchedActivities: projectActivities.slice(0, 2).map((a: any) => ({
-        codes: extractProjectCode(a),
-        activity_name: a.activity_name
-      })),
-      matchedKPIs: projectKPIs.slice(0, 2).map((k: any) => ({
-        codes: extractProjectCode(k),
-        activity_name: k.activity_name,
-        input_type: k.input_type
-      }))
+      matchedKPIsCount: projectKPIs.length
     })
   }
   

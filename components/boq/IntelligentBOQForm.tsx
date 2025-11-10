@@ -43,6 +43,7 @@ import {
   generateAndSaveKPIs,
   updateExistingKPIs
 } from '@/lib/autoKPIGenerator'
+import { getAllDivisions, Division as DivisionType } from '@/lib/divisionsManager'
 import { Clock, CheckCircle2, Info, Sparkles, X, Calendar, TrendingUp, AlertCircle } from 'lucide-react'
 
 interface IntelligentBOQFormProps {
@@ -98,6 +99,8 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   const [activityTiming, setActivityTiming] = useState<'pre-commencement' | 'post-commencement' | 'post-completion'>(activity?.activity_timing || 'post-commencement')
   const [hasValue, setHasValue] = useState(activity?.has_value ?? true) // Default to true for existing activities
   const [affectsTimeline, setAffectsTimeline] = useState(activity?.affects_timeline ?? false) // Default to false
+  const [activityDivision, setActivityDivision] = useState(activity?.activity_division || '') // ✅ Division field
+  const [availableDivisions, setAvailableDivisions] = useState<DivisionType[]>([]) // ✅ Divisions from Divisions Management
   
   // KPI Generation
   const [autoGenerateKPIs, setAutoGenerateKPIs] = useState(true)
@@ -158,6 +161,20 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       setAllProjects(projects)
     }
   }, [projects])
+  
+  // ✅ Load divisions from Divisions Management
+  useEffect(() => {
+    const loadDivisions = async () => {
+      try {
+        const divisions = await getAllDivisions()
+        setAvailableDivisions(divisions)
+        console.log('✅ Loaded divisions from Divisions Management:', divisions.length)
+      } catch (error) {
+        console.error('❌ Error loading divisions:', error)
+      }
+    }
+    loadDivisions()
+  }, [])
 
   // Load activities based on project scopes from project_type_activities table
   useEffect(() => {
@@ -361,10 +378,67 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         setProject(selectedProject)
         console.log('✅ Project loaded:', selectedProject.project_name)
         console.log('📁 Project scopes:', selectedProject.project_type || 'None')
+        // ✅ Auto-detect Division from project
+        if (selectedProject.responsible_division) {
+          setActivityDivision(selectedProject.responsible_division)
+          console.log('✅ Division auto-detected:', selectedProject.responsible_division)
+        }
         // Activities will be loaded automatically by the useEffect that watches project.project_type
       }
     }
   }, [projectCode, allProjects])
+  
+  // ✅ Load activity data when editing (priority: activity data > project defaults)
+  useEffect(() => {
+    if (activity && activity.id) {
+      console.log('📝 Loading activity data for editing:', {
+        id: activity.id,
+        activity_division: activity.activity_division,
+        zone_number: activity.zone_number,
+        zone_ref: activity.zone_ref
+      })
+      
+      // ✅ Load Division from activity (only if not already set from activity)
+      if (activity.activity_division) {
+        setActivityDivision(activity.activity_division)
+        console.log('✅ Division loaded from activity:', activity.activity_division)
+      }
+      
+      // ✅ Load Zone Number from activity
+      if (activity.zone_number) {
+        setZoneNumber(activity.zone_number)
+        console.log('✅ Zone Number loaded from activity:', activity.zone_number)
+      }
+      
+      // ✅ Load Zone Ref from activity
+      if (activity.zone_ref) {
+        setZoneRef(activity.zone_ref)
+        console.log('✅ Zone Ref loaded from activity:', activity.zone_ref)
+      }
+    }
+  }, [activity?.id, activity?.activity_division, activity?.zone_number, activity?.zone_ref])
+
+  // ✅ Auto-update Division when project changes (only if NOT editing existing activity)
+  useEffect(() => {
+    // ✅ Don't overwrite division if we're editing an existing activity with a division
+    if (activity && activity.id && activity.activity_division) {
+      console.log('⚠️ Skipping project division update - activity has existing division:', activity.activity_division)
+      return
+    }
+    
+    if (project?.responsible_division && availableDivisions.length > 0) {
+      // Check if project's division exists in available divisions
+      const divisionExists = availableDivisions.some(d => d.name === project.responsible_division)
+      if (divisionExists) {
+        setActivityDivision(project.responsible_division)
+        console.log('✅ Division updated from project:', project.responsible_division)
+      } else {
+        // If division doesn't exist in Divisions Management, still set it but log a warning
+        console.warn('⚠️ Project division not found in Divisions Management:', project.responsible_division)
+        setActivityDivision(project.responsible_division)
+      }
+    }
+  }, [project?.responsible_division, availableDivisions, activity?.id, activity?.activity_division])
 
   // Function to load activities based on project scope
   const loadActivitiesForProjectType = async (projectType?: string) => {
@@ -535,13 +609,13 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
     calculateDuration()
   }, [startDate, endDate, includeWeekends, plannedUnits, autoGenerateKPIs])
 
-  // ✅ Auto-generate KPI preview when activity is selected from suggestions
+  // ✅ Auto-generate KPI preview when activity is selected from suggestions or Activity Timing changes
   useEffect(() => {
     if (activityName && startDate && endDate && plannedUnits && parseFloat(plannedUnits) > 0 && autoGenerateKPIs) {
-      console.log('🔄 Activity selected, auto-generating KPI preview...')
+      console.log('🔄 Activity selected or Activity Timing changed, auto-generating KPI preview...')
       generateKPIPreview()
     }
-  }, [activityName, startDate, endDate, plannedUnits, autoGenerateKPIs])
+  }, [activityName, startDate, endDate, plannedUnits, autoGenerateKPIs, activityTiming, hasValue, affectsTimeline])
   
   // Load custom holidays from localStorage
   useEffect(() => {
@@ -630,6 +704,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         project_full_code: project?.project_code || projectCode,
         project_sub_code: project?.project_sub_code || '',
         activity_name: activityName,
+        activity_division: activityDivision || project?.responsible_division || '', // ✅ Division field
         unit: unit || 'No.',
         planned_units: parseFloat(plannedUnits),
         planned_value: parseFloat(plannedValue) || 0,
@@ -761,8 +836,10 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
     
     // زيادة عداد الاستخدام
     try {
-      await incrementActivityUsage(selectedActivity.name)
-      console.log('📊 Activity usage incremented')
+      // ✅ Pass project_type if available
+      const projectType = project?.project_type || undefined
+      await incrementActivityUsage(selectedActivity.name, projectType)
+      console.log('📊 Activity usage incremented', projectType ? `for project type: ${projectType}` : '')
     } catch (error) {
       console.error('❌ Error incrementing activity usage:', error)
     }
@@ -922,13 +999,27 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         }
       }
       
+      // ✅ FIX: Build project_full_code correctly
+      let projectFullCode = project?.project_full_code || project?.project_code || projectCode
+      if (!projectFullCode && project?.project_sub_code) {
+        const pCode = project?.project_code || projectCode
+        const pSubCode = project.project_sub_code
+        if (pSubCode.toUpperCase().startsWith(pCode.toUpperCase())) {
+          projectFullCode = pSubCode
+        } else {
+          projectFullCode = pSubCode.startsWith('-') 
+            ? `${pCode}${pSubCode}` 
+            : `${pCode}-${pSubCode}`
+        }
+      }
+      
       const activityData = {
         ...(activity?.id && { id: activity.id }), // Include ID if editing
         project_code: projectCode,
         project_sub_code: project?.project_sub_code || '',
-        project_full_code: project?.project_code || projectCode,
+        project_full_code: projectFullCode, // ✅ Use properly built project_full_code
         activity_name: activityName,
-        activity_division: project?.responsible_division || '',
+        activity_division: activityDivision || project?.responsible_division || '',
         // ✅ Zone Reference = project_code + " " + zone (if zone is selected from project)
         // Otherwise use manual entry or fallback
         zone_ref: zoneRef || ((project?.responsible_division && project?.responsible_division !== 'Enabling Division') ? project?.responsible_division : ''),
@@ -940,15 +1031,47 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         planned_activity_start_date: startDate,
         deadline: endDate,
         calendar_duration: duration,
-        activity_timing: activityTiming,
-        has_value: hasValue,
-        affects_timeline: affectsTimeline,
+        // ✅ Activity Timing fields - CRITICAL for KPI generation
+        activity_timing: activityTiming, // ✅ Ensure this is set from form state
+        has_value: hasValue !== undefined ? hasValue : true, // ✅ Ensure default value
+        affects_timeline: affectsTimeline !== undefined ? affectsTimeline : false, // ✅ Ensure default value
         project_full_name: project?.project_name || '',
         project_status: project?.project_status || 'upcoming',
         total_units: 0,
         actual_units: 0,
         total_drilling_meters: 0
       }
+      
+      // ✅ DEBUG: Log activityData to verify all fields
+      console.log('📋 activityData created:', {
+        activity_name: activityData.activity_name,
+        activity_timing: activityData.activity_timing,
+        has_value: activityData.has_value,
+        affects_timeline: activityData.affects_timeline,
+        project_code: activityData.project_code,
+        project_sub_code: activityData.project_sub_code,
+        project_full_code: activityData.project_full_code,
+        planned_units: activityData.planned_units,
+        planned_activity_start_date: activityData.planned_activity_start_date,
+        deadline: activityData.deadline
+      })
+      
+      // ✅ DEBUG: Log activity data to ensure all fields are present
+      console.log('📋 Activity data for KPI generation:', {
+        activity_name: activityData.activity_name,
+        project_code: activityData.project_code,
+        project_sub_code: activityData.project_sub_code,
+        project_full_code: activityData.project_full_code,
+        planned_units: activityData.planned_units,
+        planned_activity_start_date: activityData.planned_activity_start_date,
+        deadline: activityData.deadline,
+        activity_division: activityData.activity_division,
+        zone_ref: activityData.zone_ref,
+        unit: activityData.unit,
+        activity_timing: activityData.activity_timing,
+        has_value: activityData.has_value,
+        affects_timeline: activityData.affects_timeline
+      })
       
       // Save custom activity if it's new
       const isCustomActivity = !ACTIVITY_TEMPLATES.find(
@@ -988,97 +1111,250 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       })
       
       // ✅ Post-completion KPI logic
-      if (activityTiming === 'post-completion' && !hasValue && !affectsTimeline) {
+      const shouldSkipKPIGeneration = activityTiming === 'post-completion' && !hasValue && !affectsTimeline
+      
+      if (shouldSkipKPIGeneration) {
         console.log('⚠️ Post-completion activity with no value and no timeline impact - skipping KPI generation')
-        setSuccess(activity ? '✅ Post-completion activity updated successfully!' : '✅ Post-completion activity created successfully!')
-      } else if (autoGenerateKPIs && kpiPreview?.kpis && kpiPreview.kpis.length > 0) {
+        
+        // ✅ EDIT MODE: If editing and switching to post-completion, delete existing KPIs
+        if (activity && autoGenerateKPIs) {
+          console.log('🗑️ Activity changed to post-completion - deleting existing KPIs...')
+          const { updateExistingKPIs } = await import('@/lib/autoKPIGenerator')
+          // Pass empty activity data to trigger deletion of all KPIs
+          const deleteResult = await updateExistingKPIs(activityData, activity.activity_name, workdaysConfig)
+          
+          if (deleteResult.success) {
+            setSuccess(`✅ Activity updated! ${deleteResult.deletedCount || 0} KPIs removed (post-completion activity).`)
+            console.log(`✅ KPI Deletion: Deleted=${deleteResult.deletedCount || 0} KPIs`)
+          } else {
+            setSuccess('✅ Activity updated successfully!')
+          }
+        } else {
+          setSuccess(activity ? '✅ Post-completion activity updated successfully!' : '✅ Post-completion activity created successfully!')
+        }
+      } else if (autoGenerateKPIs) {
+        // ✅ ALWAYS update/create KPIs when autoGenerateKPIs is enabled, regardless of preview
         if (activity) {
-          // ✅ EDIT MODE: Update existing KPIs (not delete and recreate!)
-          console.log('🔄 UPDATING KPIs for existing activity...')
+          // ✅ EDIT MODE: Always update existing KPIs when any field changes
+          console.log('🔄 UPDATING KPIs for existing activity (any change triggers update)...')
           console.log('📦 Activity to update:', {
             id: activity.id,
             old_activity_name: activity.activity_name, // ✅ OLD name
             new_activity_name: activityData.activity_name, // ✅ NEW name
+            old_timing: activity.activity_timing,
+            new_timing: activityData.activity_timing,
             project_full_code: activityData.project_full_code,
-            planned_units: activityData.planned_units
+            planned_units: activityData.planned_units,
+            start_date: activityData.planned_activity_start_date,
+            end_date: activityData.deadline
           })
           
-          // ✅ UPDATE MODE: Update existing KPIs instead of creating new ones
-          console.log('🔄 UPDATING existing KPIs...')
-          const updateResult = await updateExistingKPIs(activityData, activity.activity_name, workdaysConfig)
+          // ✅ Always update KPIs - generate fresh KPIs based on current form data
+          console.log('🔄 Generating fresh KPIs from updated activity data...')
           
-          if (updateResult.success) {
-            setSuccess(`✅ Activity updated! ${updateResult.message}`)
-            console.log(`✅ KPI Update: Updated=${updateResult.updatedCount}, Added=${updateResult.addedCount}, Deleted=${updateResult.deletedCount}`)
+          // ✅ FIX: Ensure activity_timing is set before generating KPIs
+          if (!activityData.activity_timing) {
+            console.warn('⚠️ Activity Timing is missing in activityData, using form value:', activityTiming)
+            activityData.activity_timing = activityTiming || 'post-commencement'
+          }
+          
+          // ✅ FIX: Ensure has_value and affects_timeline are set
+          if (activityData.has_value === undefined) {
+            activityData.has_value = hasValue !== undefined ? hasValue : true
+          }
+          if (activityData.affects_timeline === undefined) {
+            activityData.affects_timeline = affectsTimeline !== undefined ? affectsTimeline : false
+          }
+          
+          console.log('📋 Activity data for KPI update:', {
+            activity_name: activityData.activity_name,
+            activity_timing: activityData.activity_timing,
+            has_value: activityData.has_value,
+            affects_timeline: activityData.affects_timeline
+          })
+          
+          const { generateKPIsFromBOQ } = await import('@/lib/autoKPIGenerator')
+          const freshKPIs = await generateKPIsFromBOQ(activityData, workdaysConfig)
+          
+          if (freshKPIs && freshKPIs.length > 0) {
+            console.log(`✅ Generated ${freshKPIs.length} fresh KPIs from updated data`)
+            // ✅ UPDATE MODE: Update existing KPIs with fresh data
+            const updateResult = await updateExistingKPIs(activityData, activity.activity_name, workdaysConfig)
+            
+            if (updateResult.success) {
+              setSuccess(`✅ Activity updated! ${updateResult.message}`)
+              console.log(`✅ KPI Update: Updated=${updateResult.updatedCount}, Added=${updateResult.addedCount}, Deleted=${updateResult.deletedCount}`)
+            } else {
+              console.error('❌ KPI update failed:', updateResult.message)
+              setSuccess('⚠️ Activity updated but KPI sync failed: ' + updateResult.message)
+            }
           } else {
-            console.error('❌ KPI update failed:', updateResult.message)
-            setSuccess('⚠️ Activity updated but KPI sync failed: ' + updateResult.message)
+            console.warn('⚠️ No KPIs generated from updated data - may be invalid dates or no workdays')
+            // Still try to update existing KPIs (they might need to be deleted if timing changed)
+            const updateResult = await updateExistingKPIs(activityData, activity.activity_name, workdaysConfig)
+            if (updateResult.success) {
+              setSuccess(`✅ Activity updated! ${updateResult.message}`)
+            } else {
+              setSuccess('✅ Activity updated successfully!')
+            }
           }
         } else {
           // ✅ CREATE MODE: Create new KPIs
           console.log('🚀 CREATING new KPIs...')
-          console.log('📦 KPIs to save:', JSON.stringify(kpiPreview.kpis.slice(0, 2), null, 2))
+          console.log('🔍 CREATE MODE - Initial state:', {
+            hasKpiPreview: !!kpiPreview,
+            kpiPreviewCount: kpiPreview?.kpis?.length || 0,
+            activityTiming: activityTiming,
+            activityData_timing: activityData.activity_timing,
+            autoGenerateKPIs: autoGenerateKPIs,
+            plannedUnits: activityData.planned_units,
+            startDate: activityData.planned_activity_start_date,
+            endDate: activityData.deadline
+          })
           
-          const result = await saveGeneratedKPIs(kpiPreview.kpis)
+          // Use preview if available, otherwise generate on the fly
+          let kpisToSave = kpiPreview?.kpis || []
           
-          if (result.success) {
-            setSuccess(`✅ Activity created with ${result.savedCount} KPI records!`)
-            console.log('✅ Created', result.savedCount, 'KPI records')
+          console.log('🔍 After getting preview:', {
+            kpisToSaveLength: kpisToSave.length,
+            willGenerate: kpisToSave.length === 0
+          })
+          
+          if (kpisToSave.length === 0) {
+            console.log('🔄 No preview available, generating KPIs on the fly...')
+            console.log('📋 Activity data BEFORE fixes:', {
+              activity_name: activityData.activity_name,
+              activity_timing: activityData.activity_timing,
+              has_value: activityData.has_value,
+              affects_timeline: activityData.affects_timeline,
+              planned_units: activityData.planned_units,
+              planned_activity_start_date: activityData.planned_activity_start_date,
+              deadline: activityData.deadline,
+              project_code: activityData.project_code,
+              project_full_code: activityData.project_full_code
+            })
+            
+            // ✅ FIX: Ensure activity_timing is set before generating KPIs
+            if (!activityData.activity_timing) {
+              console.warn('⚠️ Activity Timing is missing in activityData, using form value:', activityTiming)
+              activityData.activity_timing = activityTiming || 'post-commencement'
+            }
+            
+            // ✅ FIX: Ensure has_value and affects_timeline are set
+            if (activityData.has_value === undefined) {
+              activityData.has_value = hasValue !== undefined ? hasValue : true
+            }
+            if (activityData.affects_timeline === undefined) {
+              activityData.affects_timeline = affectsTimeline !== undefined ? affectsTimeline : false
+            }
+            
+            // ✅ CRITICAL: Ensure all required fields are present
+            if (!activityData.planned_activity_start_date || !activityData.deadline) {
+              console.error('❌ CRITICAL ERROR: Missing dates!', {
+                planned_activity_start_date: activityData.planned_activity_start_date,
+                deadline: activityData.deadline,
+                startDate: startDate,
+                endDate: endDate
+              })
+            }
+            
+            if (!activityData.planned_units || activityData.planned_units <= 0) {
+              console.error('❌ CRITICAL ERROR: Missing or invalid planned_units!', {
+                planned_units: activityData.planned_units,
+                plannedUnits: plannedUnits
+              })
+            }
+            
+            console.log('📋 Activity data AFTER fixes:', {
+              activity_name: activityData.activity_name,
+              activity_timing: activityData.activity_timing,
+              has_value: activityData.has_value,
+              affects_timeline: activityData.affects_timeline,
+              planned_units: activityData.planned_units,
+              planned_activity_start_date: activityData.planned_activity_start_date,
+              deadline: activityData.deadline,
+              project_code: activityData.project_code,
+              project_full_code: activityData.project_full_code
+            })
+            
+            console.log('🔧 Calling generateKPIsFromBOQ with:', {
+              activity_name: activityData.activity_name,
+              activity_timing: activityData.activity_timing,
+              planned_units: activityData.planned_units,
+              start_date: activityData.planned_activity_start_date,
+              end_date: activityData.deadline
+            })
+            
+            const { generateKPIsFromBOQ } = await import('@/lib/autoKPIGenerator')
+            kpisToSave = await generateKPIsFromBOQ(activityData, workdaysConfig)
+            
+            console.log(`📊 Generated ${kpisToSave.length} KPIs (Activity Timing: ${activityData.activity_timing})`)
+            
+            // ✅ DEBUG: Log if no KPIs were generated for Pre Commencement
+            if (kpisToSave.length === 0) {
+              console.error('❌ ERROR: No KPIs generated!', {
+                activity_name: activityData.activity_name,
+                activity_timing: activityData.activity_timing,
+                planned_units: activityData.planned_units,
+                start_date: activityData.planned_activity_start_date,
+                end_date: activityData.deadline,
+                has_value: activityData.has_value,
+                affects_timeline: activityData.affects_timeline,
+                project_code: activityData.project_code,
+                project_full_code: activityData.project_full_code
+              })
+              
+              // ✅ Additional debugging for Pre Commencement
+              if (activityData.activity_timing === 'pre-commencement') {
+                console.error('❌ CRITICAL: Pre Commencement activity generated 0 KPIs!', {
+                  activity_name: activityData.activity_name,
+                  activity_timing: activityData.activity_timing,
+                  planned_units: activityData.planned_units,
+                  start_date: activityData.planned_activity_start_date,
+                  end_date: activityData.deadline,
+                  datesValid: activityData.planned_activity_start_date && activityData.deadline,
+                  unitsValid: activityData.planned_units > 0
+                })
+              }
+            } else {
+              console.log('✅ SUCCESS: KPIs generated successfully!', {
+                count: kpisToSave.length,
+                activity_timing: activityData.activity_timing,
+                firstKPI: kpisToSave[0] ? {
+                  activity_timing: kpisToSave[0].activity_timing,
+                  quantity: kpisToSave[0].quantity,
+                  target_date: kpisToSave[0].target_date
+                } : null
+              })
+            }
           } else {
-            console.error('❌ KPI generation failed:', result.message)
-            setSuccess('⚠️ Activity created but KPI generation failed: ' + result.message)
+            console.log('✅ Using preview KPIs:', {
+              count: kpisToSave.length,
+              activity_timing: kpisToSave[0]?.activity_timing || 'unknown'
+            })
+          }
+          
+          if (kpisToSave && kpisToSave.length > 0) {
+            console.log(`📦 Saving ${kpisToSave.length} KPIs...`)
+            console.log('📦 KPIs to save (sample):', JSON.stringify(kpisToSave.slice(0, 2), null, 2))
+            
+            const result = await saveGeneratedKPIs(kpisToSave)
+            
+            if (result.success) {
+              setSuccess(`✅ Activity created with ${result.savedCount} KPI records!`)
+              console.log('✅ Created', result.savedCount, 'KPI records')
+            } else {
+              console.error('❌ KPI generation failed:', result.message)
+              setSuccess('⚠️ Activity created but KPI generation failed: ' + result.message)
+            }
+          } else {
+            console.warn('⚠️ No KPIs generated - may be invalid dates or no workdays')
+            setSuccess('✅ Activity created successfully!')
           }
         }
       } else {
-        console.warn('⚠️ KPIs NOT processed because:')
-        if (!autoGenerateKPIs) console.warn('  - Auto-generate KPIs is DISABLED')
-        if (!kpiPreview) console.warn('  - No KPI preview available')
-        if (!kpiPreview?.kpis || kpiPreview.kpis.length === 0) console.warn('  - KPI preview is empty')
-        
-        // ✅ Fallback: Try to generate KPIs on the fly if preview is missing
-        if (autoGenerateKPIs && (!kpiPreview || !kpiPreview.kpis || kpiPreview.kpis.length === 0)) {
-          console.log('🔄 Fallback: Generating KPIs on the fly...')
-          try {
-            const tempActivity = {
-              id: activity?.id || 'temp',
-              project_code: projectCode,
-              project_full_code: project?.project_code || projectCode,
-              project_sub_code: project?.project_sub_code || '',
-              activity_name: activityName,
-              unit: unit || 'No.',
-              planned_units: parseFloat(plannedUnits),
-              planned_value: parseFloat(plannedValue) || 0,
-              planned_activity_start_date: startDate,
-              deadline: endDate,
-              zone_ref: (project?.responsible_division && project?.responsible_division !== 'Enabling Division') ? project?.responsible_division : '',
-              project_full_name: project?.project_name || ''
-            }
-            
-            const { generateKPIsFromBOQ, saveGeneratedKPIs } = await import('@/lib/autoKPIGenerator')
-            const kpis = await generateKPIsFromBOQ(tempActivity as any, workdaysConfig)
-            
-            if (kpis && kpis.length > 0) {
-              console.log(`✅ Fallback: Generated ${kpis.length} KPIs on the fly`)
-              const result = await saveGeneratedKPIs(kpis)
-              
-              if (result.success) {
-                setSuccess(`✅ Activity created with ${result.savedCount} KPI records (generated on the fly)!`)
-                console.log('✅ Fallback KPI generation successful')
-              } else {
-                console.error('❌ Fallback KPI generation failed:', result.message)
-                setSuccess('⚠️ Activity created but KPI generation failed: ' + result.message)
-              }
-            } else {
-              console.warn('⚠️ Fallback: No KPIs generated')
-              setSuccess(activity ? '✅ Activity updated successfully!' : '✅ Activity created successfully!')
-            }
-          } catch (fallbackError) {
-            console.error('❌ Fallback KPI generation error:', fallbackError)
-            setSuccess(activity ? '✅ Activity updated successfully!' : '✅ Activity created successfully!')
-          }
-        } else {
-          setSuccess(activity ? '✅ Activity updated successfully!' : '✅ Activity created successfully!')
-        }
+        console.warn('⚠️ Auto-generate KPIs is DISABLED - skipping KPI generation')
+        setSuccess(activity ? '✅ Activity updated successfully!' : '✅ Activity created successfully!')
       }
       
       // ✅ Reset selected activities scopes after successful save
@@ -1439,6 +1715,35 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                   }
                 </div>
               )}
+            </div>
+            
+            {/* ✅ Division Field - Linked to Divisions Management */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <span className="flex items-center gap-2">
+                  <span className="text-lg">🏢</span>
+                  Division <span className="text-red-500">*</span>
+                </span>
+              </label>
+              <select
+                value={activityDivision}
+                onChange={(e) => setActivityDivision(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                required
+                disabled={loading}
+              >
+                <option value="">
+                  {availableDivisions.length === 0 ? 'Loading divisions...' : 'Select Division...'}
+                </option>
+                {availableDivisions.map((division) => (
+                  <option key={division.id || division.name} value={division.name}>
+                    {division.name} {division.code ? `(${division.code})` : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                💡 Division is automatically detected from the selected project. Select from Divisions Management or modify if needed.
+              </p>
             </div>
 
             {/* Zone Management */}
@@ -2089,6 +2394,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                     <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">Day</th>
                     <th className="px-4 py-3 text-right font-semibold text-gray-700 dark:text-gray-300">Quantity</th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">Unit</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">Division</th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-700 dark:text-gray-300">Status</th>
                   </tr>
                 </thead>
@@ -2143,6 +2449,9 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                         <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
                           {kpi.unit}
                         </td>
+                        <td className="px-4 py-3 text-gray-700 dark:text-gray-300">
+                          {activityDivision || project?.responsible_division || '-'}
+                        </td>
                         <td className="px-4 py-3">
                           <ModernBadge variant="info" size="sm">
                             Planned
@@ -2162,6 +2471,9 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                     </td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400 font-medium">
                       {unit}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400 font-medium">
+                      {/* Division column in footer */}
                     </td>
                     <td className="px-4 py-3">
                       <ModernBadge variant="success" size="sm" icon={<CheckCircle2 className="h-3 w-3" />}>

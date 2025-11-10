@@ -23,33 +23,44 @@ export async function updateProjectStatus(projectId: string): Promise<ProjectSta
     // Use the imported supabase client
     
     // Get project data
+    // ✅ Use maybeSingle() instead of single() to handle cases where project doesn't exist
     const { data: project, error: projectError } = await (supabase as any)
       .from(TABLES.PROJECTS)
       .select('*')
       .eq('id', projectId)
-      .single()
+      .maybeSingle()
     
-    if (projectError || !project) {
-      console.error('Error fetching project:', projectError)
+    if (projectError) {
+      // Only log if it's not a "not found" error
+      if (projectError.code !== 'PGRST116') {
+        console.error('Error fetching project:', projectError)
+      }
+      return null
+    }
+    
+    if (!project) {
+      // Project doesn't exist - silently return (not an error)
       return null
     }
     
     // Get project activities
+    // ✅ Use project_full_code for better matching (handles sub-codes)
+    const projectFullCode = project.project_full_code || `${project.project_code}${project.project_sub_code ? '-' + project.project_sub_code : ''}`
     const { data: activities, error: activitiesError } = await (supabase as any)
       .from(TABLES.BOQ_ACTIVITIES)
       .select('*')
-      .eq('project_code', project.project_code)
+      .or(`project_code.eq.${project.project_code},Project Full Code.eq.${projectFullCode},Project Code.eq.${project.project_code}`)
     
     if (activitiesError) {
       console.error('Error fetching activities:', activitiesError)
       return null
     }
     
-    // Get project KPIs
+    // Get project KPIs (check for Planned KPIs specifically)
     const { data: kpis, error: kpisError } = await (supabase as any)
       .from(TABLES.KPI)
       .select('*')
-      .eq('Project Full Code', project.project_code)
+      .or(`Project Full Code.eq.${projectFullCode},Project Code.eq.${project.project_code}`)
     
     if (kpisError) {
       console.error('Error fetching KPIs:', kpisError)
@@ -92,21 +103,59 @@ export async function updateProjectStatus(projectId: string): Promise<ProjectSta
       return null
     }
     
-    // Update project status
+    // ✅ Check if project has KPI Planned (for KPI Added field)
+    const hasKPIPlanned = kpis.some((kpi: any) => {
+      const inputType = kpi['Input Type'] || kpi.input_type || ''
+      return String(inputType).trim().toLowerCase() === 'planned'
+    })
+    
+    // Update project status and KPI Added
+    // ✅ Build update object with 'KPI Added' - if column doesn't exist, we'll retry without it
+    const updateData: any = {
+      project_status: statusResult.status,
+      status_confidence: statusResult.confidence,
+      status_reason: statusResult.reason,
+      status_updated_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      'KPI Added': hasKPIPlanned ? 'Yes' : 'No' // ✅ Try to update KPI Added
+    }
+    
     const { error: updateError } = await (supabase as any)
       .from(TABLES.PROJECTS)
-      .update({
-        project_status: statusResult.status,
-        status_confidence: statusResult.confidence,
-        status_reason: statusResult.reason,
-        status_updated_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
+      .update(updateData)
       .eq('id', projectId)
     
     if (updateError) {
-      console.error('Error updating project status:', updateError)
-      return null
+      // ✅ Handle 406 Not Acceptable (column doesn't exist) gracefully
+      // This happens when 'KPI Added' column hasn't been added to the database yet
+      if (updateError.code === 'PGRST116' || 
+          updateError.message?.includes('406') || 
+          updateError.message?.includes('Not Acceptable') ||
+          updateError.code === '42703') { // PostgreSQL error code for undefined column
+        if (process.env.NODE_ENV === 'development') {
+          console.warn(`⚠️ "KPI Added" column not found for project ${project.project_code}. Please run add-kpi-added-column.sql`)
+        }
+        // Try updating without 'KPI Added' column
+        const { error: retryError } = await (supabase as any)
+          .from(TABLES.PROJECTS)
+          .update({
+            project_status: statusResult.status,
+            status_confidence: statusResult.confidence,
+            status_reason: statusResult.reason,
+            status_updated_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', projectId)
+        
+        if (retryError) {
+          console.error('Error updating project status (retry):', retryError)
+          return null
+        }
+        // ✅ Successfully updated without 'KPI Added' - continue normally
+      } else {
+        console.error('Error updating project status:', updateError)
+        return null
+      }
     }
     
     // Log status change

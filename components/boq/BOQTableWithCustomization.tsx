@@ -26,14 +26,16 @@ const defaultBOQColumns: ColumnConfig[] = [
   { id: 'select', label: 'Select', visible: true, order: 0, fixed: true, width: '60px' },
   { id: 'activity_details', label: 'Activity Details', visible: true, order: 1, width: '250px' },
   { id: 'scope', label: 'Scope', visible: true, order: 2, width: '200px' },
-  { id: 'quantities', label: 'Quantities', visible: true, order: 3, width: '180px' },
-  { id: 'activity_value', label: 'Activity Value', visible: true, order: 4, width: '150px' },
-  { id: 'planned_dates', label: 'Planned Dates', visible: true, order: 5, width: '180px' },
-  { id: 'actual_dates', label: 'Actual Dates', visible: true, order: 6, width: '180px' },
-  { id: 'progress_summary', label: 'Progress Summary', visible: true, order: 7, width: '180px' },
-  { id: 'work_value_status', label: 'Work Value Status', visible: true, order: 8, width: '200px' },
-  { id: 'activity_status', label: 'Activity Status', visible: true, order: 9, width: '150px' },
-  { id: 'actions', label: 'Actions', visible: true, order: 10, fixed: true, width: '150px' }
+  { id: 'division', label: 'Division', visible: true, order: 3, width: '180px' }, // ✅ Division column
+  { id: 'activity_timing', label: 'Activity Timing', visible: true, order: 4, width: '180px' }, // ✅ Activity Timing column
+  { id: 'quantities', label: 'Quantities', visible: true, order: 5, width: '180px' },
+  { id: 'activity_value', label: 'Activity Value', visible: true, order: 6, width: '150px' },
+  { id: 'planned_dates', label: 'Planned Dates', visible: true, order: 7, width: '180px' },
+  { id: 'actual_dates', label: 'Actual Dates', visible: true, order: 8, width: '180px' },
+  { id: 'progress_summary', label: 'Progress Summary', visible: true, order: 9, width: '180px' },
+  { id: 'work_value_status', label: 'Work Value Status', visible: true, order: 10, width: '200px' },
+  { id: 'activity_status', label: 'Activity Status', visible: true, order: 11, width: '150px' },
+  { id: 'actions', label: 'Actions', visible: true, order: 12, fixed: true, width: '150px' }
 ]
 
 export function BOQTableWithCustomization({ 
@@ -174,6 +176,30 @@ export function BOQTableWithCustomization({
   const getProjectName = (projectCode: string) => {
     const project = projects.find(p => p.project_code === projectCode)
     return project?.project_name || projectCode
+  }
+  
+  // ✅ FIX: Get project by project_full_code (not just project_code)
+  const getProjectByFullCode = (projectFullCode: string) => {
+    return projects.find(p => {
+      const pFullCode = (p.project_full_code || '').trim()
+      if (pFullCode && pFullCode.toUpperCase() === projectFullCode.toUpperCase()) {
+        return true
+      }
+      // Fallback: build full code from project_code + project_sub_code
+      const pCode = (p.project_code || '').trim()
+      const pSubCode = (p.project_sub_code || '').trim()
+      if (pSubCode) {
+        if (pSubCode.toUpperCase().startsWith(pCode.toUpperCase())) {
+          return pSubCode.toUpperCase() === projectFullCode.toUpperCase()
+        } else {
+          const builtFullCode = pSubCode.startsWith('-') 
+            ? `${pCode}${pSubCode}`.trim()
+            : `${pCode}-${pSubCode}`.trim()
+          return builtFullCode.toUpperCase() === projectFullCode.toUpperCase()
+        }
+      }
+      return pCode.toUpperCase() === projectFullCode.toUpperCase()
+    })
   }
 
   // Calculate Advanced Performance Score with Multiple Factors
@@ -443,8 +469,10 @@ export function BOQTableWithCustomization({
 
   // Render cell content based on column
   const renderCell = (activity: BOQActivity, column: ColumnConfig) => {
-    const project = projects.find(p => p.project_code === activity.project_code)
-    const projectFullName = getProjectName(activity.project_code) || activity.project_full_code || activity.project_code
+    // ✅ FIX: Find project by project_full_code (not just project_code)
+    const activityFullCode = (activity.project_full_code || activity.project_code || '').trim()
+    const project = getProjectByFullCode(activityFullCode) || projects.find(p => p.project_code === activity.project_code)
+    const projectFullName = project?.project_name || getProjectName(activity.project_code) || activity.project_full_code || activity.project_code
     const currencyCode = project?.currency
     
     switch (column.id) {
@@ -492,42 +520,45 @@ export function BOQTableWithCustomization({
         }
         
         // ✅ Get project full code and name
-        // Try to get full code from project object first, then from activity
-        let projectFullCode = 'N/A'
+        // ✅ CRITICAL: Use activity.project_full_code directly (it's already correct from mapBOQFromDB)
+        let projectFullCode = activity.project_full_code || 'N/A'
         let projectName = ''
         
         if (project) {
-          // Use project's full code if available
-          // ✅ FIX: Check if project_sub_code already contains project_code to avoid duplication
-          if (project.project_sub_code) {
-            const projectCode = (project.project_code || '').trim().toUpperCase()
+          // ✅ Use project's full_code if available, otherwise build it
+          if (project.project_full_code) {
+            projectFullCode = project.project_full_code.trim()
+          } else if (project.project_sub_code) {
+            const projectCode = (project.project_code || '').trim()
             const projectSubCode = (project.project_sub_code || '').trim()
-            // If sub_code already starts with project_code, use it as is
-            if (projectSubCode.toUpperCase().startsWith(projectCode)) {
-              projectFullCode = projectSubCode
+            if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+              projectFullCode = projectSubCode.trim()
             } else {
-              projectFullCode = `${projectCode}${projectSubCode}`
+              projectFullCode = projectSubCode.startsWith('-') 
+                ? `${projectCode}${projectSubCode}`.trim()
+                : `${projectCode}-${projectSubCode}`.trim()
             }
           } else {
             projectFullCode = project.project_code || 'N/A'
           }
           projectName = project.project_name || ''
         } else {
-          // Fallback to activity's full code
-          // ✅ FIX: Check if project_sub_code already contains project_code to avoid duplication
-          if (activity.project_code && activity.project_sub_code) {
-            const projectCode = (activity.project_code || '').trim().toUpperCase()
-            const projectSubCode = (activity.project_sub_code || '').trim()
-            // If sub_code already starts with project_code, use it as is
-            if (projectSubCode.toUpperCase().startsWith(projectCode)) {
-              projectFullCode = projectSubCode
+          // ✅ Use activity's project_full_code (already correct from mapBOQFromDB)
+          // If not available, build it from project_code + project_sub_code
+          if (!projectFullCode || projectFullCode === 'N/A') {
+            if (activity.project_code && activity.project_sub_code) {
+              const projectCode = (activity.project_code || '').trim().toUpperCase()
+              const projectSubCode = (activity.project_sub_code || '').trim()
+              if (projectSubCode.toUpperCase().startsWith(projectCode)) {
+                projectFullCode = projectSubCode.trim()
+              } else {
+                projectFullCode = projectSubCode.startsWith('-') 
+                  ? `${activity.project_code}${projectSubCode}`.trim()
+                  : `${activity.project_code}-${projectSubCode}`.trim()
+              }
             } else {
-              projectFullCode = `${projectCode}${projectSubCode}`
+              projectFullCode = activity.project_code || 'N/A'
             }
-          } else {
-            projectFullCode = activity.project_full_code || 
-                             activity.project_code ||
-                             'N/A'
           }
           // Try to get project name from getProjectName if project object not found
           const foundProjectName = getProjectName(activity.project_code)
@@ -666,6 +697,77 @@ export function BOQTableWithCustomization({
                 </span>
               )
             })}
+          </div>
+        )
+      
+      case 'division':
+        // ✅ Display Division from activity_division field
+        const divisionValue = activity.activity_division || 
+                             (activity as any).raw?.['Activity Division'] ||
+                             (activity as any).raw?.['activity_division'] ||
+                             'N/A'
+        
+        if (divisionValue === 'N/A' || !divisionValue) {
+          return (
+            <span className="text-gray-400 dark:text-gray-500 text-sm">N/A</span>
+          )
+        }
+        
+        // Division colors matching Projects table
+        const divisionColors: { [key: string]: string } = {
+          'Enabling Division': 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
+          'Infrastructure Division': 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
+          'Soil Improvement Division': 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
+          'Marine Division': 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
+        }
+        
+        const divisionColor = divisionColors[divisionValue] || 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300'
+        
+        return (
+          <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${divisionColor}`}>
+            {divisionValue}
+          </span>
+        )
+      
+      case 'activity_timing':
+        // ✅ Display Activity Timing from activity_timing field
+        const activityTimingValue = activity.activity_timing || 
+                                   (activity as any).raw?.['Activity Timing'] ||
+                                   (activity as any).raw?.['activity_timing'] ||
+                                   'post-commencement' // Default value
+        
+        // Format the timing value for display
+        const formatActivityTiming = (timing: string): string => {
+          if (!timing) return 'N/A'
+          // Convert kebab-case to Title Case
+          return timing
+            .split('-')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ')
+        }
+        
+        const formattedTiming = formatActivityTiming(activityTimingValue)
+        
+        // Activity Timing colors
+        const timingColors: { [key: string]: string } = {
+          'pre-commencement': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
+          'post-commencement': 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
+          'post-completion': 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+        }
+        
+        const timingColor = timingColors[activityTimingValue] || 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300'
+        
+        return (
+          <div className="space-y-1">
+            <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${timingColor}`}>
+              {formattedTiming}
+            </span>
+            {/* Show additional info if post-completion */}
+            {activityTimingValue === 'post-completion' && (
+              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                {activity.has_value ? 'Has Value' : 'No Value'} • {activity.affects_timeline ? 'Affects Timeline' : 'No Timeline Impact'}
+              </div>
+            )}
           </div>
         )
       

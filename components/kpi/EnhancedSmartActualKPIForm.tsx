@@ -144,21 +144,44 @@ export function EnhancedSmartActualKPIForm({
       
       const projectCode = selectedProject.project_code
       const projectSubCode = selectedProject.project_sub_code || ''
-      const projectFullCode = `${projectCode}${projectSubCode}`
+      // ✅ FIX: Use project_full_code from selected project if available, otherwise build it
+      // Try multiple formats: P5066-I1, P5066I1, P5066 I1
+      const projectFullCode = selectedProject.project_full_code || 
+                             (projectSubCode ? `${projectCode}-${projectSubCode}` : projectCode) ||
+                             `${projectCode}${projectSubCode}`.trim()
       
-      console.log(`🔍 Smart KPI Form: Fetching ALL activities for project: ${projectCode} (Full: ${projectFullCode})`)
+      // Build alternative formats for searching
+      const builtFullCode1 = projectSubCode ? `${projectCode}-${projectSubCode}` : projectCode
+      const builtFullCode2 = projectSubCode ? `${projectCode}${projectSubCode}` : projectCode
+      const builtFullCode3 = projectSubCode ? `${projectCode} ${projectSubCode}` : projectCode
+      
+      console.log(`🔍 Smart KPI Form: Fetching activities for SPECIFIC project:`, {
+        projectCode,
+        projectSubCode: projectSubCode || 'none',
+        projectFullCode,
+        builtFullCode1,
+        builtFullCode2,
+        builtFullCode3,
+        selectedProject: {
+          project_code: selectedProject.project_code,
+          project_sub_code: selectedProject.project_sub_code,
+          project_full_code: selectedProject.project_full_code
+        }
+      })
+      console.log(`📋 IMPORTANT: Each project with different Sub Code is a SEPARATE project - will fetch ONLY activities for this specific project`)
       
       try {
         const supabase = getSupabaseClient()
         
-        // Strategy 1: Match by exact Project Code + Sub Code (MOST ACCURATE)
+        // ✅ CRITICAL FIX: Strategy 1 - Match by exact Project Code + Sub Code (MOST ACCURATE)
+        // Each project with different Sub Code is a separate project - fetch ONLY its activities
         const { data: activitiesByCodeAndSubCode, error: error1 } = await executeQuery(async () => {
           let query = supabase
             .from(TABLES.BOQ_ACTIVITIES)
             .select('*')
             .eq('Project Code', projectCode)
           
-          // If sub code exists, also filter by sub code for exact match
+          // If sub code exists, MUST match it exactly (different sub code = different project)
           if (projectSubCode) {
             query = query.eq('Project Sub Code', projectSubCode)
           } else {
@@ -169,7 +192,7 @@ export function EnhancedSmartActualKPIForm({
           return query
         })
         
-        // Strategy 2: Match by exact Project Full Code
+        // Strategy 2: Match by exact Project Full Code (from database)
         const { data: activitiesByFullCodeExact, error: error2 } = await executeQuery(async () =>
           supabase
             .from(TABLES.BOQ_ACTIVITIES)
@@ -177,54 +200,76 @@ export function EnhancedSmartActualKPIForm({
             .eq('Project Full Code', projectFullCode)
         )
         
-        // Strategy 3: Match where Project Full Code starts with Project Code
-        // Only if sub code is empty (to avoid matching wrong projects)
-        const { data: activitiesByFullCodeStart, error: error3 } = await executeQuery(async () => {
-          if (projectSubCode) {
-            // If sub code exists, use exact match only (already in Strategy 2)
+        // Strategy 3: Match by Project Full Code with dash format (P5066-I1)
+        const { data: activitiesByFullCodeDash, error: error3a } = await executeQuery(async () => {
+          if (!projectSubCode || projectFullCode === builtFullCode1) {
             return { data: [], error: null }
           }
           return supabase
             .from(TABLES.BOQ_ACTIVITIES)
             .select('*')
+            .eq('Project Full Code', builtFullCode1)
+        })
+        
+        // Strategy 4: Match by Project Full Code without dash (P5066I1)
+        const { data: activitiesByFullCodeNoDash, error: error3b } = await executeQuery(async () => {
+          if (!projectSubCode || projectFullCode === builtFullCode2 || builtFullCode1 === builtFullCode2) {
+            return { data: [], error: null }
+          }
+          return supabase
+            .from(TABLES.BOQ_ACTIVITIES)
+            .select('*')
+            .eq('Project Full Code', builtFullCode2)
+        })
+        
+        // Strategy 5: Match by Project Full Code with space (P5066 I1)
+        const { data: activitiesByFullCodeSpace, error: error3c } = await executeQuery(async () => {
+          if (!projectSubCode || projectFullCode === builtFullCode3 || builtFullCode1 === builtFullCode3) {
+            return { data: [], error: null }
+          }
+          return supabase
+            .from(TABLES.BOQ_ACTIVITIES)
+            .select('*')
+            .eq('Project Full Code', builtFullCode3)
+        })
+        
+        // Strategy 6: Match where Project Full Code starts with Project Code (for cases where format differs)
+        const { data: activitiesByFullCodeStart, error: error3d } = await executeQuery(async () => {
+          if (!projectSubCode) {
+            return { data: [], error: null }
+          }
+          // Search for activities where Project Full Code starts with Project Code
+          // and contains the Sub Code (to catch variations)
+          return supabase
+            .from(TABLES.BOQ_ACTIVITIES)
+            .select('*')
+            .eq('Project Code', projectCode)
             .like('Project Full Code', `${projectCode}%`)
         })
         
-        // Strategy 4: Match where Project Code contains the project code (for old data)
-        // Only if no sub code to avoid matching wrong projects
-        const { data: activitiesByCodeContains, error: error4 } = await executeQuery(async () => {
-          if (projectSubCode) {
-            // Skip if sub code exists to ensure accuracy
+        // Strategy 7: Match by Project Sub Code (optional - for additional verification)
+        // Only if sub code exists and matches
+        const { data: activitiesBySubCode, error: error4 } = await executeQuery(async () => {
+          if (!projectSubCode) {
             return { data: [], error: null }
           }
+          // Must also match Project Code to ensure it's the same project
           return supabase
             .from(TABLES.BOQ_ACTIVITIES)
             .select('*')
-            .ilike('Project Code', `%${projectCode}%`)
-            .neq('Project Code', projectCode)
+            .eq('Project Code', projectCode)
+            .eq('Project Sub Code', projectSubCode)
         })
         
-        // Strategy 5: Match where Project Full Code contains the project code (for old data)
-        // Only if no sub code to avoid matching wrong projects
-        const { data: activitiesByFullCodeContains, error: error5 } = await executeQuery(async () => {
-          if (projectSubCode) {
-            // Skip if sub code exists to ensure accuracy
-            return { data: [], error: null }
-          }
-          return supabase
-            .from(TABLES.BOQ_ACTIVITIES)
-            .select('*')
-            .ilike('Project Full Code', `%${projectCode}%`)
-            .neq('Project Full Code', projectCode)
-        })
-        
-        // Merge ALL results (prioritize exact matches)
+        // Merge results (all strategies should return activities for the SAME specific project)
         const allActivitiesData = [
           ...(Array.isArray(activitiesByCodeAndSubCode) ? activitiesByCodeAndSubCode : []),
           ...(Array.isArray(activitiesByFullCodeExact) ? activitiesByFullCodeExact : []),
+          ...(Array.isArray(activitiesByFullCodeDash) ? activitiesByFullCodeDash : []),
+          ...(Array.isArray(activitiesByFullCodeNoDash) ? activitiesByFullCodeNoDash : []),
+          ...(Array.isArray(activitiesByFullCodeSpace) ? activitiesByFullCodeSpace : []),
           ...(Array.isArray(activitiesByFullCodeStart) ? activitiesByFullCodeStart : []),
-          ...(Array.isArray(activitiesByCodeContains) ? activitiesByCodeContains : []),
-          ...(Array.isArray(activitiesByFullCodeContains) ? activitiesByFullCodeContains : [])
+          ...(Array.isArray(activitiesBySubCode) ? activitiesBySubCode : [])
         ]
         
         // Remove duplicates based on id
@@ -232,44 +277,67 @@ export function EnhancedSmartActualKPIForm({
           new Map(allActivitiesData.map((item: any) => [item.id, item])).values()
         )
         
-        // Additional client-side filtering to ensure all match the project EXACTLY
+        // Additional client-side filtering to ensure all match the SPECIFIC project
+        // ✅ CRITICAL FIX: Each project with different Sub Code is a SEPARATE project
+        // Only accept activities that match BOTH Project Code AND Project Sub Code
         const filteredActivities = uniqueActivitiesData.filter((item: any) => {
           const itemProjectCode = (item['Project Code'] || '').toString().trim()
           const itemProjectSubCode = (item['Project Sub Code'] || '').toString().trim()
           const itemProjectFullCode = (item['Project Full Code'] || '').toString().trim()
           
-          // Build expected full code from selected project
-          const expectedFullCode = `${projectCode}${projectSubCode}`.trim()
+          // Normalize sub codes for comparison (handle case differences)
+          const normalizedItemSubCode = itemProjectSubCode.toUpperCase()
+          const normalizedProjectSubCode = projectSubCode.toUpperCase()
           
-          // Priority 1: Exact match on Project Code + Sub Code
-          if (itemProjectCode === projectCode && itemProjectSubCode === projectSubCode) {
+          // ✅ CRITICAL: Priority 1 - Exact match on Project Code + Sub Code (MOST IMPORTANT)
+          // Different Sub Code = Different Project - must match BOTH
+          if (itemProjectCode === projectCode && normalizedItemSubCode === normalizedProjectSubCode) {
             return true
           }
           
-          // Priority 2: Exact match on Project Full Code
-          if (itemProjectFullCode === expectedFullCode) {
+          // Priority 2: Exact match on Project Full Code (from database)
+          if (itemProjectFullCode === projectFullCode) {
             return true
           }
           
-          // Priority 3: Match where Project Full Code starts with project code
-          // Only if sub code is empty or matches
-          if (itemProjectFullCode.startsWith(projectCode)) {
-            if (!projectSubCode || itemProjectSubCode === projectSubCode) {
-              return true
-            }
-            // If sub code exists, check if full code matches
-            if (itemProjectFullCode === expectedFullCode) {
-              return true
+          // Priority 3: Match on built Project Full Code formats (with dash, without dash, with space)
+          if (itemProjectFullCode === builtFullCode1 || 
+              itemProjectFullCode === builtFullCode2 || 
+              itemProjectFullCode === builtFullCode3) {
+            return true
+          }
+          
+          // Priority 4: Match where Project Full Code starts with Project Code and contains Sub Code
+          // This handles cases where format might differ (e.g., P5066-I1 vs P5066I1)
+          if (itemProjectFullCode.startsWith(projectCode) && projectSubCode) {
+            // Check if the full code contains the sub code (case-insensitive)
+            const fullCodeUpper = itemProjectFullCode.toUpperCase()
+            const subCodeUpper = projectSubCode.toUpperCase()
+            if (fullCodeUpper.includes(subCodeUpper)) {
+              // Also verify Project Code matches
+              if (itemProjectCode === projectCode) {
+                return true
+              }
             }
           }
           
-          // Priority 4: For old database entries without sub code, match by code only
+          // Priority 5: For projects without sub code, match by code only
           // Only if selected project also has no sub code
           if (!projectSubCode && !itemProjectSubCode) {
             if (itemProjectCode === projectCode) return true
             if (itemProjectFullCode === projectCode) return true
+            if (itemProjectFullCode === projectFullCode) return true
           }
           
+          // Priority 6: Match by Project Sub Code (optional - for additional verification)
+          // Must also match Project Code to ensure it's the same project
+          if (projectSubCode && normalizedItemSubCode === normalizedProjectSubCode) {
+            if (itemProjectCode === projectCode) {
+              return true
+            }
+          }
+          
+          // DO NOT accept activities with different Sub Code - they belong to different projects
           return false
         })
         
@@ -285,16 +353,35 @@ export function EnhancedSmartActualKPIForm({
         setProjectActivities(projectActivities)
         setCurrentStep('activities')
         
-        console.log(`📊 Smart KPI Form: Comprehensive fetch results for project ${projectCode}${projectSubCode ? `-${projectSubCode}` : ''}:`, {
+        console.log(`📊 Smart KPI Form: Comprehensive fetch results for SPECIFIC project ${projectCode}${projectSubCode ? `-${projectSubCode}` : ''}:`, {
           byCodeAndSubCode: activitiesByCodeAndSubCode?.length || 0,
           byFullCodeExact: activitiesByFullCodeExact?.length || 0,
+          byFullCodeDash: activitiesByFullCodeDash?.length || 0,
+          byFullCodeNoDash: activitiesByFullCodeNoDash?.length || 0,
+          byFullCodeSpace: activitiesByFullCodeSpace?.length || 0,
           byFullCodeStart: activitiesByFullCodeStart?.length || 0,
-          byCodeContains: activitiesByCodeContains?.length || 0,
-          byFullCodeContains: activitiesByFullCodeContains?.length || 0,
+          bySubCode: activitiesBySubCode?.length || 0,
           totalBeforeDedup: allActivitiesData.length,
           uniqueAfterDedup: uniqueActivitiesData.length,
-          finalAfterFilter: projectActivities.length
+          finalAfterFilter: projectActivities.length,
+          projectFullCode: projectFullCode,
+          builtFullCode1: builtFullCode1,
+          builtFullCode2: builtFullCode2,
+          builtFullCode3: builtFullCode3,
+          projectSubCode: projectSubCode || 'none',
+          note: '✅ Each project with different Sub Code is SEPARATE - fetching ONLY activities for this specific project'
         })
+        
+        // Log sample activities to debug
+        if (uniqueActivitiesData.length > 0) {
+          console.log(`📋 Sample activities found (before filtering):`, uniqueActivitiesData.slice(0, 3).map((item: any) => ({
+            id: item.id,
+            activity_name: item['Activity Name'],
+            project_code: item['Project Code'],
+            project_sub_code: item['Project Sub Code'],
+            project_full_code: item['Project Full Code']
+          })))
+        }
         
         console.log(`✅ Smart KPI Form: Loaded ${projectActivities.length} activities for project ${projectCode}${projectSubCode ? `-${projectSubCode}` : ''}`)
         console.log(`📋 Activities:`, projectActivities.map(a => ({
@@ -313,15 +400,43 @@ export function EnhancedSmartActualKPIForm({
         // Fallback: Try to use activities from props if available
         if (activities.length > 0) {
           console.log('📋 Using fallback: activities from props')
+          console.log(`📋 IMPORTANT: Each project with different Sub Code is SEPARATE - fetching ONLY activities for this specific project`)
           const projectActivities = activities
             .filter(a => {
               const aProjectCode = (a.project_code || '').toString().trim()
+              const aProjectSubCode = (a.project_sub_code || '').toString().trim()
               const aProjectFullCode = (a.project_full_code || '').toString().trim()
-              return aProjectCode === projectCode || 
-                     aProjectFullCode === projectCode || 
-                     aProjectFullCode.startsWith(projectCode) ||
-                     aProjectCode.includes(projectCode) ||
-                     aProjectFullCode.includes(projectCode)
+              
+              // ✅ CRITICAL FIX: Each project with different Sub Code is a SEPARATE project
+              // Only accept activities that match BOTH Project Code AND Project Sub Code
+              
+              // Priority 1: Exact match on Project Code + Sub Code (MOST IMPORTANT)
+              if (aProjectCode === projectCode && aProjectSubCode === projectSubCode) {
+                return true
+              }
+              
+              // Priority 2: Exact match on Project Full Code
+              if (aProjectFullCode === projectFullCode) {
+                return true
+              }
+              
+              // Priority 3: For projects without sub code, match by code only
+              if (!projectSubCode && !aProjectSubCode) {
+                if (aProjectCode === projectCode || aProjectFullCode === projectCode || aProjectFullCode === projectFullCode) {
+                  return true
+                }
+              }
+              
+              // Priority 4: Match by Project Sub Code (optional - for additional verification)
+              // Must also match Project Code to ensure it's the same project
+              if (projectSubCode && aProjectSubCode === projectSubCode) {
+                if (aProjectCode === projectCode) {
+                  return true
+                }
+              }
+              
+              // DO NOT accept activities with different Sub Code - they belong to different projects
+              return false
             })
             .map(activity => ({
               ...activity,
@@ -657,6 +772,7 @@ export function EnhancedSmartActualKPIForm({
         'Project Code': selectedProject?.project_code || formData.project_code,
         'Project Sub Code': selectedProject?.project_sub_code || '',
         'Activity Name': selectedActivity?.activity_name || formData.activity_name,
+        'Activity Division': selectedActivity?.activity_division || formData.activity_division || '', // ✅ Division field
         'Quantity': quantityValue.toString(), // Use validated quantity
         'Unit': formData.unit || selectedActivity?.unit || '',
         'Input Type': 'Actual',
@@ -669,8 +785,6 @@ export function EnhancedSmartActualKPIForm({
         'Zone': selectedActivity?.zone_ref || selectedActivity?.zone_number || '',
         // ❌ Removed 'Zone Ref' - use 'Section' or 'Zone' instead
         // ❌ Removed 'Zone Number' - use 'Zone' instead
-        // ❌ Removed 'Activity Division' - not a column in unified KPI table
-        // ❌ Removed 'Project Full Name' - not a column in unified KPI table
         'Recorded By': formData.recorded_by || '',
         // ✅ Add flags to track if this was worked on
         'hasWorked': true, // This form is only for activities that were worked on
@@ -898,29 +1012,40 @@ export function EnhancedSmartActualKPIForm({
       const searchTerm = projectSearchTerm.toLowerCase().trim()
       if (!searchTerm) return true
       
+      // ✅ FIX: Use project_full_code from database if available
+      const projectFullCode = project.project_full_code || `${project.project_code || ''}${project.project_sub_code || ''}`.trim()
+      const projectCode = (project.project_code || '').toLowerCase().trim()
+      const projectSubCode = (project.project_sub_code || '').toLowerCase().trim()
+      const projectFullCodeLower = projectFullCode.toLowerCase()
+      
       // Search in project name
       const matchesName = project.project_name?.toLowerCase().includes(searchTerm)
       
-      // Search in project code
-      const matchesCode = project.project_code?.toLowerCase().includes(searchTerm)
+      // Search in project code (most important - to find all projects with same code)
+      const matchesCode = projectCode.includes(searchTerm)
       
       // Search in project sub code
-      const matchesSubCode = project.project_sub_code?.toLowerCase().includes(searchTerm)
+      const matchesSubCode = projectSubCode.includes(searchTerm)
       
-      // Search in project full code (if exists)
-      const projectFullCode = `${project.project_code || ''}${project.project_sub_code || ''}`
-      const matchesFullCode = projectFullCode.toLowerCase().includes(searchTerm)
+      // Search in project full code (from database)
+      const matchesFullCode = projectFullCodeLower.includes(searchTerm)
       
       // Search in location (if exists)
       const matchesLocation = (project as any).location?.toLowerCase().includes(searchTerm)
       
-      // Also search for combined code (e.g., "P9999-01" or "P9999 01")
-      const combinedCode1 = `${project.project_code || ''}-${project.project_sub_code || ''}`.toLowerCase()
-      const combinedCode2 = `${project.project_code || ''} ${project.project_sub_code || ''}`.toLowerCase()
+      // Also search for combined code (e.g., "P5066-I1" or "P5066 R1")
+      const combinedCode1 = projectSubCode ? `${projectCode}-${projectSubCode}` : projectCode
+      const combinedCode2 = projectSubCode ? `${projectCode} ${projectSubCode}` : projectCode
       const matchesCombined1 = combinedCode1.includes(searchTerm)
       const matchesCombined2 = combinedCode2.includes(searchTerm)
       
-      return matchesName || matchesCode || matchesSubCode || matchesFullCode || matchesLocation || matchesCombined1 || matchesCombined2
+      // ✅ CRITICAL: If searching for just the code (e.g., "5066" or "p5066"), show ALL projects with that code
+      // This ensures all variants (P5066-I1, P5066-R1, etc.) are shown
+      const isCodeSearch = searchTerm === projectCode || 
+                          searchTerm === projectCode.replace('p', '') || 
+                          projectCode.includes(searchTerm.replace('p', ''))
+      
+      return matchesName || matchesCode || matchesSubCode || matchesFullCode || matchesLocation || matchesCombined1 || matchesCombined2 || isCodeSearch
     })
 
     return (

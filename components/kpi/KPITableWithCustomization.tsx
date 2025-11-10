@@ -7,7 +7,7 @@ import { useColumnCustomization } from '@/lib/useColumnCustomization'
 import { Button } from '@/components/ui/Button'
 import { PermissionButton } from '@/components/ui/PermissionButton'
 import { usePermissionGuard } from '@/lib/permissionGuard'
-import { CheckCircle, Clock, AlertCircle, Calendar, Building, Activity, TrendingUp, Target, Info, Filter, X, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { CheckCircle, Clock, AlertCircle, Calendar, Building, Activity, TrendingUp, Target, Info, Filter, X, ArrowUpDown, ArrowUp, ArrowDown, Edit } from 'lucide-react'
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 
@@ -17,6 +17,7 @@ interface KPITableWithCustomizationProps {
   onEdit: (kpi: KPIRecord) => void
   onDelete: (id: string) => void
   onBulkDelete?: (ids: string[]) => void
+  onBulkEdit?: (selectedKPIs: KPIRecord[]) => void
   allActivities?: any[] // ✅ Add activities to get Rate from BOQ
 }
 
@@ -44,6 +45,7 @@ export function KPITableWithCustomization({
   onEdit, 
   onDelete, 
   onBulkDelete,
+  onBulkEdit,
   allActivities = [] // ✅ Add activities prop
 }: KPITableWithCustomizationProps) {
   const guard = usePermissionGuard()
@@ -51,6 +53,47 @@ export function KPITableWithCustomization({
   const [showCustomizer, setShowCustomizer] = useState(false)
   // ✅ Cache for activity-to-scope mapping from project_type_activities table
   const [activityScopeMap, setActivityScopeMap] = useState<Map<string, string>>(new Map())
+  
+  // ✅ Helper function to find scope with flexible matching
+  // Handles cases like "Guide Wall - Infra" matching "Guide Wall"
+  const findActivityScope = (activityName: string, scopeMap: Map<string, string>): string | undefined => {
+    if (!activityName || scopeMap.size === 0) return undefined
+    
+    const normalizedName = activityName.trim().toLowerCase()
+    
+    // Try exact match first
+    let scope = scopeMap.get(normalizedName)
+    if (scope) return scope
+    
+    // Try removing last segment after "-" or " -"
+    // Examples: "Guide Wall - Infra" -> "Guide Wall", "Activity - Type" -> "Activity"
+    const segments = normalizedName.split(/\s*-\s*/)
+    if (segments.length > 1) {
+      // Try with first segment only
+      const firstSegment = segments[0].trim()
+      if (firstSegment) {
+        scope = scopeMap.get(firstSegment)
+        if (scope) return scope
+      }
+      
+      // Try with all segments except last
+      const withoutLast = segments.slice(0, -1).join(' - ').trim()
+      if (withoutLast) {
+        scope = scopeMap.get(withoutLast)
+        if (scope) return scope
+      }
+    }
+    
+    // Try partial match (check if any key in map starts with the activity name or vice versa)
+    let foundScope: string | undefined = undefined
+    scopeMap.forEach((value, key) => {
+      if (!foundScope && (normalizedName.startsWith(key) || key.startsWith(normalizedName))) {
+        foundScope = value
+      }
+    })
+    
+    return foundScope
+  }
   
   // Sorting state
   const [sortColumn, setSortColumn] = useState<string | null>(null)
@@ -132,6 +175,31 @@ export function KPITableWithCustomization({
   const getProjectName = (projectCode: string) => {
     const project = projects.find(p => p.project_code === projectCode)
     return project?.project_name || projectCode
+  }
+
+  // ✅ FIX: Find project by project_full_code (same logic as BOQTableWithCustomization)
+  const getProjectByFullCode = (projectFullCode: string) => {
+    return projects.find(p => {
+      const pFullCode = (p.project_full_code || '').trim()
+      if (pFullCode && pFullCode.toUpperCase() === projectFullCode.toUpperCase()) {
+        return true
+      }
+      // Fallback: build full code from project_code + project_sub_code
+      const pCode = (p.project_code || '').trim()
+      const pSubCode = (p.project_sub_code || '').trim()
+      if (pSubCode) {
+        if (pSubCode.toUpperCase().startsWith(pCode.toUpperCase())) {
+          return pSubCode.toUpperCase() === projectFullCode.toUpperCase()
+        } else {
+          const builtFullCode = pSubCode.startsWith('-') 
+            ? `${pCode}${pSubCode}`.trim()
+            : `${pCode}-${pSubCode}`.trim()
+          return builtFullCode.toUpperCase() === projectFullCode.toUpperCase()
+        }
+      }
+      // Final fallback: match by project_code only
+      return pCode.toUpperCase() === projectFullCode.toUpperCase()
+    })
   }
 
   // Calculate Advanced Performance Score with Multiple Factors
@@ -417,49 +485,22 @@ export function KPITableWithCustomization({
         )
       
       case 'activity_details':
-        // ✅ Find project by matching project_code
-        const project = projects.find(p => p.project_code === kpi.project_code)
-        const projectFullName = getProjectName(kpi.project_code || '') || kpi.project_full_code || kpi.project_code || 'N/A'
+        // ✅ FIX: Find project by project_full_code (not just project_code)
+        const kpiFullCode = (kpi.project_full_code || kpi.project_code || '').trim()
+        const project = getProjectByFullCode(kpiFullCode) || projects.find(p => p.project_code === kpi.project_code)
         
-        // ✅ Get project full code and name
-        // Try to get full code from project object first, then from kpi
-        let projectFullCode = 'N/A'
+        // ✅ Get project full code and name - prioritize from project object
+        let projectFullCode = kpi.project_full_code || kpi.project_code || 'N/A'
         let projectName = ''
         
         if (project) {
-          // Use project's full code if available
-          // ✅ FIX: Check if project_sub_code already contains project_code to avoid duplication
-          if (project.project_sub_code) {
-            const projectCode = (project.project_code || '').trim().toUpperCase()
-            const projectSubCode = (project.project_sub_code || '').trim()
-            // If sub_code already starts with project_code, use it as is
-            if (projectSubCode.toUpperCase().startsWith(projectCode)) {
-              projectFullCode = projectSubCode
-            } else {
-              projectFullCode = `${projectCode}${projectSubCode}`
-            }
-          } else {
-            projectFullCode = project.project_code || 'N/A'
-          }
+          // ✅ Use project's full_code if available, otherwise build it
+          projectFullCode = project.project_full_code || kpiFullCode
           projectName = project.project_name || ''
         } else {
-          // Fallback to kpi's full code
-          // ✅ FIX: Check if project_sub_code already contains project_code to avoid duplication
-          if (kpi.project_code && kpi.project_sub_code) {
-            const projectCode = (kpi.project_code || '').trim().toUpperCase()
-            const projectSubCode = (kpi.project_sub_code || '').trim()
-            // If sub_code already starts with project_code, use it as is
-            if (projectSubCode.toUpperCase().startsWith(projectCode)) {
-              projectFullCode = projectSubCode
-            } else {
-              projectFullCode = `${projectCode}${projectSubCode}`
-            }
-          } else {
-            projectFullCode = kpi.project_full_code || 
-                             kpi.project_code ||
-                             'N/A'
-          }
-          // Try to get project name from getProjectName if project object not found
+          // Fallback: use kpi's project_full_code directly
+          projectFullCode = kpi.project_full_code || kpi.project_code || 'N/A'
+          // Try to get project name from getProjectName
           const foundProjectName = getProjectName(kpi.project_code || '')
           projectName = foundProjectName && foundProjectName !== kpi.project_code ? foundProjectName : ''
         }
@@ -469,7 +510,7 @@ export function KPITableWithCustomization({
           ? `${projectFullCode} | ${projectName}`
           : projectFullCode !== 'N/A' 
             ? projectFullCode
-            : projectFullName || 'N/A'
+            : kpi.project_full_code || kpi.project_code || 'N/A'
         
         // Get Zone from multiple sources
         const rawKPIDetails = (kpi as any).raw || {}
@@ -610,6 +651,51 @@ export function KPITableWithCustomization({
         // Display: Total Value + Rate (Value per Unit)
         const rawKPIValue = (kpi as any).raw || {}
         
+        // ✅ IMPROVED: Helper function to extract project codes (same logic as projectAnalytics.ts)
+        const extractProjectCodes = (item: any): string[] => {
+          const codes: string[] = []
+          const raw = (item as any).raw || {}
+          
+          const sources = [
+            item.project_full_code,
+            (item as any)['Project Full Code'],
+            raw['Project Full Code'],
+            item.project_code,
+            (item as any)['Project Code'],
+            raw['Project Code']
+          ]
+          
+          for (const source of sources) {
+            if (source) {
+              const code = source.toString().trim()
+              if (code) {
+                codes.push(code)
+                codes.push(code.toUpperCase())
+              }
+            }
+          }
+          
+          return Array.from(new Set(codes))
+        }
+        
+        // ✅ IMPROVED: Helper function to check if codes match (same logic as projectAnalytics.ts)
+        const codesMatch = (itemCodes: string[], targetCodes: string[]): boolean => {
+          const targetCodesUpper = targetCodes.map(c => c.toUpperCase().trim())
+          for (const itemCode of itemCodes) {
+            const itemCodeUpper = itemCode.toUpperCase().trim()
+            if (targetCodesUpper.includes(itemCodeUpper)) {
+              return true
+            }
+            // Also check if item code starts with any target code (for sub-projects)
+            for (const targetCode of targetCodesUpper) {
+              if (itemCodeUpper.startsWith(targetCode) || targetCode.startsWith(itemCodeUpper)) {
+                return true
+              }
+            }
+          }
+          return false
+        }
+        
         // Get Quantity from raw data first, then fallback to mapped data
         let quantityForValue = parseFloat(String(rawKPIValue['Quantity'] || '0').replace(/,/g, '')) || 0
         if (quantityForValue === 0) {
@@ -618,27 +704,42 @@ export function KPITableWithCustomization({
         
         // ✅ Get Rate from BOQ Activity (Priority: BOQ Activity Rate)
         let rateForValue = 0
+        let relatedActivity: any = null
+        let totalValueFromActivity = 0
         
-        // Priority 1: Find related BOQ Activity and get Rate from it
+        // Priority 1: Find related BOQ Activity and get Rate from it (IMPROVED MATCHING)
         if (allActivities.length > 0) {
-          const relatedActivity = allActivities.find((activity: any) => {
+          // Extract KPI project codes
+          const kpiProjectCodes = extractProjectCodes(kpi)
+          const kpiActivityName = (kpi.activity_name || '').toLowerCase().trim()
+          
+          // ✅ IMPROVED: More flexible matching
+          relatedActivity = allActivities.find((activity: any) => {
+            // Activity name matching (flexible)
+            const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
             const activityNameMatch = (
-              activity.activity_name?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim() ||
-              activity.activity?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim()
+              activityName === kpiActivityName ||
+              activityName.includes(kpiActivityName) ||
+              kpiActivityName.includes(activityName)
             )
             
-            const projectCodeMatch = (
-              activity.project_code === kpi.project_code ||
-              activity.project_full_code === kpi.project_code ||
-              activity.project_code === kpi.project_full_code ||
-              activity.project_full_code === kpi.project_full_code
-            )
+            if (!activityNameMatch) return false
             
-            return activityNameMatch && projectCodeMatch
+            // Project code matching (improved - same logic as projectAnalytics.ts)
+            const activityProjectCodes = extractProjectCodes(activity)
+            const projectCodeMatch = codesMatch(activityProjectCodes, kpiProjectCodes)
+            
+            return projectCodeMatch
           })
           
           if (relatedActivity) {
             const rawActivity = (relatedActivity as any).raw || {}
+            
+            // ✅ Get Total Value directly from BOQ Activity (most accurate)
+            totalValueFromActivity = relatedActivity.total_value || 
+                                   parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                   0
+            
             // Try to get rate from activity
             rateForValue = relatedActivity.rate || 
                           parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
@@ -646,17 +747,53 @@ export function KPITableWithCustomization({
             
             // If rate is 0, calculate from Total Value / Total Units
             if (rateForValue === 0) {
-              const totalValue = relatedActivity.total_value || 
-                               parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
-                               0
               const totalUnits = relatedActivity.total_units || 
                               relatedActivity.planned_units ||
                               parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
                               0
               
-              if (totalUnits > 0 && totalValue > 0) {
-                rateForValue = totalValue / totalUnits
+              if (totalUnits > 0 && totalValueFromActivity > 0) {
+                rateForValue = totalValueFromActivity / totalUnits
               }
+            }
+            
+            // ✅ FIX: If quantity is 0 in KPI, try to get from BOQ Activity
+            if (quantityForValue === 0) {
+              const activityQuantity = relatedActivity.total_units || 
+                                     relatedActivity.planned_units ||
+                                     parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                                     0
+              if (activityQuantity > 0) {
+                quantityForValue = activityQuantity
+              }
+            }
+            
+            // ✅ DEBUG: Log matching for first few KPIs with 0 values
+            if (process.env.NODE_ENV === 'development' && kpis.indexOf(kpi) < 10 && (quantityForValue === 0 || rateForValue === 0)) {
+              console.log(`🔍 [KPI Value] Matching for ${kpi.activity_name}:`, {
+                kpiId: kpi.id,
+                kpiProjectCodes,
+                activityName: relatedActivity.activity_name,
+                activityProjectCodes: extractProjectCodes(relatedActivity),
+                quantityForValue,
+                rateForValue,
+                totalValueFromActivity,
+                matched: true
+              })
+            }
+          } else {
+            // ✅ DEBUG: Log when no activity is found
+            if (process.env.NODE_ENV === 'development' && kpis.indexOf(kpi) < 10 && quantityForValue === 0) {
+              console.warn(`⚠️ [KPI Value] No matching activity found for ${kpi.activity_name}:`, {
+                kpiId: kpi.id,
+                kpiProjectCodes: extractProjectCodes(kpi),
+                kpiActivityName,
+                allActivitiesCount: allActivities.length,
+                sampleActivity: allActivities[0] ? {
+                  activity_name: allActivities[0].activity_name,
+                  projectCodes: extractProjectCodes(allActivities[0])
+                } : null
+              })
             }
           }
         }
@@ -671,15 +808,20 @@ export function KPITableWithCustomization({
           rateForValue = parseFloat(String(rawKPIValue['Activity Rate'] || '0').replace(/,/g, '')) || 0
         }
         
-        // Calculate Total Value = Quantity × Rate
-        const totalValue = quantityForValue * rateForValue
+        // ✅ Calculate Total Value: Priority 1 = Quantity × Rate, Priority 2 = Total Value from Activity
+        let totalValue = quantityForValue * rateForValue
+        
+        // ✅ FIX: If calculated value is 0 but we have Total Value from Activity, use it
+        if (totalValue === 0 && totalValueFromActivity > 0) {
+          totalValue = totalValueFromActivity
+        }
         
         // Get project currency
-        const projectForValue = projects.find(p => 
-          p.project_code === kpi.project_code || 
-          p.project_sub_code === kpi.project_code ||
-          p.project_code === kpi.project_full_code
-        )
+        const projectForValue = projects.find(p => {
+          const projectCodes = extractProjectCodes(p)
+          const kpiCodes = extractProjectCodes(kpi)
+          return codesMatch(projectCodes, kpiCodes)
+        })
         const currencyCode = projectForValue?.currency || 'AED'
         
         return (
@@ -699,12 +841,55 @@ export function KPITableWithCustomization({
         // ✅ Get Virtual Material Value from project (not from KPI)
         const rawKPIVirtual = (kpi as any).raw || {}
         
-        // Get Virtual Material Value from project
-        const projectForVirtual = projects.find(p => 
-          p.project_code === kpi.project_code || 
-          p.project_sub_code === kpi.project_code ||
-          p.project_code === kpi.project_full_code
-        )
+        // ✅ IMPROVED: Use same helper functions as value column
+        const extractProjectCodesVirtual = (item: any): string[] => {
+          const codes: string[] = []
+          const raw = (item as any).raw || {}
+          
+          const sources = [
+            item.project_full_code,
+            (item as any)['Project Full Code'],
+            raw['Project Full Code'],
+            item.project_code,
+            (item as any)['Project Code'],
+            raw['Project Code']
+          ]
+          
+          for (const source of sources) {
+            if (source) {
+              const code = source.toString().trim()
+              if (code) {
+                codes.push(code)
+                codes.push(code.toUpperCase())
+              }
+            }
+          }
+          
+          return Array.from(new Set(codes))
+        }
+        
+        const codesMatchVirtual = (itemCodes: string[], targetCodes: string[]): boolean => {
+          const targetCodesUpper = targetCodes.map(c => c.toUpperCase().trim())
+          for (const itemCode of itemCodes) {
+            const itemCodeUpper = itemCode.toUpperCase().trim()
+            if (targetCodesUpper.includes(itemCodeUpper)) {
+              return true
+            }
+            for (const targetCode of targetCodesUpper) {
+              if (itemCodeUpper.startsWith(targetCode) || targetCode.startsWith(itemCodeUpper)) {
+                return true
+              }
+            }
+          }
+          return false
+        }
+        
+        // Get Virtual Material Value from project (IMPROVED MATCHING)
+        const kpiProjectCodesVirtual = extractProjectCodesVirtual(kpi)
+        const projectForVirtual = projects.find(p => {
+          const projectCodes = extractProjectCodesVirtual(p)
+          return codesMatchVirtual(projectCodes, kpiProjectCodesVirtual)
+        })
         
         // Priority 1: Get Virtual Material Value from project
         let virtualMaterialValue = 0
@@ -728,45 +913,65 @@ export function KPITableWithCustomization({
           quantityForVirtual = kpi.quantity || 0
         }
         
-        // ✅ Get Rate from BOQ Activity (same logic as value column)
+        // ✅ Get Rate from BOQ Activity (IMPROVED MATCHING - same logic as value column)
         let rateForVirtual = 0
+        let totalValueFromActivityVirtual = 0
         
-        // Priority 1: Find related BOQ Activity and get Rate from it
+        // Priority 1: Find related BOQ Activity and get Rate from it (IMPROVED MATCHING)
         if (allActivities.length > 0) {
+          const kpiActivityNameVirtual = (kpi.activity_name || '').toLowerCase().trim()
+          
+          // ✅ IMPROVED: More flexible matching
           const relatedActivityVirtual = allActivities.find((activity: any) => {
+            // Activity name matching (flexible)
+            const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
             const activityNameMatch = (
-              activity.activity_name?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim() ||
-              activity.activity?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim()
+              activityName === kpiActivityNameVirtual ||
+              activityName.includes(kpiActivityNameVirtual) ||
+              kpiActivityNameVirtual.includes(activityName)
             )
             
-            const projectCodeMatch = (
-              activity.project_code === kpi.project_code ||
-              activity.project_full_code === kpi.project_code ||
-              activity.project_code === kpi.project_full_code ||
-              activity.project_full_code === kpi.project_full_code
-            )
+            if (!activityNameMatch) return false
             
-            return activityNameMatch && projectCodeMatch
+            // Project code matching (improved - same logic as projectAnalytics.ts)
+            const activityProjectCodes = extractProjectCodesVirtual(activity)
+            const projectCodeMatch = codesMatchVirtual(activityProjectCodes, kpiProjectCodesVirtual)
+            
+            return projectCodeMatch
           })
           
           if (relatedActivityVirtual) {
             const rawActivityVirtual = (relatedActivityVirtual as any).raw || {}
+            
+            // ✅ Get Total Value directly from BOQ Activity (most accurate)
+            totalValueFromActivityVirtual = relatedActivityVirtual.total_value || 
+                                           parseFloat(String(rawActivityVirtual['Total Value'] || '0').replace(/,/g, '')) || 
+                                           0
+            
             rateForVirtual = relatedActivityVirtual.rate || 
                             parseFloat(String(rawActivityVirtual['Rate'] || '0').replace(/,/g, '')) || 
                             0
             
             // If rate is 0, calculate from Total Value / Total Units
             if (rateForVirtual === 0) {
-              const totalValueVirtual = relatedActivityVirtual.total_value || 
-                                       parseFloat(String(rawActivityVirtual['Total Value'] || '0').replace(/,/g, '')) || 
-                                       0
               const totalUnitsVirtual = relatedActivityVirtual.total_units || 
                                       relatedActivityVirtual.planned_units ||
                                       parseFloat(String(rawActivityVirtual['Total Units'] || rawActivityVirtual['Planned Units'] || '0').replace(/,/g, '')) || 
                                       0
               
-              if (totalUnitsVirtual > 0 && totalValueVirtual > 0) {
-                rateForVirtual = totalValueVirtual / totalUnitsVirtual
+              if (totalUnitsVirtual > 0 && totalValueFromActivityVirtual > 0) {
+                rateForVirtual = totalValueFromActivityVirtual / totalUnitsVirtual
+              }
+            }
+            
+            // ✅ FIX: If quantity is 0 in KPI, try to get from BOQ Activity
+            if (quantityForVirtual === 0) {
+              const activityQuantity = relatedActivityVirtual.total_units || 
+                                     relatedActivityVirtual.planned_units ||
+                                     parseFloat(String(rawActivityVirtual['Total Units'] || rawActivityVirtual['Planned Units'] || '0').replace(/,/g, '')) || 
+                                     0
+              if (activityQuantity > 0) {
+                quantityForVirtual = activityQuantity
               }
             }
           }
@@ -782,8 +987,13 @@ export function KPITableWithCustomization({
           rateForVirtual = parseFloat(String(rawKPIVirtual['Activity Rate'] || '0').replace(/,/g, '')) || 0
         }
         
-        // Calculate Base Value = Quantity × Rate
-        const baseValue = quantityForVirtual * rateForVirtual
+        // ✅ Calculate Base Value: Priority 1 = Quantity × Rate, Priority 2 = Total Value from Activity
+        let baseValue = quantityForVirtual * rateForVirtual
+        
+        // ✅ FIX: If calculated value is 0 but we have Total Value from Activity, use it
+        if (baseValue === 0 && totalValueFromActivityVirtual > 0) {
+          baseValue = totalValueFromActivityVirtual
+        }
         
         const totalVirtualValue = virtualMaterialValue + baseValue
         
@@ -799,29 +1009,112 @@ export function KPITableWithCustomization({
         )
       
       case 'activity_commencement_relation':
-        const activityTiming = kpi.activity_timing || getKPIField(kpi, 'Activity Timing') || 'post-commencement'
+        // ✅ Get Activity Timing from multiple sources (Priority: KPI raw data > KPI mapped field > BOQ Activity > Default)
+        const rawKPI = (kpi as any).raw || {}
+        // ✅ FIX: Read Activity Timing from KPI first - check both mapped field and raw data
+        let activityTiming = (kpi as any).activity_timing || 
+                            rawKPI['Activity Timing'] ||
+                            rawKPI['activity_timing'] ||
+                            getKPIField(kpi, 'Activity Timing') ||
+                            ''
+        
+        // ✅ Normalize empty strings to undefined
+        if (activityTiming === '' || activityTiming === 'N/A') {
+          activityTiming = undefined
+        }
+        
+        // ✅ DEBUG: Log Activity Timing sources for first few KPIs
+        if (kpis.indexOf(kpi) < 3) {
+          console.log('🔍 Activity Timing Debug:', {
+            kpi_id: kpi.id,
+            activity_name: kpi.activity_name,
+            kpi_activity_timing: (kpi as any).activity_timing,
+            raw_activity_timing: rawKPI['Activity Timing'],
+            raw_activity_timing_lower: rawKPI['activity_timing'],
+            getKPIField_result: getKPIField(kpi, 'Activity Timing'),
+            final_activityTiming: activityTiming
+          })
+        }
+        
+        // ✅ Try to get from related BOQ Activity ONLY if not found in KPI
+        if (!activityTiming) {
+          const activityName = kpi.activity_name || (kpi as any).activity || ''
+          const projectCode = kpi.project_code || kpi.project_full_code || ''
+          
+          if (activityName && allActivities && allActivities.length > 0) {
+            const relatedActivity = allActivities.find((a: any) => {
+              const nameMatch = (
+                a.activity_name?.toLowerCase().trim() === activityName.toLowerCase().trim() ||
+                a.activity?.toLowerCase().trim() === activityName.toLowerCase().trim()
+              )
+              const projectMatch = (
+                a.project_code === projectCode ||
+                a.project_full_code === projectCode ||
+                a.project_code === kpi.project_full_code ||
+                a.project_full_code === kpi.project_full_code
+              )
+              return nameMatch && projectMatch
+            })
+            
+            if (relatedActivity) {
+              const boqTiming = relatedActivity.activity_timing || 
+                                  (relatedActivity as any).raw?.['Activity Timing'] ||
+                                  ''
+              
+              // ✅ Only use BOQ Activity timing if KPI doesn't have one
+              if (boqTiming && boqTiming !== 'N/A' && boqTiming.trim() !== '') {
+                activityTiming = boqTiming.trim()
+                  
+                  // ✅ DEBUG: Log when using BOQ Activity timing
+                  if (kpis.indexOf(kpi) < 3) {
+                    console.log('🔍 Using BOQ Activity Timing:', {
+                      kpi_id: kpi.id,
+                      activity_name: activityName,
+                      boq_timing: boqTiming,
+                      final_timing: activityTiming
+                    })
+                  }
+                }
+              }
+            }
+          }
+        
+        // ✅ Default to 'post-commencement' only if no timing found at all
+        if (!activityTiming || activityTiming === 'N/A' || activityTiming.trim() === '') {
+          activityTiming = 'post-commencement'
+        }
+        
+        // ✅ Normalize activity timing value
+        const normalizedTiming = activityTiming.toString().toLowerCase().trim()
+        
         return (
           <div className="flex items-center gap-2">
             <span className={`px-2 py-1 text-xs font-medium rounded ${
-              activityTiming === 'pre-commencement' 
+              normalizedTiming === 'pre-commencement' 
                 ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-300' 
-                : activityTiming === 'post-completion'
+                : normalizedTiming === 'post-completion'
                 ? 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300'
                 : 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300'
             }`}>
-              {activityTiming === 'pre-commencement' ? 'Pre-Commencement' : 
-               activityTiming === 'post-completion' ? 'Post-Completion' : 'Post-Commencement'}
+              {normalizedTiming === 'pre-commencement' ? 'Pre-Commencement' : 
+               normalizedTiming === 'post-completion' ? 'Post-Completion' : 'Post-Commencement'}
             </span>
           </div>
         )
       
       case 'activity_division':
-        // ✅ Get Activity Division from BOQ Activity (not from KPI)
+        // ✅ Get Activity Division from KPI first (stored in database), then fallback to BOQ Activity
         const rawKPIDivision = (kpi as any).raw || {}
         let activityDiv = 'N/A'
         
-        // Priority 1: Find related BOQ Activity and get Activity Division from it
-        if (allActivities.length > 0) {
+        // Priority 1: Get Activity Division directly from KPI data (from database)
+        activityDiv = getKPIField(kpi, 'Activity Division') ||
+                     rawKPIDivision['Activity Division'] ||
+                     (kpi as any)['Activity Division'] ||
+                     ''
+        
+        // Priority 2: Fallback to BOQ Activity if not found in KPI
+        if ((activityDiv === 'N/A' || !activityDiv || activityDiv.trim() === '') && allActivities.length > 0) {
           const relatedActivityDivision = allActivities.find((activity: any) => {
             const activityNameMatch = (
               activity.activity_name?.toLowerCase().trim() === kpi.activity_name?.toLowerCase().trim() ||
@@ -849,12 +1142,10 @@ export function KPITableWithCustomization({
           }
         }
         
-        // Priority 2: Fallback to KPI data if BOQ Activity not found
-        if (activityDiv === 'N/A' || !activityDiv) {
+        // Priority 3: Final fallback to other KPI fields
+        if (activityDiv === 'N/A' || !activityDiv || activityDiv.trim() === '') {
           activityDiv = kpi.activity || 
                        kpi.section || 
-                       getKPIField(kpi, 'Activity Division') ||
-                       rawKPIDivision['Activity Division'] ||
                        rawKPIDivision['Section'] ||
                        'N/A'
         }
@@ -871,10 +1162,10 @@ export function KPITableWithCustomization({
         let activityScope = 'N/A'
         const activityName = kpi.activity_name?.trim()
         
-        // Priority 1: Get from project_type_activities table (Settings) - cached map
+        // Priority 1: Get from project_type_activities table (Settings) - cached map with flexible matching
         if (activityName && activityScopeMap.size > 0) {
           const activityNameLower = activityName.toLowerCase()
-          const scope = activityScopeMap.get(activityNameLower)
+          const scope = findActivityScope(activityNameLower, activityScopeMap)
           if (scope) {
             activityScope = scope
           }
@@ -1515,6 +1806,21 @@ export function KPITableWithCustomization({
               <span className="text-sm text-gray-600 dark:text-gray-400">
                 {selectedIds.length} selected
               </span>
+              {onBulkEdit && (
+                <PermissionButton
+                  permission="kpi.edit"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const selectedKPIs = kpis.filter(k => selectedIds.includes(k.id))
+                    onBulkEdit(selectedKPIs)
+                  }}
+                  className="text-blue-600 hover:text-blue-700"
+                >
+                  <Edit className="h-4 w-4 mr-1" />
+                  Bulk Edit
+                </PermissionButton>
+              )}
               {onBulkDelete && (
                 <PermissionButton
                   permission="kpi.delete"

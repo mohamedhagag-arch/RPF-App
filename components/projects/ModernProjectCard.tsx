@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, memo } from 'react'
 import { Project, TABLES } from '@/lib/supabase'
 import { ProjectAnalytics, calculateProjectAnalytics } from '@/lib/projectAnalytics'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
@@ -10,6 +10,7 @@ import { usePermissionGuard } from '@/lib/permissionGuard'
 import { mapBOQFromDB, mapKPIFromDB } from '@/lib/dataMappers'
 import { getProjectStatusIcon } from '@/lib/projectStatusManager'
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
+import { calculateWorkValueStatus, calculateProgressFromWorkValue } from '@/lib/workValueCalculator'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -41,7 +42,8 @@ interface ModernProjectCardProps {
   getStatusText: (status: string) => string
 }
 
-export function ModernProjectCard({ 
+// ✅ PERFORMANCE: Memoize card to prevent unnecessary re-renders
+export const ModernProjectCard = memo(function ModernProjectCard({ 
   project, 
   analytics: propAnalytics, // ✅ Pre-calculated analytics from parent
   allActivities: propActivities = [], // ✅ Pre-loaded activities from parent
@@ -70,14 +72,10 @@ export function ModernProjectCard({
     // ✅ PRIORITY 1: Use propAnalytics if provided (calculated OUTSIDE in ProjectsList)
     // This is the main path - all calculations happen in ProjectsList, card just displays
     if (propAnalytics) {
-      console.log(`✅ ModernProjectCard [${project.project_code}]: Using pre-calculated analytics from ProjectsList:`, {
-        totalActivities: propAnalytics.totalActivities,
-        totalKPIs: propAnalytics.totalKPIs,
-        overallProgress: propAnalytics.overallProgress,
-        totalContractValue: propAnalytics.totalContractValue,
-        // ✅ Show full analytics object
-        fullAnalytics: propAnalytics
-      })
+      // ✅ PERFORMANCE: Reduced logging - only log in development and very rarely
+      if (process.env.NODE_ENV === 'development' && Math.random() < 0.01) {
+        console.log(`✅ ModernProjectCard [${project.project_code}]: Using pre-calculated analytics from ProjectsList`)
+      }
       setAnalytics(propAnalytics)
       setLoading(false)
       setError(null)
@@ -298,8 +296,13 @@ export function ModernProjectCard({
            kFullCode.startsWith(projectCode)
   }) || []
   
-  // ✅ REBUILD: Use analytics if available, otherwise use direct counts
-  const progress = analytics?.actualProgress ?? analytics?.overallProgress ?? 0
+  // ✅ NEW: Calculate progress using shared work value calculator
+  // ✅ PERFORMANCE: Use pre-calculated workValueStatus from analytics (calculated once in ProjectsList)
+  const workValueStatus = analytics?.workValueStatus || calculateWorkValueStatus(project, propActivities || [], propKPIs || [])
+  const progressSummary = calculateProgressFromWorkValue(workValueStatus)
+  
+  // ✅ Use calculated progress from work value, fallback to analytics
+  const progress = progressSummary.actual ?? analytics?.actualProgress ?? analytics?.overallProgress ?? 0
   const totalActivities = analytics?.totalActivities ?? matchedActivities.length
   const totalKPIs = analytics?.totalKPIs ?? matchedKPIs.length
   
@@ -473,7 +476,7 @@ export function ModernProjectCard({
           </div>
         </div>
 
-        {/* Stats Grid - Redesigned */}
+        {/* Stats Grid */}
         <div className="grid grid-cols-2 gap-4">
           <div className="group/stat relative bg-gradient-to-br from-blue-50 via-cyan-50 to-blue-100 dark:from-blue-900/30 dark:via-cyan-900/30 dark:to-blue-800/30 rounded-xl p-5 border border-blue-100 dark:border-blue-800/50 shadow-sm hover:shadow-lg hover:scale-[1.02] transition-all duration-300 overflow-hidden">
             <div className="absolute top-0 right-0 w-20 h-20 bg-blue-200/30 dark:bg-blue-700/20 rounded-full -mr-10 -mt-10 blur-xl"></div>
@@ -730,4 +733,19 @@ export function ModernProjectCard({
       </CardContent>
     </Card>
   )
-}
+}, (prevProps, nextProps) => {
+  // Only re-render if these props change
+  // Return true if props are equal (skip re-render), false if different (re-render)
+  return (
+    prevProps.project.id === nextProps.project.id &&
+    prevProps.project.project_code === nextProps.project.project_code &&
+    prevProps.project.project_name === nextProps.project.project_name &&
+    prevProps.project.project_status === nextProps.project.project_status &&
+    prevProps.analytics === nextProps.analytics &&
+    prevProps.onEdit === nextProps.onEdit &&
+    prevProps.onDelete === nextProps.onDelete &&
+    prevProps.onViewDetails === nextProps.onViewDetails &&
+    prevProps.getStatusColor === nextProps.getStatusColor &&
+    prevProps.getStatusText === nextProps.getStatusText
+  )
+})

@@ -118,23 +118,58 @@ export function calculateProjectStatus(data: ProjectStatusData): ProjectStatusRe
       reason = 'Project is on hold'
     }
   }
-  // 2. Upcoming - Project hasn't started yet
-  else if (!hasStarted) {
+  // 2. Upcoming - Project hasn't started yet OR no activities
+  // ✅ NEW: If no activities exist, default to 'upcoming'
+  else if (activities.length === 0) {
     status = 'upcoming'
     confidence = 100
-    reason = 'Project has not started yet'
+    reason = 'Project has no activities yet'
+  }
+  // ✅ NEW: Check if any Post-Commencement activity has started
+  // If a Post-Commencement activity has actual units > 0, project is in Site Preparation
+  else if (postCommencementActivities.length > 0) {
+    const hasPostCommencementStarted = postCommencementActivities.some(a => 
+      a.actual_units > 0 || 
+      (a.planned_activity_start_date && new Date(a.planned_activity_start_date) <= currentDate)
+    )
+    
+    if (hasPostCommencementStarted) {
+      // ✅ Post-Commencement activity has started = Site Preparation
+      status = 'site-preparation'
+      confidence = 90
+      reason = 'Post-commencement activities have started'
+    } else if (preCommencementActivities.length > 0 && preCommencementProgress < 100) {
+      // Pre-commencement still in progress
+      status = 'site-preparation'
+      confidence = Math.min(95, 70 + (preCommencementProgress * 0.25))
+      reason = `Pre-commencement activities in progress (${preCommencementProgress.toFixed(1)}%)`
+    } else {
+      // Has Post-Commencement activities but not started yet
+      status = 'upcoming'
+      confidence = 100
+      reason = 'Project has Post-commencement activities but they have not started yet'
+    }
   }
   // 3. Site Preparation - Project started but pre-commencement phase
-  else if (hasStarted && preCommencementProgress < 100) {
+  else if (hasStarted && preCommencementActivities.length > 0 && preCommencementProgress < 100) {
     status = 'site-preparation'
     confidence = Math.min(95, 70 + (preCommencementProgress * 0.25))
     reason = `Pre-commencement activities in progress (${preCommencementProgress.toFixed(1)}%)`
   }
-  // 4. On-going - Post-commencement phase
-  else if (hasStarted && preCommencementProgress >= 100 && postCommencementProgress < 100) {
+  // 4. On-going - Post-commencement phase has started
+  else if (hasStarted && (
+    (preCommencementActivities.length > 0 && preCommencementProgress >= 100) ||
+    (preCommencementActivities.length === 0 && postCommencementActivities.length > 0)
+  ) && postCommencementProgress < 100) {
     status = 'on-going'
     confidence = Math.min(95, 70 + (postCommencementProgress * 0.25))
     reason = `Post-commencement activities in progress (${postCommencementProgress.toFixed(1)}%)`
+  }
+  // ✅ Fallback: If project hasn't started yet
+  else if (!hasStarted) {
+    status = 'upcoming'
+    confidence = 100
+    reason = 'Project has not started yet'
   }
   // 5. Completed - All quantities achieved
   else if (quantityCompletion >= 100) {

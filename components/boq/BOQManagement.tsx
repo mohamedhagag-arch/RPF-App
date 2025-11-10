@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo, useCallback } from 'react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { PermissionGuard } from '@/components/common/PermissionGuard'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
@@ -19,12 +19,14 @@ import { IntelligentBOQForm } from './IntelligentBOQForm'
 import { BOQTable } from './BOQTable'
 import { BOQTableWithCustomization } from './BOQTableWithCustomization'
 import { Pagination } from '@/components/ui/Pagination'
+import { BOQFilter } from './BOQFilter'
 import { Plus, ClipboardList, CheckCircle, Clock, AlertCircle, Filter, X, Search, Lock, Building2, ChevronDown } from 'lucide-react'
 import { ExportButton } from '@/components/ui/ExportButton'
 import { ImportButton } from '@/components/ui/ImportButton'
 import { PrintButton } from '@/components/ui/PrintButton'
 import { PermissionButton } from '@/components/ui/PermissionButton'
 import { syncBOQFromKPI } from '@/lib/boqKpiSync'
+import { updateProjectStatus } from '@/lib/projectStatusUpdater'
 
 interface BOQManagementProps {
   globalSearchTerm?: string
@@ -65,25 +67,48 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     }
   }, [guard, hasInitializedView])
   
-  // Zone Management
-  const [selectedZone, setSelectedZone] = useState<string | null>(null)
-  const [availableZones, setAvailableZones] = useState<string[]>([])
+  // Smart Filter State (same as KPI)
+  const [selectedProjects, setSelectedProjects] = useState<string[]>([])
+  const [selectedActivities, setSelectedActivities] = useState<string[]>([])
+  const [selectedTypes, setSelectedTypes] = useState<string[]>([])
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([])
+  const [selectedZones, setSelectedZones] = useState<string[]>([])
+  const [selectedUnits, setSelectedUnits] = useState<string[]>([])
+  const [selectedDivisions, setSelectedDivisions] = useState<string[]>([])
+  const [dateRange, setDateRange] = useState<{ from?: string; to?: string }>({})
+  const [valueRange, setValueRange] = useState<{ min?: number; max?: number }>({})
+  const [quantityRange, setQuantityRange] = useState<{ min?: number; max?: number }>({})
   
-  // ✅ Simple Filter State
-  const [showFilters, setShowFilters] = useState(false)
-  const [filters, setFilters] = useState({
+  // Legacy filters state (for backward compatibility with existing code)
+  const [filters, setFilters] = useState<{
+    search: string
+    project: string[]
+    division: string
+    status: string
+    zone: string | string[] // ✅ Support multiple zones
+  }>({
     search: '',
-    project: [] as string[], // ✅ Changed to array to support multiple projects
+    project: [],
     division: '',
     status: '',
     zone: ''
   })
-  const [filteredActivities, setFilteredActivities] = useState<BOQActivity[]>([])
   
-  // ✅ Project Searchable Dropdown State
+  // Search term
+  const [searchTerm, setSearchTerm] = useState(globalSearchTerm || '')
+  
+  // Project search for dropdown
   const [projectSearch, setProjectSearch] = useState('')
   const [showProjectDropdown, setShowProjectDropdown] = useState(false)
   const projectDropdownRef = useRef<HTMLDivElement>(null)
+  
+  // Show/hide filters
+  const [showFilters, setShowFilters] = useState(false)
+  
+  // Available zones for filter
+  const [availableZones, setAvailableZones] = useState<string[]>([])
+  
+  // Legacy filter state (removed - using useMemo instead)
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
@@ -92,6 +117,152 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   const supabase = getSupabaseClient()
   const isMountedRef = useRef(true) // ✅ Track if component is mounted
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('boq') // ✅ Smart loading
+  
+  // ✅ Update Responsible Divisions in Project based on Activity Division
+  // This function collects ALL divisions from ALL BOQ Activities for the project and updates the project
+  const updateProjectResponsibleDivisions = async (projectCode: string, activityDivision: string) => {
+    try {
+      if (!activityDivision || !projectCode) {
+        console.log('⚠️ Skipping project division update - missing data')
+        return
+      }
+      
+      console.log('🔄 Updating Responsible Divisions for project:', projectCode, 'with division:', activityDivision)
+      
+      // ✅ IMPORTANT: Get ALL activities for this project to collect ALL divisions
+      const { data: allActivitiesData, error: activitiesError } = await supabase
+        .from(TABLES.BOQ_ACTIVITIES)
+        .select('*')
+        .or(`Project Code.eq.${projectCode},Project Full Code.eq.${projectCode}`)
+      
+      if (activitiesError) {
+        console.warn('⚠️ Error fetching activities for division update:', activitiesError)
+      }
+      
+      // Collect ALL unique divisions from ALL activities for this project
+      const allDivisionsSet = new Set<string>()
+      if (allActivitiesData && allActivitiesData.length > 0) {
+        allActivitiesData.forEach((activity: any) => {
+          const activityDiv = activity['Activity Division'] || activity.activity_division || ''
+          if (activityDiv && activityDiv.trim() !== '') {
+            allDivisionsSet.add(activityDiv.trim())
+          }
+        })
+      }
+      
+      // Also add the current activity division
+      if (activityDivision && activityDivision.trim() !== '') {
+        allDivisionsSet.add(activityDivision.trim())
+      }
+      
+      const allDivisionsList = Array.from(allDivisionsSet).sort()
+      const updatedDivisionsString = allDivisionsList.join(', ')
+      
+      console.log('📝 Collected ALL divisions from BOQ Activities:', {
+        projectCode,
+        divisionsFromActivities: Array.from(allDivisionsSet),
+        finalDivisions: allDivisionsList
+      })
+      
+      // Find project by code (support multiple formats)
+      const project = projects.find(p => {
+        const pCode = (p.project_code || '').trim().toUpperCase()
+        const pFullCode = (p.project_full_code || '').trim().toUpperCase()
+        const pSubCode = (p.project_sub_code || '').trim()
+        const projectFullCodeBuilt = pSubCode && !pSubCode.toUpperCase().startsWith(pCode.toUpperCase())
+          ? `${pCode}-${pSubCode}`
+          : pSubCode || pCode
+        
+        const searchCode = projectCode.trim().toUpperCase()
+        
+        return pCode === searchCode || 
+               pFullCode === searchCode ||
+               projectFullCodeBuilt.toUpperCase() === searchCode ||
+               `${pCode}${pSubCode ? '-' + pSubCode : ''}`.toUpperCase() === searchCode
+      })
+      
+      if (!project) {
+        console.warn('⚠️ Project not found in local state, querying database:', projectCode)
+        // Try to find by querying database
+        const { data: projectData, error: findError } = await supabase
+          .from(TABLES.PROJECTS)
+          .select('*')
+          .or(`Project Code.eq.${projectCode},Project Full Code.eq.${projectCode}`)
+          .limit(1)
+          .single()
+        
+        if (findError || !projectData) {
+          console.error('❌ Could not find project in database:', projectCode, findError)
+          return
+        }
+        
+        // Use project from database
+        const dbProject = mapProjectFromDB(projectData)
+        
+        // Only update if divisions changed
+        if (updatedDivisionsString !== dbProject.responsible_division) {
+          console.log('📝 Updating Responsible Divisions (from DB):', {
+            projectCode,
+            current: dbProject.responsible_division,
+            updated: updatedDivisionsString
+          })
+          
+          // Update project in database
+          const { error: updateError } = await (supabase as any)
+            .from(TABLES.PROJECTS)
+            .update({ 'Responsible Division': updatedDivisionsString })
+            .eq('id', dbProject.id)
+          
+          if (updateError) {
+            console.error('❌ Error updating project responsible divisions:', updateError)
+            throw updateError
+          }
+          
+          console.log('✅ Project Responsible Divisions updated successfully (from DB):', updatedDivisionsString)
+        } else {
+          console.log('✅ Project already has correct divisions')
+        }
+        return
+      }
+      
+      // Only update if divisions changed
+      if (updatedDivisionsString !== project.responsible_division) {
+        console.log('📝 Updating Responsible Divisions:', {
+          projectCode,
+          projectId: project.id,
+          current: project.responsible_division,
+          updated: updatedDivisionsString
+        })
+        
+        // Update project in database using ID (more reliable than code)
+        const { error: updateError } = await (supabase as any)
+          .from(TABLES.PROJECTS)
+          .update({ 'Responsible Division': updatedDivisionsString })
+          .eq('id', project.id)
+        
+        if (updateError) {
+          console.error('❌ Error updating project responsible divisions:', updateError)
+          throw updateError
+        }
+        
+        // Update local state
+        setProjects(prevProjects => 
+          prevProjects.map(p => 
+            p.project_code === projectCode || p.id === project.id
+              ? { ...p, responsible_division: updatedDivisionsString }
+              : p
+          )
+        )
+        
+        console.log('✅ Project Responsible Divisions updated successfully:', updatedDivisionsString)
+      } else {
+        console.log('✅ Project already has correct divisions')
+      }
+    } catch (error: any) {
+      console.error('❌ Error updating project responsible divisions:', error)
+      throw error
+    }
+  }
   
   // ✅ Close project dropdown when clicking outside
   useEffect(() => {
@@ -151,30 +322,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     })
   }
   
-  // ✅ Apply filters automatically when project selection changes (via toggleProject)
-  // Note: handleFilterChange already calls applyFiltersToDatabase, so we only need to handle toggleProject
-  const prevProjectsRef = useRef<string[]>([])
-  useEffect(() => {
-    // Only trigger if project selection actually changed (not from handleFilterChange)
-    const projectsChanged = JSON.stringify(prevProjectsRef.current) !== JSON.stringify(filters.project)
-    if (projectsChanged) {
-      prevProjectsRef.current = [...filters.project] // Deep copy
-      
-      // Only apply if projects are selected (toggleProject was used)
-      // handleFilterChange already handles other filter changes
-      if (filters.project.length > 0) {
-        console.log('🔄 Project selection changed via toggleProject, applying filters...')
-        applyFiltersToDatabase(filters)
-        setCurrentPage(1)
-      } else if (filters.project.length === 0 && !filters.search && !filters.division && !filters.status && !filters.zone) {
-        // Clear activities if no filters are applied
-        console.log('🧹 No filters applied, clearing activities...')
-        setActivities([])
-        setFilteredActivities([])
-        setTotalCount(0)
-      }
-    }
-  }, [filters.project]) // Only trigger when project selection changes
+  // ✅ No need for auto-apply - filtering is done locally
   
   // ✅ Filter projects based on search
   const getFilteredProjects = () => {
@@ -209,122 +357,273 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     )
   }
 
-  // ✅ Apply filters to activities
-  const applyFilters = (activitiesList: BOQActivity[]) => {
-    let filtered = [...activitiesList]
+  // ✅ SIMPLIFIED: Build project_full_code helper (like ProjectsList)
+  const buildProjectFullCode = useCallback((project: Project): string => {
+    const projectCode = (project.project_code || '').trim()
+    const projectSubCode = (project.project_sub_code || '').trim()
     
-    // Search filter
-    if (filters.search) {
-      const searchTerm = filters.search.toLowerCase()
-      filtered = filtered.filter(activity => 
-        activity.activity_name?.toLowerCase().includes(searchTerm) ||
-        activity.project_code?.toLowerCase().includes(searchTerm) ||
-        activity.project_full_name?.toLowerCase().includes(searchTerm)
-      )
+    if (!projectSubCode) return projectCode
+    
+    if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+      return projectSubCode
     }
     
-    // Project filter (supports multiple projects)
-    // ✅ FIX: Match using project_full_code instead of project_code only
-    if (filters.project && filters.project.length > 0) {
-      filtered = filtered.filter(activity => {
-        // Build activity's project_full_code for comparison
-        const activityProjectCode = (activity.project_code || '').trim()
-        const activityProjectSubCode = (activity.project_sub_code || '').trim()
+    return projectSubCode.startsWith('-') 
+      ? `${projectCode}${projectSubCode}` 
+      : `${projectCode}-${projectSubCode}`
+  }, [])
+
+  // ✅ SIMPLIFIED: Filter activities locally like ProjectsList
+  const allFilteredActivities = useMemo(() => {
+    return activities.filter(activity => {
+      // Multi-Project filter (Smart Filter)
+      // ✅ Use same matching logic as fetchData to handle activities without sub_code
+      if (selectedProjects.length > 0) {
+        const activityFullCode = (activity.project_full_code || '').toString().trim()
+        const activityProjectCode = (activity.project_code || '').toString().trim()
+        const activityProjectSubCode = (activity.project_sub_code || '').toString().trim()
         
-        let activityFullCode = activityProjectCode
-        if (activityProjectSubCode) {
-          if (activityProjectSubCode.toUpperCase().startsWith(activityProjectCode.toUpperCase())) {
-            activityFullCode = activityProjectSubCode
-          } else {
-            if (activityProjectSubCode.startsWith('-')) {
-              activityFullCode = `${activityProjectCode}${activityProjectSubCode}`
+        const matchesProject = selectedProjects.some(selectedProject => {
+          const selectedFullCodeUpper = selectedProject.toUpperCase().trim()
+          const activityFullCodeUpper = activityFullCode.toUpperCase().trim()
+          const activityProjectCodeUpper = activityProjectCode.toUpperCase().trim()
+          const activityProjectSubCodeUpper = activityProjectSubCode.toUpperCase().trim()
+          
+          // Priority 1: Exact match on project_full_code
+          if (activityFullCodeUpper === selectedFullCodeUpper) {
+            return true
+          }
+          
+          // ✅ FIX: Extract selected project parts
+          const selectedParts = selectedProject.split('-')
+          const selectedCode = selectedParts[0]?.toUpperCase().trim()
+          const selectedSubCode = selectedParts.slice(1).join('-').toUpperCase().trim()
+          
+          // ✅ FIX: Match by Project Code + Project Sub Code (handles inconsistent Project Full Code in DB)
+          // If selected project is "P10002-01" and activity has Project Code = "P10002" and Project Sub Code = "P10002-01",
+          // it should match even if Project Full Code in DB is "P10002" or "P10002-01"
+          if (selectedCode && activityProjectCodeUpper === selectedCode) {
+            if (selectedSubCode) {
+              // Selected project has sub code (e.g., "P10002-01")
+              // ✅ CRITICAL: Match if Project Code matches AND Project Sub Code matches
+              // This handles cases where Project Full Code in DB is inconsistent (P10002 vs P10002-01)
+              
+              // ✅ SIMPLIFIED LOGIC: If Project Code matches, check if Project Sub Code matches
+              // In DB, Project Sub Code might be stored as "P10002-01" (full) or "01" (partial)
+              // We need to match both cases
+              
+              // Extract the actual sub code from activity (could be "P10002-01" or just "01")
+              const activitySubCodeOnly = activityProjectSubCodeUpper.includes('-') 
+                ? activityProjectSubCodeUpper.split('-').slice(1).join('-').toUpperCase()
+                : activityProjectSubCodeUpper
+              
+              const selectedSubCodeOnly = selectedSubCode.includes('-')
+                ? selectedSubCode.split('-').slice(1).join('-').toUpperCase()
+                : selectedSubCode
+              
+              // ✅ CRITICAL: Match if:
+              // 1. Activity Project Sub Code matches selected full code (e.g., "P10002-01" === "P10002-01")
+              // 2. Activity Project Sub Code matches selected sub code (e.g., "P10002-01" === "01" or "01" === "01")
+              // 3. Activity Project Sub Code ends with selected sub code (e.g., "P10002-01".endsWith("01"))
+              // 4. Activity Project Full Code matches selected full code (e.g., "P10002-01")
+              // 5. Activity Project Full Code matches selected code only (e.g., "P10002") - handles DB inconsistency
+              
+              // ✅ CRITICAL: Match if Project Sub Code matches
+              // In DB, Project Sub Code might be stored as "P10002-01" (full) or "01" (partial)
+              // We need to match both cases
+              const subCodeMatches = 
+                activityProjectSubCodeUpper === selectedFullCodeUpper || // "P10002-01" === "P10002-01" ✅
+                activityProjectSubCodeUpper === selectedSubCode || // "01" === "01" (if stored as partial)
+                activitySubCodeOnly === selectedSubCodeOnly || // "01" === "01"
+                activityProjectSubCodeUpper.endsWith(selectedSubCode) || // "P10002-01".endsWith("01") ✅
+                activityProjectSubCodeUpper.includes(selectedSubCode) || // "P10002-01".includes("01") ✅
+                activityProjectSubCodeUpper.includes(selectedFullCodeUpper) || // "P10002-01".includes("P10002-01") ✅
+                selectedFullCodeUpper.includes(activityProjectSubCodeUpper) // "P10002-01".includes("P10002-01") ✅
+              
+              // ✅ CRITICAL: Match if Project Full Code matches (handles DB inconsistency)
+              const fullCodeMatches = 
+                activityFullCodeUpper === selectedFullCodeUpper || // "P10002-01" === "P10002-01" ✅
+                activityFullCodeUpper === selectedCode // "P10002" === "P10002" (handles DB inconsistency) ✅
+              
+              // ✅ CRITICAL: If Project Code matches AND (Sub Code matches OR Full Code matches), it's a match
+              // This ensures that activities with Project Code = P10002 and Project Sub Code = P10002-01
+              // will match even if Project Full Code in DB is "P10002" instead of "P10002-01"
+              if (subCodeMatches || fullCodeMatches) {
+                console.log('✅ Activity matched:', {
+                  activity_name: activity.activity_name,
+                  activity_project_code: activityProjectCodeUpper,
+                  activity_project_sub_code: activityProjectSubCodeUpper,
+                  activity_project_full_code: activityFullCodeUpper,
+                  selected_project: selectedProject,
+                  subCodeMatches,
+                  fullCodeMatches
+                })
+                return true
+              }
             } else {
-              activityFullCode = `${activityProjectCode}-${activityProjectSubCode}`
+              // Selected project has no sub code - match if activity has no sub code OR sub code matches project code
+              if (!activityProjectSubCode || 
+                  activityProjectSubCodeUpper === activityProjectCodeUpper ||
+                  activityFullCodeUpper === selectedCode) {
+                return true
+              }
             }
           }
-        }
-        
-        // Also check if activity has project_full_code field
-        const activityFullCodeFromField = activity.project_full_code || ''
-        
-        // Match against selected project_full_codes
-        return filters.project.includes(activityFullCode) || 
-               filters.project.includes(activityFullCodeFromField) ||
-               // Fallback: extract project_code from selected full_codes and match
-               filters.project.some(selectedFullCode => {
-                 const selectedCode = selectedFullCode.split('-')[0]
-                 return selectedCode === activityProjectCode
-               })
-      })
-    }
-    
-    // Division filter
-    if (filters.division) {
-      filtered = filtered.filter(activity => 
-        activity.activity_division === filters.division
-      )
-    }
-    
-    // Status filter (based on progress)
-    if (filters.status) {
-      filtered = filtered.filter(activity => {
-        const progress = activity.activity_progress_percentage || 0
-        switch (filters.status) {
-          case 'completed':
-            return progress >= 100
-          case 'in_progress':
-            return progress > 0 && progress < 100
-          case 'not_started':
-            return progress === 0
-          default:
+          
+          // Priority 2: If selected project has sub_code (e.g., "P10001-01") and activity has no sub_code (e.g., "P10001"),
+          // match by project_code only (activities might not have sub_code in DB)
+          if (selectedSubCode && !activityProjectSubCode && activityProjectCodeUpper === selectedCode) {
             return true
+          }
+          
+          // Priority 3: If both have sub_codes, build activity full code and match
+          if (activityProjectCode && activityProjectSubCode) {
+            let builtActivityFullCode = activityProjectCode
+            if (activityProjectSubCodeUpper.startsWith(activityProjectCodeUpper)) {
+              builtActivityFullCode = activityProjectSubCode
+            } else if (activityProjectSubCode.startsWith('-')) {
+              builtActivityFullCode = `${activityProjectCode}${activityProjectSubCode}`
+            } else {
+              builtActivityFullCode = `${activityProjectCode}-${activityProjectSubCode}`
+            }
+            
+            if (builtActivityFullCode.toUpperCase() === selectedFullCodeUpper) {
+              return true
+            }
+          }
+          
+          // ✅ FIX: Also match if Project Full Code in DB matches selected project code (handles inconsistent data)
+          if (activityFullCodeUpper === selectedCode) {
+            return true
+          }
+          
+          return false
+        })
+        
+        if (!matchesProject) {
+          // ✅ DEBUG: Log why activity was filtered out (only for first few)
+          if (activities.indexOf(activity) < 5) {
+            // Re-extract values for logging
+            const logActivityFullCode = (activity.project_full_code || '').toString().trim()
+            const logActivityProjectCode = (activity.project_code || '').toString().trim()
+            const logActivityProjectSubCode = (activity.project_sub_code || '').toString().trim()
+            const logSelectedProject = selectedProjects[0] || ''
+            const logSelectedParts = logSelectedProject.split('-')
+            const logSelectedCode = logSelectedParts[0]?.toUpperCase().trim()
+            const logSelectedSubCode = logSelectedParts.slice(1).join('-').toUpperCase().trim()
+            
+            console.log('❌ Activity filtered out:', {
+              activity_name: activity.activity_name,
+              activity_project_code: logActivityProjectCode,
+              activity_project_sub_code: logActivityProjectSubCode,
+              activity_project_full_code: logActivityFullCode,
+              selected_projects: selectedProjects,
+              selected_code: logSelectedCode,
+              selected_sub_code: logSelectedSubCode,
+              selected_full_code: logSelectedProject,
+              reason: 'Project Code/Sub Code/Full Code mismatch'
+            })
+          }
+          return false
         }
-      })
-    }
-    
-    // Zone filter
-    if (filters.zone) {
-      filtered = filtered.filter(activity => 
-        activity.zone_ref === filters.zone
-      )
-    }
-    
-    console.log('🔍 Filter applied:', {
-      original: activitiesList.length,
-      filtered: filtered.length,
-      filters,
-      searchTerm: filters.search,
-      projectFilter: filters.project,
-      divisionFilter: filters.division,
-      statusFilter: filters.status
+      }
+      
+      // Multi-Activity filter (Smart Filter)
+      if (selectedActivities.length > 0) {
+        const matchesActivity = selectedActivities.some(activityName =>
+          activity.activity_name === activityName ||
+          activity.activity_name?.toLowerCase().includes(activityName.toLowerCase())
+        )
+        if (!matchesActivity) return false
+      }
+      
+      // Division filter (Smart Filter)
+      if (selectedDivisions.length > 0) {
+        const activityDivision = (activity.activity_division || '').toLowerCase().trim()
+        const matchesDivision = selectedDivisions.some(division =>
+          activityDivision === division.toLowerCase().trim() ||
+          activityDivision.includes(division.toLowerCase().trim()) ||
+          division.toLowerCase().trim().includes(activityDivision)
+        )
+        if (!matchesDivision) return false
+      }
+      
+      // Zone filter (Smart Filter)
+      if (selectedZones.length > 0) {
+        const activityZone = (activity.zone_ref || activity.zone_number || '').toLowerCase().trim()
+        const matchesZone = selectedZones.some(zone =>
+          activityZone === zone.toLowerCase().trim() ||
+          activityZone.includes(zone.toLowerCase().trim()) ||
+          zone.toLowerCase().trim().includes(activityZone)
+        )
+        if (!matchesZone) return false
+      }
+      
+      // Unit filter (Smart Filter)
+      if (selectedUnits.length > 0) {
+        const activityUnit = (activity.unit || '').toLowerCase().trim()
+        if (!selectedUnits.some(unit => activityUnit === unit.toLowerCase().trim())) return false
+      }
+      
+      // Date range filter (Smart Filter)
+      if (dateRange.from || dateRange.to) {
+        const activityDate = activity.planned_activity_start_date || activity.created_at
+        if (activityDate) {
+          const actDate = new Date(activityDate)
+          if (dateRange.from) {
+            const fromDate = new Date(dateRange.from)
+            fromDate.setHours(0, 0, 0, 0)
+            if (actDate < fromDate) return false
+          }
+          if (dateRange.to) {
+            const toDate = new Date(dateRange.to)
+            toDate.setHours(23, 59, 59, 999)
+            if (actDate > toDate) return false
+          }
+        }
+      }
+      
+      // Value range filter (Smart Filter)
+      if (valueRange.min !== undefined || valueRange.max !== undefined) {
+        const activityValue = activity.total_value || 0
+        if (valueRange.min !== undefined && activityValue < valueRange.min) return false
+        if (valueRange.max !== undefined && activityValue > valueRange.max) return false
+      }
+      
+      // Quantity range filter (Smart Filter)
+      if (quantityRange.min !== undefined || quantityRange.max !== undefined) {
+        const activityQuantity = activity.total_units || 0
+        if (quantityRange.min !== undefined && activityQuantity < quantityRange.min) return false
+        if (quantityRange.max !== undefined && activityQuantity > quantityRange.max) return false
+      }
+      
+      // Legacy search filter
+      if (searchTerm) {
+        const searchLower = searchTerm.toLowerCase()
+        const matchesSearch = 
+          (activity.activity_name || '').toLowerCase().includes(searchLower) ||
+          (activity.project_code || '').toLowerCase().includes(searchLower) ||
+          (activity.project_full_name || '').toLowerCase().includes(searchLower)
+        if (!matchesSearch) return false
+      }
+      
+      return true
     })
-    
-    // ✅ Debug: Show sample of filtered results
-    if (filtered.length > 0) {
-      console.log('📋 Sample filtered activities:', filtered.slice(0, 3).map((a: BOQActivity) => ({
-        name: a.activity_name,
-        project: a.project_code,
-        division: a.activity_division,
-        progress: a.activity_progress_percentage
-      })))
-    }
-    
-    return filtered
-  }
+  }, [activities, selectedProjects, selectedActivities, selectedDivisions, selectedZones, selectedUnits, dateRange, valueRange, quantityRange, searchTerm])
+  
+  // ✅ Don't apply pagination here - it will be applied in getCurrentPageData()
+  // This ensures all filtered activities are available for counting and other operations
+  const filteredActivities = useMemo(() => {
+    return allFilteredActivities
+  }, [allFilteredActivities])
+  
+  const filteredTotalCount = allFilteredActivities.length
 
-  // ✅ Handle filter changes
+  // ✅ Handle filter changes (legacy - not used with SmartFilter)
   const handleFilterChange = (key: string, value: string | string[]) => {
-    const newFilters = { ...filters, [key]: value }
-    setFilters(newFilters)
-    
-    // ✅ Apply filters immediately to database
-    console.log('🔄 Filter changed:', { key, value, newFilters })
-    
-    // Reset to first page
+    setFilters({ ...filters, [key]: value })
     setCurrentPage(1)
-    
-    // ✅ Apply filters immediately with new values
-    applyFiltersToDatabase(newFilters)
+    // No need to fetch data - filtering is done locally
   }
 
   // ✅ Clear all filters
@@ -336,11 +635,9 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       status: '',
       zone: ''
     })
-    setFilteredActivities([])
-    setActivities([])
-    setTotalCount(0)
+    setSearchTerm('')
     setCurrentPage(1)
-    console.log('🧹 All filters cleared - showing empty state')
+    // No need to clear activities - filtering is done locally
   }
 
   // ✅ Get unique divisions from activities
@@ -354,7 +651,372 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     return Array.from(divisionSet).sort()
   }
 
-  // ✅ Apply filters to database immediately
+  // ✅ Fetch data based on filters (only when filters are applied)
+  const fetchData = useCallback(async (filterProjects: string[] = []) => {
+    if (!isMountedRef.current) return
+    
+    // ✅ Only fetch if filters are applied
+    if (filterProjects.length === 0) {
+      console.log('💡 No filters applied - not loading data')
+      setActivities([])
+      setTotalCount(0)
+      return
+    }
+    
+    try {
+      startSmartLoading(setLoading)
+      setError('')
+      console.log('📊 Loading BOQ data for projects:', filterProjects)
+      
+      // ✅ Fetch projects first (always needed)
+      const projectsRes = await supabase
+        .from(TABLES.PROJECTS)
+        .select('*')
+        .order('created_at', { ascending: false })
+      
+      if (projectsRes.error) {
+        console.error('❌ Projects Error:', projectsRes.error)
+        setError(`Failed to load projects: ${projectsRes.error.message}`)
+        return
+      }
+      
+      const mappedProjects = (projectsRes.data || []).map(mapProjectFromDB)
+      setProjects(mappedProjects)
+      
+      // ✅ SIMPLIFIED: Fetch by Project Full Code only
+      // ✅ CRITICAL: project_full_code is the ONLY identifier - any difference means separate project
+      console.log('🔍 Filter by Project Full Code only:', filterProjects)
+      
+      // ✅ Helper function to fetch all records with pagination (Supabase default limit is 1000)
+      const fetchAllRecords = async (table: string, filter: string) => {
+        let allData: any[] = []
+        let offset = 0
+        const chunkSize = 1000
+        let hasMore = true
+        
+        while (hasMore) {
+          let query = supabase
+            .from(table)
+            .select('*')
+            .range(offset, offset + chunkSize - 1)
+          
+          if (filter && filter.trim()) {
+            query = query.or(filter)
+          }
+          
+          if (table === TABLES.KPI) {
+            query = query.order('created_at', { ascending: false })
+          }
+          
+          const { data, error } = await query
+          
+          if (error) {
+            console.error(`❌ Error fetching ${table}:`, error)
+            break
+          }
+          
+          if (!data || data.length === 0) {
+            hasMore = false
+            break
+          }
+          
+          allData = [...allData, ...data]
+          console.log(`📥 Fetched ${table} chunk: ${data.length} records (total so far: ${allData.length})`)
+          
+          if (data.length < chunkSize) {
+            hasMore = false
+          } else {
+            offset += chunkSize
+          }
+        }
+        
+        console.log(`✅ Total ${table} records fetched: ${allData.length}`)
+        return allData
+      }
+      
+      // ✅ FIX: Only fetch by Project Full Code - don't fetch by Project Code alone
+      // This prevents fetching activities from other projects with the same base code
+      // If Project Full Code is missing in DB, we'll build it from Project Code + Project Sub Code
+      // ✅ Build proper OR filter for multiple projects
+      const fullCodeFilter = filterProjects.length > 0
+        ? filterProjects.map(code => `Project Full Code.eq.${code}`).join(',')
+        : ''
+      
+      const activitiesByFullCode = fullCodeFilter
+        ? await fetchAllRecords(TABLES.BOQ_ACTIVITIES, fullCodeFilter)
+        : []
+      
+      // ✅ FALLBACK: If no results by Project Full Code, try by Project Code + Project Sub Code
+      // But only for the specific projects we're looking for
+      let activitiesByCode: any[] = []
+      if (activitiesByFullCode.length === 0) {
+        console.log('⚠️ No activities found by Project Full Code, trying Project Code + Project Sub Code...')
+        // Build filter for Project Code + Project Sub Code combinations
+        const codeSubCodeFilters = filterProjects.map(fullCode => {
+          const parts = fullCode.split('-')
+          if (parts.length >= 2) {
+            const projectCode = parts[0]
+            const projectSubCode = parts.slice(1).join('-') // Handle cases like "P9999-01-R1"
+            return `Project Code.eq.${projectCode},Project Sub Code.eq.${projectSubCode}`
+          }
+          return null
+        }).filter(f => f !== null)
+        
+        if (codeSubCodeFilters.length > 0) {
+          activitiesByCode = await fetchAllRecords(
+            TABLES.BOQ_ACTIVITIES,
+            codeSubCodeFilters.join(',')
+          )
+        }
+      }
+      
+      // ✅ Same logic for KPIs
+      const kpisByFullCode = await fetchAllRecords(
+        TABLES.KPI,
+        filterProjects.map(code => `Project Full Code.eq.${code}`).join(',')
+      )
+      
+      let kpisByCode: any[] = []
+      if (kpisByFullCode.length === 0) {
+        console.log('⚠️ No KPIs found by Project Full Code, trying Project Code + Project Sub Code...')
+        const codeSubCodeFilters = filterProjects.map(fullCode => {
+          const parts = fullCode.split('-')
+          if (parts.length >= 2) {
+            const projectCode = parts[0]
+            const projectSubCode = parts.slice(1).join('-')
+            return `Project Code.eq.${projectCode},Project Sub Code.eq.${projectSubCode}`
+          }
+          return null
+        }).filter(f => f !== null)
+        
+        if (codeSubCodeFilters.length > 0) {
+          kpisByCode = await fetchAllRecords(
+            TABLES.KPI,
+            codeSubCodeFilters.join(',')
+          )
+        }
+      }
+      
+      // Create response objects to match expected format
+      const activitiesResByFullCode = { data: activitiesByFullCode, error: null }
+      const activitiesResByCode = { data: activitiesByCode, error: null }
+      const kpisResByFullCode = { data: kpisByFullCode, error: null }
+      const kpisResByCode = { data: kpisByCode, error: null }
+      
+      // ✅ Combine results and remove duplicates
+      const allActivities: any[] = [
+        ...(activitiesResByFullCode.data || []),
+        ...(activitiesResByCode.data || [])
+      ]
+      const uniqueActivities = allActivities.filter((activity: any, index: number, self: any[]) => 
+        index === self.findIndex((a: any) => a.id === activity.id)
+      )
+      
+      const allKPIs: any[] = [
+        ...(kpisResByFullCode.data || []),
+        ...(kpisResByCode.data || [])
+      ]
+      const uniqueKPIs = allKPIs.filter((kpi: any, index: number, self: any[]) => 
+        index === self.findIndex((k: any) => k.id === kpi.id)
+      )
+      
+      // Use combined results
+      const activitiesRes = { data: uniqueActivities, error: activitiesResByFullCode.error || activitiesResByCode.error }
+      const kpisRes = { data: uniqueKPIs, error: kpisResByFullCode.error || kpisResByCode.error }
+      
+      // ✅ CRITICAL: Map data FIRST to build project_full_code correctly, THEN filter
+      console.log(`📥 Fetched ${uniqueActivities.length} activities from database`)
+      console.log('🔍 Filtering by projects:', filterProjects)
+      
+      // ✅ STEP 1: Map all activities to build project_full_code correctly
+      const mappedActivitiesRaw = uniqueActivities.map(mapBOQFromDB)
+      
+      // ✅ DEBUG: Log sample activities after mapping
+      if (mappedActivitiesRaw.length > 0) {
+        console.log('📋 Sample activities after mapping (first 3):', mappedActivitiesRaw.slice(0, 3).map((a: any) => ({
+          activityName: a.activity || a.activity_name,
+          projectFullCode: a.project_full_code,
+          projectCode: a.project_code,
+          projectSubCode: a.project_sub_code
+        })))
+      }
+      
+      // ✅ STEP 2: Filter by exact Project Full Code match using BUILT project_full_code
+      let filteredActivitiesData = mappedActivitiesRaw.filter((activity: any, index: number) => {
+        const activityFullCode = (activity.project_full_code || '').toString().trim()
+        const activityProjectCode = (activity.project_code || '').toString().trim()
+        const activityProjectSubCode = (activity.project_sub_code || '').toString().trim()
+        
+        // ✅ Match by exact Project Full Code OR by Project Code if activity has no sub_code
+        const matches = filterProjects.some(selectedFullCode => {
+          const selectedFullCodeUpper = selectedFullCode.toUpperCase().trim()
+          const activityFullCodeUpper = activityFullCode.toUpperCase().trim()
+          
+          // Priority 1: Exact match on project_full_code
+          if (activityFullCodeUpper === selectedFullCodeUpper) {
+            if (index < 3) {
+              console.log('🔍 Matching (exact):', {
+                activityFullCode,
+                selectedFullCode,
+                match: true
+              })
+            }
+            return true
+          }
+          
+          // Priority 2: If selected project has sub_code (e.g., "P10001-01") and activity has no sub_code (e.g., "P10001"),
+          // match by project_code only (activities might not have sub_code in DB)
+          const selectedParts = selectedFullCode.split('-')
+          const selectedCode = selectedParts[0]?.toUpperCase().trim()
+          const selectedSubCode = selectedParts.slice(1).join('-').toUpperCase().trim()
+          
+          // If selected project has sub_code and activity has no sub_code, match by project_code
+          if (selectedSubCode && !activityProjectSubCode && activityProjectCode.toUpperCase() === selectedCode) {
+            if (index < 3) {
+              console.log('🔍 Matching (code only - activity has no sub_code):', {
+                activityFullCode,
+                activityProjectCode,
+                selectedFullCode,
+                selectedCode,
+                match: true
+              })
+            }
+            return true
+          }
+          
+          // Priority 3: If both have sub_codes, build activity full code and match
+          if (activityProjectCode && activityProjectSubCode) {
+            let builtActivityFullCode = activityProjectCode
+            if (activityProjectSubCode.toUpperCase().startsWith(activityProjectCode.toUpperCase())) {
+              builtActivityFullCode = activityProjectSubCode
+            } else if (activityProjectSubCode.startsWith('-')) {
+              builtActivityFullCode = `${activityProjectCode}${activityProjectSubCode}`
+            } else {
+              builtActivityFullCode = `${activityProjectCode}-${activityProjectSubCode}`
+            }
+            
+            if (builtActivityFullCode.toUpperCase() === selectedFullCodeUpper) {
+              if (index < 3) {
+                console.log('🔍 Matching (built):', {
+                  activityFullCode,
+                  builtActivityFullCode,
+                  selectedFullCode,
+                  match: true
+                })
+              }
+              return true
+            }
+          }
+          
+          if (index < 3) {
+            console.log('🔍 Matching (no match):', {
+              activityFullCode,
+              activityProjectCode,
+              activityProjectSubCode,
+              selectedFullCode,
+              match: false
+            })
+          }
+          return false
+        })
+        
+        return matches
+      })
+      
+      console.log(`✅ Filtered activities: ${filteredActivitiesData.length} out of ${mappedActivitiesRaw.length} total`)
+      if (filteredActivitiesData.length === 0 && mappedActivitiesRaw.length > 0) {
+        console.warn('⚠️ No activities matched filters!', {
+          sampleActivity: {
+            activityName: mappedActivitiesRaw[0]?.activity || mappedActivitiesRaw[0]?.activity_name,
+            projectFullCode: mappedActivitiesRaw[0]?.project_full_code,
+            projectCode: mappedActivitiesRaw[0]?.project_code,
+            projectSubCode: mappedActivitiesRaw[0]?.project_sub_code
+          },
+          selectedProjects: filterProjects,
+          allProjectFullCodes: mappedActivitiesRaw.slice(0, 5).map((a: any) => a.project_full_code)
+        })
+      }
+      
+      // ✅ DEBUG: Log filtered activities
+      if (filteredActivitiesData.length > 0) {
+        console.log('✅ Filtered activities (first 3):', filteredActivitiesData.slice(0, 3).map((a: any) => ({
+          activityName: a.activity || a.activity_name,
+          projectFullCode: a.project_full_code
+        })))
+      }
+      
+      if (activitiesRes.error) {
+        console.warn('⚠️ Activities Error:', activitiesRes.error)
+      }
+      
+      if (kpisRes.error) {
+        console.warn('⚠️ KPIs Error:', kpisRes.error)
+      }
+      
+      // Use filtered and mapped activities
+      const mappedActivities = filteredActivitiesData
+      const mappedKPIs = (kpisRes.data || []).map(mapKPIFromDB)
+      
+      // ✅ Calculate rates and progress for activities
+      const activitiesWithRates = mappedActivities.map(activity => {
+        const rate = calculateActivityRate(activity)
+        return { ...activity, rate }
+      })
+      
+      const activitiesWithProgress = activitiesWithRates.map(activity => {
+        const progress = calculateActivityProgress(activity, mappedKPIs)
+        return { ...activity, activity_progress_percentage: progress.metrics.progress }
+      })
+      
+      // Update state
+      if (isMountedRef.current) {
+        setActivities(activitiesWithProgress)
+        setAllKPIs(mappedKPIs)
+        setTotalCount(activitiesWithProgress.length)
+        
+        console.log('✅ Data loaded:', {
+          activities: activitiesWithProgress.length,
+          kpis: mappedKPIs.length
+        })
+      }
+    } catch (error: any) {
+      console.error('❌ BOQManagement: Error:', error)
+      if (isMountedRef.current) {
+        setError(error.message || 'Failed to load data')
+      }
+    } finally {
+      if (isMountedRef.current) {
+        stopSmartLoading(setLoading)
+      }
+    }
+  }, [supabase, startSmartLoading, stopSmartLoading])
+
+  // ✅ Fetch projects only on mount (lightweight)
+  const fetchProjects = useCallback(async () => {
+    if (!isMountedRef.current) return
+    
+    try {
+      const projectsRes = await supabase
+        .from(TABLES.PROJECTS)
+        .select('*')
+        .order('created_at', { ascending: false })
+      
+      if (projectsRes.error) {
+        console.error('❌ Projects Error:', projectsRes.error)
+        return
+      }
+      
+      const mappedProjects = (projectsRes.data || []).map(mapProjectFromDB)
+      if (isMountedRef.current) {
+        setProjects(mappedProjects)
+        console.log('✅ Projects loaded:', mappedProjects.length)
+      }
+    } catch (error: any) {
+      console.error('❌ Error loading projects:', error)
+    }
+  }, [supabase])
+
+  // ✅ DEPRECATED: Apply filters to database immediately (kept for backward compatibility)
   const applyFiltersToDatabase = async (filtersToApply: any) => {
     if (!isMountedRef.current) return
     
@@ -363,10 +1025,11 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       console.log('🔄 Applying filters to database:', filtersToApply)
       
       // ✅ Check if any filters are applied
-      if (!filtersToApply.search && (!filtersToApply.project || filtersToApply.project.length === 0) && !filtersToApply.division && !filtersToApply.status) {
+      const hasZoneFilter = filtersToApply.zone && (Array.isArray(filtersToApply.zone) ? filtersToApply.zone.length > 0 : filtersToApply.zone !== '')
+      if (!filtersToApply.search && (!filtersToApply.project || filtersToApply.project.length === 0) && !filtersToApply.division && !filtersToApply.status && !hasZoneFilter) {
         console.log('💡 No filters applied - showing empty state')
         setActivities([])
-        setFilteredActivities([])
+        // Removed - using useMemo instead([])
         setTotalCount(0)
         stopSmartLoading(setLoading)
         return
@@ -378,10 +1041,9 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         .select('*', { count: 'exact' })
         .order('created_at', { ascending: false })
       
-      // ✅ FIX: Apply database-level filters with comprehensive project_full_code matching
+      // ✅ FIX: Apply database-level filters with comprehensive project_full_code and project_sub_code matching
+      // Same solution as Smart KPI Form - use project_full_code and project_sub_code optionally for additional verification
       if (filtersToApply.project && filtersToApply.project.length > 0) {
-        // ✅ FIX: Build comprehensive filter for project_full_code matching
-        // Support both exact match and partial match (e.g., P5066-R1 matches P5066)
         const projectFullCodes = filtersToApply.project
         const projectCodes = filtersToApply.project.map((fullCode: string) => {
           // Extract project_code from project_full_code (format: "P5066-R1" -> "P5066")
@@ -389,52 +1051,120 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         })
         const uniqueProjectCodes = Array.from(new Set(projectCodes))
         
+        // Extract project_sub_codes from project_full_codes (optional - for additional verification)
+        const projectSubCodes = filtersToApply.project.map((fullCode: string) => {
+          // Extract sub code from full code (format: "P10002-01" -> "01" or "P10002-01" -> "P10002-01")
+          // ✅ FIX: In DB, Project Sub Code might be stored as "P10002-01" (full) or "01" (partial)
+          const parts = fullCode.split('-')
+          if (parts.length > 1) {
+            // Return both the full sub code (P10002-01) and the partial (01)
+            return parts.slice(1).join('-') // Handle cases like "P10002-01" -> "01"
+          }
+          return ''
+        }).filter((code: string) => code !== '')
+        
+        // ✅ FIX: Also extract the full sub code (e.g., "P10002-01" from "P10002-01")
+        const projectSubCodesFull = filtersToApply.project.map((fullCode: string) => {
+          // For "P10002-01", the sub code in DB might be stored as "P10002-01" (full)
+          return fullCode // Return the full code as potential sub code
+        })
+        
         console.log('🔍 Building project filter (applyFiltersToDatabase):', {
           projectFullCodes,
           uniqueProjectCodes,
+          projectSubCodes,
           filterCount: projectFullCodes.length
         })
         
-        // ✅ FIX: Build OR condition for multiple matching strategies
+        // ✅ CRITICAL FIX: Each project with different Sub Code is a SEPARATE project
+        // Must match BOTH Project Code AND Project Sub Code for accurate filtering
+        // Use the same strategy as EnhancedSmartActualKPIForm: Match by Project Code + Sub Code with AND
         if (projectFullCodes.length === 1) {
-          // Single project: Try multiple matching strategies
+          // Single project: Match the SPECIFIC project only
           const fullCode = projectFullCodes[0]
           const baseCode = uniqueProjectCodes[0]
+          const subCode = projectSubCodes[0] || ''
           
-          // Strategy 1: Exact match on Project Full Code
-          // Strategy 2: Match on Project Code
-          // Strategy 3: LIKE match for Project Full Code (in case of variations)
-          activitiesQuery = activitiesQuery.or(
-            `Project Full Code.eq.${fullCode},Project Code.eq.${baseCode},Project Full Code.like.${fullCode}%,Project Full Code.like.${baseCode}%`
-          )
-        } else if (projectFullCodes.length > 1) {
-          // Multiple projects: Build complex OR condition
+          // ✅ FIX: Match activities that have EITHER:
+          // 1. Project Full Code matching the selected project (P10002-01)
+          // 2. Project Full Code matching just the base code (P10002) - handles DB inconsistency
+          // 3. Project Code matching - but we need to ensure Project Sub Code also matches
+          // This handles cases where Project Full Code in DB might be inconsistent
           const orConditions: string[] = []
           
-          // Add exact matches for all full codes
+          // Strategy 1: Match by Project Full Code (exact match for selected project)
+          orConditions.push(`Project Full Code.eq.${fullCode}`)
+          
+          // Strategy 2: Match by Project Full Code = base code only (P10002)
+          // This catches activities that have Project Full Code = P10002 instead of P10002-01
+          orConditions.push(`Project Full Code.eq.${baseCode}`)
+          
+          // Strategy 3: Match by Project Code (will filter by Project Sub Code client-side)
+          // This ensures we get all activities with Project Code = P10002
+          // We'll filter by Project Sub Code on client-side to ensure accuracy
+          orConditions.push(`Project Code.eq.${baseCode}`)
+          
+          // Strategy 4: Match by Project Sub Code (if sub code exists)
+          // ✅ CRITICAL: In DB, Project Sub Code might be stored as "P10002-01" (full) or "01" (partial)
+          if (subCode) {
+            // Try matching by Project Sub Code = full code (P10002-01)
+            orConditions.push(`Project Sub Code.eq.${fullCode}`)
+            // Try matching by Project Sub Code = partial code (01)
+            orConditions.push(`Project Sub Code.eq.${subCode}`)
+            // Try Project Full Code variations
+            orConditions.push(`Project Full Code.eq.${baseCode}-${subCode}`)
+            orConditions.push(`Project Full Code.eq.${baseCode}${subCode}`)
+          }
+          
+          // Use OR to match any of these conditions
+          activitiesQuery = activitiesQuery.or(orConditions.join(','))
+          
+          console.log('🔍 Applied single project filter with multiple strategies:', {
+            fullCode,
+            baseCode,
+            subCode,
+            orConditions,
+            note: 'Will filter by Project Sub Code on client-side for accuracy'
+          })
+          
+          // ✅ Client-side filtering will ensure exact matching by Project Code + Project Sub Code
+        } else if (projectFullCodes.length > 1) {
+          // Multiple projects: Build complex OR condition
+          // ✅ CRITICAL: Each project is separate - must match specific projects only
+          // Since Supabase doesn't support AND in OR, we fetch activities that might match
+          // Client-side filtering will ensure exact matching
+          const orConditions: string[] = []
+          
+          // Strategy 1: Exact matches for all full codes (MOST IMPORTANT)
           for (const fullCode of projectFullCodes) {
             orConditions.push(`Project Full Code.eq.${fullCode}`)
           }
           
-          // Add code matches for all base codes
-          for (const code of Array.from(uniqueProjectCodes) as string[]) {
-            orConditions.push(`Project Code.eq.${code}`)
+          // Strategy 2: Try variations of Project Full Code for each project
+          for (let i = 0; i < projectFullCodes.length; i++) {
+            const baseCode = projectCodes[i]
+            const subCode = projectSubCodes[i] || ''
+            
+            if (subCode) {
+              const variations = [
+                `${baseCode}-${subCode}`,
+                `${baseCode}${subCode}`,
+                `${baseCode} ${subCode}`
+              ]
+              for (const variation of variations) {
+                orConditions.push(`Project Full Code.eq.${variation}`)
+              }
+            }
           }
           
-          // Add LIKE matches for all full codes
-          for (const fullCode of projectFullCodes) {
-            orConditions.push(`Project Full Code.like.${fullCode}%`)
-          }
-          
-          // Add LIKE matches for all base codes
-          for (const code of Array.from(uniqueProjectCodes) as string[]) {
-            orConditions.push(`Project Full Code.like.${code}%`)
-          }
+          // ✅ DO NOT use Project Code.eq alone - it brings ALL projects with same code
+          // ✅ DO NOT use LIKE matches - they bring ALL projects with same code
+          // Client-side filtering will ensure Project Code + Sub Code both match exactly
           
           activitiesQuery = activitiesQuery.or(orConditions.join(','))
         }
         
-        console.log('✅ Applied project filter with comprehensive matching (applyFiltersToDatabase)')
+      console.log('✅ Applied project filter with exact matching (applyFiltersToDatabase) - client-side filtering ensures accuracy')
       }
       
       if (filtersToApply.division) {
@@ -442,9 +1172,42 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         console.log('🔍 Applied division filter:', filtersToApply.division)
       }
       
+      // ✅ Zone filter (supports multiple zones and both Zone Ref and Zone Number)
       if (filtersToApply.zone) {
-        activitiesQuery = activitiesQuery.eq('Zone Ref', filtersToApply.zone)
-        console.log('🔍 Applied zone filter:', filtersToApply.zone)
+        const zones = Array.isArray(filtersToApply.zone) ? filtersToApply.zone : [filtersToApply.zone]
+        if (zones.length > 0) {
+          // ✅ FIX: Search in both Zone Ref and Zone Number fields with flexible matching
+          // Build OR condition to match zones in either field
+          const zoneConditions: string[] = []
+          
+          for (const zone of zones) {
+            const zoneTrimmed = zone.trim()
+            // Match in Zone Ref - exact and partial matches
+            zoneConditions.push(`Zone Ref.eq.${zoneTrimmed}`)
+            zoneConditions.push(`Zone Ref.ilike.%${zoneTrimmed}%`)
+            // Also try "Zone " + zone (e.g., "Zone 1" for zone "1")
+            if (/^\d+$/.test(zoneTrimmed)) {
+              zoneConditions.push(`Zone Ref.ilike.%Zone ${zoneTrimmed}%`)
+              zoneConditions.push(`Zone Ref.ilike.%zone ${zoneTrimmed}%`)
+            }
+            // Match in Zone Number - exact and partial matches
+            zoneConditions.push(`Zone Number.eq.${zoneTrimmed}`)
+            zoneConditions.push(`Zone Number.ilike.%${zoneTrimmed}%`)
+            // Also try extracting number from zone (e.g., "1" from "Zone 1")
+            const zoneNumberMatch = zoneTrimmed.match(/\d+/)
+            if (zoneNumberMatch) {
+              const zoneNumber = zoneNumberMatch[0]
+              zoneConditions.push(`Zone Number.eq.${zoneNumber}`)
+              zoneConditions.push(`Zone Ref.ilike.%${zoneNumber}%`)
+            }
+          }
+          
+          if (zoneConditions.length > 0) {
+            activitiesQuery = activitiesQuery.or(zoneConditions.join(','))
+          }
+          
+          console.log('🔍 Applied zone filter (searching in Zone Ref and Zone Number with flexible matching):', zones.length === 1 ? zones[0] : `${zones.length} zones`)
+        }
       }
       
       // ✅ Note: Status filter not available in BOQ Rates table
@@ -454,7 +1217,8 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       
       console.log('🔍 Final query filters:', {
         project: filtersToApply.project && filtersToApply.project.length > 0 ? filtersToApply.project.join(', ') : 'none',
-        division: filtersToApply.division || 'none', 
+        division: filtersToApply.division || 'none',
+        zone: filtersToApply.zone ? (Array.isArray(filtersToApply.zone) ? filtersToApply.zone.join(', ') : filtersToApply.zone) : 'none',
         status: filtersToApply.status || 'none',
         search: filtersToApply.search || 'none'
       })
@@ -481,7 +1245,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       }
       
       setActivities(mappedActivities)
-      setFilteredActivities(filtered)
+      // Removed - using useMemo instead(filtered)
       setTotalCount(count || 0)
       
       // ✅ Load KPIs for Actual Dates calculation
@@ -596,7 +1360,8 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     }
   }
 
-  const fetchData = async (page: number = 1, applyFilters: boolean = false) => {
+  // ✅ DEPRECATED: Old fetchData function (removed - using new fetchData with filters)
+  const _oldFetchData = async (page: number = 1, applyFilters: boolean = false) => {
     if (!isMountedRef.current) return
     
     try {
@@ -604,10 +1369,11 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       console.log(`📄 BOQManagement: Fetching activities (page ${page}, applyFilters: ${applyFilters})...`)
       
       // ✅ Smart loading: Only load data when filters are applied
-      if (!applyFilters && !filters.search && (!filters.project || filters.project.length === 0) && !filters.division && !filters.status) {
+      const hasZoneFilter = filters.zone && (Array.isArray(filters.zone) ? filters.zone.length > 0 : filters.zone !== '')
+      if (!applyFilters && !filters.search && (!filters.project || filters.project.length === 0) && !filters.division && !filters.status && !hasZoneFilter) {
         console.log('💡 No filters applied - showing empty state')
         setActivities([])
-        setFilteredActivities([])
+        // Removed - using useMemo instead([])
         setTotalCount(0)
         stopSmartLoading(setLoading)
         return
@@ -632,8 +1398,8 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       console.log('🔍 Current filters:', filters)
       
       if (filters.project && filters.project.length > 0) {
-        // ✅ FIX: Build comprehensive filter for project_full_code matching
-        // Support both exact match and partial match (e.g., P5066-R1 matches P5066)
+        // ✅ FIX: Build comprehensive filter for project_full_code and project_sub_code matching
+        // Same solution as Smart KPI Form - use project_full_code and project_sub_code optionally for additional verification
         const projectFullCodes = filters.project as string[]
         const projectCodes = (filters.project as string[]).map((fullCode: string) => {
           // Extract project_code from project_full_code (format: "P5066-R1" -> "P5066")
@@ -641,57 +1407,129 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         })
         const uniqueProjectCodes = Array.from(new Set(projectCodes))
         
+        // Extract project_sub_codes from project_full_codes (optional - for additional verification)
+        const projectSubCodes = (filters.project as string[]).map((fullCode: string) => {
+          // Extract sub code from full code (format: "P5066-R1" -> "R1" or "P5066-R1" -> "R1")
+          const parts = fullCode.split('-')
+          if (parts.length > 1) {
+            return parts.slice(1).join('-') // Handle cases like "P5066-R1-A"
+          }
+          return ''
+        }).filter(code => code !== '')
+        
         console.log('🔍 Building project filter:', {
           projectFullCodes,
           uniqueProjectCodes,
+          projectSubCodes,
           filterCount: projectFullCodes.length
         })
         
-        // ✅ FIX: Build OR condition for multiple matching strategies
+        // ✅ CRITICAL FIX: Each project with different Sub Code is a SEPARATE project
+        // Must match BOTH Project Code AND Project Sub Code for accurate filtering
+        // Use the same strategy as EnhancedSmartActualKPIForm: Match by Project Code + Sub Code with AND
         if (projectFullCodes.length === 1) {
-          // Single project: Try multiple matching strategies
+          // Single project: Match the SPECIFIC project only
           const fullCode = projectFullCodes[0]
           const baseCode = uniqueProjectCodes[0] as string
+          const subCode = projectSubCodes[0] || ''
           
-          // Strategy 1: Exact match on Project Full Code
-          // Strategy 2: Match on Project Code
-          // Strategy 3: LIKE match for Project Full Code (in case of variations)
-          activitiesQuery = activitiesQuery.or(
-            `Project Full Code.eq.${fullCode},Project Code.eq.${baseCode},Project Full Code.like.${fullCode}%,Project Full Code.like.${baseCode}%`
-          )
+          // ✅ Strategy 1: Match by exact Project Code + Sub Code (MOST ACCURATE)
+          // Each project with different Sub Code is a separate project - fetch ONLY its activities
+          if (subCode) {
+            // MUST match BOTH Project Code AND Project Sub Code (using .eq() chaining = AND condition)
+            activitiesQuery = activitiesQuery
+              .eq('Project Code', String(baseCode))
+              .eq('Project Sub Code', String(subCode))
+          } else {
+            // No sub code: Match by Project Code only, but ensure no sub code exists
+            activitiesQuery = activitiesQuery
+              .eq('Project Code', String(baseCode))
+              .or('Project Sub Code.is.null,Project Sub Code.eq.')
+          }
+          
+          // ✅ DO NOT use Project Full Code variations - they might match other projects
+          // ✅ DO NOT use LIKE matches - they bring ALL projects with same code
+          // Client-side filtering will ensure Project Code + Sub Code both match exactly
         } else if (projectFullCodes.length > 1) {
           // Multiple projects: Build complex OR condition
+          // ✅ CRITICAL: Each project is separate - must match specific projects only
+          // Since Supabase doesn't support AND in OR, we fetch activities that might match
+          // Client-side filtering will ensure exact matching
           const orConditions: string[] = []
           
-          // Add exact matches for all full codes
+          // Strategy 1: Exact matches for all full codes (MOST IMPORTANT)
           for (const fullCode of projectFullCodes) {
             orConditions.push(`Project Full Code.eq.${fullCode}`)
           }
           
-          // Add code matches for all base codes
-          for (const code of Array.from(uniqueProjectCodes) as string[]) {
-            orConditions.push(`Project Code.eq.${code}`)
+          // Strategy 2: Try variations of Project Full Code for each project
+          for (let i = 0; i < projectFullCodes.length; i++) {
+            const baseCode = projectCodes[i]
+            const subCode = projectSubCodes[i] || ''
+            
+            if (subCode) {
+              const variations = [
+                `${baseCode}-${subCode}`,
+                `${baseCode}${subCode}`,
+                `${baseCode} ${subCode}`
+              ]
+              for (const variation of variations) {
+                orConditions.push(`Project Full Code.eq.${variation}`)
+              }
+            }
           }
           
-          // Add LIKE matches for all full codes
-          for (const fullCode of projectFullCodes) {
-            orConditions.push(`Project Full Code.like.${fullCode}%`)
-          }
-          
-          // Add LIKE matches for all base codes
-          for (const code of Array.from(uniqueProjectCodes) as string[]) {
-            orConditions.push(`Project Full Code.like.${code}%`)
-          }
+          // ✅ DO NOT use Project Code.eq alone - it brings ALL projects with same code
+          // ✅ DO NOT use LIKE matches - they bring ALL projects with same code
+          // Client-side filtering will ensure Project Code + Sub Code both match exactly
           
           activitiesQuery = activitiesQuery.or(orConditions.join(','))
         }
         
-        console.log('✅ Applied project filter with comprehensive matching')
+      console.log('✅ Applied project filter with exact matching - client-side filtering ensures accuracy')
       }
       
       if (filters.division) {
         activitiesQuery = activitiesQuery.eq('Activity Division', filters.division)
         console.log('🔍 Applied division filter:', filters.division)
+      }
+      
+      // ✅ Zone filter (supports multiple zones and both Zone Ref and Zone Number)
+      if (filters.zone) {
+        const zones = Array.isArray(filters.zone) ? filters.zone : [filters.zone]
+        if (zones.length > 0) {
+          // ✅ FIX: Search in both Zone Ref and Zone Number fields with flexible matching
+          // Build OR condition to match zones in either field
+          const zoneConditions: string[] = []
+          
+          for (const zone of zones) {
+            const zoneTrimmed = zone.trim()
+            // Match in Zone Ref - exact and partial matches
+            zoneConditions.push(`Zone Ref.eq.${zoneTrimmed}`)
+            zoneConditions.push(`Zone Ref.ilike.%${zoneTrimmed}%`)
+            // Also try "Zone " + zone (e.g., "Zone 1" for zone "1")
+            if (/^\d+$/.test(zoneTrimmed)) {
+              zoneConditions.push(`Zone Ref.ilike.%Zone ${zoneTrimmed}%`)
+              zoneConditions.push(`Zone Ref.ilike.%zone ${zoneTrimmed}%`)
+            }
+            // Match in Zone Number - exact and partial matches
+            zoneConditions.push(`Zone Number.eq.${zoneTrimmed}`)
+            zoneConditions.push(`Zone Number.ilike.%${zoneTrimmed}%`)
+            // Also try extracting number from zone (e.g., "1" from "Zone 1")
+            const zoneNumberMatch = zoneTrimmed.match(/\d+/)
+            if (zoneNumberMatch) {
+              const zoneNumber = zoneNumberMatch[0]
+              zoneConditions.push(`Zone Number.eq.${zoneNumber}`)
+              zoneConditions.push(`Zone Ref.ilike.%${zoneNumber}%`)
+            }
+          }
+          
+          if (zoneConditions.length > 0) {
+            activitiesQuery = activitiesQuery.or(zoneConditions.join(','))
+          }
+          
+          console.log('🔍 Applied zone filter (searching in Zone Ref and Zone Number with flexible matching):', zones.length === 1 ? zones[0] : `${zones.length} zones`)
+        }
       }
       
       // ✅ Note: Status filter not available in BOQ Rates table
@@ -702,7 +1540,8 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       // ✅ Debug: Show final query
       console.log('🔍 Final query filters:', {
         project: filters.project && filters.project.length > 0 ? filters.project.join(', ') : 'none',
-        division: filters.division || 'none', 
+        division: filters.division || 'none',
+        zone: filters.zone ? (Array.isArray(filters.zone) ? filters.zone.join(', ') : filters.zone) : 'none',
         status: filters.status || 'none',
         search: filters.search || 'none'
       })
@@ -749,7 +1588,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         console.log('🔍 Applied search filter:', { searchTerm, results: filtered.length })
       }
       
-      setFilteredActivities(filtered)
+      // Removed - using useMemo instead(filtered)
       
       console.log('🎯 Final BOQ state:', {
         activitiesSet: mappedActivities.length,
@@ -836,7 +1675,9 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         // Retry the fetch after reset
         setTimeout(() => {
           if (isMountedRef.current) {
-            fetchData(page)
+            if (selectedProjects.length > 0) {
+              fetchData(selectedProjects)
+            }
           }
         }, 1000)
         return
@@ -846,103 +1687,38 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     }
   }
 
+  // ✅ Initial mount effect - simplified like ProjectsList
   useEffect(() => {
     isMountedRef.current = true
-    console.log('🟡 BOQ: Component mounted')
+    console.log('🟡 BOQManagement: Component mounted')
     
-    // ✅ الاستماع للتحديثات من Database Management
+    // Listen for database updates
     const handleDatabaseUpdate = (event: CustomEvent) => {
       const { tableName } = event.detail
       console.log(`🔔 BOQ: Database updated event received for ${tableName}`)
       
-      // ✅ Don't auto-reload - let user apply filters
-      if (tableName === TABLES.BOQ_ACTIVITIES) {
-        console.log(`🔄 BOQ: Database updated - apply filters to see new data`)
+      if (tableName === TABLES.BOQ_ACTIVITIES || tableName === TABLES.KPI) {
+        console.log(`🔄 BOQ: Reloading data due to ${tableName} update...`)
+        if (selectedProjects.length > 0) {
+          fetchData(selectedProjects)
+        }
       } else if (tableName === TABLES.PROJECTS) {
-        console.log(`🔄 BOQ: Projects updated - apply filters to see new data`)
+        fetchProjects()
       }
     }
     
     window.addEventListener('database-updated', handleDatabaseUpdate as EventListener)
-    console.log('👂 BOQ: Listening for database updates')
     
-    // Connection monitoring is handled by simpleConnectionManager
+    // Initial load: Only fetch projects (lightweight)
+    fetchProjects()
     
-    // ✅ Initial load: Only fetch projects list (lightweight)
-    const fetchInitialData = async () => {
-      try {
-        startSmartLoading(setLoading)
-        console.log('🟡 BOQ: Fetching initial data (projects list only)...')
-        
-        const { data: projectsData, error: projectsError } = await executeQuery(async () =>
-          supabase
-            .from(TABLES.PROJECTS)
-            .select('*')
-            .order('created_at', { ascending: false })
-        )
-        
-        // ✅ ALWAYS update state (React handles unmounted safely)
-        
-        if (projectsError) {
-          console.error('❌ Supabase Error fetching projects:', projectsError)
-          setError(`Failed to load projects: ${projectsError.message || 'Unknown error'}`)
-          return
-        }
-        
-        if (projectsData && Array.isArray(projectsData)) {
-          const mappedProjects = projectsData.map(mapProjectFromDB)
-          setProjects(mappedProjects)
-          console.log('✅ BOQ: Projects list loaded -', mappedProjects.length, 'projects')
-          
-          // ✅ Load available zones
-          try {
-            const { data: zonesData, error: zonesError } = await executeQuery(async () =>
-              supabase
-                .from(TABLES.BOQ_ACTIVITIES)
-                .select('Zone Ref')
-                .not('Zone Ref', 'is', null)
-                .not('Zone Ref', 'eq', '')
-            )
-            
-            if (!zonesError && zonesData) {
-              const zones = new Set<string>()
-              zonesData.forEach((item: any) => {
-                if (item['Zone Ref']) {
-                  zones.add(item['Zone Ref'])
-                }
-              })
-              const zoneList = Array.from(zones).sort()
-              setAvailableZones(zoneList)
-              console.log(`✅ Loaded ${zoneList.length} available zones`)
-            }
-          } catch (zonesError) {
-            console.error('❌ Error loading zones:', zonesError)
-          }
-          
-          // ✅ Projects loaded - ready for filtering
-          console.log('✅ Projects loaded - ready for filtering')
-          // ✅ Don't auto-fetch BOQ activities - wait for filters to be applied
-        }
-      } catch (error: any) {
-        console.error('❌ Exception in BOQ initial load:', error)
-        setError(error.message || 'Failed to load initial data')
-      } finally {
-        // ✅ ALWAYS stop loading (React handles unmounted safely)
-        stopSmartLoading(setLoading)
-      }
-    }
-    
-    fetchInitialData()
-    
-    // Cleanup to prevent memory leaks and hanging
     return () => {
-      console.log('🔴 BOQ: Cleanup - component unmounting')
+      console.log('🔴 BOQManagement: Component unmounting')
       isMountedRef.current = false
       window.removeEventListener('database-updated', handleDatabaseUpdate as EventListener)
-      console.log('👋 BOQ: Stopped listening for database updates')
-      // Connection monitoring is handled globally
     }
-  }, []) // Run ONCE only!
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Run only once on mount
   
   // ✅ Fetch data when page changes
   useEffect(() => {
@@ -958,19 +1734,14 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   const handlePageChange = (page: number) => {
     setCurrentPage(page)
     window.scrollTo({ top: 0, behavior: 'smooth' })
-    
-    // ✅ Only fetch data if filters are applied
-    if (filters.search || (filters.project && filters.project.length > 0) || filters.division || filters.status || filters.zone) {
-      console.log('🔄 Page changed with filters applied - fetching data...')
-      fetchData(page, true)
-    }
+    // No need to fetch data - filtering is done locally
   }
 
-  // ✅ Get current page data (filtered)
+  // ✅ Get current page data (filtered) - Apply pagination here
   const getCurrentPageData = () => {
     const startIndex = (currentPage - 1) * itemsPerPage
     const endIndex = startIndex + itemsPerPage
-    return filteredActivities.slice(startIndex, endIndex)
+    return allFilteredActivities.slice(startIndex, endIndex)
   }
 
   // ✅ Get total pages for filtered data
@@ -992,9 +1763,10 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         'Project Sub Code': activityData.project_sub_code || '',
         'Project Full Code': activityData.project_full_code || activityData.project_code || '',
         'Activity': activityData.activity_name || '', // Column is "Activity" not "Activity Name"
-        'Activity Division': activityData.activity_division || activityData.zone_ref || '',
+        'Activity Division': activityData.activity_division || '', // ✅ FIX: Only use activity_division, not zone_ref
         'Unit': activityData.unit || '',
-        'Zone Ref': activityData.zone_ref || activityData.activity_division || '',
+        'Zone Ref': activityData.zone_ref || '', // ✅ Zone Reference (auto-generated or manual)
+        'Zone Number': activityData.zone_number || '', // ✅ Zone Number (dedicated column)
         
         // ✅ Use BOTH old and new column names for compatibility
         'Planned Units': activityData.planned_units?.toString() || '0',
@@ -1034,6 +1806,16 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       console.log('📊 Verify Planned Units:', data?.['Planned Units'])
       console.log('📊 Verify Deadline:', data?.['Deadline'])
       
+      // ✅ Update Responsible Divisions in Project based on Activity Division
+      if (activityData.activity_division && activityData.project_code) {
+        try {
+          await updateProjectResponsibleDivisions(activityData.project_code, activityData.activity_division)
+        } catch (divisionError) {
+          console.warn('⚠️ Failed to update project responsible divisions:', divisionError)
+          // Don't throw - continue with activity creation
+        }
+      }
+      
       // ✅ Auto-save calculations for the new activity
       try {
         const mappedActivity = mapBOQFromDB(data)
@@ -1053,10 +1835,9 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       
       // Close form and refresh
       setShowForm(false)
-      // ✅ Don't auto-refresh - let user apply filters
-      console.log('✅ Activity created - apply filters to see new data')
-      
-      console.log('✅ DATA REFRESHED')
+      if (selectedProjects.length > 0) {
+        await fetchData(selectedProjects)
+      }
       
     } catch (error: any) {
       console.error('❌ CREATE FAILED:', error)
@@ -1079,9 +1860,10 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         'Project Sub Code': activityData.project_sub_code || '',
         'Project Full Code': activityData.project_full_code || activityData.project_code || '',
         'Activity': activityData.activity_name || '', // Column is "Activity" not "Activity Name"
-        'Activity Division': activityData.activity_division || activityData.zone_ref || '',
+        'Activity Division': activityData.activity_division || '', // ✅ FIX: Only use activity_division, not zone_ref
         'Unit': activityData.unit || '',
-        'Zone Ref': activityData.zone_ref || activityData.activity_division || '',
+        'Zone Ref': activityData.zone_ref || '', // ✅ Zone Reference (auto-generated or manual)
+        'Zone Number': activityData.zone_number || '', // ✅ Zone Number (dedicated column)
         
         // ✅ Use BOTH old and new column names for compatibility
         'Planned Units': activityData.planned_units?.toString() || '0',
@@ -1121,6 +1903,16 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       console.log('Updated Data:', data)
       console.log('========================================')
       
+      // ✅ Update Responsible Divisions in Project based on Activity Division
+      if (activityData.activity_division && activityData.project_code) {
+        try {
+          await updateProjectResponsibleDivisions(activityData.project_code, activityData.activity_division)
+        } catch (divisionError) {
+          console.warn('⚠️ Failed to update project responsible divisions:', divisionError)
+          // Don't throw - continue with activity update
+        }
+      }
+      
       // ✅ Auto-save calculations for the updated activity
       try {
         const mappedActivity = mapBOQFromDB(data)
@@ -1136,6 +1928,27 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         }
       } catch (autoSaveError) {
         console.warn('⚠️ Auto-save calculations failed:', autoSaveError)
+      }
+      
+      // ✅ Auto-update project status based on updated activity
+      try {
+        const projectCode = activityData.project_code || activityData.project_full_code
+        if (projectCode) {
+          // Find project by code
+          const project = projects.find(p => 
+            p.project_code === projectCode || 
+            `${p.project_code}${p.project_sub_code ? '-' + p.project_sub_code : ''}` === projectCode
+          )
+          if (project) {
+            console.log('🔄 Auto-updating project status after activity update...')
+            const statusUpdate = await updateProjectStatus(project.id)
+            if (statusUpdate) {
+              console.log(`✅ Project status auto-updated: ${statusUpdate.old_status} → ${statusUpdate.new_status}`)
+            }
+          }
+        }
+      } catch (statusError) {
+        console.warn('⚠️ Auto-update project status failed:', statusError)
       }
       
       // Close form and refresh
@@ -1171,19 +1984,107 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       
       // Step 1: Delete associated KPIs first
       console.log('🗑️ Step 1: Deleting associated KPIs...')
-      const { data: kpiDeleteData, error: kpiError, count: kpiCount } = await supabase
+      
+      // ✅ Build project_full_code for accurate matching
+      const projectCode = (activityToDelete.project_code || '').trim()
+      const projectSubCode = (activityToDelete.project_sub_code || '').trim()
+      let projectFullCode = activityToDelete.project_full_code || projectCode
+      if (!projectFullCode || projectFullCode === projectCode) {
+        if (projectSubCode) {
+          if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+            projectFullCode = projectSubCode
+          } else {
+            if (projectSubCode.startsWith('-')) {
+              projectFullCode = `${projectCode}${projectSubCode}`
+            } else {
+              projectFullCode = `${projectCode}-${projectSubCode}`
+            }
+          }
+        }
+      }
+      
+      console.log(`🔍 Searching for KPIs to delete:`, {
+        projectCode,
+        projectSubCode,
+        projectFullCode,
+        activityName: activityToDelete.activity_name
+      })
+      
+      // ✅ Try multiple strategies to find and delete KPIs
+      let kpisToDelete: any[] = []
+      
+      // Strategy 1: Match by Project Full Code + Activity Name
+      let { data: kpisByFullCode, error: error1 } = await supabase
         .from(TABLES.KPI)
-        .delete({ count: 'exact' })
-        .eq('Project Full Code', activityToDelete.project_full_code || activityToDelete.project_code)
+        .select('id')
+        .eq('Project Full Code', projectFullCode)
         .eq('Activity Name', activityToDelete.activity_name)
         .eq('Input Type', 'Planned')
       
-      if (kpiError) {
-        console.error('❌ Error deleting KPIs:', kpiError)
-        throw new Error(`Failed to delete associated KPIs: ${kpiError.message}`)
+      if (kpisByFullCode && Array.isArray(kpisByFullCode) && kpisByFullCode.length > 0) {
+        kpisToDelete = kpisByFullCode
+        console.log(`✅ Found ${kpisToDelete.length} KPIs by Project Full Code`)
+      } else {
+        // Strategy 2: Match by Project Code + Project Sub Code + Activity Name
+        if (projectSubCode) {
+          let { data: kpisByCodeAndSub, error: error2 } = await supabase
+            .from(TABLES.KPI)
+            .select('id')
+            .eq('Project Code', projectCode)
+            .eq('Project Sub Code', projectSubCode)
+            .eq('Activity Name', activityToDelete.activity_name)
+            .eq('Input Type', 'Planned')
+          
+          if (kpisByCodeAndSub && Array.isArray(kpisByCodeAndSub) && kpisByCodeAndSub.length > 0) {
+            kpisToDelete = kpisByCodeAndSub
+            console.log(`✅ Found ${kpisToDelete.length} KPIs by Project Code + Sub Code`)
+          } else {
+            // Strategy 3: Match by Project Code only (fallback)
+            let { data: kpisByCode, error: error3 } = await supabase
+              .from(TABLES.KPI)
+              .select('id')
+              .eq('Project Code', projectCode)
+              .eq('Activity Name', activityToDelete.activity_name)
+              .eq('Input Type', 'Planned')
+            
+            if (kpisByCode && Array.isArray(kpisByCode) && kpisByCode.length > 0) {
+              kpisToDelete = kpisByCode
+              console.log(`✅ Found ${kpisToDelete.length} KPIs by Project Code only`)
+            }
+          }
+        } else {
+          // Strategy 3: Match by Project Code only (no sub_code)
+          let { data: kpisByCode, error: error3 } = await supabase
+            .from(TABLES.KPI)
+            .select('id')
+            .eq('Project Code', projectCode)
+            .eq('Activity Name', activityToDelete.activity_name)
+            .eq('Input Type', 'Planned')
+          
+          if (kpisByCode && Array.isArray(kpisByCode) && kpisByCode.length > 0) {
+            kpisToDelete = kpisByCode
+            console.log(`✅ Found ${kpisToDelete.length} KPIs by Project Code only`)
+          }
+        }
       }
       
-      console.log(`✅ Deleted ${kpiCount || 0} associated KPIs`)
+      // Delete found KPIs
+      if (kpisToDelete.length > 0) {
+        const idsToDelete = kpisToDelete.map((kpi: any) => (kpi as any).id)
+        const { error: deleteError, count: kpiCount } = await supabase
+          .from(TABLES.KPI)
+          .delete({ count: 'exact' })
+          .in('id', idsToDelete)
+        
+        if (deleteError) {
+          console.error('❌ Error deleting KPIs:', deleteError)
+          throw new Error(`Failed to delete associated KPIs: ${deleteError.message}`)
+        }
+        
+        console.log(`✅ Deleted ${kpiCount || idsToDelete.length} associated KPIs`)
+      } else {
+        console.log('ℹ️ No KPIs found to delete (may have been deleted already or never existed)')
+      }
       
       // Step 2: Delete the BOQ activity
       console.log('🗑️ Step 2: Deleting BOQ activity...')
@@ -1201,14 +2102,14 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       console.log('========================================')
       console.log('✅ DELETE COMPLETE!')
       console.log(`  - Deleted activity: ${activityToDelete.activity_name}`)
-      console.log(`  - Deleted ${kpiCount || 0} associated KPIs`)
+      console.log(`  - Deleted ${kpisToDelete.length || 0} associated KPIs`)
       console.log('========================================')
       
       // Update local state
       setActivities(activities.filter(a => a.id !== id))
       
       // Show success message
-      alert(`✅ Activity deleted successfully!\nDeleted ${kpiCount || 0} associated KPIs`)
+      alert(`✅ Activity deleted successfully!\nDeleted ${kpisToDelete.length || 0} associated KPIs`)
       
     } catch (error: any) {
       console.error('❌ DELETE FAILED:', error)
@@ -1233,15 +2134,86 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         const activityToDelete = activities.find(a => a.id === id)
         if (!activityToDelete) continue
         
-        // Delete associated KPIs
-        const { count: kpiCount } = await supabase
+        // ✅ Build project_full_code for accurate matching
+        const projectCode = (activityToDelete.project_code || '').trim()
+        const projectSubCode = (activityToDelete.project_sub_code || '').trim()
+        let projectFullCode = activityToDelete.project_full_code || projectCode
+        if (!projectFullCode || projectFullCode === projectCode) {
+          if (projectSubCode) {
+            if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+              projectFullCode = projectSubCode
+            } else {
+              if (projectSubCode.startsWith('-')) {
+                projectFullCode = `${projectCode}${projectSubCode}`
+              } else {
+                projectFullCode = `${projectCode}-${projectSubCode}`
+              }
+            }
+          }
+        }
+        
+        // ✅ Try multiple strategies to find and delete KPIs
+        let kpisToDelete: any[] = []
+        
+        // Strategy 1: Match by Project Full Code + Activity Name
+        let { data: kpisByFullCode } = await supabase
           .from(TABLES.KPI)
-          .delete({ count: 'exact' })
-          .eq('Project Full Code', activityToDelete.project_full_code || activityToDelete.project_code)
+          .select('id')
+          .eq('Project Full Code', projectFullCode)
           .eq('Activity Name', activityToDelete.activity_name)
           .eq('Input Type', 'Planned')
         
-        totalKPIsDeleted += (kpiCount || 0)
+        if (kpisByFullCode && Array.isArray(kpisByFullCode) && kpisByFullCode.length > 0) {
+          kpisToDelete = kpisByFullCode
+        } else if (projectSubCode) {
+          // Strategy 2: Match by Project Code + Project Sub Code + Activity Name
+          let { data: kpisByCodeAndSub } = await supabase
+            .from(TABLES.KPI)
+            .select('id')
+            .eq('Project Code', projectCode)
+            .eq('Project Sub Code', projectSubCode)
+            .eq('Activity Name', activityToDelete.activity_name)
+            .eq('Input Type', 'Planned')
+          
+          if (kpisByCodeAndSub && Array.isArray(kpisByCodeAndSub) && kpisByCodeAndSub.length > 0) {
+            kpisToDelete = kpisByCodeAndSub
+          } else {
+            // Strategy 3: Match by Project Code only (fallback)
+            let { data: kpisByCode } = await supabase
+              .from(TABLES.KPI)
+              .select('id')
+              .eq('Project Code', projectCode)
+              .eq('Activity Name', activityToDelete.activity_name)
+              .eq('Input Type', 'Planned')
+            
+            if (kpisByCode && Array.isArray(kpisByCode) && kpisByCode.length > 0) {
+              kpisToDelete = kpisByCode
+            }
+          }
+        } else {
+          // Strategy 3: Match by Project Code only (no sub_code)
+          let { data: kpisByCode } = await supabase
+            .from(TABLES.KPI)
+            .select('id')
+            .eq('Project Code', projectCode)
+            .eq('Activity Name', activityToDelete.activity_name)
+            .eq('Input Type', 'Planned')
+          
+          if (kpisByCode && Array.isArray(kpisByCode) && kpisByCode.length > 0) {
+            kpisToDelete = kpisByCode
+          }
+        }
+        
+        // Delete found KPIs
+        if (kpisToDelete.length > 0) {
+          const idsToDelete = kpisToDelete.map((kpi: any) => (kpi as any).id)
+          const { count: kpiCount } = await supabase
+            .from(TABLES.KPI)
+            .delete({ count: 'exact' })
+            .in('id', idsToDelete)
+          
+          totalKPIsDeleted += (kpiCount || idsToDelete.length)
+        }
       }
       
       console.log(`🗑️ Deleted ${totalKPIsDeleted} associated KPIs`)
@@ -1422,258 +2394,121 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
           )}
         </div>
         
-        {/* ✅ Simple Filter Section */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Filter className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Filters</h3>
-              <span className="text-sm text-gray-500 dark:text-gray-400">
-                ({filteredActivities.length} of {activities.length} activities)
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowFilters(!showFilters)}
-                className="flex items-center gap-2"
-              >
-                <Filter className="h-4 w-4" />
-                {showFilters ? 'Hide Filters' : 'Show Filters'}
-              </Button>
-              {(filters.search || (filters.project && filters.project.length > 0) || filters.division || filters.status || filters.zone) && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={clearFilters}
-                  className="flex items-center gap-2 text-red-600 hover:text-red-700"
-                >
-                  <X className="h-4 w-4" />
-                  Clear All
-                </Button>
-              )}
-            </div>
-          </div>
+        {/* BOQ Custom Filter */}
+        <BOQFilter
+        projects={projects.map(p => {
+          // ✅ CRITICAL: Use project_full_code from project object directly
+          const projectCode = (p.project_code || '').trim()
+          const projectSubCode = (p.project_sub_code || '').trim()
           
-          {showFilters && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Search Filter */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Search
-                </label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <input
-                    type="text"
-                    value={filters.search}
-                    onChange={(e) => handleFilterChange('search', e.target.value)}
-                    placeholder="Search activities..."
-                    className="w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                  />
-                </div>
-              </div>
-              
-              {/* Project Filter - Searchable Dropdown */}
-              <div className="relative" ref={projectDropdownRef}>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Project
-                </label>
-                <div className="relative">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                    <Input
-                      type="text"
-                      value={projectSearch}
-                      onChange={(e) => {
-                        const value = e.target.value
-                        setProjectSearch(value)
-                        setShowProjectDropdown(true)
-                      }}
-                      onFocus={() => {
-                        setShowProjectDropdown(true)
-                      }}
-                      onClick={() => setShowProjectDropdown(true)}
-                      placeholder={filters.project && filters.project.length > 0 ? `${filters.project.length} project(s) selected` : "Search projects..."}
-                      className="pl-10 pr-10 w-full"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowProjectDropdown(!showProjectDropdown)
-                      }}
-                      className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
-                    >
-                      <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${showProjectDropdown ? 'rotate-180' : ''}`} />
-                    </button>
-                  </div>
-                  
-                  {showProjectDropdown && (
-                    <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                      <div
-                        onClick={() => {
-                          handleFilterChange('project', [])
-                          setProjectSearch('')
-                          setShowProjectDropdown(false)
-                        }}
-                        className={`px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer flex items-center gap-2 ${(!filters.project || filters.project.length === 0) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
-                      >
-                        <Building2 className="h-4 w-4 text-gray-400" />
-                        <span className={(!filters.project || filters.project.length === 0) ? 'font-medium text-blue-600 dark:text-blue-400' : ''}>
-                          All Projects
-                        </span>
-                      </div>
-                      {getFilteredProjects().map((project) => {
-                        const projectFullCode = getProjectFullCode(project)
-                        const displayCode = project.project_sub_code 
-                          ? (project.project_sub_code.toUpperCase().startsWith((project.project_code || '').toUpperCase())
-                              ? project.project_sub_code
-                              : `${project.project_code}-${project.project_sub_code}`)
-                          : project.project_code
-                        const isSelected = filters.project && filters.project.includes(projectFullCode)
-                        return (
-                          <div
-                            key={project.id}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              toggleProject(projectFullCode)
-                              setProjectSearch('')
-                            }}
-                            className={`px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer flex items-center gap-2 ${
-                              isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : ''
-                            }`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={isSelected || false}
-                              onChange={() => toggleProject(projectFullCode)}
-                              onClick={(e) => e.stopPropagation()}
-                              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                            />
-                            <Building2 className="h-4 w-4 text-gray-400" />
-                            <div className="flex-1">
-                              <div className={`text-sm ${isSelected ? 'font-medium text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-white'}`}>
-                                {displayCode} - {project.project_name}
-                              </div>
-                            </div>
-                            {isSelected && (
-                              <CheckCircle className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                            )}
-                          </div>
-                        )
-                      })}
-                      {getFilteredProjects().length === 0 && (
-                        <div className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 text-center">
-                          No projects found matching "{projectSearch}"
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-              
-              {/* Division Filter */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Division
-                </label>
-                <select
-                  value={filters.division}
-                  onChange={(e) => handleFilterChange('division', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                >
-                  <option value="">All Divisions</option>
-                  {getUniqueDivisions().map(division => (
-                    <option key={division} value={division}>
-                      {division}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              
-              {/* Status Filter */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Status
-                </label>
-                <select
-                  value={filters.status}
-                  onChange={(e) => handleFilterChange('status', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                >
-                  <option value="">All Status</option>
-                  <option value="not_started">Not Started (0%)</option>
-                  <option value="in_progress">In Progress (1-99%)</option>
-                  <option value="completed">Completed (100%)</option>
-                </select>
-              </div>
-              
-              {/* Zone Filter */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Zone
-                </label>
-                <select
-                  value={filters.zone}
-                  onChange={(e) => handleFilterChange('zone', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                >
-                  <option value="">All Zones</option>
-                  {availableZones.map((zone) => (
-                    <option key={zone} value={zone}>
-                      {zone}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
-        </div>
-        
-        {/* ✅ Display selected projects as pills - moved to after Zone filter */}
-        {filters.project && filters.project.length > 0 && (
-          <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
-            <div className="flex flex-wrap gap-1">
-              {filters.project.map((projectFullCode) => {
-                // ✅ FIX: Find project by matching project_full_code
-                const project = projects.find(p => {
-                  const pFullCode = getProjectFullCode(p)
-                  return pFullCode === projectFullCode
-                })
-                if (!project) return null
-                
-                const displayCode = project.project_sub_code 
-                  ? (project.project_sub_code.toUpperCase().startsWith((project.project_code || '').toUpperCase())
-                      ? project.project_sub_code
-                      : `${project.project_code}-${project.project_sub_code}`)
-                  : project.project_code
-                return (
-                  <div
-                    key={projectFullCode}
-                    className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-[10px] font-normal"
-                  >
-                    <Building2 className="h-2.5 w-2.5" />
-                    <span className="max-w-[120px] truncate">
-                      {displayCode} - {project.project_name}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        toggleProject(projectFullCode)
-                      }}
-                      className="ml-0.5 hover:bg-blue-200 dark:hover:bg-blue-800 rounded p-0.5 transition-colors"
-                      title="Remove project"
-                    >
-                      <X className="h-2.5 w-2.5" />
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
+          // ✅ BUILD: Build project_full_code if not available
+          let projectFullCode = (p.project_full_code || '').trim()
+          if (!projectFullCode && projectCode) {
+            if (projectSubCode) {
+              if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+                projectFullCode = projectSubCode.trim()
+              } else {
+                if (projectSubCode.startsWith('-')) {
+                  projectFullCode = `${projectCode}${projectSubCode}`.trim()
+                } else {
+                  projectFullCode = `${projectCode}-${projectSubCode}`.trim()
+                }
+              }
+            } else {
+              projectFullCode = projectCode
+            }
+          }
+          
+          // ✅ DEBUG: Log for P9999 projects
+          if (projectCode.includes('P9999') || projectCode.includes('9999')) {
+            console.log('🔍 BOQManagement - Project mapping:', {
+              projectCode,
+              projectSubCode,
+              projectFullCodeFromDB: p.project_full_code,
+              builtProjectFullCode: projectFullCode
+            })
+          }
+          
+          return {
+            project_code: projectCode,
+            project_sub_code: projectSubCode,
+            project_full_code: projectFullCode || projectCode,
+            project_name: p.project_name 
+          }
+        })}
+        activities={[...activities, ...filteredActivities].map(a => ({
+          activity_name: a.activity_name,
+          project_full_code: a.project_full_code || a.project_code,
+          zone: a.zone_ref || a.zone_number || '',
+          unit: a.unit || '',
+          activity_division: a.activity_division || ''
+        }))}
+        selectedProjects={selectedProjects}
+        selectedActivities={selectedActivities}
+        selectedZones={selectedZones}
+        selectedUnits={selectedUnits}
+        selectedDivisions={selectedDivisions}
+        dateRange={dateRange}
+        valueRange={valueRange}
+        quantityRange={quantityRange}
+        searchTerm={searchTerm}
+        onProjectsChange={(projectCodes) => {
+          console.log('🔍 BOQManagement onProjectsChange:', {
+            projectCodes,
+            currentSelectedProjects: selectedProjects
+          })
+          setSelectedProjects(projectCodes)
+          setCurrentPage(1)
+          // ✅ Fetch data when filters are applied
+          fetchData(projectCodes)
+        }}
+        onActivitiesChange={(activities) => {
+          setSelectedActivities(activities)
+          setCurrentPage(1)
+        }}
+        onZonesChange={(zones) => {
+          setSelectedZones(zones)
+          setCurrentPage(1)
+          if (zones.length > 0) {
+            handleFilterChange('zone', zones)
+          } else {
+            handleFilterChange('zone', '')
+          }
+        }}
+        onUnitsChange={setSelectedUnits}
+        onDivisionsChange={(divisions) => {
+          setSelectedDivisions(divisions)
+          setCurrentPage(1)
+          if (divisions.length > 0) {
+            handleFilterChange('division', divisions[0])
+          } else {
+            handleFilterChange('division', '')
+          }
+        }}
+        onDateRangeChange={setDateRange}
+        onValueRangeChange={setValueRange}
+        onQuantityRangeChange={setQuantityRange}
+        onSearchChange={(search) => {
+          setSearchTerm(search)
+          setCurrentPage(1)
+        }}
+        onClearAll={() => {
+          setSelectedProjects([])
+          setSelectedActivities([])
+          setSelectedZones([])
+          setSelectedUnits([])
+          setSelectedDivisions([])
+          setDateRange({})
+          setValueRange({})
+          setQuantityRange({})
+          setSearchTerm('')
+          clearFilters()
+          // Clear data when filters are cleared
+          setActivities([])
+          setTotalCount(0)
+        }}
+      />
+      
         
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">

@@ -310,13 +310,15 @@ export interface UserWithPermissions {
  * الحصول على صلاحيات المستخدم
  */
 export function getUserPermissions(user: UserWithPermissions): string[] {
-  console.log('🔍 getUserPermissions called:', {
-    userEmail: user.email,
-    userRole: user.role,
-    customEnabled: user.custom_permissions_enabled,
-    savedPermissions: user.permissions?.length || 0,
-    savedPermissionsList: user.permissions
-  })
+  // ✅ PERFORMANCE: Only log in development mode and very rarely (0.1%)
+  if (process.env.NODE_ENV === 'development' && Math.random() < 0.001) {
+    console.log('🔍 getUserPermissions called:', {
+      userEmail: user.email,
+      userRole: user.role,
+      customEnabled: user.custom_permissions_enabled,
+      savedPermissions: user.permissions?.length || 0
+    })
+  }
 
   // الحصول على الصلاحيات الافتراضية للدور
   const defaultRolePermissions = DEFAULT_ROLE_PERMISSIONS[user.role] || DEFAULT_ROLE_PERMISSIONS.viewer
@@ -325,12 +327,11 @@ export function getUserPermissions(user: UserWithPermissions): string[] {
   if (user.custom_permissions_enabled) {
     // استخدم الصلاحيات المخصصة فقط
     const customPerms = user.permissions || []
-    console.log('✅ Using CUSTOM permissions ONLY:', customPerms.length, '(custom mode enabled)')
+    // ✅ PERFORMANCE: Removed excessive logging
     return customPerms
   }
   
   // إذا لم يكن custom mode، استخدم الصلاحيات الافتراضية للدور
-  console.log('✅ Using default role permissions:', defaultRolePermissions.length, 'for role:', user.role)
   return defaultRolePermissions
 }
 
@@ -338,23 +339,21 @@ export function getUserPermissions(user: UserWithPermissions): string[] {
  * التحقق من وجود صلاحية معينة
  */
 export function hasPermission(user: UserWithPermissions | null, permission: string): boolean {
-  console.log('🔍 Permission Check:', {
-    permission,
-    userEmail: user?.email,
-    userRole: user?.role,
-    userPermissionsCount: user?.permissions?.length,
-    userPermissions: user?.permissions,
-    customEnabled: user?.custom_permissions_enabled
-  })
+  // ✅ PERFORMANCE: Only log in development mode and very rarely (0.1%)
+  if (process.env.NODE_ENV === 'development' && Math.random() < 0.001) {
+    console.log('🔍 Permission Check:', {
+      permission,
+      userEmail: user?.email,
+      userRole: user?.role
+    })
+  }
   
   if (!user) {
-    console.log('❌ Permission denied: No user')
     return false
   }
   
   // ✅ Admin لديه كل الصلاحيات دائماً (إلا إذا كان custom_permissions_enabled)
   if (user.role === 'admin' && !user.custom_permissions_enabled) {
-    console.log('✅ Permission granted: Admin role (using default admin permissions)')
     return true
   }
   
@@ -362,13 +361,7 @@ export function hasPermission(user: UserWithPermissions | null, permission: stri
   const userPermissions = getUserPermissions(user)
   const hasAccess = userPermissions.includes(permission)
   
-  console.log('🔍 Permission result:', {
-    permission,
-    hasAccess,
-    userPermissionsCount: userPermissions.length,
-    permissionSource: user.custom_permissions_enabled ? 'Custom' : 'Role + Additional'
-  })
-  
+  // ✅ PERFORMANCE: Removed excessive logging
   return hasAccess
 }
 

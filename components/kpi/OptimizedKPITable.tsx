@@ -14,6 +14,7 @@ interface OptimizedKPITableProps {
   activities: any[]
   onDelete?: (id: string) => void
   onBulkDelete?: (ids: string[]) => void
+  onBulkEdit?: (selectedKPIs: ProcessedKPI[]) => void
   onUpdate?: (id: string, data: any) => Promise<void>
 }
 
@@ -23,6 +24,7 @@ export function OptimizedKPITable({
   activities, 
   onDelete, 
   onBulkDelete,
+  onBulkEdit,
   onUpdate 
 }: OptimizedKPITableProps) {
   const guard = usePermissionGuard()
@@ -136,17 +138,33 @@ export function OptimizedKPITable({
                 Clear Selection
               </Button>
             </div>
-            {canDelete && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleBulkDeleteClick}
-                className="flex items-center space-x-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
-              >
-                <Trash2 className="h-4 w-4" />
-                <span>Delete Selected</span>
-              </Button>
-            )}
+            <div className="flex items-center space-x-2">
+              {canEdit && onBulkEdit && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const selectedKPIs = kpis.filter(k => selectedIds.includes(k.id))
+                    onBulkEdit(selectedKPIs)
+                  }}
+                  className="flex items-center space-x-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                >
+                  <Edit className="h-4 w-4" />
+                  <span>Bulk Edit</span>
+                </Button>
+              )}
+              {canDelete && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleBulkDeleteClick}
+                  className="flex items-center space-x-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  <span>Delete Selected</span>
+                </Button>
+              )}
+            </div>
           </div>
         )}
         

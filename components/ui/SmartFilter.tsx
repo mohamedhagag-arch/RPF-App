@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Button } from './Button'
 import { X, Filter, ChevronDown, Search } from 'lucide-react'
+import { PROJECT_STATUSES } from '@/lib/projectTemplates'
 
 interface SmartFilterProps {
   // Projects data
@@ -14,10 +15,10 @@ interface SmartFilterProps {
   }>
   
   // Activities data (for dynamic filtering)
-  activities?: Array<{ activity_name: string; project_code: string; zone?: string; unit?: string; activity_division?: string }>
+  activities?: Array<{ activity_name: string; project_code?: string; project_full_code?: string; zone?: string; unit?: string; activity_division?: string }>
   
   // KPIs data (for extracting unique values for filters)
-  kpis?: Array<{ zone?: string; unit?: string; activity_division?: string; value?: number; quantity?: number }>
+  kpis?: Array< { zone?: string; unit?: string; activity_division?: string; activity_scope?: string; activity_timing?: string; value?: number; quantity?: number }>
   
   // Current filters
   selectedProjects: string[]
@@ -26,6 +27,9 @@ interface SmartFilterProps {
   selectedZones?: string[]
   selectedUnits?: string[]
   selectedDivisions?: string[]
+  selectedScopes?: string[]
+  selectedActivityTimings?: string[]
+  selectedStatuses?: string[]
   dateRange?: { from?: string; to?: string }
   valueRange?: { min?: number; max?: number }
   quantityRange?: { min?: number; max?: number }
@@ -37,10 +41,16 @@ interface SmartFilterProps {
   onZonesChange: (zones: string[]) => void
   onUnitsChange: (units: string[]) => void
   onDivisionsChange: (divisions: string[]) => void
+  onScopesChange?: (scopes: string[]) => void
+  onActivityTimingsChange?: (timings: string[]) => void
+  onStatusesChange: (statuses: string[]) => void
   onDateRangeChange: (range: { from?: string; to?: string }) => void
   onValueRangeChange: (range: { min?: number; max?: number }) => void
   onQuantityRangeChange: (range: { min?: number; max?: number }) => void
   onClearAll: () => void
+  
+  // Optional: Always show filters expanded (for Project Management)
+  alwaysExpanded?: boolean
 }
 
 export function SmartFilter({
@@ -53,6 +63,9 @@ export function SmartFilter({
   selectedZones,
   selectedUnits,
   selectedDivisions,
+  selectedScopes = [],
+  selectedActivityTimings = [],
+  selectedStatuses = [],
   dateRange,
   valueRange,
   quantityRange,
@@ -62,17 +75,25 @@ export function SmartFilter({
   onZonesChange,
   onUnitsChange,
   onDivisionsChange,
+  onScopesChange,
+  onActivityTimingsChange,
+  onStatusesChange,
   onDateRangeChange,
   onValueRangeChange,
   onQuantityRangeChange,
-  onClearAll
+  onClearAll,
+  alwaysExpanded = false
 }: SmartFilterProps) {
+  // Dropdowns are closed by default, even when alwaysExpanded (buttons are always visible)
   const [showProjectDropdown, setShowProjectDropdown] = useState(false)
   const [showActivityDropdown, setShowActivityDropdown] = useState(false)
   const [showTypeDropdown, setShowTypeDropdown] = useState(false)
+  const [showStatusDropdown, setShowStatusDropdown] = useState(false)
   const [showZoneDropdown, setShowZoneDropdown] = useState(false)
   const [showUnitDropdown, setShowUnitDropdown] = useState(false)
   const [showDivisionDropdown, setShowDivisionDropdown] = useState(false)
+  const [showScopeDropdown, setShowScopeDropdown] = useState(false)
+  const [showActivityTimingDropdown, setShowActivityTimingDropdown] = useState(false)
   const [showDateRangeModal, setShowDateRangeModal] = useState(false)
   const [showValueRangeModal, setShowValueRangeModal] = useState(false)
   const [showQuantityRangeModal, setShowQuantityRangeModal] = useState(false)
@@ -83,6 +104,8 @@ export function SmartFilter({
   const [zoneSearch, setZoneSearch] = useState('')
   const [unitSearch, setUnitSearch] = useState('')
   const [divisionSearch, setDivisionSearch] = useState('')
+  const [scopeSearch, setScopeSearch] = useState('')
+  const [activityTimingSearch, setActivityTimingSearch] = useState('')
   
   // Date range inputs
   const [dateFromInput, setDateFromInput] = useState(dateRange?.from || '')
@@ -100,9 +123,12 @@ export function SmartFilter({
   const projectDropdownRef = useRef<HTMLDivElement>(null)
   const activityDropdownRef = useRef<HTMLDivElement>(null)
   const typeDropdownRef = useRef<HTMLDivElement>(null)
+  const statusDropdownRef = useRef<HTMLDivElement>(null)
   const zoneDropdownRef = useRef<HTMLDivElement>(null)
   const unitDropdownRef = useRef<HTMLDivElement>(null)
   const divisionDropdownRef = useRef<HTMLDivElement>(null)
+  const scopeDropdownRef = useRef<HTMLDivElement>(null)
+  const activityTimingDropdownRef = useRef<HTMLDivElement>(null)
   const dateRangeModalRef = useRef<HTMLDivElement>(null)
   const valueRangeModalRef = useRef<HTMLDivElement>(null)
   const quantityRangeModalRef = useRef<HTMLDivElement>(null)
@@ -122,6 +148,9 @@ export function SmartFilter({
       if (typeDropdownRef.current && showTypeDropdown && !typeDropdownRef.current.contains(target)) {
         setShowTypeDropdown(false)
       }
+      if (statusDropdownRef.current && showStatusDropdown && !statusDropdownRef.current.contains(target)) {
+        setShowStatusDropdown(false)
+      }
       if (zoneDropdownRef.current && showZoneDropdown && !zoneDropdownRef.current.contains(target)) {
         setShowZoneDropdown(false)
       }
@@ -130,6 +159,12 @@ export function SmartFilter({
       }
       if (divisionDropdownRef.current && showDivisionDropdown && !divisionDropdownRef.current.contains(target)) {
         setShowDivisionDropdown(false)
+      }
+      if (scopeDropdownRef.current && showScopeDropdown && !scopeDropdownRef.current.contains(target)) {
+        setShowScopeDropdown(false)
+      }
+      if (activityTimingDropdownRef.current && showActivityTimingDropdown && !activityTimingDropdownRef.current.contains(target)) {
+        setShowActivityTimingDropdown(false)
       }
       if (dateRangeModalRef.current && showDateRangeModal && !dateRangeModalRef.current.contains(target)) {
         setShowDateRangeModal(false)
@@ -150,7 +185,7 @@ export function SmartFilter({
       document.removeEventListener('mousedown', handleClickOutside)
       document.removeEventListener('click', handleClickOutside)
     }
-  }, [showProjectDropdown, showActivityDropdown, showTypeDropdown, showZoneDropdown, showUnitDropdown, showDivisionDropdown, showDateRangeModal, showValueRangeModal, showQuantityRangeModal])
+  }, [showProjectDropdown, showActivityDropdown, showTypeDropdown, showStatusDropdown, showZoneDropdown, showUnitDropdown, showDivisionDropdown, showScopeDropdown, showActivityTimingDropdown, showDateRangeModal, showValueRangeModal, showQuantityRangeModal])
   
   // 🔧 FIX: Close dropdowns when pressing Escape
   useEffect(() => {
@@ -159,9 +194,12 @@ export function SmartFilter({
         setShowProjectDropdown(false)
         setShowActivityDropdown(false)
         setShowTypeDropdown(false)
+        setShowStatusDropdown(false)
         setShowZoneDropdown(false)
         setShowUnitDropdown(false)
         setShowDivisionDropdown(false)
+        setShowScopeDropdown(false)
+        setShowActivityTimingDropdown(false)
         setShowDateRangeModal(false)
         setShowValueRangeModal(false)
         setShowQuantityRangeModal(false)
@@ -174,47 +212,185 @@ export function SmartFilter({
     }
   }, [])
   
-  // 🔧 FIX: Get filtered projects based on search (including sub_code and full_code)
+  // ✅ ENHANCED INTELLIGENT PROJECT SEARCH: Handles ALL cases with advanced logic
+  // - Search "5019" finds "P5019", "P05019", "5019", etc.
+  // - Search "R4" finds projects with sub_code "R4", "R-4", "-R4", etc.
+  // - Search "P5066-R4" finds exact match and variations
+  // - Search by project name (partial or full)
+  // - Fuzzy matching for typos
+  // - Case-insensitive and flexible matching
+  // - Handles all project formats: P5066, P5066-R4, P5066R4, P5066 R4, etc.
   const filteredProjects = projects.filter(project => {
-    const searchTerm = projectSearch.toLowerCase()
-    const projectCode = project.project_code?.toLowerCase() || ''
-    const projectSubCode = project.project_sub_code?.toLowerCase() || ''
-    const projectFullCode = project.project_full_code?.toLowerCase() || ''
-    const projectName = project.project_name?.toLowerCase() || ''
+    const searchTerm = projectSearch.toLowerCase().trim()
+    if (!searchTerm) return true
     
-    return projectCode.includes(searchTerm) ||
-           projectSubCode.includes(searchTerm) ||
-           projectFullCode.includes(searchTerm) ||
-           projectName.includes(searchTerm) ||
-           `${projectCode} ${projectSubCode}`.includes(searchTerm)
+    const projectCode = (project.project_code || '').toLowerCase().trim()
+    const projectSubCode = (project.project_sub_code || '').toLowerCase().trim()
+    const projectFullCode = (project.project_full_code || '').toLowerCase().trim()
+    const projectName = (project.project_name || '').toLowerCase().trim()
+    
+    // ✅ ENHANCED: Extract numbers from project code (handles P5019, P05019, 5019, etc.)
+    const projectCodeNumbers = projectCode.replace(/^p/i, '').replace(/[^0-9]/g, '')
+    const searchTermNumbers = searchTerm.replace(/^p/i, '').replace(/[^0-9]/g, '')
+    
+    // ✅ ENHANCED Match 1: Direct code match with multiple variations
+    const matchesCode = 
+      projectCode === searchTerm || 
+      projectCode.replace(/^p/i, '') === searchTerm ||
+      projectCode.replace(/^p/i, '').replace(/^0+/, '') === searchTerm.replace(/^0+/, '') || // Handle leading zeros
+      projectCodeNumbers === searchTermNumbers ||
+      projectCode.includes(searchTerm) ||
+      projectCode.replace(/^p/i, '').includes(searchTerm) ||
+      searchTerm.includes(projectCode.replace(/^p/i, ''))
+    
+    // ✅ ENHANCED Match 2: Sub code match with variations (R4, R-4, -R4, etc.)
+    const matchesSubCode = projectSubCode && (
+      projectSubCode === searchTerm ||
+      projectSubCode.replace(/^-/, '') === searchTerm.replace(/^-/, '') ||
+      projectSubCode.replace(/^-/, '') === searchTerm ||
+      projectSubCode.includes(searchTerm) ||
+      searchTerm.includes(projectSubCode) ||
+      projectSubCode.replace(/[^a-z0-9]/gi, '') === searchTerm.replace(/[^a-z0-9]/gi, '') // Alphanumeric only match
+    )
+    
+    // ✅ ENHANCED Match 3: Full code match with all format variations
+    const matchesFullCode = projectFullCode && (
+      projectFullCode === searchTerm ||
+      projectFullCode.replace(/[^a-z0-9]/gi, '') === searchTerm.replace(/[^a-z0-9]/gi, '') || // Alphanumeric only
+      projectFullCode.includes(searchTerm) ||
+      searchTerm.includes(projectFullCode) ||
+      projectFullCode.replace(/-/g, '') === searchTerm.replace(/-/g, '') || // Without dashes
+      projectFullCode.replace(/\s/g, '') === searchTerm.replace(/\s/g, '') // Without spaces
+    )
+    
+    // ✅ ENHANCED Match 4: Project name match (partial words, fuzzy)
+    const matchesName = projectName && (
+      projectName === searchTerm ||
+      projectName.includes(searchTerm) ||
+      searchTerm.split(' ').every(word => projectName.includes(word)) || // All words match
+      projectName.split(' ').some(word => word.startsWith(searchTerm)) // Any word starts with search
+    )
+    
+    // ✅ ENHANCED Match 5: Combined formats with all variations
+    const combinedFormats = [
+      projectSubCode ? `${projectCode}-${projectSubCode}` : '',
+      projectSubCode ? `${projectCode}${projectSubCode}` : '',
+      projectSubCode ? `${projectCode} ${projectSubCode}` : '',
+      projectSubCode ? `${projectCode.replace(/^p/i, '')}-${projectSubCode}` : '',
+      projectSubCode ? `${projectCode.replace(/^p/i, '')}${projectSubCode}` : ''
+    ].filter(Boolean)
+    
+    const matchesCombined = combinedFormats.some(format => {
+      const formatLower = format.toLowerCase()
+      return formatLower === searchTerm ||
+             formatLower.includes(searchTerm) ||
+             searchTerm.includes(formatLower) ||
+             formatLower.replace(/[^a-z0-9]/gi, '') === searchTerm.replace(/[^a-z0-9]/gi, '')
+    })
+    
+    // ✅ ENHANCED Match 6: Number-only search (e.g., "5066" matches "P5066", "P05066", etc.)
+    const matchesNumbersOnly = searchTermNumbers && projectCodeNumbers && (
+      projectCodeNumbers === searchTermNumbers ||
+      projectCodeNumbers.includes(searchTermNumbers) ||
+      searchTermNumbers.includes(projectCodeNumbers)
+    )
+    
+    return matchesCode || matchesSubCode || matchesFullCode || matchesName || matchesCombined || matchesNumbersOnly
   })
   
-  // 🔧 FIX: Get unique activities for selected projects with search (only if projects selected)
-  // ✅ FIX: Match activities using project_full_code instead of project_code
+  // ✅ SIMPLIFIED: Filter activities by Project Full Code ONLY
+  // - project_full_code is the ONLY identifier - any difference means separate project
   const availableActivities = selectedProjects.length > 0 ? activities.filter(a => {
-    // Check if activity's project_code matches any selected project_full_code
-    // Since activities might only have project_code, we need to match it with selected projects
-    // Selected projects now contain project_full_code, so we check if activity's project_code
-    // is part of any selected project_full_code
+    const activityFullCode = ((a as any).project_full_code || '').toString().trim()
+    
     return selectedProjects.some(selectedFullCode => {
-      // Extract project_code from project_full_code (format: "P5066-1" -> "P5066")
-      const selectedCode = selectedFullCode.split('-')[0]
-      return a.project_code === selectedCode || selectedFullCode === a.project_code
+      // ✅ ONLY match by exact Project Full Code - no other logic
+      return activityFullCode.toUpperCase() === selectedFullCode.toUpperCase()
     })
   }).reduce((acc, curr) => {
+    // Remove duplicates by activity name
     if (!acc.find(a => a.activity_name === curr.activity_name)) {
       acc.push(curr)
     }
     return acc
   }, [] as typeof activities).filter(activity =>
-    activity.activity_name.toLowerCase().includes(activitySearch.toLowerCase())
+    // ✅ ENHANCED: Apply intelligent search filter (case-insensitive, partial match)
+    !activitySearch || activity.activity_name.toLowerCase().includes(activitySearch.toLowerCase())
   ) : []
   
+  // ✅ Helper function to normalize zone value (remove project code prefix)
+  const normalizeZone = (zone: string, projectCodes: string[]): string => {
+    if (!zone || zone.trim() === '') return ''
+    
+    let normalized = zone.trim()
+    
+    // Remove project code prefixes (e.g., "P5068 - 0" -> "0")
+    for (const projectCode of projectCodes) {
+      const codeUpper = projectCode.toUpperCase()
+      // Remove patterns like "P5068 - 0", "P5068-0", "P5068 0"
+      normalized = normalized.replace(new RegExp(`^${codeUpper}\\s*-\\s*`, 'i'), '').trim()
+      normalized = normalized.replace(new RegExp(`^${codeUpper}\\s+`, 'i'), '').trim()
+      normalized = normalized.replace(new RegExp(`^${codeUpper}-`, 'i'), '').trim()
+    }
+    
+    return normalized || zone.trim() // Return original if normalization results in empty
+  }
+  
   // Get unique zones from KPIs and activities (only for selected projects)
-  const uniqueZones = selectedProjects.length > 0 ? Array.from(new Set([
-    ...kpis.map(k => k.zone).filter(Boolean) as string[],
-    ...activities.filter(a => selectedProjects.includes(a.project_code)).map(a => a.zone).filter(Boolean) as string[]
-  ])).filter(zone => zone && zone.trim() !== '') : []
+  // ✅ FIX: Extract zones from multiple sources, normalize them, and remove duplicates
+  const selectedProjectCodes = selectedProjects.map(p => {
+    const parts = p.split('-')
+    return parts[0] // Extract project code (e.g., "P5068" from "P5068-01")
+  })
+  
+  const allZones = selectedProjects.length > 0 ? [
+    // From KPIs: check zone, section, zone_ref, zone_number
+    ...kpis.map(k => {
+      const kpiZone = (k.zone || (k as any).section || (k as any).zone_ref || (k as any).zone_number || '').toString().trim()
+      return kpiZone
+    }).filter(Boolean) as string[],
+    // From activities: check zone (which should be zone_ref or zone_number from KPITracking)
+    ...activities.filter(a => {
+      const activityFullCode = ((a as any).project_full_code || '').toString().trim()
+      return selectedProjects.some(selectedFullCode => 
+        activityFullCode.toUpperCase() === selectedFullCode.toUpperCase()
+      )
+    }).map(a => {
+      // Activities in KPI page pass zone as zone_ref || zone_number
+      const activityZone = (a.zone || (a as any).zone_ref || (a as any).zone_number || '').toString().trim()
+      return activityZone
+    }).filter(Boolean) as string[]
+  ] : []
+  
+  // Normalize zones and create a map to track both normalized and original forms
+  const zoneMap = new Map<string, string>() // normalized -> original (prefer shorter)
+  
+  allZones.forEach(zone => {
+    if (!zone || zone.trim() === '') return
+    
+    // ✅ Exclude anything that looks like a division
+    const zoneLower = zone.toLowerCase()
+    if (zoneLower.includes('division')) return
+    
+    // Normalize zone
+    const normalized = normalizeZone(zone, selectedProjectCodes)
+    
+    // Use normalized as key, but prefer shorter original value
+    if (!zoneMap.has(normalized) || zone.length < zoneMap.get(normalized)!.length) {
+      zoneMap.set(normalized, normalized) // Use normalized value for display
+    }
+  })
+  
+  // Also exclude if it matches any division
+  const allDivisions = Array.from(new Set([
+    ...kpis.map(k => k.activity_division).filter(Boolean) as string[],
+    ...activities.map(a => a.activity_division).filter(Boolean) as string[]
+  ])).map(d => d.toLowerCase())
+  
+  const uniqueZones = Array.from(zoneMap.values()).filter(zone => {
+    const zoneLower = zone.toLowerCase()
+    return !allDivisions.includes(zoneLower)
+  })
   
   // Get unique units from KPIs (only for selected projects)
   const uniqueUnits = selectedProjects.length > 0 ? Array.from(new Set(
@@ -224,11 +400,27 @@ export function SmartFilter({
   // Get unique divisions from KPIs and activities (only for selected projects)
   const uniqueDivisions = selectedProjects.length > 0 ? Array.from(new Set([
     ...kpis.map(k => k.activity_division).filter(Boolean) as string[],
-    ...activities.filter(a => selectedProjects.includes(a.project_code)).map(a => a.activity_division).filter(Boolean) as string[]
+    ...activities.filter(a => {
+      const activityFullCode = ((a as any).project_full_code || '').toString().trim()
+      return selectedProjects.some(selectedFullCode => 
+        activityFullCode.toUpperCase() === selectedFullCode.toUpperCase()
+      )
+    }).map(a => a.activity_division).filter(Boolean) as string[]
   ])).filter(division => division && division.trim() !== '') : []
   
+  // Get unique scopes from KPIs (only for selected projects)
+  // ✅ Scope comes from activity_scope field in KPIs or from project_type_activities table
+  const uniqueScopes = selectedProjects.length > 0 ? Array.from(new Set(
+    kpis.map(k => k.activity_scope).filter(Boolean) as string[]
+  )).filter(scope => scope && scope.trim() !== '' && scope !== 'N/A') : []
+  
+  // Get unique activity timings from KPIs (only for selected projects)
+  const uniqueActivityTimings = selectedProjects.length > 0 ? Array.from(new Set(
+    kpis.map(k => k.activity_timing).filter(Boolean) as string[]
+  )).filter(timing => timing && timing.trim() !== '' && timing !== 'N/A') : []
+  
   const types = ['Planned', 'Actual']
-  // Filter zones, units, and divisions by search
+  // Filter zones, units, divisions, and scopes by search
   const filteredZones = uniqueZones.filter(zone =>
     zone.toLowerCase().includes(zoneSearch.toLowerCase())
   )
@@ -241,12 +433,23 @@ export function SmartFilter({
     division.toLowerCase().includes(divisionSearch.toLowerCase())
   )
   
+  const filteredScopes = uniqueScopes.filter(scope =>
+    scope.toLowerCase().includes(scopeSearch.toLowerCase())
+  )
+  
+  const filteredActivityTimings = uniqueActivityTimings.filter(timing =>
+    timing.toLowerCase().includes(activityTimingSearch.toLowerCase())
+  )
+  
   const hasActiveFilters = (selectedProjects?.length || 0) > 0 || 
                            (selectedActivities?.length || 0) > 0 || 
                            (selectedTypes?.length || 0) > 0 || 
+                           (selectedStatuses?.length || 0) > 0 ||
                            (selectedZones?.length || 0) > 0 ||
                            (selectedUnits?.length || 0) > 0 ||
                            (selectedDivisions?.length || 0) > 0 ||
+                           (selectedScopes?.length || 0) > 0 ||
+                           (selectedActivityTimings?.length || 0) > 0 ||
                            dateRange?.from || dateRange?.to ||
                            valueRange?.min !== undefined || valueRange?.max !== undefined ||
                            quantityRange?.min !== undefined || quantityRange?.max !== undefined
@@ -260,61 +463,48 @@ export function SmartFilter({
     }
   }
   
-  // Helper function to get project full code (fallback to project_code if not available)
-  // ✅ FIX: Avoid duplication if project_sub_code already contains project_code
+  // ✅ SIMPLIFIED: Use project_full_code from database or build from project_code + project_sub_code
+  // - project_full_code is the ONLY identifier - any difference means separate project
   const getProjectFullCode = (project: { project_full_code?: string; project_code: string; project_sub_code?: string }): string => {
-    if (project.project_full_code) {
-      return project.project_full_code
+    // ✅ CRITICAL: Use project_full_code from database if available
+    // Check all possible field names
+    const projectFullCode = (
+      project.project_full_code || 
+      (project as any)['Project Full Code'] ||
+      ''
+    ).toString().trim()
+    
+    if (projectFullCode) {
+      return projectFullCode
     }
     
-    // Build full code from code + sub_code if available
+    // ✅ BUILD: If project_full_code is missing, build it from project_code + project_sub_code
     const projectCode = (project.project_code || '').trim()
     const projectSubCode = (project.project_sub_code || '').trim()
     
     if (projectSubCode) {
       // Check if sub_code already starts with project_code (case-insensitive)
       if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
-        // project_sub_code already contains project_code (e.g., "P5066-R1")
-        return projectSubCode
+        // Sub_code already contains project_code (e.g., "P9999-R1" or "P9999R1")
+        return projectSubCode.trim()
       } else {
-        // project_sub_code is just the suffix (e.g., "R1" or "-R1")
+        // Build full code: project_code + project_sub_code
         if (projectSubCode.startsWith('-')) {
-          return `${projectCode}${projectSubCode}`
+          return `${projectCode}${projectSubCode}`.trim()
         } else {
-          return `${projectCode}-${projectSubCode}`
+          return `${projectCode}-${projectSubCode}`.trim()
         }
       }
     }
+    
+    // Fallback: use project_code only if no sub_code
     return projectCode
   }
   
-  // Helper function to get display code (shows code + sub_code if available)
-  // ✅ FIX: Avoid duplication if project_sub_code already contains project_code
+  // ✅ SIMPLIFIED: Display code is the same as project_full_code
   const getProjectDisplayCode = (project: { project_code: string; project_sub_code?: string; project_full_code?: string }): string => {
-    // If project_full_code is provided, use it (it's already correctly formatted)
-    if (project.project_full_code) {
-      return project.project_full_code
-    }
-    
-    // Otherwise, build it from code and sub_code
-    const projectCode = (project.project_code || '').trim()
-    const projectSubCode = (project.project_sub_code || '').trim()
-    
-    if (projectSubCode) {
-      // Check if sub_code already starts with project_code (case-insensitive)
-      if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
-        // project_sub_code already contains project_code (e.g., "P5066-R1")
-        return projectSubCode
-      } else {
-        // project_sub_code is just the suffix (e.g., "R1" or "-R1")
-        if (projectSubCode.startsWith('-')) {
-          return `${projectCode}${projectSubCode}`
-        } else {
-          return `${projectCode}-${projectSubCode}`
-        }
-      }
-    }
-    return projectCode
+    // ✅ CRITICAL: Always use project_full_code for display
+    return getProjectFullCode(project)
   }
   
   const toggleActivity = (activityName: string) => {
@@ -360,6 +550,34 @@ export function SmartFilter({
     }
   }
   
+  const toggleScope = (scope: string) => {
+    if (!onScopesChange) return
+    const scopes = selectedScopes || []
+    if (scopes.includes(scope)) {
+      onScopesChange(scopes.filter(s => s !== scope))
+    } else {
+      onScopesChange([...scopes, scope])
+    }
+  }
+  
+  const toggleActivityTiming = (timing: string) => {
+    if (!onActivityTimingsChange) return
+    const timings = selectedActivityTimings || []
+    if (timings.includes(timing)) {
+      onActivityTimingsChange(timings.filter(t => t !== timing))
+    } else {
+      onActivityTimingsChange([...timings, timing])
+    }
+  }
+  
+  const toggleStatus = (status: string) => {
+    if (selectedStatuses.includes(status)) {
+      onStatusesChange(selectedStatuses.filter(s => s !== status))
+    } else {
+      onStatusesChange([...selectedStatuses, status])
+    }
+  }
+  
   const handleDateRangeApply = () => {
     onDateRangeChange({
       from: dateFromInput || undefined,
@@ -399,6 +617,7 @@ export function SmartFilter({
     if (!showProjectDropdown) {
       setShowActivityDropdown(false)
       setShowTypeDropdown(false)
+      setShowStatusDropdown(false)
       setShowZoneDropdown(false)
       setShowUnitDropdown(false)
       setShowDivisionDropdown(false)
@@ -415,6 +634,7 @@ export function SmartFilter({
     if (!showActivityDropdown) {
       setShowProjectDropdown(false)
       setShowTypeDropdown(false)
+      setShowStatusDropdown(false)
       setShowZoneDropdown(false)
       setShowUnitDropdown(false)
       setShowDivisionDropdown(false)
@@ -431,6 +651,24 @@ export function SmartFilter({
     if (!showTypeDropdown) {
       setShowProjectDropdown(false)
       setShowActivityDropdown(false)
+      setShowStatusDropdown(false)
+      setShowZoneDropdown(false)
+      setShowUnitDropdown(false)
+      setShowDivisionDropdown(false)
+      setShowDateRangeModal(false)
+      setShowValueRangeModal(false)
+      setShowQuantityRangeModal(false)
+    }
+  }
+  
+  const toggleStatusDropdown = (e?: React.MouseEvent<HTMLButtonElement>) => {
+    if (e) e.stopPropagation()
+    setShowStatusDropdown(!showStatusDropdown)
+    // Close other dropdowns when opening this one
+    if (!showStatusDropdown) {
+      setShowProjectDropdown(false)
+      setShowActivityDropdown(false)
+      setShowTypeDropdown(false)
       setShowZoneDropdown(false)
       setShowUnitDropdown(false)
       setShowDivisionDropdown(false)
@@ -468,7 +706,7 @@ export function SmartFilter({
         )}
       </div>
       
-      {/* Filter Buttons */}
+      {/* Filter Buttons - Always display in a single row */}
       <div className="flex flex-wrap gap-2">
         {/* Projects Filter */}
         <div className="relative" ref={projectDropdownRef}>
@@ -486,12 +724,14 @@ export function SmartFilter({
                 {selectedProjects.length}
               </span>
             )}
-            <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showProjectDropdown ? 'rotate-180' : ''}`} />
+            {!alwaysExpanded && (
+              <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showProjectDropdown ? 'rotate-180' : ''}`} />
+            )}
           </button>
           
             {showProjectDropdown && (
             <div 
-              className="absolute z-50 mt-1 w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-80 overflow-hidden"
+              className="absolute w-80 z-50 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-80 overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="p-3 border-b border-gray-200 dark:border-gray-700">
@@ -512,26 +752,38 @@ export function SmartFilter({
                   filteredProjects.map((project, idx) => {
                     const projectFullCode = getProjectFullCode(project)
                     const displayCode = getProjectDisplayCode(project)
+                    
+                    // ✅ DEBUG: Log project_full_code for diagnosis
+                    if (idx < 3) {
+                      console.log('🔍 SmartFilter Project:', {
+                        project_code: project.project_code,
+                        project_sub_code: project.project_sub_code,
+                        project_full_code: project.project_full_code,
+                        displayCode,
+                        projectFullCode
+                      })
+                    }
+                    
                     return (
-                      <label
+                    <label
                         key={`project-${projectFullCode}-${idx}`}
-                        className="flex items-center space-x-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer transition-colors"
-                      >
-                        <input
-                          type="checkbox"
+                      className="flex items-center space-x-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer transition-colors"
+                    >
+                      <input
+                        type="checkbox"
                           checked={selectedProjects.includes(projectFullCode)}
                           onChange={() => toggleProject(projectFullCode)}
-                          className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                             {displayCode}
-                          </div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                            {project.project_name}
-                          </div>
                         </div>
-                      </label>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                          {project.project_name}
+                        </div>
+                      </div>
+                    </label>
                     )
                   })
                 ) : (
@@ -544,9 +796,8 @@ export function SmartFilter({
           )}
         </div>
         
-        {/* Activities Filter - Only show if projects selected */}
-        {selectedProjects.length > 0 && (
-          <div className="relative" ref={activityDropdownRef}>
+        {/* Activities Filter */}
+        <div className="relative" ref={activityDropdownRef}>
             <button
               onClick={(e) => toggleActivityDropdown(e)}
               className={`px-3 py-1.5 text-sm border rounded-lg flex items-center space-x-2 transition-all duration-200 ${
@@ -561,7 +812,9 @@ export function SmartFilter({
                   {selectedActivities.length}
                 </span>
               )}
-              <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showActivityDropdown ? 'rotate-180' : ''}`} />
+              {!alwaysExpanded && (
+                <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showActivityDropdown ? 'rotate-180' : ''}`} />
+              )}
             </button>
             
             {showActivityDropdown && (
@@ -609,10 +862,8 @@ export function SmartFilter({
               </div>
             )}
           </div>
-        )}
         
-        {/* Type Filter - Only show if projects selected */}
-        {selectedProjects.length > 0 && (
+        {/* Type Filter */}
         <div className="relative" ref={typeDropdownRef}>
           <button
             onClick={(e) => toggleTypeDropdown(e)}
@@ -628,7 +879,9 @@ export function SmartFilter({
                 {selectedTypes.length}
               </span>
             )}
-            <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showTypeDropdown ? 'rotate-180' : ''}`} />
+            {!alwaysExpanded && (
+              <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showTypeDropdown ? 'rotate-180' : ''}`} />
+            )}
           </button>
           
           {showTypeDropdown && (
@@ -656,11 +909,58 @@ export function SmartFilter({
               </div>
             </div>
           )}
-        </div>
-        )}
+          </div>
         
-        {/* Zone Filter - Only show if projects selected and zones available */}
-        {selectedProjects.length > 0 && uniqueZones.length > 0 && (
+        {/* Status Filter */}
+        <div className="relative" ref={statusDropdownRef}>
+          <button
+            onClick={(e) => toggleStatusDropdown(e)}
+            className={`px-3 py-1.5 text-sm border rounded-lg flex items-center space-x-2 transition-all duration-200 ${
+              selectedStatuses.length > 0
+                ? 'bg-rose-50 dark:bg-rose-900/30 border-rose-300 dark:border-rose-700 text-rose-700 dark:text-rose-300 shadow-sm'
+                : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-gray-400 dark:hover:border-gray-500'
+            } ${showStatusDropdown ? 'ring-2 ring-rose-500 ring-opacity-50' : ''}`}
+          >
+            <span>Status</span>
+            {selectedStatuses.length > 0 && (
+              <span className="px-1.5 py-0.5 bg-rose-500 text-white rounded-full text-xs font-bold">
+                {selectedStatuses.length}
+              </span>
+            )}
+            {!alwaysExpanded && (
+              <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showStatusDropdown ? 'rotate-180' : ''}`} />
+            )}
+          </button>
+          
+          {showStatusDropdown && (
+            <div 
+              className="absolute z-50 mt-1 w-56 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-80 overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-2">
+                {PROJECT_STATUSES.map(status => (
+                  <label
+                    key={status.value}
+                    className="flex items-center space-x-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer transition-colors"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedStatuses.includes(status.value)}
+                      onChange={() => toggleStatus(status.value)}
+                      className="w-4 h-4 text-rose-600 rounded focus:ring-rose-500"
+                    />
+                    <span className="text-sm text-gray-900 dark:text-gray-100">
+                      {status.label}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        
+        {/* Zone Filter */}
+        {uniqueZones.length > 0 && (
           <div className="relative" ref={zoneDropdownRef}>
             <button
               onClick={(e) => {
@@ -670,6 +970,7 @@ export function SmartFilter({
                   setShowProjectDropdown(false)
                   setShowActivityDropdown(false)
                   setShowTypeDropdown(false)
+                  setShowStatusDropdown(false)
                   setShowUnitDropdown(false)
                   setShowDivisionDropdown(false)
                   setShowDateRangeModal(false)
@@ -689,7 +990,9 @@ export function SmartFilter({
                   {selectedZones?.length || 0}
                 </span>
               )}
-              <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showZoneDropdown ? 'rotate-180' : ''}`} />
+              {!alwaysExpanded && (
+                <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showZoneDropdown ? 'rotate-180' : ''}`} />
+              )}
             </button>
             
             {showZoneDropdown && (
@@ -739,8 +1042,8 @@ export function SmartFilter({
           </div>
         )}
         
-        {/* Unit Filter - Only show if projects selected and units available */}
-        {selectedProjects.length > 0 && uniqueUnits.length > 0 && (
+        {/* Unit Filter */}
+        {uniqueUnits.length > 0 && (
           <div className="relative" ref={unitDropdownRef}>
             <button
               onClick={(e) => {
@@ -750,6 +1053,7 @@ export function SmartFilter({
                   setShowProjectDropdown(false)
                   setShowActivityDropdown(false)
                   setShowTypeDropdown(false)
+                  setShowStatusDropdown(false)
                   setShowZoneDropdown(false)
                   setShowDivisionDropdown(false)
                   setShowDateRangeModal(false)
@@ -769,7 +1073,9 @@ export function SmartFilter({
                   {selectedUnits?.length || 0}
                 </span>
               )}
-              <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showUnitDropdown ? 'rotate-180' : ''}`} />
+              {!alwaysExpanded && (
+                <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showUnitDropdown ? 'rotate-180' : ''}`} />
+              )}
             </button>
             
             {showUnitDropdown && (
@@ -819,8 +1125,8 @@ export function SmartFilter({
           </div>
         )}
         
-        {/* Division Filter - Only show if projects selected and divisions available */}
-        {selectedProjects.length > 0 && uniqueDivisions.length > 0 && (
+        {/* Division Filter */}
+        {uniqueDivisions.length > 0 && (
           <div className="relative" ref={divisionDropdownRef}>
             <button
               onClick={(e) => {
@@ -830,6 +1136,7 @@ export function SmartFilter({
                   setShowProjectDropdown(false)
                   setShowActivityDropdown(false)
                   setShowTypeDropdown(false)
+                  setShowStatusDropdown(false)
                   setShowZoneDropdown(false)
                   setShowUnitDropdown(false)
                   setShowDateRangeModal(false)
@@ -849,7 +1156,9 @@ export function SmartFilter({
                   {selectedDivisions?.length || 0}
                 </span>
               )}
-              <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showDivisionDropdown ? 'rotate-180' : ''}`} />
+              {!alwaysExpanded && (
+                <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showDivisionDropdown ? 'rotate-180' : ''}`} />
+              )}
             </button>
             
             {showDivisionDropdown && (
@@ -899,8 +1208,182 @@ export function SmartFilter({
           </div>
         )}
         
-        {/* Date Range Filter - Only show if projects selected */}
-        {selectedProjects.length > 0 && (
+        {/* Scope Filter */}
+        {uniqueScopes.length > 0 && onScopesChange && (
+          <div className="relative" ref={scopeDropdownRef}>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setShowScopeDropdown(!showScopeDropdown)
+                if (!showScopeDropdown) {
+                  setShowProjectDropdown(false)
+                  setShowActivityDropdown(false)
+                  setShowTypeDropdown(false)
+                  setShowStatusDropdown(false)
+                  setShowZoneDropdown(false)
+                  setShowUnitDropdown(false)
+                  setShowDivisionDropdown(false)
+                  setShowDateRangeModal(false)
+                  setShowValueRangeModal(false)
+                  setShowQuantityRangeModal(false)
+                }
+              }}
+              className={`px-3 py-1.5 text-sm border rounded-lg flex items-center space-x-2 transition-all duration-200 ${
+                (selectedScopes?.length || 0) > 0
+                  ? 'bg-purple-50 dark:bg-purple-900/30 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 shadow-sm'
+                  : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-gray-400 dark:hover:border-gray-500'
+              } ${showScopeDropdown ? 'ring-2 ring-purple-500 ring-opacity-50' : ''}`}
+            >
+              <span>Scope</span>
+              {(selectedScopes?.length || 0) > 0 && (
+                <span className="px-1.5 py-0.5 bg-purple-500 text-white rounded-full text-xs font-bold">
+                  {selectedScopes?.length || 0}
+                </span>
+              )}
+              {!alwaysExpanded && (
+                <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showScopeDropdown ? 'rotate-180' : ''}`} />
+              )}
+            </button>
+            
+            {showScopeDropdown && (
+              <div 
+                className="absolute z-50 mt-1 w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-80 overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="p-2 border-b border-gray-200 dark:border-gray-700">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search scopes..."
+                      value={scopeSearch}
+                      onChange={(e) => setScopeSearch(e.target.value)}
+                      className="w-full pl-10 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                      autoFocus
+                    />
+                  </div>
+                </div>
+                <div className="max-h-64 overflow-y-auto">
+                  {filteredScopes.length > 0 ? (
+                    filteredScopes.map((scope, idx) => (
+                      <label
+                        key={`scope-${scope}-${idx}`}
+                        className="flex items-center space-x-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer transition-colors"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={(selectedScopes || []).includes(scope)}
+                          onChange={() => toggleScope(scope)}
+                          className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                        />
+                        <span className="text-sm text-gray-900 dark:text-gray-100 truncate">
+                          {scope}
+                        </span>
+                      </label>
+                    ))
+                  ) : (
+                    <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400 text-center">
+                      No scopes found
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        
+        {/* Activity Timing Filter */}
+        {uniqueActivityTimings.length > 0 && onActivityTimingsChange && (
+          <div className="relative" ref={activityTimingDropdownRef}>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setShowActivityTimingDropdown(!showActivityTimingDropdown)
+                if (!showActivityTimingDropdown) {
+                  setShowProjectDropdown(false)
+                  setShowActivityDropdown(false)
+                  setShowTypeDropdown(false)
+                  setShowStatusDropdown(false)
+                  setShowZoneDropdown(false)
+                  setShowUnitDropdown(false)
+                  setShowDivisionDropdown(false)
+                  setShowScopeDropdown(false)
+                  setShowDateRangeModal(false)
+                  setShowValueRangeModal(false)
+                  setShowQuantityRangeModal(false)
+                }
+              }}
+              className={`px-3 py-1.5 text-sm border rounded-lg flex items-center space-x-2 transition-all duration-200 ${
+                (selectedActivityTimings?.length || 0) > 0
+                  ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 shadow-sm'
+                  : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-gray-400 dark:hover:border-gray-500'
+              } ${showActivityTimingDropdown ? 'ring-2 ring-indigo-500 ring-opacity-50' : ''}`}
+            >
+              <span>Activity Timing</span>
+              {(selectedActivityTimings?.length || 0) > 0 && (
+                <span className="px-1.5 py-0.5 bg-indigo-500 text-white rounded-full text-xs font-bold">
+                  {selectedActivityTimings.length}
+                </span>
+              )}
+              <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showActivityTimingDropdown ? 'rotate-180' : ''}`} />
+            </button>
+            
+            {showActivityTimingDropdown && (
+              <div 
+                className="absolute z-50 mt-1 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-80 overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="p-2 border-b border-gray-200 dark:border-gray-700">
+                  <div className="relative">
+                    <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search timing..."
+                      value={activityTimingSearch}
+                      onChange={(e) => setActivityTimingSearch(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+                <div className="overflow-y-auto max-h-64">
+                  {filteredActivityTimings.length > 0 ? (
+                    filteredActivityTimings.map((timing) => {
+                      const isSelected = selectedActivityTimings?.includes(timing) || false
+                      const formattedTiming = timing
+                        .split('-')
+                        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                        .join(' ')
+                      
+                      return (
+                        <label
+                          key={timing}
+                          className="flex items-center space-x-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleActivityTiming(timing)}
+                            className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
+                          />
+                          <span className="text-sm text-gray-900 dark:text-gray-100 truncate">
+                            {formattedTiming}
+                          </span>
+                        </label>
+                      )
+                    })
+                  ) : (
+                    <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400 text-center">
+                      No activity timings found
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        
+        {/* Date Range Filter */}
         <div className="relative" ref={dateRangeModalRef}>
           <button
             onClick={(e) => {
@@ -910,6 +1393,7 @@ export function SmartFilter({
                 setShowProjectDropdown(false)
                 setShowActivityDropdown(false)
                 setShowTypeDropdown(false)
+                setShowStatusDropdown(false)
                 setShowZoneDropdown(false)
                 setShowUnitDropdown(false)
                 setShowDivisionDropdown(false)
@@ -982,10 +1466,8 @@ export function SmartFilter({
             </div>
           )}
         </div>
-        )}
         
-        {/* Value Range Filter - Only show if projects selected */}
-        {selectedProjects.length > 0 && (
+        {/* Value Range Filter */}
         <div className="relative" ref={valueRangeModalRef}>
           <button
             onClick={(e) => {
@@ -995,6 +1477,7 @@ export function SmartFilter({
                 setShowProjectDropdown(false)
                 setShowActivityDropdown(false)
                 setShowTypeDropdown(false)
+                setShowStatusDropdown(false)
                 setShowZoneDropdown(false)
                 setShowUnitDropdown(false)
                 setShowDivisionDropdown(false)
@@ -1069,10 +1552,8 @@ export function SmartFilter({
             </div>
           )}
         </div>
-        )}
         
-        {/* Quantity Range Filter - Only show if projects selected */}
-        {selectedProjects.length > 0 && (
+        {/* Quantity Range Filter */}
         <div className="relative" ref={quantityRangeModalRef}>
           <button
             onClick={(e) => {
@@ -1082,6 +1563,7 @@ export function SmartFilter({
                 setShowProjectDropdown(false)
                 setShowActivityDropdown(false)
                 setShowTypeDropdown(false)
+                setShowStatusDropdown(false)
                 setShowZoneDropdown(false)
                 setShowUnitDropdown(false)
                 setShowDivisionDropdown(false)
@@ -1156,22 +1638,30 @@ export function SmartFilter({
             </div>
           )}
         </div>
-        )}
       </div>
       
       {/* Active Filters Pills */}
       {hasActiveFilters && (
         <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-200 dark:border-gray-700">
-          {selectedProjects.map(projectCode => {
-            const project = projects.find(p => p.project_code === projectCode)
+          {selectedProjects.map(projectFullCode => {
+            // ✅ FIX: Find project by full_code, not just code
+            const project = projects.find(p => {
+              const fullCode = getProjectFullCode(p)
+              return fullCode === projectFullCode
+            })
+            const displayCode = project ? getProjectDisplayCode(project) : projectFullCode
+            const displayName = project ? project.project_name : ''
             return (
               <div
-                key={projectCode}
+                key={projectFullCode}
                 className="inline-flex items-center space-x-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-md text-xs"
               >
-                <span className="font-medium">{projectCode}</span>
+                <span className="font-medium">{displayCode}</span>
+                {displayName && (
+                  <span className="text-blue-600 dark:text-blue-400">- {displayName}</span>
+                )}
                 <button
-                  onClick={() => toggleProject(projectCode)}
+                  onClick={() => toggleProject(projectFullCode)}
                   className="hover:bg-blue-200 dark:hover:bg-blue-800 rounded-full p-0.5"
                 >
                   <X className="w-3 h-3" />
@@ -1207,6 +1697,23 @@ export function SmartFilter({
               </button>
             </div>
           ))}
+          {selectedStatuses.map(status => {
+            const statusInfo = PROJECT_STATUSES.find(s => s.value === status)
+            return (
+              <div
+                key={status}
+                className="inline-flex items-center space-x-1 px-2 py-1 bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300 rounded-md text-xs"
+              >
+                <span className="font-medium">{statusInfo?.label || status}</span>
+                <button
+                  onClick={() => toggleStatus(status)}
+                  className="hover:bg-rose-200 dark:hover:bg-rose-800 rounded-full p-0.5"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            )
+          })}
           {(selectedZones || []).map(zone => (
             <div
               key={zone}
@@ -1244,6 +1751,41 @@ export function SmartFilter({
               <button
                 onClick={() => toggleDivision(division)}
                 className="hover:bg-teal-200 dark:hover:bg-teal-800 rounded-full p-0.5"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          ))}
+          {(selectedActivityTimings || []).map(timing => {
+            const formattedTiming = timing
+              .split('-')
+              .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+              .join(' ')
+            
+            return (
+              <div
+                key={timing}
+                className="inline-flex items-center space-x-1 px-2 py-1 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 rounded-md text-xs"
+              >
+                <span className="font-medium">Activity Timing: {formattedTiming}</span>
+                <button
+                  onClick={() => toggleActivityTiming(timing)}
+                  className="hover:bg-indigo-200 dark:hover:bg-indigo-800 rounded-full p-0.5"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            )
+          })}
+          {(selectedScopes || []).map(scope => (
+            <div
+              key={scope}
+              className="inline-flex items-center space-x-1 px-2 py-1 bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 rounded-md text-xs"
+            >
+              <span className="font-medium">Scope: {scope}</span>
+              <button
+                onClick={() => toggleScope(scope)}
+                className="hover:bg-purple-200 dark:hover:bg-purple-800 rounded-full p-0.5"
               >
                 <X className="w-3 h-3" />
               </button>

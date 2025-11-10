@@ -25,12 +25,14 @@ export interface Project {
   id: string
   project_code: string
   project_sub_code: string
+  project_full_code?: string // ✅ Auto-built from project_code and project_sub_code
   project_name: string
   project_description?: string
   project_type: string
   responsible_division: string
   plot_number: string
   kpi_completed: boolean
+  kpi_added?: string // ✅ Auto-calculated: 'Yes' if has KPI Planned, 'No' otherwise
   project_status: 'upcoming' | 'site-preparation' | 'on-going' | 'completed' | 'completed-duration' | 'contract-duration' | 'on-hold' | 'cancelled'
   contract_amount: number
   // Additional project details
@@ -48,6 +50,7 @@ export interface Project {
   currency?: string
   workmanship_only?: string
   advance_payment_required?: string
+  advance_payment_percentage?: number // Percentage of advance payment
   virtual_material_value?: string
   project_start_date?: string
   project_completion_date?: string

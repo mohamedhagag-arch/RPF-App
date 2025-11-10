@@ -14,6 +14,9 @@ import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 import { getProjectStatusText, getProjectStatusColor } from '@/lib/projectStatusManager'
 import { getStatusDisplayInfo, calculateProjectStatus, ProjectStatusData } from '@/lib/projectStatusCalculator'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
+import { buildProjectFullCode, filterActivitiesByProject, filterKPIsByProject } from '@/lib/projectDataFetcher'
+import { calculateActivityRate } from '@/lib/rateCalculator'
+import { calculateWorkValueStatus, calculateProgressFromWorkValue } from '@/lib/workValueCalculator'
 
 interface ProjectsTableWithCustomizationProps {
   projects: Project[]
@@ -22,6 +25,7 @@ interface ProjectsTableWithCustomizationProps {
   onBulkDelete?: (ids: string[]) => void
   allKPIs?: any[]
   allActivities?: any[]
+  projectsAnalytics?: Map<string, ProjectAnalytics> // ✅ Pre-calculated analytics from parent
 }
 
 // Default column configuration for Projects
@@ -48,23 +52,18 @@ const defaultProjectsColumns: ColumnConfig[] = [
   { id: 'project_parties', label: 'Project Parties', visible: true, order: 19, width: '200px' },
   { id: 'client_name', label: 'Client Name', visible: false, order: 20, width: '180px' },
   { id: 'consultant_name', label: 'Consultant Name', visible: false, order: 21, width: '180px' },
-  { id: 'first_party_name', label: 'First Party Name', visible: false, order: 22, width: '180px' },
-  { id: 'project_staff', label: 'Project Staff', visible: true, order: 23, width: '200px' },
+  { id: 'project_staff', label: 'Project Staff', visible: true, order: 22, width: '200px' },
   { id: 'project_manager_email', label: 'Project Manager Email', visible: false, order: 24, width: '200px' },
   { id: 'area_manager_email', label: 'Area Manager Email', visible: false, order: 25, width: '200px' },
   { id: 'division_head_email', label: 'Division Head Email', visible: false, order: 26, width: '200px' },
   { id: 'project_award_date', label: 'Project Award Date', visible: true, order: 27, width: '150px' },
-  { id: 'project_start_date', label: 'Project Start Date', visible: true, order: 28, width: '150px' },
-  { id: 'project_completion_date', label: 'Project Completion Date', visible: true, order: 29, width: '180px' },
-  { id: 'project_duration', label: 'Project Duration', visible: true, order: 30, width: '150px' },
-  { id: 'retention_after_completion', label: 'Retention after Completion', visible: true, order: 31, width: '200px' },
-  { id: 'retention_after_6_month', label: 'Retention after 6 Month', visible: true, order: 32, width: '200px' },
-  { id: 'retention_after_12_month', label: 'Retention after 12 Month', visible: true, order: 33, width: '200px' },
-  { id: 'work_programme', label: 'Work Programme', visible: false, order: 34, width: '180px' },
+  { id: 'retention_details', label: 'Retention', visible: true, order: 28, width: '220px' },
+  { id: 'work_programme', label: 'Work Programme', visible: false, order: 29, width: '180px' },
   { id: 'contract_status', label: 'Contract Status', visible: false, order: 35, width: '150px' },
   { id: 'currency', label: 'Currency', visible: false, order: 36, width: '120px' },
   { id: 'workmanship', label: 'Workmanship', visible: true, order: 37, width: '130px' },
   { id: 'advance_payment_required', label: 'Advance Payment Required', visible: false, order: 38, width: '200px' },
+  { id: 'advance_payment_percentage', label: 'Advance Payment Percentage', visible: true, order: 38.5, width: '200px' },
   { id: 'virtual_material_value', label: 'Virtual Material Value', visible: false, order: 39, width: '180px' },
   { id: 'created_at', label: 'Created At', visible: false, order: 40, width: '150px' },
   { id: 'updated_at', label: 'Updated At', visible: false, order: 41, width: '150px' },
@@ -78,7 +77,8 @@ export function ProjectsTableWithCustomization({
   onDelete, 
   onBulkDelete,
   allKPIs = [],
-  allActivities = []
+  allActivities = [],
+  projectsAnalytics: propProjectsAnalytics // ✅ Pre-calculated analytics from parent
 }: ProjectsTableWithCustomizationProps) {
   const guard = usePermissionGuard()
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -176,134 +176,81 @@ export function ProjectsTableWithCustomization({
   }, [])
 
   // ✅ Calculate analytics for all projects (same as Cards use) - OPTIMIZED for performance
+  // ✅ PERFORMANCE: Use pre-calculated analytics from parent if available
+  // Otherwise, calculate as fallback (should rarely happen)
   const projectsAnalytics = useMemo(() => {
-    // ✅ DEBUG: Always log to diagnose zero values issue
-    console.log(`📊 ProjectsTable: Calculating analytics`, {
-      projectsCount: projects.length,
-      allActivitiesCount: allActivities.length,
-      allKPIsCount: allKPIs.length,
-      hasData: projects.length > 0 && (allActivities.length > 0 || allKPIs.length > 0)
-    })
+    // ✅ PRIORITY 1: Use pre-calculated analytics from ProjectsList
+    if (propProjectsAnalytics && propProjectsAnalytics.size > 0) {
+    if (process.env.NODE_ENV === 'development') {
+        console.log(`✅ ProjectsTable: Using pre-calculated analytics from ProjectsList (${propProjectsAnalytics.size} projects)`)
+      }
+      return propProjectsAnalytics
+    }
+    
+    // ✅ PRIORITY 2: Fallback - Calculate if not provided (should rarely happen)
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`⚠️ ProjectsTable: Calculating analytics as fallback (should be provided from parent)`, {
+        projectsCount: projects.length,
+        allActivitiesCount: allActivities.length,
+        allKPIsCount: allKPIs.length
+      })
+    }
     
     if (!projects.length || (!allActivities.length && !allKPIs.length)) {
-      console.warn('⚠️ ProjectsTable: No data available for analytics calculation', {
-        projectsLength: projects.length,
-        activitiesLength: allActivities.length,
-        kpisLength: allKPIs.length
-      })
       return new Map<string, ProjectAnalytics>()
     }
     
-    // ✅ PERFORMANCE: Use Map for O(1) lookups and batch calculation
     const analyticsMap = new Map<string, ProjectAnalytics>()
     
-    // ✅ PERFORMANCE: Pre-filter activities and KPIs by project codes to reduce iterations
-    const projectCodesSet = new Set(projects.map(p => p.project_code).filter(Boolean))
-    const projectFullCodesSet = new Set(
-      projects.flatMap(p => [
-        p.project_code,
-        p.project_sub_code,
-        `${p.project_code}${p.project_sub_code || ''}`
-      ]).filter(Boolean)
-    )
-    
-    // Pre-filter activities and KPIs that might match any project
-    // ✅ EXPANDED: Use case-insensitive matching and check all possible sources
-    const potentiallyRelevantActivities = allActivities.filter((a: any) => {
-      const rawActivity = a.raw || {}
-      const code = (a.project_code || 
-                   a['Project Code'] || 
-                   rawActivity['Project Code'] || 
-                   '').toString().trim().toUpperCase()
-      const fullCode = (a.project_full_code || 
-                       a['Project Full Code'] || 
-                       rawActivity['Project Full Code'] || 
-                       '').toString().trim().toUpperCase()
-      
-      if (!code && !fullCode) return false
-      
-      // Check if code matches any project code (case-insensitive)
-      const codeMatches = Array.from(projectCodesSet).some(pc => 
-        pc.toString().trim().toUpperCase() === code || 
-        code.includes(pc.toString().trim().toUpperCase()) ||
-        pc.toString().trim().toUpperCase().includes(code)
-      )
-      
-      // Check if fullCode matches any project code (case-insensitive)
-      const fullCodeMatches = Array.from(projectCodesSet).some(pc => 
-        fullCode.startsWith(pc.toString().trim().toUpperCase()) ||
-        fullCode.includes(pc.toString().trim().toUpperCase()) ||
-        pc.toString().trim().toUpperCase().includes(fullCode)
-      )
-      
-      return codeMatches || fullCodeMatches
-    })
-    
-    const potentiallyRelevantKPIs = allKPIs.filter((k: any) => {
-      const rawKPI = k.raw || {}
-      const code = (k.project_code || 
-                   k['Project Code'] || 
-                   rawKPI['Project Code'] || 
-                   '').toString().trim().toUpperCase()
-      const fullCode = (k.project_full_code || 
-                       k['Project Full Code'] || 
-                       rawKPI['Project Full Code'] || 
-                       '').toString().trim().toUpperCase()
-      
-      if (!code && !fullCode) return false
-      
-      // Check if code matches any project code (case-insensitive)
-      const codeMatches = Array.from(projectCodesSet).some(pc => 
-        pc.toString().trim().toUpperCase() === code || 
-        code.includes(pc.toString().trim().toUpperCase()) ||
-        pc.toString().trim().toUpperCase().includes(code)
-      )
-      
-      // Check if fullCode matches any project code (case-insensitive)
-      const fullCodeMatches = Array.from(projectCodesSet).some(pc => 
-        fullCode.startsWith(pc.toString().trim().toUpperCase()) ||
-        fullCode.includes(pc.toString().trim().toUpperCase()) ||
-        pc.toString().trim().toUpperCase().includes(fullCode)
-      )
-      
-      return codeMatches || fullCodeMatches
-    })
-    
-    // ✅ PERFORMANCE: Calculate analytics only for visible/relevant data
     projects.forEach(project => {
       try {
-        // Use pre-filtered data instead of all data
-        const analytics = calculateProjectAnalytics(project, potentiallyRelevantActivities, potentiallyRelevantKPIs)
-        analyticsMap.set(project.id, analytics)
+        const projectCode = (project.project_code || '').trim()
+        const projectSubCode = (project.project_sub_code || '').trim()
+        const projectFullCode = buildProjectFullCode(project)
         
-        // ✅ DEBUG: Log analytics for first project to diagnose zero values
-        if (project === projects[0]) {
-          console.log(`📊 ProjectsTable: Analytics for ${project.project_code}:`, {
-            totalValue: analytics.totalValue,
-            totalPlannedValue: analytics.totalPlannedValue,
-            totalEarnedValue: analytics.totalEarnedValue,
-            actualProgress: analytics.actualProgress,
-            plannedProgress: analytics.plannedProgress,
-            variance: analytics.variance,
-            matchedActivities: potentiallyRelevantActivities.filter(a => {
-              const code = a.project_code || a['Project Code'] || (a as any).raw?.['Project Code'] || ''
-              return code === project.project_code
-            }).length,
-            matchedKPIs: potentiallyRelevantKPIs.filter(k => {
-              const code = k.project_code || k['Project Code'] || (k as any).raw?.['Project Code'] || ''
-              return code === project.project_code
-            }).length
-          })
-        }
+        const activitiesForFiltering = allActivities.map((a: any) => {
+          const raw = a.raw || {}
+          return {
+            'Project Full Code': a.project_full_code || raw['Project Full Code'] || '',
+            'Project Code': a.project_code || raw['Project Code'] || '',
+            'Project Sub Code': a.project_sub_code || raw['Project Sub Code'] || '',
+            ...a
+          }
+        })
+        
+        const filteredActivities = filterActivitiesByProject(
+          activitiesForFiltering,
+          projectCode,
+          projectSubCode,
+          projectFullCode
+        )
+        
+        const kpisForFiltering = allKPIs.map((k: any) => {
+          const raw = k.raw || {}
+          return {
+            'Project Full Code': k.project_full_code || raw['Project Full Code'] || '',
+            'Project Code': k.project_code || raw['Project Code'] || '',
+            'Project Sub Code': k.project_sub_code || raw['Project Sub Code'] || '',
+            ...k
+          }
+        })
+        
+        const filteredKPIs = filterKPIsByProject(
+          kpisForFiltering,
+          projectCode,
+          projectSubCode,
+          projectFullCode
+        )
+        
+        const analytics = calculateProjectAnalytics(project, filteredActivities, filteredKPIs)
+        analyticsMap.set(project.id, analytics)
       } catch (error) {
-        // Always log errors to diagnose issues
         console.error(`❌ Error calculating analytics for ${project.project_code}:`, error)
       }
     })
     
-    console.log(`✅ ProjectsTable: Calculated analytics for ${analyticsMap.size} projects`)
     return analyticsMap
-  }, [projects, allActivities, allKPIs])
+  }, [propProjectsAnalytics, projects, allActivities, allKPIs])
 
   // ✅ Helper: Get analytics for a project (with fallback)
   const getProjectAnalytics = (project: Project): ProjectAnalytics | null => {
@@ -743,6 +690,142 @@ export function ProjectsTableWithCustomization({
     }
   }
 
+  // ✅ NEW: Get Planned Dates from BOQ Activities and KPIs (Post-Commencement only)
+  // تاريخ البداية: من BOQ Activities أو أول KPI Planned (Post-Commencement فقط)
+  // تاريخ النهاية: آخر KPI Planned (Post-Commencement فقط)
+  const getPlannedDatesForProject = useCallback((project: Project): { start: string | null, completion: string | null } => {
+    if (!project.project_code) {
+      return { start: null, completion: null }
+    }
+
+    try {
+      let plannedStart: string | null = null
+      let plannedCompletion: string | null = null
+
+      // ✅ STEP 1: Get planned start date from BOQ Activities
+      if (allActivities.length > 0) {
+        const projectActivities = allActivities.filter((activity: any) => matchesProject(activity, project))
+        
+        if (projectActivities.length > 0) {
+          const activitiesWithStartDates = projectActivities
+            .map((activity: any) => {
+              const rawActivity = (activity as any).raw || {}
+              
+              // Get planned start date from activity
+              let startDate = activity.planned_activity_start_date || 
+                             activity.activity_planned_start_date || 
+                             activity.planned_start_date ||
+                             rawActivity['Planned Activity Start Date'] ||
+                             rawActivity['PlannedActivityStartDate'] ||
+                             activity['Planned Activity Start Date'] ||
+                             activity['Planned Start Date'] ||
+                             ''
+              
+              if (!startDate || startDate === '' || startDate === 'N/A' || startDate === 'null') {
+                return null
+              }
+              
+              const parsed = parseDateString(startDate)
+              return parsed ? { date: parsed, dateStr: startDate } : null
+            })
+            .filter((item): item is { date: Date, dateStr: string } => item !== null)
+            .sort((a, b) => a.date.getTime() - b.date.getTime())
+          
+          if (activitiesWithStartDates.length > 0) {
+            plannedStart = activitiesWithStartDates[0].date.toISOString()
+          }
+        }
+      }
+
+      // ✅ STEP 2: Get planned dates from KPIs (Post-Commencement only)
+      if (allKPIs.length > 0) {
+        // Get all Planned KPIs for this project
+        const plannedKPIs = allKPIs.filter((kpi: any) => {
+          // Check if it's Planned
+          const inputType = String(
+            kpi.input_type || 
+            kpi['Input Type'] || 
+            (kpi as any).raw?.['Input Type'] || 
+            (kpi as any).raw?.['input_type'] ||
+            ''
+          ).trim().toLowerCase()
+          
+          if (inputType !== 'planned') {
+            return false
+          }
+          
+          // Check if matches project
+          if (!matchesProject(kpi, project)) {
+            return false
+          }
+          
+          // ✅ IMPORTANT: Check if Activity Timing is Post-Commencement
+          const rawKPI = (kpi as any).raw || {}
+          const activityTiming = String(
+            kpi.activity_timing ||
+            (kpi as any)['Activity Timing'] ||
+            rawKPI['Activity Timing'] ||
+            rawKPI['activity_timing'] ||
+            ''
+          ).trim().toLowerCase()
+          
+          // Only include Post-Commencement KPIs (exclude Pre-Commencement)
+          return activityTiming === 'post-commencement' || 
+                 activityTiming === 'post commencement' ||
+                 activityTiming === '' || // If not specified, assume Post-Commencement
+                 activityTiming === 'n/a'
+        })
+
+        if (plannedKPIs.length > 0) {
+          // Extract dates from Planned KPIs (Post-Commencement only)
+          const datesWithKPIs = plannedKPIs
+            .map((kpi: any) => {
+              const rawKpi = (kpi as any).raw || {}
+              
+              // Get date from multiple sources
+              let dateStr = rawKpi['Activity Date'] ||
+                           rawKpi.activity_date ||
+                           kpi.activity_date ||
+                           kpi['Activity Date'] ||
+                           rawKpi['Target Date'] ||
+                           rawKpi.target_date ||
+                           kpi.target_date ||
+                           kpi['Target Date'] ||
+                           rawKpi['Day'] ||
+                           rawKpi.day ||
+                           kpi.day ||
+                           kpi['Day'] ||
+                           ''
+              
+              if (!dateStr || dateStr === '' || dateStr === 'N/A' || dateStr === 'null') {
+                return null
+              }
+              
+              const parsed = parseDateString(dateStr)
+              return parsed ? { date: parsed, kpi, dateStr } : null
+            })
+            .filter((item): item is { date: Date, kpi: any, dateStr: string } => item !== null)
+            .sort((a, b) => a.date.getTime() - b.date.getTime())
+
+          if (datesWithKPIs.length > 0) {
+            // ✅ Start date: First Planned KPI (Post-Commencement) or from BOQ if not found
+            if (!plannedStart) {
+              plannedStart = datesWithKPIs[0].date.toISOString()
+            }
+            
+            // ✅ Completion date: Last Planned KPI (Post-Commencement)
+            plannedCompletion = datesWithKPIs[datesWithKPIs.length - 1].date.toISOString()
+          }
+        }
+      }
+
+      return { start: plannedStart, completion: plannedCompletion }
+    } catch (error) {
+      console.error(`❌ Error getting planned dates for ${project.project_code}:`, error)
+      return { start: null, completion: null }
+    }
+  }, [allActivities, allKPIs, matchesProject])
+
   // ✅ EXPANDED Helper: Get actual dates from KPIs - OPTIMIZED with useCallback
   const getActualDatesFromKPIs = useCallback((project: Project): { start: string | null, completion: string | null } => {
     if (!project.project_code) {
@@ -1136,8 +1219,307 @@ export function ProjectsTableWithCustomization({
     return { planned: plannedProgress, actual: actualProgress, source }
   }
 
-  // ✅ SMART Helper: Calculate work value status with intelligent calculations
-  const calculateWorkValueStatus = (project: Project): { planned: number, done: number, source: string } => {
+  // ✅ Use shared work value calculator
+  const calculateWorkValueStatusNew = useCallback((project: Project): { total: number, planned: number, earned: number } => {
+    return calculateWorkValueStatus(project, allActivities || [], allKPIs || [])
+  }, [allActivities, allKPIs])
+  
+  // ✅ OLD: Calculate Work Value Status with correct business logic (replaced by shared function)
+  // Total Value: مجموع كل القيم لل BOQ مجتمعة أو KPI Planned مجتمعة
+  // Planned Value: مجموع القيم المخطط لها حتى تاريخ أمس (من KPI Planned)
+  // Earned Value: مجموع كل القيم ال KPI Actual حتى تاريخ أمس
+  const calculateWorkValueStatusNew_OLD = useCallback((project: Project): { total: number, planned: number, earned: number } => {
+    let totalValue = 0
+    let plannedValue = 0
+    let earnedValue = 0
+    
+    if (!project.project_code) {
+      return { total: 0, planned: 0, earned: 0 }
+    }
+
+    try {
+      // ✅ Calculate yesterday date (end of yesterday)
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      const yesterday = new Date(today)
+      yesterday.setDate(yesterday.getDate() - 1)
+      yesterday.setHours(23, 59, 59, 999)
+
+      // ✅ STEP 1: Calculate Total Value from BOQ Activities (all activities, not filtered by date)
+      if (allActivities.length > 0) {
+        const projectActivities = allActivities.filter((activity: any) => matchesProject(activity, project))
+        
+        if (projectActivities.length > 0) {
+          projectActivities.forEach((activity: any) => {
+            const rawActivity = (activity as any).raw || {}
+            
+            // Get Total Value from activity
+            const activityTotalValue = activity.total_value || 
+                                     parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                     0
+            
+            if (activityTotalValue > 0) {
+              totalValue += activityTotalValue
+            } else {
+              // Calculate from Rate × Total Units if Total Value not available
+              const rate = activity.rate || 
+                          parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+                          0
+              const totalUnits = activity.total_units || 
+                              parseFloat(String(rawActivity['Total Units'] || '0').replace(/,/g, '')) || 
+                              0
+              
+              if (rate > 0 && totalUnits > 0) {
+                totalValue += rate * totalUnits
+              }
+            }
+          })
+        }
+      }
+
+      // ✅ STEP 2: If Total Value from BOQ is 0, calculate from all KPI Planned (not filtered by date)
+      if (totalValue === 0 && allKPIs.length > 0) {
+        const projectKPIs = allKPIs.filter((kpi: any) => matchesProject(kpi, project))
+        
+        const plannedKPIs = projectKPIs.filter((kpi: any) => {
+          const inputType = String(
+            kpi.input_type || 
+            kpi['Input Type'] || 
+            (kpi as any).raw?.['Input Type'] || 
+            (kpi as any).raw?.['input_type'] ||
+            ''
+          ).trim().toLowerCase()
+          return inputType === 'planned'
+        })
+
+        if (plannedKPIs.length > 0) {
+          plannedKPIs.forEach((kpi: any) => {
+            const rawKpi = (kpi as any).raw || {}
+            const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
+            
+            // Find related activity to get rate
+            let rate = 0
+            if (allActivities.length > 0) {
+              const relatedActivity = allActivities.find((activity: any) => {
+                if (!matchesProject(activity, project)) return false
+                const kpiActivityName = kpi.activity_name || kpi['Activity Name'] || ''
+                const activityName = activity.activity_name || activity['Activity Name'] || ''
+                return kpiActivityName && activityName && kpiActivityName.toLowerCase() === activityName.toLowerCase()
+              })
+              
+              if (relatedActivity) {
+                const rawActivity = (relatedActivity as any).raw || {}
+                rate = relatedActivity.rate || 
+                      parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+                      0
+                
+                if (rate === 0) {
+                  const totalValue = relatedActivity.total_value || 
+                                   parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                   0
+                  const totalUnits = relatedActivity.total_units || 
+                                  parseFloat(String(rawActivity['Total Units'] || '0').replace(/,/g, '')) || 
+                                  0
+                  if (totalUnits > 0 && totalValue > 0) {
+                    rate = totalValue / totalUnits
+                  }
+                }
+              }
+            }
+            
+            // Calculate value: rate × quantity or use kpi.value
+            let kpiValue = 0
+            if (rate > 0 && quantity > 0) {
+              kpiValue = rate * quantity
+            } else {
+              kpiValue = parseFloat(String(kpi.value || rawKpi['Value'] || '0').replace(/,/g, '')) || 0
+            }
+            
+            totalValue += kpiValue
+          })
+        }
+      }
+
+      // ✅ STEP 3: Calculate Planned Value from KPI Planned until yesterday
+      if (allKPIs.length > 0) {
+        const projectKPIs = allKPIs.filter((kpi: any) => matchesProject(kpi, project))
+        
+        const plannedKPIs = projectKPIs.filter((kpi: any) => {
+          // Check if it's Planned
+          const inputType = String(
+            kpi.input_type || 
+            kpi['Input Type'] || 
+            (kpi as any).raw?.['Input Type'] || 
+            (kpi as any).raw?.['input_type'] ||
+            ''
+          ).trim().toLowerCase()
+          
+          if (inputType !== 'planned') {
+            return false
+          }
+          
+          // ✅ Filter by date: only KPIs until yesterday
+          const rawKpi = (kpi as any).raw || {}
+          const kpiDateStr = kpi.activity_date ||
+                            kpi.target_date ||
+                            rawKpi['Activity Date'] ||
+                            rawKpi['Target Date'] ||
+                            rawKpi['Day'] ||
+                            kpi.day ||
+                            ''
+          
+          if (kpiDateStr) {
+            const kpiDate = parseDateString(kpiDateStr)
+            if (kpiDate && kpiDate > yesterday) {
+              return false // Skip KPIs after yesterday
+            }
+          }
+          
+          return true
+        })
+
+        if (plannedKPIs.length > 0) {
+          plannedKPIs.forEach((kpi: any) => {
+            const rawKpi = (kpi as any).raw || {}
+            const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
+            
+            // Find related activity to get rate
+            let rate = 0
+            if (allActivities.length > 0) {
+              const relatedActivity = allActivities.find((activity: any) => {
+                if (!matchesProject(activity, project)) return false
+                const kpiActivityName = kpi.activity_name || kpi['Activity Name'] || ''
+                const activityName = activity.activity_name || activity['Activity Name'] || ''
+                return kpiActivityName && activityName && kpiActivityName.toLowerCase() === activityName.toLowerCase()
+              })
+              
+              if (relatedActivity) {
+                const rawActivity = (relatedActivity as any).raw || {}
+                rate = relatedActivity.rate || 
+                      parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+                      0
+                
+                if (rate === 0) {
+                  const totalValue = relatedActivity.total_value || 
+                                   parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                   0
+                  const totalUnits = relatedActivity.total_units || 
+                                  parseFloat(String(rawActivity['Total Units'] || '0').replace(/,/g, '')) || 
+                                  0
+                  if (totalUnits > 0 && totalValue > 0) {
+                    rate = totalValue / totalUnits
+                  }
+                }
+              }
+            }
+            
+            // Calculate value: rate × quantity or use kpi.value
+            let kpiValue = 0
+            if (rate > 0 && quantity > 0) {
+              kpiValue = rate * quantity
+            } else {
+              kpiValue = parseFloat(String(kpi.value || rawKpi['Value'] || '0').replace(/,/g, '')) || 0
+            }
+            
+            plannedValue += kpiValue
+          })
+        }
+      }
+
+      // ✅ STEP 4: Calculate Earned Value from KPI Actual until yesterday
+      if (allKPIs.length > 0) {
+        const projectKPIs = allKPIs.filter((kpi: any) => matchesProject(kpi, project))
+        
+        const actualKPIs = projectKPIs.filter((kpi: any) => {
+          // Check if it's Actual
+          const inputType = String(
+            kpi.input_type || 
+            kpi['Input Type'] || 
+            (kpi as any).raw?.['Input Type'] || 
+            (kpi as any).raw?.['input_type'] ||
+            ''
+          ).trim().toLowerCase()
+          
+          if (inputType !== 'actual') {
+            return false
+          }
+          
+          // ✅ Filter by date: only KPIs until yesterday
+          const rawKpi = (kpi as any).raw || {}
+          const kpiDateStr = kpi.activity_date ||
+                            kpi.target_date ||
+                            rawKpi['Activity Date'] ||
+                            rawKpi['Target Date'] ||
+                            rawKpi['Day'] ||
+                            kpi.day ||
+                            ''
+          
+          if (kpiDateStr) {
+            const kpiDate = parseDateString(kpiDateStr)
+            if (kpiDate && kpiDate > yesterday) {
+              return false // Skip KPIs after yesterday
+            }
+          }
+          
+          return true
+        })
+
+        if (actualKPIs.length > 0) {
+          actualKPIs.forEach((kpi: any) => {
+            const rawKpi = (kpi as any).raw || {}
+            const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
+            
+            // Find related activity to get rate
+            let rate = 0
+            if (allActivities.length > 0) {
+              const relatedActivity = allActivities.find((activity: any) => {
+                if (!matchesProject(activity, project)) return false
+                const kpiActivityName = kpi.activity_name || kpi['Activity Name'] || ''
+                const activityName = activity.activity_name || activity['Activity Name'] || ''
+                return kpiActivityName && activityName && kpiActivityName.toLowerCase() === activityName.toLowerCase()
+              })
+              
+              if (relatedActivity) {
+                const rawActivity = (relatedActivity as any).raw || {}
+                rate = relatedActivity.rate || 
+                      parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+                      0
+                
+                if (rate === 0) {
+                  const totalValue = relatedActivity.total_value || 
+                                   parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                   0
+                  const totalUnits = relatedActivity.total_units || 
+                                  parseFloat(String(rawActivity['Total Units'] || '0').replace(/,/g, '')) || 
+                                  0
+                  if (totalUnits > 0 && totalValue > 0) {
+                    rate = totalValue / totalUnits
+                  }
+                }
+              }
+            }
+            
+            // Calculate value: rate × quantity or use kpi.value
+            let kpiValue = 0
+            if (rate > 0 && quantity > 0) {
+              kpiValue = rate * quantity
+            } else {
+              kpiValue = parseFloat(String(kpi.value || rawKpi['Value'] || '0').replace(/,/g, '')) || 0
+            }
+            
+            earnedValue += kpiValue
+          })
+        }
+      }
+    } catch (error) {
+      console.error('Error calculating work value status:', error)
+    }
+    
+    return { total: totalValue, planned: plannedValue, earned: earnedValue }
+  }, [allActivities, allKPIs, matchesProject])
+
+  // ✅ OLD: Calculate work value status with intelligent calculations (kept for backward compatibility)
+  const calculateWorkValueStatusOld = (project: Project): { planned: number, done: number, source: string } => {
     let plannedValue = 0
     let doneValue = 0
     let source = 'none'
@@ -1661,12 +2043,230 @@ export function ProjectsTableWithCustomization({
     }
   }
 
+  // ✅ Memoize divisions calculations for all projects (EXACT COPY from projectAnalytics.ts logic)
+  const divisionsDataMap = useMemo(() => {
+    const map = new Map<string, { divisionAmounts: Record<string, number>, divisionNames: Record<string, string> }>()
+    
+    // ✅ DEBUG: Log input data
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`🔍 DivisionsDataMap: Starting calculation for ${projects.length} projects`, {
+        allActivitiesCount: allActivities.length
+      })
+    }
+    
+    // Early return if no data
+    if (allActivities.length === 0) {
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('⚠️ DivisionsDataMap: No Activities available, returning empty map')
+      }
+      return map
+    }
+    
+    projects.forEach((project) => {
+      // Step 1: Build project codes (EXACT COPY from projectAnalytics.ts)
+      const projectCode = (project.project_code || '').toString().trim()
+      const projectSubCode = (project.project_sub_code || '').toString().trim()
+      const projectCodeUpper = projectCode.toUpperCase()
+      const projectSubCodeUpper = projectSubCode.toUpperCase()
+      
+      // Build project_full_code
+      let projectFullCode = projectCode
+      if (projectSubCode) {
+        if (projectSubCodeUpper.startsWith(projectCodeUpper)) {
+          projectFullCode = projectSubCode
+        } else if (projectSubCode.startsWith('-')) {
+          projectFullCode = `${projectCode}${projectSubCode}`
+        } else {
+          projectFullCode = `${projectCode}-${projectSubCode}`
+        }
+      }
+      const projectFullCodeUpper = projectFullCode.toUpperCase()
+      
+      // Build project code variations (EXACT COPY from projectAnalytics.ts)
+      const projectCodeVariations = new Set<string>()
+      projectCodeVariations.add(projectCodeUpper)
+      projectCodeVariations.add(projectFullCodeUpper)
+      if (projectSubCode) {
+        projectCodeVariations.add(projectSubCodeUpper)
+        if (projectSubCodeUpper.includes(projectCodeUpper)) {
+          projectCodeVariations.add(projectSubCodeUpper)
+        } else {
+          projectCodeVariations.add(`${projectCodeUpper}${projectSubCodeUpper}`)
+          projectCodeVariations.add(`${projectCodeUpper}-${projectSubCodeUpper}`)
+        }
+      }
+      
+      // Step 2: Helper to extract project code (EXACT COPY from projectAnalytics.ts)
+      const extractProjectCode = (item: any): string[] => {
+        const codes: string[] = []
+        const raw = (item as any).raw || {}
+        const sources = [
+          item.project_full_code,
+          (item as any)['Project Full Code'],
+          raw['Project Full Code'],
+          item.project_code,
+          (item as any)['Project Code'],
+          raw['Project Code']
+        ]
+        for (const source of sources) {
+          if (source) {
+            const code = source.toString().trim()
+            if (code) {
+              codes.push(code)
+              codes.push(code.toUpperCase())
+            }
+          }
+        }
+        return Array.from(new Set(codes))
+      }
+      
+      // Step 3: Helper to check if codes match (EXACT COPY from projectAnalytics.ts)
+      const codesMatch = (itemCodes: string[], projectCodes: Set<string>): boolean => {
+        for (const itemCode of itemCodes) {
+          const itemCodeUpper = itemCode.toUpperCase().trim()
+          
+          // Priority 1: Exact match on project_full_code
+          if (projectFullCodeUpper && itemCodeUpper === projectFullCodeUpper) {
+            return true
+          }
+          
+          // Priority 2: Item code starts with project_full_code (for sub-projects)
+          if (projectSubCode && projectFullCodeUpper && itemCodeUpper.startsWith(projectFullCodeUpper)) {
+            return true
+          }
+          
+          // Priority 3: Match by project_code only if project has no sub_code
+          if (!projectSubCode && itemCodeUpper === projectCodeUpper) {
+            return true
+          }
+        }
+        return false
+      }
+      
+      // ✅ FIX: Calculate division amounts from BOQ Activities directly (not from KPIs)
+      // ✅ This is more accurate because BOQ Activities contain Total Value directly
+      // Step 4: Filter Activities for this project
+      const projectActivities = allActivities.filter((activity: any) => {
+        const activityCodes = extractProjectCode(activity)
+        if (activityCodes.length === 0) {
+          return false
+        }
+        return codesMatch(activityCodes, projectCodeVariations)
+      })
+      
+      // ✅ DEBUG: Log activity matching for first few projects
+      if (process.env.NODE_ENV === 'development' && projects.indexOf(project) < 5) {
+        console.log(`🔍 [${project.project_code}] Activity filtering:`, {
+          projectFullCode,
+          projectCodeVariations: Array.from(projectCodeVariations),
+          allActivitiesCount: allActivities.length,
+          matchedActivitiesCount: projectActivities.length
+        })
+      }
+      
+      // Step 5: Calculate division amounts from BOQ Activities (Total Value)
+      const divisionAmounts: Record<string, number> = {}
+      const divisionNames: Record<string, string> = {}
+      
+      projectActivities.forEach((activity: any) => {
+        const rawActivity = (activity as any).raw || {}
+        
+        // ✅ Get division from activity
+        const division = activity.activity_division || 
+                       activity['Activity Division'] || 
+                       rawActivity['Activity Division'] || 
+                       rawActivity['activity_division'] || ''
+        
+        // Skip if no division found
+        if (!division || division.trim() === '') {
+          return
+        }
+        
+        const divisionKey = division.trim().toLowerCase()
+        const divisionName = division.trim()
+        
+        // ✅ Get Total Value directly from BOQ Activity (this is the correct value)
+        let activityValue = 0
+        
+        // Priority 1: Use Total Value from activity
+        const totalValue = activity.total_value || parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 0
+        if (totalValue > 0) {
+          activityValue = totalValue
+        }
+        
+        // Priority 2: Calculate from Rate × Total Units if Total Value not available
+        if (activityValue === 0) {
+          const rate = activity.rate || parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
+          const totalUnits = activity.total_units || parseFloat(String(rawActivity['Total Units'] || '0').replace(/,/g, '')) || 0
+          if (rate > 0 && totalUnits > 0) {
+            activityValue = rate * totalUnits
+          }
+        }
+        
+        // Priority 3: Use Activity Value if available
+        if (activityValue === 0) {
+          const activityValueField = activity.activity_value || parseFloat(String(rawActivity['Activity Value'] || '0').replace(/,/g, '')) || 0
+          if (activityValueField > 0) {
+            activityValue = activityValueField
+          }
+        }
+        
+        // Sum values for this division (only if we have a value)
+        if (activityValue > 0) {
+          if (!divisionNames[divisionKey]) {
+            divisionNames[divisionKey] = divisionName
+          }
+          divisionAmounts[divisionKey] = (divisionAmounts[divisionKey] || 0) + activityValue
+        }
+      })
+      
+      // Store in map (always store, even if empty, to ensure all projects are in the map)
+      map.set(project.id, { divisionAmounts, divisionNames })
+      
+      // ✅ DEBUG: Log for first few projects to verify data is being calculated
+      if (process.env.NODE_ENV === 'development' && projects.indexOf(project) < 5) {
+        const divisionsCount = Object.keys(divisionAmounts).length
+        if (divisionsCount > 0) {
+          console.log(`✅ [${project.project_code}] Divisions calculated:`, {
+            projectId: project.id,
+            divisionsCount,
+            divisions: Object.keys(divisionNames),
+            totalAmount: Object.values(divisionAmounts).reduce((sum, val) => sum + val, 0)
+          })
+        }
+      }
+    })
+    
+    // ✅ DEBUG: Log summary
+    if (process.env.NODE_ENV === 'development') {
+      const projectsWithData = Array.from(map.entries()).filter(([_, data]) => Object.keys(data.divisionAmounts).length > 0).length
+      console.log(`✅ DivisionsDataMap: Calculated for ${map.size} projects, ${projectsWithData} have division data`)
+    }
+    
+    return map
+  }, [projects, allActivities]) // ✅ FIX: Removed allKPIs dependency since we now use BOQ Activities directly
+
   // ✅ Render cell content - OPTIMIZED with useCallback
   // All calculated columns use analytics from calculateProjectAnalytics (same as Cards)
   // This ensures data consistency between Cards and Customize Columns
   const renderCell = useCallback((project: Project, column: ColumnConfig) => {
     // Get analytics for this project (calculated once per project)
     const analytics = projectsAnalytics.get(project.id)
+    
+    // ✅ Use the SAME helper functions as Cards (ModernProjectCard.tsx)
+    // This ensures 100% consistency in formatting and calculations
+    const formatCurrency = (amount: number) => {
+      return formatCurrencyByCodeSync(amount, project.currency)
+    }
+    
+    const formatPercent = (value: number) => {
+      return `${value.toFixed(1)}%`
+    }
+    
+    // ✅ Use the SAME progress calculation as Cards
+    const progress = analytics?.actualProgress ?? analytics?.overallProgress ?? 0
+    const totalActivities = analytics?.totalActivities ?? 0
+    const totalKPIs = analytics?.totalKPIs ?? 0
     
     // ✅ PERFORMANCE: Debug logging removed for production performance
     
@@ -1817,10 +2417,40 @@ export function ProjectsTableWithCustomization({
           )
         
         case 'responsible_divisions':
-          const divisionsRaw = project.responsible_division || 'N/A'
-          const divisionsList = divisionsRaw !== 'N/A' 
+          // ✅ Get divisions from project.responsible_division (from database)
+          const divisionsRaw = project.responsible_division || ''
+          const divisionsFromProject = divisionsRaw 
             ? divisionsRaw.split(',').map(d => d.trim()).filter(d => d.length > 0)
-            : ['N/A']
+            : []
+          
+          // ✅ Get divisions from BOQ Activities for this project
+          const divisionsFromBOQ = new Set<string>()
+          if (allActivities.length > 0) {
+            const projectActivities = allActivities.filter((activity: any) => matchesProject(activity, project))
+            projectActivities.forEach((activity: any) => {
+              const activityDivision = activity.activity_division || 
+                                     (activity as any).raw?.['Activity Division'] ||
+                                     (activity as any).raw?.['activity_division'] ||
+                                     ''
+              if (activityDivision && activityDivision.trim() !== '') {
+                divisionsFromBOQ.add(activityDivision.trim())
+              }
+            })
+          }
+          
+          // ✅ Merge divisions from project and BOQ (remove duplicates)
+          const allDivisionsSet = new Set<string>()
+          divisionsFromProject.forEach(d => allDivisionsSet.add(d))
+          divisionsFromBOQ.forEach(d => allDivisionsSet.add(d))
+          
+          const allDivisionsList = Array.from(allDivisionsSet).sort()
+          
+          // If no divisions found, show N/A
+          if (allDivisionsList.length === 0) {
+            return (
+              <span className="text-gray-400 dark:text-gray-500 text-sm">N/A</span>
+            )
+          }
           
           const divisionColors: { [key: string]: string } = {
             'Enabling Division': 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
@@ -1831,7 +2461,7 @@ export function ProjectsTableWithCustomization({
           
           return (
             <div className="flex flex-wrap gap-1.5">
-              {divisionsList.map((division, index) => {
+              {allDivisionsList.map((division, index) => {
                 const divisionColor = divisionColors[division] || 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300'
                 return (
                   <span key={index} className={`px-2.5 py-1 text-xs font-medium rounded-full ${divisionColor}`}>
@@ -1872,18 +2502,15 @@ export function ProjectsTableWithCustomization({
               .filter((name: string) => name && name.trim() !== '')
           ))
           
-          // ✅ DEBUG: Always log for first 3 projects to diagnose
-          const isFirstProject = projects.indexOf(project) < 3
-          if (isFirstProject) {
+          // ✅ PERFORMANCE: Only log in development mode and very rarely (0.1%)
+          const shouldLog = process.env.NODE_ENV === 'development' && Math.random() < 0.001
+          if (shouldLog) {
             console.log(`🔍 [${project.project_code}] Scope lookup - BEFORE processing:`, {
               projectTypeNamesRaw,
               projectTypeRaw: project.project_type,
               projectActivitiesCount: projectActivitiesForScope.length,
               projectActivityNames,
-              projectTypesMapSize: projectTypesMap.size,
-              activityProjectTypesMapSize: activityProjectTypesMap.size,
-              hasProjectTypesMap: projectTypesMap.size > 0,
-              hasActivityProjectTypesMap: activityProjectTypesMap.size > 0
+              projectTypesMapSize: projectTypesMap.size
             })
           }
           
@@ -1938,7 +2565,7 @@ export function ProjectsTableWithCustomization({
           
           const projectTypeNames = Array.from(allProjectTypeNames)
           
-          if (isFirstProject) {
+          if (shouldLog) {
             console.log(`🔍 [${project.project_code}] Scope lookup - AFTER processing:`, {
               projectTypeNames,
               count: projectTypeNames.length,
@@ -1955,9 +2582,6 @@ export function ProjectsTableWithCustomization({
               const projectType = projectTypesMap.get(typeName)
               if (projectType) {
                 scopeList.push(projectType.name)
-                if (isFirstProject) {
-                  console.log(`✅ [${project.project_code}] Found exact match for "${typeName}":`, projectType.name)
-                }
               } else {
                 // Try case-insensitive match
                 let found = false
@@ -1965,17 +2589,11 @@ export function ProjectsTableWithCustomization({
                   if (key.toLowerCase() === typeName.toLowerCase()) {
                     scopeList.push(value.name)
                     found = true
-                    if (isFirstProject) {
-                      console.log(`✅ [${project.project_code}] Found case-insensitive match for "${typeName}":`, value.name)
-                    }
                   }
                 })
                 // If not found in project_types table, use the original name as fallback
                 if (!found) {
                   scopeList.push(typeName)
-                  if (isFirstProject) {
-                    console.log(`⚠️ [${project.project_code}] No match found for "${typeName}", using as-is`)
-                  }
                 }
               }
             })
@@ -1984,13 +2602,7 @@ export function ProjectsTableWithCustomization({
           // 6. If no scopes found, show N/A
           const finalScopeList = scopeList.length > 0 ? scopeList : ['N/A']
           
-          if (isFirstProject) {
-            console.log(`🔍 [${project.project_code}] Scope lookup - FINAL RESULT:`, {
-              finalScopeList,
-              scopeListLength: scopeList.length,
-              projectTypeNamesLength: projectTypeNames.length
-            })
-          }
+          // ✅ PERFORMANCE: Removed excessive logging
           
           const isExpanded = expandedScopes.has(project.id)
           const maxVisible = 3 // Show max 3 scopes initially
@@ -2126,7 +2738,7 @@ export function ProjectsTableWithCustomization({
               
               // ✅ PRIORITY 1: Direct exact match with project_full_code (most accurate)
               if (projectFullCodeUpper && itemCodeUpper === projectFullCodeUpper) return true
-              
+            
               // ✅ PRIORITY 2: Direct exact match with any project code variation (case-insensitive)
               for (const projCode of projectCodesArray) {
                 if (itemCodeUpper === projCode) return true
@@ -2134,7 +2746,7 @@ export function ProjectsTableWithCustomization({
               
               // ✅ PRIORITY 3: Check if item code starts with project_full_code (for sub-projects)
               if (projectFullCodeUpper && itemCodeUpper.startsWith(projectFullCodeUpper)) return true
-              
+            
               // ✅ PRIORITY 4: Check if project_full_code starts with item code
               if (projectFullCodeUpper && projectFullCodeUpper.startsWith(itemCodeUpper)) return true
               
@@ -2160,26 +2772,21 @@ export function ProjectsTableWithCustomization({
             return codesMatch(kpiCodes, projectCodeVariations)
           })
           
-          const hasKPIs = projectKPIs.length > 0
-          const totalKPIs = projectKPIs.length
+          // ✅ Check specifically for Planned KPIs (not Actual)
+          const plannedKPIs = projectKPIs.filter((k: any) => {
+            const inputType = (k.input_type || (k as any).raw?.['Input Type'] || '').toString().trim().toLowerCase()
+            return inputType === 'planned'
+          })
+          const hasKPIs = plannedKPIs.length > 0
+          const totalKPIs = plannedKPIs.length
           
-          // ✅ DEBUG: Always log for troubleshooting
-          if (process.env.NODE_ENV === 'development') {
+          // ✅ PERFORMANCE: Only log in development mode and very rarely (0.1%)
+          if (process.env.NODE_ENV === 'development' && Math.random() < 0.001) {
             console.log(`🔍 [${project.project_code}] KPI Added? Check:`, {
               projectCode,
-              projectSubCode,
               projectFullCode,
-              projectFullCodeUpper,
-              projectCodeVariations: Array.from(projectCodeVariations),
               allKPIsCount: allKPIs.length,
-              foundKPIs: totalKPIs,
-              sampleKPIs: allKPIs.slice(0, 5).map((k: any) => {
-                const kpiCodes = extractProjectCode(k)
-                return {
-                  kpiCodes,
-                  matches: codesMatch(kpiCodes, projectCodeVariations)
-                }
-              })
+              foundKPIs: totalKPIs
             })
           }
           
@@ -2205,52 +2812,57 @@ export function ProjectsTableWithCustomization({
         
         case 'project_status':
           // ✅ Display Project Status calculated automatically based on activities and KPIs
+          // ✅ CRITICAL: Status is calculated automatically and saved to database
           // Default status is 'upcoming' when project is created, but changes automatically based on activities
-          let calculatedStatus: string = 'upcoming'
+          let calculatedStatus: string = project.project_status || 'upcoming'
           
           // Get project activities and KPIs from analytics
           const statusActivities = analytics?.activities || []
           const statusKPIs = analytics?.kpis || []
           
-          // Calculate status automatically if we have activities or KPIs
-          if (statusActivities.length > 0 || statusKPIs.length > 0) {
-            try {
-              // Prepare data for status calculation
-              const statusData: ProjectStatusData = {
-                project_id: project.id,
-                project_code: project.project_code || '',
-                project_name: project.project_name || '',
-                project_start_date: project.project_start_date || project.created_at || new Date().toISOString(),
-                project_end_date: project.project_completion_date || getProjectField(project, 'Planned Completion Date') || new Date().toISOString(),
-                current_date: new Date().toISOString(),
-                activities: statusActivities.map((activity: any) => ({
-                  id: activity.id || activity.activity_id || '',
-                  activity_timing: activity.activity_timing || (activity as any).raw?.['Activity Timing'] || 'post-commencement',
-                  planned_units: activity.planned_units || activity.total_units || 0,
-                  actual_units: activity.actual_units || 0,
-                  planned_activity_start_date: activity.planned_start_date || (activity as any).raw?.['Planned Start Date'] || '',
-                  deadline: activity.deadline || (activity as any).raw?.['Deadline'] || '',
-                  status: activity.status || (activity as any).raw?.['Status'] || 'not_started'
-                })),
-                kpis: statusKPIs.map((kpi: any) => ({
-                  id: kpi.id || '',
-                  input_type: kpi.input_type || (kpi as any).raw?.['Input Type'] || 'Planned',
-                  quantity: kpi.quantity || kpi.Quantity || 0,
-                  target_date: kpi.target_date || kpi.activity_date || (kpi as any).raw?.['Target Date'] || (kpi as any).raw?.['Activity Date'] || '',
-                  actual_date: kpi.actual_date || (kpi as any).raw?.['Actual Date']
-                }))
-              }
-              
-              // Calculate status
-              const statusResult = calculateProjectStatus(statusData)
-              calculatedStatus = statusResult.status
-            } catch (error) {
-              console.error('Error calculating project status:', error)
-              // Fallback to database status if calculation fails
-              calculatedStatus = project.project_status || 'upcoming'
+          // ✅ Calculate status automatically based on Activity Commencement Relation
+          // Logic:
+          // 1. No activities = 'upcoming'
+          // 2. Post-Commencement activity started = 'site-preparation'
+          // 3. Pre-Commencement in progress = 'site-preparation'
+          // 4. Post-Commencement in progress = 'on-going'
+          // 5. All completed = 'completed'
+          try {
+            // Prepare data for status calculation
+            const statusData: ProjectStatusData = {
+              project_id: project.id,
+              project_code: project.project_code || '',
+              project_name: project.project_name || '',
+              project_start_date: project.project_start_date || project.created_at || new Date().toISOString(),
+              project_end_date: project.project_completion_date || getProjectField(project, 'Planned Completion Date') || new Date().toISOString(),
+              current_date: new Date().toISOString(),
+              activities: statusActivities.map((activity: any) => ({
+                id: activity.id || activity.activity_id || '',
+                activity_timing: activity.activity_timing || (activity as any).raw?.['Activity Timing'] || 'post-commencement',
+                planned_units: activity.planned_units || activity.total_units || 0,
+                actual_units: activity.actual_units || 0,
+                planned_activity_start_date: activity.planned_start_date || activity.planned_activity_start_date || (activity as any).raw?.['Planned Start Date'] || (activity as any).raw?.['Planned Activity Start Date'] || '',
+                deadline: activity.deadline || (activity as any).raw?.['Deadline'] || '',
+                status: activity.status || activity.activity_completed ? 'completed' : (activity.activity_delayed ? 'delayed' : 'not_started')
+              })),
+              kpis: statusKPIs.map((kpi: any) => ({
+                id: kpi.id || '',
+                input_type: kpi.input_type || (kpi as any).raw?.['Input Type'] || 'Planned',
+                quantity: kpi.quantity || kpi.Quantity || 0,
+                target_date: kpi.target_date || kpi.activity_date || (kpi as any).raw?.['Target Date'] || (kpi as any).raw?.['Activity Date'] || '',
+                actual_date: kpi.actual_date || (kpi as any).raw?.['Actual Date']
+              }))
             }
-          } else {
-            // No activities or KPIs, use database status or default to 'upcoming'
+            
+            // Calculate status using improved logic
+            const statusResult = calculateProjectStatus(statusData)
+            calculatedStatus = statusResult.status
+            
+            // ✅ TODO: Auto-save calculated status to database (will be implemented in background update)
+            // For now, display the calculated status even if database hasn't been updated yet
+          } catch (error) {
+            console.error('Error calculating project status:', error)
+            // Fallback to database status if calculation fails
             calculatedStatus = project.project_status || 'upcoming'
           }
           
@@ -2293,616 +2905,92 @@ export function ProjectsTableWithCustomization({
           )
         
         case 'contract_durations':
-          // ✅ Use same data sources as Cards: KPIs and Activities from analytics
-          // Cards don't display contract durations, but we use same KPIs/Activities data
-          const plannedDatesForContract = getPlannedDatesFromActivities(project)
-          const kpiPlannedDatesForContract = getPlannedDatesFromKPIs(project)
-          const actualDatesForContract = getActualDatesFromKPIs(project)
+          // ✅ Display Project Start Date, Project Completion Date, and Project Duration from form
+          // Get Project Start Date from form (project.project_start_date or form field)
+          const projectStartDate = project.project_start_date || 
+                                   getProjectField(project, 'Project Start Date') || 
+                                   getProjectField(project, 'Start Date') ||
+                                   ''
           
-          // Get dates from all possible sources
-          const contractPlannedStart = plannedDatesForContract.start || 
-                                       kpiPlannedDatesForContract.start || 
-                                       getProjectField(project, 'Planned Start Date') || 
-                                       getProjectField(project, 'Planned Start') ||
-                                       getProjectField(project, 'Project Start Date') ||
-                                       getProjectField(project, 'Commencement Date') ||
-                                       ''
+          // Get Project Completion Date from form (project.project_completion_date or form field)
+          const projectCompletionDate = project.project_completion_date || 
+                                      getProjectField(project, 'Project Completion Date') || 
+                                      getProjectField(project, 'Completion Date') ||
+                                      getProjectField(project, 'End Date') ||
+                                      ''
           
-          const contractPlannedCompletion = plannedDatesForContract.completion || 
-                                            kpiPlannedDatesForContract.completion || 
-                                            getProjectField(project, 'Planned Completion Date') || 
-                                            getProjectField(project, 'Planned Completion') ||
-                                            getProjectField(project, 'Project End Date') ||
-                                            getProjectField(project, 'Completion Date') ||
-                                            ''
+          // Get Project Duration from form (project.project_duration or form field)
+          let projectDuration = project.project_duration
           
-          // ✅ Calculate contract duration from dates (most accurate)
-          let contractDuration = plannedDatesForContract.duration || 0
-          if (contractDuration <= 0 && contractPlannedStart && contractPlannedCompletion) {
-            const startDate = new Date(contractPlannedStart)
-            const endDate = new Date(contractPlannedCompletion)
-            if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
-              contractDuration = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
-            }
-          }
-          
-          // ✅ Fallback: From project field
-          if (contractDuration <= 0) {
-            contractDuration = parseFloat(String(
-              getProjectField(project, 'Contract Duration') || 
-              getProjectField(project, 'Duration') ||
-              getProjectField(project, 'Project Duration') ||
-              '0'
-            ).replace(/,/g, '')) || 0
-          }
-          
-          // ✅ Fallback: Calculate from contract amount if available (estimate)
-          if (contractDuration <= 0) {
-            const contractAmt = parseFloat(String(
-              project.contract_amount || 
-              getProjectField(project, 'Contract Amount') || 
-              '0'
-            ).replace(/,/g, '')) || 0
-            
-            // Rough estimate: Larger contracts typically take longer
-            if (contractAmt > 0) {
-              if (contractAmt >= 10000000) {
-                contractDuration = 730 // ~2 years for large projects
-              } else if (contractAmt >= 1000000) {
-                contractDuration = 365 // ~1 year for medium projects
-              } else if (contractAmt >= 100000) {
-                contractDuration = 180 // ~6 months for small projects
-              } else {
-                contractDuration = 90 // ~3 months for very small projects
+          // If duration not set, calculate from dates
+          if (projectDuration === undefined || projectDuration === null || projectDuration === 0) {
+            if (projectStartDate && projectCompletionDate) {
+              const startDate = new Date(projectStartDate)
+              const completionDate = new Date(projectCompletionDate)
+              if (!isNaN(startDate.getTime()) && !isNaN(completionDate.getTime())) {
+                const diffTime = completionDate.getTime() - startDate.getTime()
+                projectDuration = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1 // Include both start and end days
               }
             }
           }
           
-          // Get extension duration
-          const extensionDuration = parseFloat(String(
-            getProjectField(project, 'Extension of Time Duration') || 
-            getProjectField(project, 'Extension Duration') || 
-            getProjectField(project, 'EOT Duration') ||
-            '0'
-          ).replace(/,/g, '')) || 0
-          
-          // ✅ Calculate actual duration from actual dates
-          let contractActualDuration = 0
-          const contractActualStart = actualDatesForContract.start || getProjectField(project, 'Actual Start Date') || ''
-          const contractActualCompletion = actualDatesForContract.completion || getProjectField(project, 'Actual Completion Date') || ''
-          
-          if (contractActualStart && contractActualCompletion) {
-            const actualStartDate = new Date(contractActualStart)
-            const actualEndDate = new Date(contractActualCompletion)
-            if (!isNaN(actualStartDate.getTime()) && !isNaN(actualEndDate.getTime())) {
-              contractActualDuration = Math.ceil((actualEndDate.getTime() - actualStartDate.getTime()) / (1000 * 60 * 60 * 24))
-            }
-          } else if (contractActualStart && contractPlannedCompletion) {
-            // If only actual start is available, calculate until planned completion
-            const actualStartDate = new Date(contractActualStart)
-            const plannedEndDate = new Date(contractPlannedCompletion)
-            const today = new Date()
-            if (!isNaN(actualStartDate.getTime()) && !isNaN(plannedEndDate.getTime())) {
-              contractActualDuration = Math.ceil((Math.min(today.getTime(), plannedEndDate.getTime()) - actualStartDate.getTime()) / (1000 * 60 * 60 * 24))
+          // Fallback: Try to get duration from form field
+          if (projectDuration === undefined || projectDuration === null || projectDuration === 0) {
+            const durationFromField = parseFloat(String(
+              getProjectField(project, 'Project Duration') || 
+              getProjectField(project, 'Duration') ||
+              '0'
+            ).replace(/,/g, '')) || 0
+            if (durationFromField > 0) {
+              projectDuration = durationFromField
             }
           }
-          
-          const totalDuration = contractDuration + extensionDuration
           
           return (
             <div className="space-y-1">
               <div className="text-xs text-gray-600 dark:text-gray-400">
-                Contract: {contractDuration > 0 ? `${contractDuration} days` : 'N/A'}
+                Start: {projectStartDate ? formatDate(projectStartDate) : 'N/A'}
               </div>
               <div className="text-xs text-gray-600 dark:text-gray-400">
-                Extension: {extensionDuration > 0 ? `${extensionDuration} days` : '0 days'}
+                Completion: {projectCompletionDate ? formatDate(projectCompletionDate) : 'N/A'}
               </div>
-              <div className="text-sm font-medium text-gray-900 dark:text-white">
-                Total: {totalDuration > 0 ? `${totalDuration} days` : 'N/A'}
-              </div>
-              {contractActualDuration > 0 && (
-                <div className="text-xs text-blue-600 dark:text-blue-400">
-                  Actual: {contractActualDuration} days {contractActualDuration > totalDuration ? '(Over)' : contractActualDuration < totalDuration * 0.8 ? '(Ahead)' : ''}
+              {projectDuration !== undefined && projectDuration !== null && projectDuration > 0 && (
+                <div className="text-sm font-medium text-gray-900 dark:text-white">
+                  Duration: {projectDuration} {projectDuration === 1 ? 'day' : 'days'}
                 </div>
               )}
             </div>
           )
         
         case 'planned_dates':
-          // ✅ PRIORITY: Start = أول Planned KPI date
-          // Calculation logic:
-          // 1. Start = أول Planned KPI date (PRIMARY SOURCE)
-          // 2. Completion = آخر Planned KPI date (PRIMARY SOURCE)
-          // 3. Fallback to BOQ Activities if no Planned KPIs
-          // 4. Fallback to Project Fields if no Activities
+          // ✅ NEW: Display Planned Dates from BOQ Activities and KPIs (Post-Commencement only)
+          // تاريخ البداية: من BOQ Activities أو أول KPI Planned (Post-Commencement فقط)
+          // تاريخ النهاية: آخر KPI Planned (Post-Commencement فقط)
+          const plannedDates = getPlannedDatesForProject(project)
+          const plannedStartDate = plannedDates.start
+          const plannedCompletionDate = plannedDates.completion
           
-          let plannedStart: string | null = null
-          let plannedCompletion: string | null = null
+          // Calculate duration if both dates are available
           let plannedDuration = 0
-          let datesSource = 'none'
-          
-          // ✅ METHOD 1: From Planned KPIs (PRIMARY SOURCE - أول Planned KPI = Start, آخر Planned KPI = Completion)
-          if (allKPIs.length > 0) {
-            // Get all Planned KPIs for this project
-            const projectKPIs = allKPIs.filter((kpi: any) => {
-              // Check if matches project
-              const rawKPI = (kpi as any).raw || {}
-              const kpiProjectCode = kpi.project_code || rawKPI['Project Code'] || ''
-              const kpiProjectFullCode = kpi.project_full_code || rawKPI['Project Full Code'] || ''
-              const projectCode = project.project_code || ''
-              const projectFullCode = project.project_sub_code ? `${project.project_code}-${project.project_sub_code}` : project.project_code || ''
-              
-              // Match by project code or project full code
-              const matches = (kpiProjectCode === projectCode) || 
-                             (kpiProjectFullCode === projectFullCode) ||
-                             (kpiProjectFullCode?.startsWith(projectCode)) ||
-                             (projectFullCode && kpiProjectFullCode?.startsWith(projectFullCode))
-              
-              if (!matches) return false
-              
-              // Check if it's Planned
-              const inputType = String(
-                kpi.input_type || 
-                kpi['Input Type'] || 
-                rawKPI['Input Type'] || 
-                rawKPI['input_type'] ||
-                ''
-              ).trim().toLowerCase()
-              
-              return inputType === 'planned'
-            })
-            
-            if (projectKPIs.length > 0) {
-              // Get all dates from Planned KPIs
-              const kpiDates = projectKPIs
-                .map((kpi: any) => {
-                  const rawKpi = (kpi as any).raw || {}
-                  
-                  // Try to get date from multiple sources
-                  let dateStr = rawKpi['Activity Date'] || rawKpi.activity_date || 
-                               kpi.activity_date || kpi['Activity Date'] ||
-                               rawKpi['Target Date'] || rawKpi.target_date ||
-                               kpi.target_date || kpi['Target Date'] ||
-                               rawKpi['Day'] || rawKpi.day ||
-                               kpi.day || kpi['Day'] ||
-                               ''
-                  
-                  const parsed = parseDateString(dateStr)
-                  return parsed ? { date: parsed, kpi } : null
-                })
-                .filter((item): item is { date: Date, kpi: any } => item !== null)
-                .sort((a, b) => a.date.getTime() - b.date.getTime())
-              
-              if (kpiDates.length > 0) {
-                // ✅ Start = أول Planned KPI date
-                plannedStart = kpiDates[0].date.toISOString()
-                // ✅ Completion = آخر Planned KPI date
-                plannedCompletion = kpiDates[kpiDates.length - 1].date.toISOString()
-                datesSource = 'first_last_planned_kpi'
-                
-                // Calculate duration
-                if (plannedStart && plannedCompletion) {
-                  const startDate = new Date(plannedStart)
-                  const endDate = new Date(plannedCompletion)
-                  if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
-                    plannedDuration = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
-                  }
-                }
-                
-                // ✅ DEBUG: Log calculation
-          if (process.env.NODE_ENV === 'development') {
-                  console.log(`📅 [${project.project_code}] Planned Dates from Planned KPIs:`, {
-                    firstKpiDate: kpiDates[0].date.toISOString(),
-                    lastKpiDate: kpiDates[kpiDates.length - 1].date.toISOString(),
-                    totalPlannedKPIs: projectKPIs.length,
-                    datesFound: kpiDates.length,
-                    duration: plannedDuration
-                  })
-                }
-              }
-            }
-          }
-          
-          // ✅ METHOD 2: Fallback to BOQ Activities (if no Planned KPIs found)
-          if ((!plannedStart || !plannedCompletion) && allActivities.length > 0) {
-          const plannedDatesFromActivities = getPlannedDatesFromActivities(project)
-            
-            if (!plannedStart && plannedDatesFromActivities.start) {
-              plannedStart = plannedDatesFromActivities.start
-              datesSource = datesSource === 'none' ? 'activities' : 'kpis_activities'
-            }
-            
-            if (!plannedCompletion && plannedDatesFromActivities.completion) {
-              plannedCompletion = plannedDatesFromActivities.completion
-              datesSource = datesSource === 'none' ? 'activities' : 'kpis_activities'
-            }
-            
-            if (plannedDatesFromActivities.duration > 0 && plannedDuration === 0) {
-              plannedDuration = plannedDatesFromActivities.duration
-            }
-          
-          // ✅ DEBUG: Log result from Activities
-          if (process.env.NODE_ENV === 'development') {
-              console.log(`📅 [${project.project_code}] Planned Dates from Activities (fallback):`, {
-              start: plannedStart,
-              completion: plannedCompletion,
-              duration: plannedDuration,
-                source: datesSource
-            })
-            }
-          }
-          
-          // ✅ METHOD 3: Fallback to getPlannedDatesFromKPIs (if no direct Planned KPIs found)
-          if ((!plannedStart || !plannedCompletion) && allKPIs.length > 0) {
-          const plannedDatesFromKPIs = getPlannedDatesFromKPIs(project)
-          
-            if (!plannedStart && plannedDatesFromKPIs.start) {
-              plannedStart = plannedDatesFromKPIs.start
-              datesSource = datesSource === 'none' ? 'kpis' : datesSource
-            }
-            
-            if (!plannedCompletion && plannedDatesFromKPIs.completion) {
-              plannedCompletion = plannedDatesFromKPIs.completion
-              datesSource = datesSource === 'none' ? 'kpis' : datesSource
-            }
-          }
-          
-          // ✅ DEBUG: Log result
-          if (process.env.NODE_ENV === 'development') {
-            console.log(`📅 [${project.project_code}] Planned Dates from KPIs:`, {
-              start: plannedStart,
-              completion: plannedCompletion,
-              formattedStart: plannedStart ? formatDate(plannedStart) : 'N/A',
-              formattedCompletion: plannedCompletion ? formatDate(plannedCompletion) : 'N/A'
-            })
-          }
-          
-          // ✅ METHOD 3: Fallback to project fields
-          if (!plannedStart || !plannedCompletion) {
-            // Only use project fields as fallback if KPIs don't exist
-            if (!plannedStart) {
-              // ✅ EXPANDED: Try multiple project field sources for start date
-              const projectStart = getProjectField(project, 'Planned Start Date') || 
-                                  getProjectField(project, 'Planned Start') || 
-                                  getProjectField(project, 'Project Start Date') ||
-                                  getProjectField(project, 'Start Date') ||
-                                  getProjectField(project, 'Commencement Date') ||
-                                  project.project_start_date || // ✅ Direct field access
-                                  (project as any).raw?.['Project Start Date'] ||
-                                  (project as any).raw?.['Start Date'] ||
-                                  ''
-              if (projectStart) {
-                plannedStart = projectStart
-                datesSource = datesSource === 'none' ? 'project_fields' : datesSource
-              }
-            }
-            
-            if (!plannedCompletion) {
-              // ✅ EXPANDED: Try multiple project field sources for completion date
-              const projectCompletion = getProjectField(project, 'Planned Completion Date') || 
-                                       getProjectField(project, 'Planned Completion') ||
-                                       getProjectField(project, 'Project End Date') ||
-                                       getProjectField(project, 'End Date') ||
-                                       getProjectField(project, 'Completion Date') ||
-                                       project.project_completion_date || // ✅ Direct field access
-                                       (project as any).raw?.['Project Completion Date'] ||
-                                       (project as any).raw?.['Completion Date'] ||
-                                       ''
-              if (projectCompletion) {
-                plannedCompletion = projectCompletion
-                datesSource = datesSource === 'none' ? 'project_fields' : datesSource
-              }
-            }
-          }
-          
-          // ✅ METHOD 4: Calculate from first Planned KPI date (if not found from activities or project fields)
-          if (!plannedStart && allKPIs.length > 0) {
-            // Get all Planned KPIs for this project
-            const projectKPIs = allKPIs.filter((kpi: any) => {
-              // Check if matches project
-              const rawKPI = (kpi as any).raw || {}
-              const kpiProjectCode = kpi.project_code || rawKPI['Project Code'] || ''
-              const kpiProjectFullCode = kpi.project_full_code || rawKPI['Project Full Code'] || ''
-              const projectCode = project.project_code || ''
-              const projectFullCode = project.project_sub_code ? `${project.project_code}-${project.project_sub_code}` : project.project_code || ''
-              
-              // Match by project code or project full code
-              const matches = (kpiProjectCode === projectCode) || 
-                             (kpiProjectFullCode === projectFullCode) ||
-                             (kpiProjectFullCode?.startsWith(projectCode)) ||
-                             (projectFullCode && kpiProjectFullCode?.startsWith(projectFullCode))
-              
-              if (!matches) return false
-              
-              // Check if it's Planned
-              const inputType = String(
-                kpi.input_type || 
-                kpi['Input Type'] || 
-                rawKPI['Input Type'] || 
-                rawKPI['input_type'] ||
-                ''
-              ).trim().toLowerCase()
-              
-              return inputType === 'planned'
-            })
-            
-            if (projectKPIs.length > 0) {
-              // Get all dates from Planned KPIs
-              const kpiDates = projectKPIs
-                .map((kpi: any) => {
-                  const rawKpi = (kpi as any).raw || {}
-                  
-                  // Try to get date from multiple sources
-                  let dateStr = rawKpi['Activity Date'] || rawKpi.activity_date || 
-                               kpi.activity_date || kpi['Activity Date'] ||
-                               rawKpi['Target Date'] || rawKpi.target_date ||
-                               kpi.target_date || kpi['Target Date'] ||
-                               rawKpi['Day'] || rawKpi.day ||
-                               kpi.day || kpi['Day'] ||
-                               ''
-                  
-                  const parsed = parseDateString(dateStr)
-                  return parsed ? { date: parsed, kpi } : null
-                })
-                .filter((item): item is { date: Date, kpi: any } => item !== null)
-                .sort((a, b) => a.date.getTime() - b.date.getTime())
-              
-              if (kpiDates.length > 0) {
-                // Use first Planned KPI date as Planned Start Date
-                plannedStart = kpiDates[0].date.toISOString()
-                datesSource = datesSource === 'none' ? 'first_planned_kpi' : datesSource
-                
-                // ✅ DEBUG: Log calculation
-                if (process.env.NODE_ENV === 'development') {
-                  console.log(`📅 [${project.project_code}] Calculated Planned Start from first Planned KPI:`, {
-                    firstKpiDate: kpiDates[0].date.toISOString(),
-                    totalPlannedKPIs: projectKPIs.length,
-                    datesFound: kpiDates.length
-                  })
-                }
-              }
-            }
-          }
-          
-          // ✅ METHOD 5: Calculate from Project Award Date + buffer (if not found)
-          if (!plannedStart) {
-            const projectAwardDate = getProjectField(project, 'Date Project Awarded') || 
-                                    getProjectField(project, 'Project Award Date') ||
-                                    project.date_project_awarded ||
-                                    (project as any).raw?.['Date Project Awarded'] ||
-                                    (project as any).raw?.['Project Award Date'] ||
-                                    ''
-            
-            if (projectAwardDate) {
-              try {
-                const awardDate = parseDateString(projectAwardDate)
-                if (awardDate && !isNaN(awardDate.getTime())) {
-                  // Add 30 days buffer (typical time between award and start)
-                  const startDate = new Date(awardDate)
-                  startDate.setDate(startDate.getDate() + 30)
-                  plannedStart = startDate.toISOString()
-                  datesSource = datesSource === 'none' ? 'award_date_plus_buffer' : datesSource
-                  
-                  // ✅ DEBUG: Log calculation
-                  if (process.env.NODE_ENV === 'development') {
-                    console.log(`📅 [${project.project_code}] Calculated Planned Start from Award Date + 30 days:`, {
-                      awardDate: awardDate.toISOString(),
-                      calculatedStart: plannedStart
-                    })
-                  }
-                }
-              } catch (error) {
-                console.error('Error calculating start date from award date:', error)
-              }
-            }
-          }
-          
-          // ✅ METHOD 6: Calculate completion from last Planned KPI date (if not found from activities or project fields)
-          if (!plannedCompletion && allKPIs.length > 0) {
-            // Get all Planned KPIs for this project
-            const projectKPIs = allKPIs.filter((kpi: any) => {
-              // Check if matches project
-              const rawKPI = (kpi as any).raw || {}
-              const kpiProjectCode = kpi.project_code || rawKPI['Project Code'] || ''
-              const kpiProjectFullCode = kpi.project_full_code || rawKPI['Project Full Code'] || ''
-              const projectCode = project.project_code || ''
-              const projectFullCode = project.project_sub_code ? `${project.project_code}-${project.project_sub_code}` : project.project_code || ''
-              
-              // Match by project code or project full code
-              const matches = (kpiProjectCode === projectCode) || 
-                             (kpiProjectFullCode === projectFullCode) ||
-                             (kpiProjectFullCode?.startsWith(projectCode)) ||
-                             (projectFullCode && kpiProjectFullCode?.startsWith(projectFullCode))
-              
-              if (!matches) return false
-              
-              // Check if it's Planned
-              const inputType = String(
-                kpi.input_type || 
-                kpi['Input Type'] || 
-                rawKPI['Input Type'] || 
-                rawKPI['input_type'] ||
-                ''
-              ).trim().toLowerCase()
-              
-              return inputType === 'planned'
-            })
-            
-            if (projectKPIs.length > 0) {
-              // Get all dates from Planned KPIs
-              const kpiDates = projectKPIs
-                .map((kpi: any) => {
-                  const rawKpi = (kpi as any).raw || {}
-                  
-                  // Try to get date from multiple sources
-                  let dateStr = rawKpi['Activity Date'] || rawKpi.activity_date || 
-                               kpi.activity_date || kpi['Activity Date'] ||
-                               rawKpi['Target Date'] || rawKpi.target_date ||
-                               kpi.target_date || kpi['Target Date'] ||
-                               rawKpi['Day'] || rawKpi.day ||
-                               kpi.day || kpi['Day'] ||
-                               ''
-                  
-                  const parsed = parseDateString(dateStr)
-                  return parsed ? { date: parsed, kpi } : null
-                })
-                .filter((item): item is { date: Date, kpi: any } => item !== null)
-                .sort((a, b) => a.date.getTime() - b.date.getTime())
-              
-              if (kpiDates.length > 0) {
-                // Use last Planned KPI date as Planned Completion Date
-                plannedCompletion = kpiDates[kpiDates.length - 1].date.toISOString()
-                datesSource = datesSource === 'none' ? 'last_planned_kpi' : datesSource
-                
-                // ✅ DEBUG: Log calculation
-                if (process.env.NODE_ENV === 'development') {
-                  console.log(`📅 [${project.project_code}] Calculated Planned Completion from last Planned KPI:`, {
-                    lastKpiDate: kpiDates[kpiDates.length - 1].date.toISOString(),
-                    totalPlannedKPIs: projectKPIs.length,
-                    datesFound: kpiDates.length
-                  })
-                }
-              }
-            }
-          }
-          
-          // ✅ METHOD 7: Calculate completion from start + duration (if start found but completion not)
-          if (plannedStart && !plannedCompletion) {
-            // Try to get duration from contract or activities
-            const contractDuration = parseFloat(String(
-              getProjectField(project, 'Contract Duration') || 
-              getProjectField(project, 'Duration') ||
-              project.project_duration ||
-              (project as any).raw?.['Contract Duration'] ||
-              (project as any).raw?.['Duration'] ||
-              '0'
-            ).replace(/,/g, '')) || 0
-            
-            if (contractDuration > 0) {
-              try {
-                const startDate = new Date(plannedStart)
-                if (!isNaN(startDate.getTime())) {
-                  const endDate = new Date(startDate)
-                  endDate.setDate(endDate.getDate() + contractDuration)
-                  plannedCompletion = endDate.toISOString()
-                  datesSource = datesSource === 'none' ? 'start_plus_duration' : datesSource
-                  
-                  // ✅ DEBUG: Log calculation
-                  if (process.env.NODE_ENV === 'development') {
-                    console.log(`📅 [${project.project_code}] Calculated Planned Completion from Start + Duration:`, {
-                      startDate: startDate.toISOString(),
-                      duration: contractDuration,
-                      calculatedCompletion: plannedCompletion
-                    })
-                  }
-                }
-              } catch (error) {
-                console.error('Error calculating completion date from start + duration:', error)
-              }
-            }
-          }
-          
-          // ✅ METHOD 8: Calculate completion from Project Award Date + duration (if start not found)
-          if (!plannedCompletion) {
-            const projectAwardDate = getProjectField(project, 'Date Project Awarded') || 
-                                    getProjectField(project, 'Project Award Date') ||
-                                    project.date_project_awarded ||
-                                    (project as any).raw?.['Date Project Awarded'] ||
-                                    (project as any).raw?.['Project Award Date'] ||
-                                    ''
-            
-            if (projectAwardDate) {
-              try {
-                const awardDate = parseDateString(projectAwardDate)
-                if (awardDate && !isNaN(awardDate.getTime())) {
-                  // Try to get duration
-                  const contractDuration = parseFloat(String(
-                    getProjectField(project, 'Contract Duration') || 
-                    getProjectField(project, 'Duration') ||
-                    project.project_duration ||
-                    (project as any).raw?.['Contract Duration'] ||
-                    (project as any).raw?.['Duration'] ||
-                    '0'
-                  ).replace(/,/g, '')) || 0
-                  
-                  if (contractDuration > 0) {
-                    // Add 30 days buffer + duration
-                    const endDate = new Date(awardDate)
-                    endDate.setDate(endDate.getDate() + 30 + contractDuration)
-                    plannedCompletion = endDate.toISOString()
-                    datesSource = datesSource === 'none' ? 'award_date_plus_duration' : datesSource
-                    
-                    // ✅ DEBUG: Log calculation
-                    if (process.env.NODE_ENV === 'development') {
-                      console.log(`📅 [${project.project_code}] Calculated Planned Completion from Award Date + Duration:`, {
-                        awardDate: awardDate.toISOString(),
-                        duration: contractDuration,
-                        calculatedCompletion: plannedCompletion
-                      })
-                    }
-                  }
-                }
-              } catch (error) {
-                console.error('Error calculating completion date from award date + duration:', error)
-              }
-            }
-          }
-          
-          // ✅ Calculate duration from dates (if not already calculated)
-          if (plannedDuration === 0 && plannedStart && plannedCompletion) {
-            const startDate = new Date(plannedStart)
-            const endDate = new Date(plannedCompletion)
+          if (plannedStartDate && plannedCompletionDate) {
+            const startDate = new Date(plannedStartDate)
+            const endDate = new Date(plannedCompletionDate)
             if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
-              plannedDuration = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
-            }
-          }
-          
-          // ✅ Calculate days remaining/elapsed
-          let daysInfo = null
-          if (plannedStart && plannedCompletion) {
-            const startDate = new Date(plannedStart)
-            const endDate = new Date(plannedCompletion)
-            const today = new Date()
-            
-            if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
-              const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
-              const elapsedDays = Math.ceil((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
-              const remainingDays = totalDays - elapsedDays
-              
-              if (elapsedDays >= 0) {
-                daysInfo = {
-                  elapsed: elapsedDays,
-                  remaining: remainingDays,
-                  total: totalDays,
-                  isOverdue: remainingDays < 0
-                }
-              }
+              plannedDuration = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1 // Include both start and end days
             }
           }
           
           return (
             <div className="space-y-1">
               <div className="text-xs text-gray-600 dark:text-gray-400">
-                Start: {plannedStart ? formatDate(plannedStart) : 'N/A'}
-                {datesSource !== 'none' && (
-                  <span className="ml-1 text-xs text-gray-400" title={`Source: ${datesSource}`}>
-                    {datesSource === 'activities' ? '📊' : datesSource === 'kpis' ? '📈' : '📝'}
-                  </span>
-                )}
+                Start: {plannedStartDate ? formatDate(plannedStartDate) : 'N/A'}
               </div>
               <div className="text-xs text-gray-600 dark:text-gray-400">
-                Completion: {plannedCompletion ? formatDate(plannedCompletion) : 'N/A'}
+                Completion: {plannedCompletionDate ? formatDate(plannedCompletionDate) : 'N/A'}
               </div>
               {plannedDuration > 0 && (
                 <div className="text-sm font-medium text-gray-900 dark:text-white">
-                  Duration: {plannedDuration} days
-                </div>
-              )}
-              {daysInfo && (
-                <div className={`text-xs ${daysInfo.isOverdue ? 'text-red-600 dark:text-red-400' : 'text-blue-600 dark:text-blue-400'}`}>
-                  {daysInfo.isOverdue 
-                    ? `Overdue: ${Math.abs(daysInfo.remaining)} days` 
-                    : `Remaining: ${daysInfo.remaining} days`}
+                  Duration: {plannedDuration} {plannedDuration === 1 ? 'day' : 'days'}
                 </div>
               )}
             </div>
@@ -3092,22 +3180,26 @@ export function ProjectsTableWithCustomization({
           )
         
         case 'progress_summary':
-          // ✅ NEW CONCEPTS: 
-          // Planned = مجموع KPI Planned / Total Value
-          // Actual = مجموع KPI Actual / Total Value
-          // - plannedProgress = (Planned Value / Total Value) × 100
-          //   where Planned Value = مجموع KPI Planned حتى اليوم فقط (yesterday)
-          // - actualProgress = (Earned Value / Total Value) × 100
-          //   where Earned Value = مجموع KPI Actual حتى اليوم فقط (yesterday)
-          const progressActualProgress = analytics?.actualProgress || 0
-          const progressPlannedProgress = analytics?.plannedProgress || 0
+          // ✅ NEW: Use same business logic as Work Value Status
+          // Planned Progress = (Planned Value / Total Value) × 100
+          // Actual Progress = (Earned Value / Total Value) × 100
+          // Variance = Actual Progress - Planned Progress
+          // ✅ PERFORMANCE: Use pre-calculated workValueStatus from analytics (calculated once in ProjectsList)
+          const workValueStatusForProgress = analytics?.workValueStatus || calculateWorkValueStatusNew(project)
+          const totalValueForProgress = workValueStatusForProgress.total
+          const totalPlannedValueForProgress = workValueStatusForProgress.planned
+          const totalEarnedValueForProgress = workValueStatusForProgress.earned
+          
+          // Calculate progress percentages
+          const progressPlanned = totalValueForProgress > 0 ? (totalPlannedValueForProgress / totalValueForProgress) * 100 : 0
+          const progressActual = totalValueForProgress > 0 ? (totalEarnedValueForProgress / totalValueForProgress) * 100 : 0
+          const varianceProgress = progressActual - progressPlanned
           
           const progress = {
-            planned: progressPlannedProgress, // مجموع KPI Planned / Total Value
-            actual: progressActualProgress,   // مجموع KPI Actual / Total Value
-            source: analytics ? 'analytics' : 'none'
+            planned: progressPlanned,
+            actual: progressActual,
+            source: 'work_value_status'
           }
-          const varianceProgress = progress.actual - progress.planned
           
           // Determine status icon
           const getProgressStatusIcon = () => {
@@ -3144,7 +3236,7 @@ export function ProjectsTableWithCustomization({
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-gray-600 dark:text-gray-400">Planned</span>
-                  <span className="font-medium">{progress.planned.toFixed(1)}%</span>
+                  <span className="font-medium">{formatPercent(progress.planned)}</span>
                 </div>
                 <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
                   <div 
@@ -3159,7 +3251,7 @@ export function ProjectsTableWithCustomization({
                     <span className="text-gray-600 dark:text-gray-400">Actual</span>
                     {getProgressStatusIcon()}
                   </div>
-                  <span className="font-medium">{progress.actual.toFixed(1)}%</span>
+                  <span className="font-medium">{formatPercent(progress.actual)}</span>
                 </div>
                 <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
                   <div 
@@ -3170,53 +3262,58 @@ export function ProjectsTableWithCustomization({
               </div>
               <div className="flex items-center justify-between">
                 <div className={`text-xs font-medium ${varianceProgress >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                  Variance: {varianceProgress >= 0 ? '+' : ''}{varianceProgress.toFixed(1)}%
+                  Variance: {varianceProgress >= 0 ? '+' : ''}{formatPercent(varianceProgress)}
                 </div>
               </div>
             </div>
           )
         
         case 'work_value_status':
-          // ✅ NEW CONCEPTS: Use updated analytics with new concepts
-          const totalValue = analytics?.totalValue || 0
-          const totalPlannedValue = analytics?.totalPlannedValue || 0
-          const totalEarnedValue = analytics?.totalEarnedValue || 0
-          const totalRemainingValue = analytics?.totalRemainingValue || 0
-          const variance = analytics?.variance || 0
-          const actualProgress = analytics?.actualProgress || 0
-          const plannedProgress = analytics?.plannedProgress || 0
+          // ✅ NEW: Use correct business logic
+          // Total Value: مجموع كل القيم لل BOQ مجتمعة أو KPI Planned مجتمعة
+          // Planned Value: مجموع القيم المخطط لها حتى تاريخ أمس (من KPI Planned)
+          // Earned Value: مجموع كل القيم ال KPI Actual حتى تاريخ أمس
+          // ✅ PERFORMANCE: Use pre-calculated workValueStatus from analytics (calculated once in ProjectsList)
+          const workValueStatus = analytics?.workValueStatus || calculateWorkValueStatusNew(project)
+          const totalValue = workValueStatus.total
+          const totalPlannedValue = workValueStatus.planned
+          const totalEarnedValue = workValueStatus.earned
+          const totalRemainingValue = totalValue - totalEarnedValue
+          const variance = totalEarnedValue - totalPlannedValue
+          const actualProgress = totalValue > 0 ? (totalEarnedValue / totalValue) * 100 : 0
+          const plannedProgress = totalValue > 0 ? (totalPlannedValue / totalValue) * 100 : 0
           
           return (
             <div className="space-y-2">
               {/* Total Value */}
               <div className="flex items-center justify-between text-xs">
                 <span className="text-gray-600 dark:text-gray-400">Total Value</span>
-                <span className="font-medium">{formatCurrencyByCodeSync(totalValue, project.currency)}</span>
+                <span className="font-medium">{formatCurrency(totalValue)}</span>
               </div>
               
               {/* Planned Value */}
               <div className="flex items-center justify-between text-xs">
                 <span className="text-gray-600 dark:text-gray-400">Planned Value</span>
-                <span className="font-medium text-blue-600 dark:text-blue-400">{formatCurrencyByCodeSync(totalPlannedValue, project.currency)}</span>
+                <span className="font-medium text-blue-600 dark:text-blue-400">{formatCurrency(totalPlannedValue)}</span>
               </div>
               
               {/* Earned Value */}
               <div className="flex items-center justify-between text-xs">
                 <span className="text-gray-600 dark:text-gray-400">Earned Value</span>
-                <span className="font-medium text-green-600 dark:text-green-400">{formatCurrencyByCodeSync(totalEarnedValue, project.currency)}</span>
+                <span className="font-medium text-green-600 dark:text-green-400">{formatCurrency(totalEarnedValue)}</span>
               </div>
               
               {/* Remaining Value */}
               <div className="flex items-center justify-between text-xs">
                 <span className="text-gray-600 dark:text-gray-400">Remaining Value</span>
-                <span className="font-medium text-orange-600 dark:text-orange-400">{formatCurrencyByCodeSync(totalRemainingValue, project.currency)}</span>
+                <span className="font-medium text-orange-600 dark:text-orange-400">{formatCurrency(totalRemainingValue)}</span>
               </div>
               
               {/* Variance */}
               <div className="flex items-center justify-between text-xs pt-1 border-t border-gray-200 dark:border-gray-700">
                 <span className="text-gray-600 dark:text-gray-400">Variance</span>
                 <span className={`font-medium ${variance >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                  {formatCurrencyByCodeSync(variance, project.currency)}
+                  {formatCurrency(variance)}
                 </span>
               </div>
               
@@ -3226,7 +3323,7 @@ export function ProjectsTableWithCustomization({
                   <div className="pt-1 space-y-1">
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-gray-600 dark:text-gray-400">Actual Progress</span>
-                      <span className="font-medium text-green-600 dark:text-green-400">{actualProgress.toFixed(1)}%</span>
+                      <span className="font-medium text-green-600 dark:text-green-400">{formatPercent(actualProgress)}</span>
                     </div>
                     <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
                       <div 
@@ -3239,7 +3336,7 @@ export function ProjectsTableWithCustomization({
                   <div className="space-y-1">
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-gray-600 dark:text-gray-400">Planned Progress</span>
-                      <span className="font-medium text-blue-600 dark:text-blue-400">{plannedProgress.toFixed(1)}%</span>
+                      <span className="font-medium text-blue-600 dark:text-blue-400">{formatPercent(plannedProgress)}</span>
                     </div>
                     <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
                       <div 
@@ -3254,8 +3351,8 @@ export function ProjectsTableWithCustomization({
           )
         
         case 'contract_amount':
-          // ✅ Use analytics from calculateProjectAnalytics (same as Cards)
-          // Cards display: project.contract_amount directly
+          // ✅ Use the SAME calculation as Cards (ModernProjectCard.tsx)
+          // Cards display: formatCurrency(project.contract_amount || 0)
           const contractAmt = analytics?.totalContractValue || 
                              parseFloat(String(
                                project.contract_amount || 
@@ -3274,187 +3371,63 @@ export function ProjectsTableWithCustomization({
           return (
             <div className="space-y-1">
               <div className="text-xs text-gray-600 dark:text-gray-400">
-                Contract: {formatCurrencyByCodeSync(contractAmt, project.currency)}
+                Contract: {formatCurrency(contractAmt)}
               </div>
               {variationsAmt > 0 && (
                 <div className="text-xs text-gray-600 dark:text-gray-400">
-                  Variations: {formatCurrencyByCodeSync(variationsAmt, project.currency)}
+                  Variations: {formatCurrency(variationsAmt)}
                 </div>
               )}
               <div className="text-sm font-medium text-gray-900 dark:text-white">
-                Total: {formatCurrencyByCodeSync(totalContractAmt, project.currency)}
+                Total: {formatCurrency(totalContractAmt)}
               </div>
             </div>
           )
         
         case 'divisions_contract_amount':
-          // ✅ Get divisions from scope_of_works (project.project_type)
-          const divisionsScopeRaw = project.project_type || getProjectField(project, 'Scope of Works') || ''
-          const divisionsScopeList = divisionsScopeRaw && divisionsScopeRaw !== 'N/A' 
-            ? divisionsScopeRaw.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0)
-            : []
+          // ✅ Get pre-calculated divisions data from useMemo
+          const divisionsData = divisionsDataMap.get(project.id)
+          const divisionAmounts = divisionsData?.divisionAmounts || {}
+          const divisionNames = divisionsData?.divisionNames || {}
           
-          // ✅ Map to store division amounts
-          const divisionAmounts: Record<string, number> = {}
-          
-          // Initialize divisions from scope
-          divisionsScopeList.forEach((scope: string) => {
-            const scopeKey = scope.trim().toLowerCase()
-            if (!divisionAmounts[scopeKey]) {
-              divisionAmounts[scopeKey] = 0
-            }
-          })
-          
-          // ✅ Get activities for this project - USE allActivities DIRECTLY (more reliable)
-          // Don't rely on analytics.activities as it might not have all the data
-          const projectActivities = allActivities.length > 0 
-            ? allActivities.filter((activity: any) => matchesProject(activity, project))
-            : (analytics?.activities || [])
-          
-          // ✅ DEBUG: Log activities for troubleshooting
-          if (process.env.NODE_ENV === 'development') {
-            console.log(`🔍 [${project.project_code}] Divisions Contract Amount Debug:`, {
-              allActivitiesCount: allActivities.length,
-              projectActivitiesCount: projectActivities.length,
-              scopeList: divisionsScopeList,
-              analyticsActivitiesCount: analytics?.activities?.length || 0,
-              sampleActivity: projectActivities.length > 0 ? {
-                activityName: projectActivities[0].activity_name,
-                activityDivision: projectActivities[0].activity_division || projectActivities[0]['Activity Division'],
-                activityValue: projectActivities[0].activity_value || projectActivities[0]['Activity Value'] || projectActivities[0].raw?.['Activity Value'],
-                totalValue: projectActivities[0].total_value || projectActivities[0]['Total Value'],
-                plannedValue: projectActivities[0].planned_value || projectActivities[0]['Planned Value'],
-                rate: projectActivities[0].rate || projectActivities[0]['Rate'],
-                totalUnits: projectActivities[0].total_units || projectActivities[0]['Total Units'],
-                hasRaw: !!projectActivities[0].raw,
-                rawActivityValue: projectActivities[0].raw?.['Activity Value'],
-                projectCode: projectActivities[0].project_code,
-                rawProjectCode: projectActivities[0].raw?.['Project Code']
-              } : 'No activities found'
-            })
-          }
-          
-          // ✅ Calculate amount for each division from activities
-          projectActivities.forEach((activity: any) => {
-            // Get activity division from multiple possible fields
-            const rawActivity = (activity as any).raw || {}
-            const activityDivision = (activity['Activity Division'] || 
-                                     activity.activity_division || 
-                                     rawActivity['Activity Division'] ||
-                                     activity.division ||
-                                     '').toLowerCase().trim()
-            
-            // ✅ Get activity value - SAME WAY AS BOQ (use total_value directly)
-            // In BOQ, Activity Value column displays: activity.total_value
-            // So we use the same approach here
-            let totalValue = 0
-            
-            // ✅ Use total_value directly (same as BOQ does)
-            // Check in order: raw data, then mapped fields, then calculate
-            const rawTotalValue = rawActivity['Total Value']
-            const mappedTotalValue = activity.total_value
-            
-            // ✅ PRIORITY 1: Use total_value from raw (direct from database)
-            if (rawTotalValue !== null && rawTotalValue !== undefined && rawTotalValue !== '') {
-              const parsed = parseFloat(String(rawTotalValue).replace(/,/g, ''))
-              if (!isNaN(parsed) && parsed > 0) {
-                totalValue = parsed
-              }
-            }
-            
-            // ✅ PRIORITY 2: Use total_value from mapped fields
-            if (totalValue === 0 && mappedTotalValue !== null && mappedTotalValue !== undefined) {
-              const parsed = parseFloat(String(mappedTotalValue).replace(/,/g, ''))
-              if (!isNaN(parsed) && parsed > 0) {
-                totalValue = parsed
-              }
-            }
-            
-            // ✅ PRIORITY 3: Calculate from Rate × Total Units (same as BOQ fallback)
-            if (totalValue === 0) {
-              const rate = activity.rate || parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, ''))
-              const totalUnits = activity.total_units || parseFloat(String(rawActivity['Total Units'] || '0').replace(/,/g, ''))
-              
-              if (rate > 0 && totalUnits > 0) {
-                totalValue = rate * totalUnits
-              }
-            }
-            
-            // ✅ DEBUG: Log value extraction for first few activities
-            if (process.env.NODE_ENV === 'development' && projectActivities.indexOf(activity) < 3) {
-              console.log(`💰 [${project.project_code}] Activity Value Extraction (BOQ Method):`, {
-                activityName: activity.activity_name,
-                activityDivision: activityDivision,
-                rawTotalValue: rawTotalValue,
-                mappedTotalValue: mappedTotalValue,
-                finalTotalValue: totalValue,
-                rate: activity.rate || rawActivity['Rate'],
-                totalUnits: activity.total_units || rawActivity['Total Units'],
-                calculated: totalValue > 0 && (activity.rate || rawActivity['Rate']) ? 'Rate × Units' : 'Direct'
+          // ✅ DEBUG: Log to verify data is available for all projects
+          if (process.env.NODE_ENV === 'development' && projects.indexOf(project) < 10) {
+            const hasData = Object.keys(divisionAmounts).length > 0
+            if (hasData) {
+              console.log(`✅ [${project.project_code}] Divisions data found:`, {
+                projectId: project.id,
+                divisionsCount: Object.keys(divisionAmounts).length,
+                divisions: Object.keys(divisionNames)
+              })
+            } else {
+              console.log(`⚠️ [${project.project_code}] No divisions data found`, {
+                projectId: project.id,
+                mapHasProject: divisionsDataMap.has(project.id),
+                divisionsDataExists: !!divisionsData
               })
             }
-            
-            // ✅ Match activity division with scope divisions
-            if (activityDivision && totalValue > 0) {
-              // Try to match with existing divisions in scope
-              let matched = false
-              for (const scope of divisionsScopeList) {
-                const scopeLower = scope.toLowerCase().trim()
-                // Check if activity division matches any scope division (more flexible matching)
-                if (activityDivision.includes(scopeLower) || 
-                    scopeLower.includes(activityDivision) ||
-                    activityDivision === scopeLower) {
-                  const key = scopeLower
-                  divisionAmounts[key] = (divisionAmounts[key] || 0) + totalValue
-                  matched = true
-                  break
-                }
-              }
-              
-              // If no match found, add as new division (use original division name)
-              if (!matched && activityDivision) {
-                // Use the original division name from activity
-                const originalDivision = activity['Activity Division'] || 
-                                        activity.activity_division || 
-                                        rawActivity['Activity Division'] ||
-                                        activityDivision
-                divisionAmounts[originalDivision.toLowerCase().trim()] = 
-                  (divisionAmounts[originalDivision.toLowerCase().trim()] || 0) + totalValue
-              }
-            }
-          })
-          
-          // ✅ Also check project fields for division amounts (fallback)
-          if (divisionsScopeList.length > 0) {
-            divisionsScopeList.forEach((scope: string) => {
-              const scopeKey = scope.toLowerCase().trim()
-              // Try to get from project fields
-              const fieldValue = parseFloat(String(
-                getProjectField(project, `${scope} Division T. Contract Value`) || 
-                getProjectField(project, `${scope} Division Contract Value`) || 
-                getProjectField(project, `${scope} Contract Value`) ||
-                '0'
-              ).replace(/,/g, '')) || 0
-              
-              if (fieldValue > 0 && (!divisionAmounts[scopeKey] || divisionAmounts[scopeKey] === 0)) {
-                divisionAmounts[scopeKey] = fieldValue
-              }
-            })
           }
           
+          // Build divisions list sorted by amount (descending)
+          const divisionsList = Object.keys(divisionAmounts)
+            .map(key => ({
+              key: key.toLowerCase().trim(),
+              name: divisionNames[key] || key,
+              amount: divisionAmounts[key] || 0
+            }))
+            .sort((a, b) => b.amount - a.amount)
+          
           // Calculate total
-          const divisionsTotal = Object.values(divisionAmounts).reduce((sum: number, val: number) => sum + val, 0)
+          const totalAmount = divisionsList.reduce((sum, div) => sum + div.amount, 0)
           
-          // Get divisions to display (from scope, or all divisions found)
-          const divisionsToShow = divisionsScopeList.length > 0 ? divisionsScopeList : Object.keys(divisionAmounts)
+          // Handle expand/collapse for better UX (show first 5, then expand)
+          const isDivExpanded = expandedDivisions.has(project.id)
+          const maxDivVisible = 5 // ✅ Increased from 3 to 5
+          const visibleDivisions = isDivExpanded ? divisionsList : divisionsList.slice(0, maxDivVisible)
+          const hasMoreDivisions = divisionsList.length > maxDivVisible
           
-          // Limit display to 3 divisions initially
-          const isExpandedDivisions = expandedDivisions.has(project.id)
-          const maxVisibleDivisions = 3 // Show max 3 divisions initially
-          const visibleDivisions = isExpandedDivisions ? divisionsToShow : divisionsToShow.slice(0, maxVisibleDivisions)
-          const hasMoreDivisions = divisionsToShow.length > maxVisibleDivisions
-          
-          const toggleExpandDivisions = (e: React.MouseEvent) => {
+          // Toggle expand handler
+          const handleToggleDivExpand = (e: React.MouseEvent) => {
             e.stopPropagation()
             setExpandedDivisions(prev => {
               const newSet = new Set(prev)
@@ -3467,44 +3440,63 @@ export function ProjectsTableWithCustomization({
             })
           }
           
-          return (
-            <div className="space-y-1">
-              {divisionsToShow.length > 0 ? (
-                <>
-                  {visibleDivisions.map((division: string, index: number) => {
-                    const divisionKey = division.toLowerCase().trim()
-                    const amount = divisionAmounts[divisionKey] || 0
-                    return (
-                      <div key={index} className="flex items-center justify-between text-xs">
-                        <span className="text-gray-600 dark:text-gray-400 truncate max-w-[120px]">
-                          {division}:
-                        </span>
-                        <span className="font-medium text-gray-900 dark:text-white">
-                          {formatCurrencyByCodeSync(amount, project.currency)}
-                        </span>
+          // Render
+          if (divisionsList.length === 0) {
+            return (
+              <div className="text-xs text-gray-400 dark:text-gray-500 italic py-2">
+                No data available
               </div>
-                    )
-                  })}
-                  {hasMoreDivisions && (
-                    <button
-                      onClick={toggleExpandDivisions}
-                      className="px-2 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline"
-                      title={isExpandedDivisions ? 'Show Less' : `Show ${divisionsToShow.length - maxVisibleDivisions} more`}
-                    >
-                      {isExpandedDivisions ? 'Show Less' : `+${divisionsToShow.length - maxVisibleDivisions}`}
-                    </button>
+            )
+          }
+          
+          return (
+            <div className="space-y-2 py-1">
+              {/* ✅ NEW DESIGN: Show all visible divisions in a clean list */}
+              <div className="space-y-1.5">
+                {visibleDivisions.map((division, index) => (
+                  <div 
+                    key={`${project.id}-${division.key}-${index}`} 
+                    className="flex items-center justify-between text-xs py-0.5 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded px-1 -mx-1 transition-colors"
+                  >
+                    <span className="text-gray-600 dark:text-gray-400 truncate flex-1 min-w-0 mr-2">
+                      {division.name}:
+                    </span>
+                    <span className="font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                      {formatCurrency(division.amount)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              
+              {/* ✅ Show expand/collapse button if there are more divisions */}
+              {hasMoreDivisions && (
+                <button
+                  onClick={handleToggleDivExpand}
+                  className="w-full px-2 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                  title={isDivExpanded ? 'Show Less' : `Show ${divisionsList.length - maxDivVisible} more divisions`}
+                >
+                  {isDivExpanded ? (
+                    <span className="flex items-center justify-center gap-1">
+                      <span>Show Less</span>
+                      <ArrowUp className="h-3 w-3" />
+                    </span>
+                  ) : (
+                    <span className="flex items-center justify-center gap-1">
+                      <span>+{divisionsList.length - maxDivVisible} more</span>
+                      <ArrowDown className="h-3 w-3" />
+                    </span>
                   )}
-              {divisionsTotal > 0 && (
-                    <div className="pt-1 border-t border-gray-200 dark:border-gray-700 mt-1">
+                </button>
+              )}
+              
+              {/* ✅ NEW DESIGN: Always show total at the bottom with better styling */}
+              {totalAmount > 0 && (
+                <div className="pt-1.5 border-t border-gray-200 dark:border-gray-700 mt-1.5">
                   <div className="flex items-center justify-between text-sm font-semibold text-gray-900 dark:text-white">
-                    <span>Total:</span>
-                    <span>{formatCurrencyByCodeSync(divisionsTotal, project.currency)}</span>
+                    <span className="text-gray-700 dark:text-gray-300">Total:</span>
+                    <span className="text-blue-600 dark:text-blue-400">{formatCurrency(totalAmount)}</span>
                   </div>
                 </div>
-              )}
-                </>
-              ) : (
-                <div className="text-xs text-gray-500 dark:text-gray-400 italic">No data available</div>
               )}
             </div>
           )
@@ -3591,82 +3583,29 @@ export function ProjectsTableWithCustomization({
             </div>
           )
         
-        case 'project_start_date':
-          const startDate = project.project_start_date || getProjectField(project, 'Project Start Date') || ''
-          return (
-            <div className="text-sm text-gray-900 dark:text-white">
-              {startDate ? formatDate(startDate) : <span className="text-gray-400 dark:text-gray-500">N/A</span>}
-            </div>
-          )
-        
-        case 'project_completion_date':
-          const completionDate = project.project_completion_date || getProjectField(project, 'Project Completion Date') || ''
-          return (
-            <div className="text-sm text-gray-900 dark:text-white">
-              {completionDate ? formatDate(completionDate) : <span className="text-gray-400 dark:text-gray-500">N/A</span>}
-            </div>
-          )
-        
-        case 'project_duration':
-          // Use stored duration or calculate from dates
-          let duration = project.project_duration
-          if (duration === undefined || duration === null) {
-            const startDateForDuration = project.project_start_date || getProjectField(project, 'Project Start Date') || ''
-            const completionDateForDuration = project.project_completion_date || getProjectField(project, 'Project Completion Date') || ''
-            
-            if (startDateForDuration && completionDateForDuration) {
-              const start = new Date(startDateForDuration)
-              const completion = new Date(completionDateForDuration)
-              if (!isNaN(start.getTime()) && !isNaN(completion.getTime())) {
-                const diffTime = completion.getTime() - start.getTime()
-                duration = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1 // Include both start and end days
-              }
-            }
-          }
+        case 'retention_details':
+          // ✅ Display all three retention values in one column
+          const retentionAfterCompletion = project.retention_after_completion ?? getProjectField(project, 'Retention after Completion')
+          const retentionAfter6Month = project.retention_after_6_month ?? getProjectField(project, 'Retention after 6 Month')
+          const retentionAfter12Month = project.retention_after_12_month ?? getProjectField(project, 'Retention after 12 Month')
           
           return (
-            <div className="text-sm text-gray-900 dark:text-white">
-              {duration !== undefined && duration !== null ? (
-                <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-blue-500" />
-                  <span className="font-medium">{duration}</span>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
-                    {duration === 1 ? 'day' : 'days'}
-                  </span>
-                </div>
-              ) : (
-                <span className="text-gray-400 dark:text-gray-500">N/A</span>
-              )}
-            </div>
-          )
-        
-        case 'retention_after_completion':
-          const retentionAfterCompletion = project.retention_after_completion ?? getProjectField(project, 'Retention after Completion')
-          return (
-            <div className="text-sm text-gray-900 dark:text-white">
-              {retentionAfterCompletion !== undefined && retentionAfterCompletion !== null && retentionAfterCompletion !== '' 
-                ? `${retentionAfterCompletion}%` 
-                : <span className="text-gray-400 dark:text-gray-500">N/A</span>}
-            </div>
-          )
-        
-        case 'retention_after_6_month':
-          const retentionAfter6Month = project.retention_after_6_month ?? getProjectField(project, 'Retention after 6 Month')
-          return (
-            <div className="text-sm text-gray-900 dark:text-white">
-              {retentionAfter6Month !== undefined && retentionAfter6Month !== null && retentionAfter6Month !== '' 
-                ? `${retentionAfter6Month}%` 
-                : <span className="text-gray-400 dark:text-gray-500">N/A</span>}
-            </div>
-          )
-        
-        case 'retention_after_12_month':
-          const retentionAfter12Month = project.retention_after_12_month ?? getProjectField(project, 'Retention after 12 Month')
-          return (
-            <div className="text-sm text-gray-900 dark:text-white">
-              {retentionAfter12Month !== undefined && retentionAfter12Month !== null && retentionAfter12Month !== '' 
-                ? `${retentionAfter12Month}%` 
-                : <span className="text-gray-400 dark:text-gray-500">N/A</span>}
+            <div className="space-y-1">
+              <div className="text-xs text-gray-600 dark:text-gray-400">
+                After Completion: {retentionAfterCompletion !== undefined && retentionAfterCompletion !== null && retentionAfterCompletion !== '' 
+                  ? `${retentionAfterCompletion}%` 
+                  : <span className="text-gray-400 dark:text-gray-500">N/A</span>}
+              </div>
+              <div className="text-xs text-gray-600 dark:text-gray-400">
+                After 6 Month: {retentionAfter6Month !== undefined && retentionAfter6Month !== null && retentionAfter6Month !== '' 
+                  ? `${retentionAfter6Month}%` 
+                  : <span className="text-gray-400 dark:text-gray-500">N/A</span>}
+              </div>
+              <div className="text-xs text-gray-600 dark:text-gray-400">
+                After 12 Month: {retentionAfter12Month !== undefined && retentionAfter12Month !== null && retentionAfter12Month !== '' 
+                  ? `${retentionAfter12Month}%` 
+                  : <span className="text-gray-400 dark:text-gray-500">N/A</span>}
+              </div>
             </div>
           )
         
@@ -3698,14 +3637,6 @@ export function ProjectsTableWithCustomization({
           return (
             <div className="text-sm text-gray-900 dark:text-white">
               {consultantName !== 'N/A' ? consultantName : <span className="text-gray-400 dark:text-gray-500">N/A</span>}
-            </div>
-          )
-        
-        case 'first_party_name':
-          const firstPartyName = project.first_party_name || getProjectField(project, 'First Party name') || 'N/A'
-          return (
-            <div className="text-sm text-gray-900 dark:text-white">
-              {firstPartyName !== 'N/A' ? firstPartyName : <span className="text-gray-400 dark:text-gray-500">N/A</span>}
             </div>
           )
         
@@ -3808,6 +3739,29 @@ export function ProjectsTableWithCustomization({
               <span className={`text-sm font-medium ${hasAdvancePayment ? 'text-green-600 dark:text-green-400' : 'text-gray-600 dark:text-gray-400'}`}>
                 {hasAdvancePayment ? 'Yes' : 'No'}
               </span>
+            </div>
+          )
+        
+        case 'advance_payment_percentage':
+          const advancePercentage = project.advance_payment_percentage ?? 
+            (() => {
+              const value = getProjectField(project, 'Advance Payment Percentage') || getProjectField(project, 'Advance Payment %')
+              if (value !== undefined && value !== null && value !== '') {
+                const parsed = parseFloat(String(value))
+                return isNaN(parsed) ? undefined : parsed
+              }
+              return undefined
+            })()
+          
+          return (
+            <div className="flex items-center gap-2">
+              {advancePercentage !== undefined && advancePercentage !== null ? (
+                <span className="text-sm font-medium text-blue-600 dark:text-blue-400">
+                  {advancePercentage.toFixed(2)}%
+                </span>
+              ) : (
+                <span className="text-sm text-gray-400 dark:text-gray-500">N/A</span>
+              )}
             </div>
           )
         
@@ -3944,9 +3898,6 @@ export function ProjectsTableWithCustomization({
           }
         }
         return 0
-      case 'planned_dates':
-        const plannedStartDate = getProjectField(project, 'Planned Start Date') || ''
-        return plannedStartDate ? new Date(plannedStartDate).getTime() : 0
       case 'actual_dates':
         const actualStartDate = getProjectField(project, 'Actual Start Date') || ''
         return actualStartDate ? new Date(actualStartDate).getTime() : 0
@@ -3975,20 +3926,13 @@ export function ProjectsTableWithCustomization({
         return project.project_manager_email || getProjectField(project, 'Project Manager') || ''
       case 'project_award_date':
         return project.date_project_awarded ? new Date(project.date_project_awarded).getTime() : 0
-      case 'project_start_date':
-        const startDate = project.project_start_date || getProjectField(project, 'Project Start Date') || ''
-        return startDate ? new Date(startDate).getTime() : 0
-      case 'project_completion_date':
-        const completionDate = project.project_completion_date || getProjectField(project, 'Project Completion Date') || ''
-        return completionDate ? new Date(completionDate).getTime() : 0
-      case 'project_duration':
-        return project.project_duration ?? 0
-      case 'retention_after_completion':
+      case 'contract_durations':
+        // Sort by project start date
+        const startDateForSort = project.project_start_date || getProjectField(project, 'Project Start Date') || ''
+        return startDateForSort ? new Date(startDateForSort).getTime() : 0
+      case 'retention_details':
+        // Sort by retention after completion (first value)
         return project.retention_after_completion ?? getProjectField(project, 'Retention after Completion') ?? 0
-      case 'retention_after_6_month':
-        return project.retention_after_6_month ?? getProjectField(project, 'Retention after 6 Month') ?? 0
-      case 'retention_after_12_month':
-        return project.retention_after_12_month ?? getProjectField(project, 'Retention after 12 Month') ?? 0
       case 'work_programme':
         return project.work_programme || getProjectField(project, 'Work Programme') || ''
       case 'contract_status':
@@ -4001,6 +3945,17 @@ export function ProjectsTableWithCustomization({
       case 'advance_payment_required':
         const advancePayment = project.advance_payment_required || getProjectField(project, 'Advnace Payment Required') || 'No'
         return (advancePayment === 'Yes' || advancePayment === 'TRUE' || advancePayment === true) ? 1 : 0
+      case 'advance_payment_percentage':
+        const advancePercentage = project.advance_payment_percentage ?? 
+          (() => {
+            const value = getProjectField(project, 'Advance Payment Percentage') || getProjectField(project, 'Advance Payment %')
+            if (value !== undefined && value !== null && value !== '') {
+              const parsed = parseFloat(String(value))
+              return isNaN(parsed) ? 0 : parsed
+            }
+            return 0
+          })()
+        return advancePercentage
       case 'virtual_material_value':
         const virtualMatValue = project.virtual_material_value || getProjectField(project, 'Virtual Material Value') || '0'
         const virtualMatNum = parseFloat(String(virtualMatValue).replace(/[%,]/g, '')) || 0
@@ -4009,8 +3964,6 @@ export function ProjectsTableWithCustomization({
         return project.client_name || getProjectField(project, 'Client Name') || ''
       case 'consultant_name':
         return project.consultant_name || getProjectField(project, 'Consultant Name') || ''
-      case 'first_party_name':
-        return project.first_party_name || getProjectField(project, 'First Party Name') || ''
       case 'project_manager_email':
         return project.project_manager_email || getProjectField(project, 'Project Manager Email') || ''
       case 'area_manager_email':

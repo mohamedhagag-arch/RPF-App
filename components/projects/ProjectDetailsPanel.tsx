@@ -9,6 +9,7 @@ import { mapBOQFromDB, mapKPIFromDB } from '@/lib/dataMappers'
 import { calculateProjectAnalytics, ProjectAnalytics } from '@/lib/projectAnalytics'
 import { calculateActualFromKPI, calculatePlannedFromKPI } from '@/lib/boqKpiSync'
 import { calculateBOQValues, formatCurrency, formatPercentage, calculateProjectProgressFromValues } from '@/lib/boqValueCalculator'
+import { calculateWorkValueStatus, calculateProgressFromWorkValue, calculateQuantityStatus } from '@/lib/workValueCalculator'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
@@ -809,7 +810,70 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
           .eq('Project Full Code', projectFullCode)
       )
       
-      // ✅ Strategy 2: Match where Project Full Code starts with our project_full_code (for sub-projects)
+      console.log(`🔍 Strategy 1 (Project Full Code): Found ${activitiesByFullCodeExact?.length || 0} activities`)
+      
+      // ✅ Strategy 2: If no results by Project Full Code, try Project Code + Project Sub Code
+      let activitiesByCodeAndSubCode: any[] = []
+      let error4: any = null
+      if ((!activitiesByFullCodeExact || (Array.isArray(activitiesByFullCodeExact) && activitiesByFullCodeExact.length === 0)) && projectSubCode) {
+        console.log(`🔍 Strategy 2: Trying Project Code (${projectCode}) + Project Sub Code (${projectSubCode})`)
+        
+        // Extract sub_code suffix (e.g., "P10001-01" -> "01", or "01" -> "01")
+        let subCodeSuffix = projectSubCode
+        if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+          // Sub code contains project code (e.g., "P10001-01"), extract suffix
+          subCodeSuffix = projectSubCode.substring(projectCode.length).replace(/^-+/, '')
+        }
+        
+        console.log(`🔍 Strategy 2: Extracted sub_code suffix: "${subCodeSuffix}"`)
+        
+        // Try exact match on Project Sub Code (could be "01" or "P10001-01")
+        let result = await executeQuery(async () =>
+          supabase
+            .from(TABLES.BOQ_ACTIVITIES)
+            .select('*')
+            .eq('Project Code', projectCode)
+            .eq('Project Sub Code', projectSubCode)
+        )
+        activitiesByCodeAndSubCode = result.data || []
+        error4 = result.error
+        
+        // If no results, try with sub_code suffix only (e.g., "01")
+        if (activitiesByCodeAndSubCode.length === 0 && subCodeSuffix && subCodeSuffix !== projectSubCode) {
+          console.log(`🔍 Strategy 2b: Trying Project Sub Code suffix only (${subCodeSuffix})`)
+          result = await executeQuery(async () =>
+            supabase
+              .from(TABLES.BOQ_ACTIVITIES)
+              .select('*')
+              .eq('Project Code', projectCode)
+              .eq('Project Sub Code', subCodeSuffix)
+          )
+          if (result.data && Array.isArray(result.data) && result.data.length > 0) {
+            activitiesByCodeAndSubCode = result.data
+            error4 = result.error
+          }
+        }
+        
+        // If no results, try where Project Sub Code contains the full code (e.g., "P10001-01")
+        if (activitiesByCodeAndSubCode.length === 0 && projectFullCode && projectFullCode !== projectSubCode) {
+          console.log(`🔍 Strategy 2c: Trying Project Sub Code that contains full code (${projectFullCode})`)
+          result = await executeQuery(async () =>
+            supabase
+              .from(TABLES.BOQ_ACTIVITIES)
+              .select('*')
+              .eq('Project Code', projectCode)
+              .eq('Project Sub Code', projectFullCode)
+          )
+          if (result.data && Array.isArray(result.data) && result.data.length > 0) {
+            activitiesByCodeAndSubCode = result.data
+            error4 = result.error
+          }
+        }
+        
+        console.log(`🔍 Strategy 2 (Project Code + Sub Code): Found ${activitiesByCodeAndSubCode.length} activities`)
+      }
+      
+      // ✅ Strategy 3: Match where Project Full Code starts with our project_full_code (for sub-projects)
       // Only if project has sub_code (to avoid matching other projects)
       const { data: activitiesByFullCodeStart, error: error3 } = projectSubCode ? await executeQuery(async () =>
         supabase
@@ -818,7 +882,7 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
           .like('Project Full Code', `${projectFullCode}%`)
       ) : { data: null, error: null }
       
-      // ✅ Strategy 3: Fallback to Project Code ONLY if project has no sub_code (to avoid mixing projects)
+      // ✅ Strategy 4: Fallback to Project Code ONLY if project has no sub_code (to avoid mixing projects)
       // This prevents fetching activities from other projects with same project_code but different sub_code
       const { data: activitiesByCode, error: error2 } = !projectSubCode ? await executeQuery(async () =>
         supabase
@@ -831,9 +895,10 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
       // Merge results (only include strategies that were executed)
       const allActivitiesData = [
         ...(Array.isArray(activitiesByFullCodeExact) ? activitiesByFullCodeExact : []),
+        ...(Array.isArray(activitiesByCodeAndSubCode) ? activitiesByCodeAndSubCode : []),
         ...(Array.isArray(activitiesByFullCodeStart) ? activitiesByFullCodeStart : []),
         ...(Array.isArray(activitiesByCode) ? activitiesByCode : [])
-      ]
+      ].filter(Boolean) // Remove any null/undefined entries
       
       // Remove duplicates based on id (primary key)
       const uniqueActivitiesData = Array.from(
@@ -888,7 +953,7 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
       })
       
       const activitiesData = filteredActivities
-      const activitiesError = error1 || error2 || error3
+      const activitiesError = error1 || error2 || error3 || error4
       
       console.log(`📊 Comprehensive fetch results for ${projectFullCode}:`, {
         byFullCodeExact: activitiesByFullCodeExact?.length || 0,
@@ -922,30 +987,95 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
           .eq('Project Full Code', projectFullCode)
       )
       
-      // Strategy 2: Match where Project Full Code starts with our project_full_code (for sub-projects)
+      console.log(`🔍 KPI Strategy 1 (Project Full Code): Found ${kpisData?.length || 0} KPIs`)
+      
+      // Strategy 2: If no results by Project Full Code, try Project Code + Project Sub Code
+      if ((!kpisData || (Array.isArray(kpisData) && kpisData.length === 0)) && projectSubCode) {
+        console.log(`🔍 KPI Strategy 2: Trying Project Code (${projectCode}) + Project Sub Code (${projectSubCode})`)
+        
+        // Extract sub_code suffix (e.g., "P10001-01" -> "01", or "01" -> "01")
+        let subCodeSuffix = projectSubCode
+        if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+          // Sub code contains project code (e.g., "P10001-01"), extract suffix
+          subCodeSuffix = projectSubCode.substring(projectCode.length).replace(/^-+/, '')
+        }
+        
+        console.log(`🔍 KPI Strategy 2: Extracted sub_code suffix: "${subCodeSuffix}"`)
+        
+        // Try exact match on Project Sub Code (could be "01" or "P10001-01")
+        let result = await executeQuery(async () =>
+          supabase
+            .from(TABLES.KPI)
+            .select('*')
+            .eq('Project Code', projectCode)
+            .eq('Project Sub Code', projectSubCode)
+        )
+        if (result.data && Array.isArray(result.data) && result.data.length > 0) {
+          kpisData = result.data
+          kpisError = result.error
+        }
+        
+        // If no results, try with sub_code suffix only (e.g., "01")
+        if ((!kpisData || (Array.isArray(kpisData) && kpisData.length === 0)) && subCodeSuffix && subCodeSuffix !== projectSubCode) {
+          console.log(`🔍 KPI Strategy 2b: Trying Project Sub Code suffix only (${subCodeSuffix})`)
+          result = await executeQuery(async () =>
+            supabase
+              .from(TABLES.KPI)
+              .select('*')
+              .eq('Project Code', projectCode)
+              .eq('Project Sub Code', subCodeSuffix)
+          )
+          if (result.data && Array.isArray(result.data) && result.data.length > 0) {
+            kpisData = result.data
+            kpisError = result.error
+          }
+        }
+        
+        // If no results, try where Project Sub Code contains the full code (e.g., "P10001-01")
+        if ((!kpisData || (Array.isArray(kpisData) && kpisData.length === 0)) && projectFullCode && projectFullCode !== projectSubCode) {
+          console.log(`🔍 KPI Strategy 2c: Trying Project Sub Code that contains full code (${projectFullCode})`)
+          result = await executeQuery(async () =>
+            supabase
+              .from(TABLES.KPI)
+              .select('*')
+              .eq('Project Code', projectCode)
+              .eq('Project Sub Code', projectFullCode)
+          )
+          if (result.data && Array.isArray(result.data) && result.data.length > 0) {
+            kpisData = result.data
+            kpisError = result.error
+          }
+        }
+      }
+      
+      // Strategy 3: Match where Project Full Code starts with our project_full_code (for sub-projects)
       if (!kpisData || (Array.isArray(kpisData) && kpisData.length === 0)) {
-        console.log(`🔄 No KPIs found with exact Project Full Code match, trying starts with...`)
+        console.log(`🔄 KPI Strategy 3: No KPIs found with exact Project Full Code match, trying starts with...`)
         const result = await executeQuery(async () =>
           supabase
             .from(TABLES.KPI)
             .select('*')
             .like('Project Full Code', `${projectFullCode}%`)
         )
+        if (result.data && Array.isArray(result.data) && result.data.length > 0) {
         kpisData = result.data
         kpisError = result.error
+        }
       }
       
-      // Strategy 3: Fallback to Project Code ONLY if project has no sub_code (to avoid mixing projects)
+      // Strategy 4: Fallback to Project Code ONLY if project has no sub_code (to avoid mixing projects)
       if ((!kpisData || (Array.isArray(kpisData) && kpisData.length === 0)) && !projectSubCode) {
-        console.log('🔄 No KPIs found with Project Full Code, trying Project Code only (no sub_code)...')
+        console.log('🔄 KPI Strategy 4: No KPIs found with Project Full Code, trying Project Code only (no sub_code)...')
         const result = await executeQuery(async () =>
           supabase
             .from(TABLES.KPI)
             .select('*')
             .eq('Project Code', projectCode)
         )
+        if (result.data && Array.isArray(result.data) && result.data.length > 0) {
         kpisData = result.data
         kpisError = result.error
+        }
       }
       
       // ✅ Additional client-side filtering for KPIs to ensure strict matching
@@ -1183,67 +1313,81 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
           {activeView === 'overview' && (
             <div className="space-y-6">
               {/* Progress Overview - NEW CONCEPTS */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                      Actual Progress
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-3xl font-bold text-green-600">
-                      {formatPercent(analytics.actualProgress)}
-                    </div>
-                    <div className="mt-2 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                      <div 
-                        className="bg-green-600 h-2 rounded-full transition-all"
-                        style={{ width: `${Math.min(analytics.actualProgress, 100)}%` }}
-                      />
-                    </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      (Earned Value / Total Value)
-                    </div>
-                  </CardContent>
-                </Card>
+              {(() => {
+                // ✅ NEW: Calculate progress using shared work value calculator (same as Work Value Status column)
+                // ✅ PERFORMANCE: Use pre-calculated workValueStatus from analytics if available
+                const workValueStatus = analytics?.workValueStatus || calculateWorkValueStatus(project, analytics?.activities || [], analytics?.kpis || [])
+                const progressSummary = calculateProgressFromWorkValue(workValueStatus)
                 
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                      Planned Progress
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-3xl font-bold text-blue-600">
-                      {formatPercent(analytics.plannedProgress)}
-                    </div>
-                    <div className="mt-2 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                      <div 
-                        className="bg-blue-600 h-2 rounded-full transition-all"
-                        style={{ width: `${Math.min(analytics.plannedProgress, 100)}%` }}
-                      />
-                    </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      (Planned Value / Total Value)
-                    </div>
-                  </CardContent>
-                </Card>
+                // ✅ Use calculated values directly (no fallback to analytics)
+                const actualProgress = progressSummary.actual
+                const plannedProgress = progressSummary.planned
+                const variance = progressSummary.variance
                 
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                      Variance
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className={`text-3xl font-bold ${analytics.variance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {analytics.variance >= 0 ? '+' : ''}{formatCurrency(analytics.variance)}
-                    </div>
-                    <div className="text-sm text-gray-600 dark:text-gray-400 mt-2">
-                      Earned - Planned
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
+                return (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                          Actual Progress
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-3xl font-bold text-green-600">
+                          {formatPercent(actualProgress)}
+                        </div>
+                        <div className="mt-2 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                          <div 
+                            className="bg-green-600 h-2 rounded-full transition-all"
+                            style={{ width: `${Math.min(actualProgress, 100)}%` }}
+                          />
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          (Earned Value / Total Value)
+                        </div>
+                      </CardContent>
+                    </Card>
+                    
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                          Planned Progress
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-3xl font-bold text-blue-600">
+                          {formatPercent(plannedProgress)}
+                        </div>
+                        <div className="mt-2 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                          <div 
+                            className="bg-blue-600 h-2 rounded-full transition-all"
+                            style={{ width: `${Math.min(plannedProgress, 100)}%` }}
+                          />
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          (Planned Value / Total Value)
+                        </div>
+                      </CardContent>
+                    </Card>
+                    
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                          Variance
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className={`text-3xl font-bold ${variance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {variance >= 0 ? '+' : ''}{formatPercent(variance)}
+                        </div>
+                        <div className="text-sm text-gray-600 dark:text-gray-400 mt-2">
+                          Actual - Planned Progress
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                )
+              })()}
               
               {/* Financial Summary - NEW CONCEPTS */}
               <Card>
@@ -1254,83 +1398,136 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                  <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
                     <div>
                       <p className="text-sm text-gray-600 dark:text-gray-400">Contract Value</p>
                       <p className="text-lg font-bold">{formatCurrency(analytics.totalContractValue)}</p>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Entered manually</p>
                     </div>
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Total Value</p>
-                      <p className="text-lg font-bold text-gray-900 dark:text-white">{formatCurrency(analytics.totalValue)}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Sum of all activities</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Planned Value</p>
-                      <p className="text-lg font-bold text-blue-600">{formatCurrency(analytics.totalPlannedValue)}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Till yesterday (Planned KPI)</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Earned Value</p>
-                      <p className="text-lg font-bold text-green-600">{formatCurrency(analytics.totalEarnedValue)}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Till yesterday (Actual KPI)</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Remaining Value</p>
-                      <p className="text-lg font-bold text-orange-600">{formatCurrency(analytics.totalRemainingValue)}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Total - Earned</p>
-                    </div>
+                    {(() => {
+                      // ✅ NEW: Calculate work value using shared calculator (same as Work Value Status column)
+                      // ✅ PERFORMANCE: Use pre-calculated workValueStatus from analytics if available
+                      const workValueStatus = analytics?.workValueStatus || calculateWorkValueStatus(project, analytics?.activities || [], analytics?.kpis || [])
+                      const totalValue = workValueStatus.total
+                      const plannedValue = workValueStatus.planned
+                      const earnedValue = workValueStatus.earned
+                      const remainingValue = totalValue - earnedValue
+                      const variance = earnedValue - plannedValue
+                      
+                      return (
+                        <>
+                          <div>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">Total Value</p>
+                            <p className="text-lg font-bold text-gray-900 dark:text-white">{formatCurrency(totalValue)}</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Sum of all BOQ or KPI Planned</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">Planned Value</p>
+                            <p className="text-lg font-bold text-blue-600">{formatCurrency(plannedValue)}</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Till yesterday (Planned KPI)</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">Earned Value</p>
+                            <p className="text-lg font-bold text-green-600">{formatCurrency(earnedValue)}</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Till yesterday (Actual KPI)</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">Remaining Value</p>
+                            <p className="text-lg font-bold text-orange-600">{formatCurrency(remainingValue)}</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Total - Earned</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">Variance</p>
+                            <p className={`text-lg font-bold ${variance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {variance >= 0 ? '+' : ''}{formatCurrency(variance)}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Earned - Planned</p>
+                          </div>
+                        </>
+                      )
+                    })()}
                   </div>
+                  {(() => {
+                    // ✅ Calculate progress from work value
+                    // ✅ PERFORMANCE: Use pre-calculated workValueStatus from analytics if available
+                    const workValueStatus = analytics?.workValueStatus || calculateWorkValueStatus(project, analytics?.activities || [], analytics?.kpis || [])
+                    const totalValue = workValueStatus.total
+                    const plannedValue = workValueStatus.planned
+                    const earnedValue = workValueStatus.earned
+                    const actualProgress = totalValue > 0 ? (earnedValue / totalValue) * 100 : 0
+                    const plannedProgress = totalValue > 0 ? (plannedValue / totalValue) * 100 : 0
+                    
+                    return (
+                      <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                        <div>
+                          <p className="text-sm text-gray-600 dark:text-gray-400">Actual Progress</p>
+                          <p className="text-lg font-bold text-green-600">{formatPercent(actualProgress)}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">(Earned / Total) × 100</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-gray-600 dark:text-gray-400">Planned Progress</p>
+                          <p className="text-lg font-bold text-blue-600">{formatPercent(plannedProgress)}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">(Planned / Total) × 100</p>
+                        </div>
+                      </div>
+                    )
+                  })()}
                 </CardContent>
               </Card>
               
               {/* Quantity Summary - NEW CONCEPTS */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <BarChart3 className="h-5 w-5" />
-                    Quantity Summary
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Total Quantity</p>
-                      <p className="text-lg font-bold text-gray-900 dark:text-white">{analytics.totalQuantity.toLocaleString()}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Planned Quantity</p>
-                      <p className="text-lg font-bold text-blue-600">{analytics.totalPlannedQuantity.toLocaleString()}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Till yesterday</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Earned Quantity</p>
-                      <p className="text-lg font-bold text-green-600">{analytics.totalEarnedQuantity.toLocaleString()}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Till yesterday</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Remaining Quantity</p>
-                      <p className="text-lg font-bold text-orange-600">{analytics.totalRemainingQuantity.toLocaleString()}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Quantity Variance</p>
-                      <p className={`text-lg font-bold ${analytics.quantityVariance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {analytics.quantityVariance >= 0 ? '+' : ''}{analytics.quantityVariance.toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Actual Quantity Progress</p>
-                      <p className="text-lg font-bold text-green-600">{formatPercent(analytics.actualQuantityProgress)}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Planned Quantity Progress</p>
-                      <p className="text-lg font-bold text-blue-600">{formatPercent(analytics.plannedQuantityProgress)}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+              {(() => {
+                // ✅ NEW: Calculate quantity using shared calculator (same principle as Financial Summary)
+                // ✅ PERFORMANCE: Use pre-calculated quantityStatus from analytics if available
+                const quantityStatus = analytics?.quantityStatus || calculateQuantityStatus(project, analytics?.activities || [], analytics?.kpis || [])
+                const totalQuantity = quantityStatus.total
+                const plannedQuantity = quantityStatus.planned
+                const earnedQuantity = quantityStatus.earned
+                const remainingQuantity = totalQuantity - earnedQuantity
+                const quantityVariance = earnedQuantity - plannedQuantity
+                
+                return (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <BarChart3 className="h-5 w-5" />
+                        Quantity Summary
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                        <div>
+                          <p className="text-sm text-gray-600 dark:text-gray-400">Total Quantity</p>
+                          <p className="text-lg font-bold text-gray-900 dark:text-white">{totalQuantity.toLocaleString()}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Sum of all BOQ or KPI Planned</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-gray-600 dark:text-gray-400">Planned Quantity</p>
+                          <p className="text-lg font-bold text-blue-600">{plannedQuantity.toLocaleString()}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Till yesterday (Planned KPI)</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-gray-600 dark:text-gray-400">Earned Quantity</p>
+                          <p className="text-lg font-bold text-green-600">{earnedQuantity.toLocaleString()}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Till yesterday (Actual KPI)</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-gray-600 dark:text-gray-400">Remaining Quantity</p>
+                          <p className="text-lg font-bold text-orange-600">{remainingQuantity.toLocaleString()}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Total - Earned</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-gray-600 dark:text-gray-400">Quantity Variance</p>
+                          <p className={`text-lg font-bold ${quantityVariance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {quantityVariance >= 0 ? '+' : ''}{quantityVariance.toLocaleString()}
+                          </p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Earned - Planned</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )
+              })()}
               
               {/* Activities Summary */}
               <Card>
@@ -1795,6 +1992,41 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                               </div>
                             </div>
                           )}
+                      </div>
+                    )}
+                    
+                    {/* Retention Information */}
+                    {(project.retention_after_completion !== undefined || 
+                      project.retention_after_6_month !== undefined || 
+                      project.retention_after_12_month !== undefined) && (
+                      <div className="border-t pt-4 mt-4">
+                        <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-3">Retention Information</p>
+                        <div className="space-y-2">
+                          {project.retention_after_completion !== undefined && project.retention_after_completion !== null && (
+                            <div className="flex justify-between items-center">
+                              <span className="text-gray-600 dark:text-gray-400 font-medium">Retention after Completion:</span>
+                              <span className="font-semibold text-gray-900 dark:text-white">
+                                {project.retention_after_completion}%
+                              </span>
+                            </div>
+                          )}
+                          {project.retention_after_6_month !== undefined && project.retention_after_6_month !== null && (
+                            <div className="flex justify-between items-center">
+                              <span className="text-gray-600 dark:text-gray-400 font-medium">Retention after 6 Month:</span>
+                              <span className="font-semibold text-gray-900 dark:text-white">
+                                {project.retention_after_6_month}%
+                              </span>
+                            </div>
+                          )}
+                          {project.retention_after_12_month !== undefined && project.retention_after_12_month !== null && (
+                            <div className="flex justify-between items-center">
+                              <span className="text-gray-600 dark:text-gray-400 font-medium">Retention after 12 Month:</span>
+                              <span className="font-semibold text-gray-900 dark:text-white">
+                                {project.retention_after_12_month}%
+                              </span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
                     

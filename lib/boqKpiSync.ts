@@ -36,10 +36,10 @@ export async function syncBOQFromKPI(
         .eq('Activity Name', activityName),
       supabase
         .from(TABLES.KPI)
-        .select('*')
-        .eq('Input Type', 'Actual')
-        .eq('Project Full Code', projectCode)
-        .eq('Activity Name', activityName)
+      .select('*')
+      .eq('Input Type', 'Actual')
+      .eq('Project Full Code', projectCode)
+      .eq('Activity Name', activityName)
     ])
     
     if (plannedResult.error) throw plannedResult.error

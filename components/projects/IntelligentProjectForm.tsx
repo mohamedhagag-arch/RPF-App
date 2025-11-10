@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
-import { Project } from '@/lib/supabase'
+import { Project, TABLES } from '@/lib/supabase'
+import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { ModernCard } from '@/components/ui/ModernCard'
 import { ModernButton } from '@/components/ui/ModernButton'
 import { ModernBadge } from '@/components/ui/ModernBadge'
@@ -121,6 +122,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
   const [contractStatus, setContractStatus] = useState('')
   const [workmanshipOnly, setWorkmanshipOnly] = useState('')
   const [advancePaymentRequired, setAdvancePaymentRequired] = useState('')
+  const [advancePaymentPercentage, setAdvancePaymentPercentage] = useState('')
   const [virtualMaterialValue, setVirtualMaterialValue] = useState('')
   const [projectStartDate, setProjectStartDate] = useState('')
   const [projectCompletionDate, setProjectCompletionDate] = useState('')
@@ -347,6 +349,60 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
       setKpiCompleted(project.kpi_completed)
       setAutoSubCode(false)
       
+      // ✅ Update Responsible Divisions from BOQ Activities
+      const updateDivisionsFromBOQ = async () => {
+        try {
+          const supabase = getSupabaseClient()
+          const projectCode = project.project_code || ''
+          const projectFullCode = project.project_full_code || 
+                                (project.project_sub_code ? `${projectCode}-${project.project_sub_code}` : projectCode)
+          
+          // Get ALL activities for this project
+          const { data: activitiesData, error: activitiesError } = await supabase
+            .from(TABLES.BOQ_ACTIVITIES)
+            .select('*')
+            .or(`Project Code.eq.${projectCode},Project Full Code.eq.${projectCode},Project Full Code.eq.${projectFullCode}`)
+          
+          if (activitiesError) {
+            console.warn('⚠️ Error fetching activities for division update:', activitiesError)
+            return
+          }
+          
+          // Collect ALL unique divisions from ALL activities
+          const divisionsFromBOQ = new Set<string>()
+          if (activitiesData && activitiesData.length > 0) {
+            activitiesData.forEach((activity: any) => {
+              const activityDiv = activity['Activity Division'] || activity.activity_division || ''
+              if (activityDiv && activityDiv.trim() !== '') {
+                divisionsFromBOQ.add(activityDiv.trim())
+              }
+            })
+          }
+          
+          // Get current divisions from project
+          const currentDivisions = project.responsible_division 
+            ? project.responsible_division.split(',').map(d => d.trim()).filter(d => d.length > 0)
+            : []
+          
+          // Merge divisions (from project and BOQ)
+          const allDivisionsSet = new Set<string>()
+          currentDivisions.forEach(d => allDivisionsSet.add(d))
+          divisionsFromBOQ.forEach(d => allDivisionsSet.add(d))
+          
+          const allDivisionsList = Array.from(allDivisionsSet).sort()
+          
+          // Update state if divisions changed
+          if (allDivisionsList.length > 0) {
+            setResponsibleDivisions(allDivisionsList)
+            console.log('✅ Updated Responsible Divisions from BOQ Activities:', allDivisionsList)
+          }
+        } catch (error) {
+          console.warn('⚠️ Error updating divisions from BOQ:', error)
+        }
+      }
+      
+      updateDivisionsFromBOQ()
+      
       // Load additional project details
       setClientName(project.client_name || '')
       setConsultantName(project.consultant_name || '')
@@ -359,7 +415,13 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
       setContractStatus(project.contract_status || '')
       setWorkmanshipOnly(project.workmanship_only || '')
       setAdvancePaymentRequired(project.advance_payment_required || '')
-      setVirtualMaterialValue(project.virtual_material_value || '')
+      setAdvancePaymentPercentage(project.advance_payment_percentage?.toString() || '')
+      // ✅ Set Virtual Material Value: if workmanship_only is "No", set to "0", otherwise use saved value or empty
+      if (project.workmanship_only === 'No') {
+        setVirtualMaterialValue('0')
+      } else {
+        setVirtualMaterialValue(project.virtual_material_value || '')
+      }
       
       // Load project dates
       if (project.project_start_date) {
@@ -375,8 +437,21 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
           setProjectCompletionDate(completionDate.toISOString().split('T')[0])
         }
       }
-      if (project.project_duration !== undefined) {
-        setProjectDuration(project.project_duration)
+      // ✅ Load project duration - handle all cases (number, string, null, undefined)
+      if (project.project_duration !== undefined && project.project_duration !== null) {
+        const durationValue = typeof project.project_duration === 'number' 
+          ? project.project_duration 
+          : parseInt(String(project.project_duration)) || undefined
+        if (durationValue !== undefined && durationValue !== null && durationValue > 0) {
+          setProjectDuration(durationValue)
+          console.log('📖 IntelligentProjectForm: Loaded project_duration =', durationValue, 'from project:', project.project_code)
+        } else {
+          console.warn('⚠️ IntelligentProjectForm: project_duration is invalid:', project.project_duration, 'for project:', project.project_code)
+          setProjectDuration(undefined)
+        }
+      } else {
+        console.warn('⚠️ IntelligentProjectForm: project_duration is undefined or null for project:', project.project_code)
+        setProjectDuration(undefined)
       }
       
       // Load project award date
@@ -416,6 +491,9 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
       setProjectDuration(undefined)
       setProjectStatus('upcoming') // ✅ Default value for new projects
       
+      // ✅ Reset Virtual Material Value to 0 when resetting form
+      setVirtualMaterialValue('0')
+      
       // Load metadata for suggestions
       const metadata = getProjectMetadata()
       if (metadata.suggestedNextCode) {
@@ -423,6 +501,14 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
       }
     }
   }, [project])
+  
+  // ✅ Link Workmanship Only with Virtual Material Value
+  // When Workmanship Only = "No", automatically set Virtual Material Value = 0
+  useEffect(() => {
+    if (workmanshipOnly === 'No') {
+      setVirtualMaterialValue('0')
+    }
+  }, [workmanshipOnly])
   
   // Load project scopes from Supabase (from Project Scope Management)
   useEffect(() => {
@@ -693,9 +779,15 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
       if (!workmanshipOnly.trim()) throw new Error('Workmanship Only is required')
       if (!advancePaymentRequired.trim()) throw new Error('Advance Payment Required is required')
       
-      // Validate Virtual Material Value when Workmanship Only = Yes
+      // ✅ Validate Virtual Material Value
+      // If Workmanship Only = "No", Virtual Material Value should be 0 (handled automatically)
+      // If Workmanship Only = "Yes", Virtual Material Value is required
       if (workmanshipOnly === 'Yes' && !virtualMaterialValue.trim()) {
         throw new Error('Virtual Material Value is required when Workmanship Only is Yes')
+      }
+      // If Workmanship Only = "No", ensure Virtual Material Value is 0
+      if (workmanshipOnly === 'No' && virtualMaterialValue.trim() !== '0') {
+        setVirtualMaterialValue('0') // Auto-correct to 0
       }
       
       // Validate Project Duration (Required)
@@ -731,7 +823,9 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
         contract_status: contractStatus.trim() || undefined,
         workmanship_only: workmanshipOnly.trim() || undefined,
         advance_payment_required: advancePaymentRequired.trim() || undefined,
-        virtual_material_value: virtualMaterialValue.trim() || undefined,
+        advance_payment_percentage: advancePaymentPercentage.trim() ? parseFloat(advancePaymentPercentage.trim()) : undefined,
+        // ✅ If Workmanship Only = "No", always save Virtual Material Value as 0
+        virtual_material_value: workmanshipOnly === 'No' ? '0' : (virtualMaterialValue.trim() || undefined),
         project_start_date: projectStartDate.trim() || undefined,
         project_completion_date: projectCompletionDate.trim() || undefined,
         date_project_awarded: dateProjectAwarded.trim() || undefined,
@@ -742,26 +836,48 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
         // But we can also send it if calculated in frontend for immediate display
       }
       
-      // ✅ Calculate duration here as well to ensure it's sent to database
-      // Database trigger will also calculate it, but sending it ensures consistency
-      if (projectStartDate && projectCompletionDate) {
-        const start = new Date(projectStartDate)
-        const completion = new Date(projectCompletionDate)
-        if (!isNaN(start.getTime()) && !isNaN(completion.getTime())) {
-          const diffTime = completion.getTime() - start.getTime()
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1
-          projectData.project_duration = diffDays >= 0 ? diffDays : 0
-        }
-      } else if (projectStartDate && !projectCompletionDate) {
-        // Calculate from start to today
-        const start = new Date(projectStartDate)
-        const today = new Date()
-        if (!isNaN(start.getTime())) {
-          const diffTime = today.getTime() - start.getTime()
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1
-          projectData.project_duration = diffDays >= 0 ? diffDays : 0
+      // ✅ CRITICAL: Always set project_duration if user entered a value
+      // This ensures the value is sent to database even if trigger tries to override it
+      // IMPORTANT: Don't calculate from dates if user entered a value - user input takes priority
+      if (projectDuration !== undefined && projectDuration !== null && projectDuration > 0) {
+        // User entered a value - use it directly (don't let trigger override it)
+        projectData.project_duration = projectDuration
+        // ✅ CRITICAL: Also clear dates to prevent trigger from recalculating
+        // But only if user explicitly wants to set duration without dates
+        // Actually, let's keep dates but ensure duration is sent AFTER dates in the update
+        console.log('✅ [PRIORITY 1] Saving project_duration from user input:', projectData.project_duration, '(will override trigger calculation)')
+      } 
+      // ✅ Priority 2: Calculate duration from dates ONLY if user didn't enter a value
+      else if (!projectDuration || projectDuration <= 0) {
+        if (projectStartDate && projectCompletionDate) {
+          const start = new Date(projectStartDate)
+          const completion = new Date(projectCompletionDate)
+          if (!isNaN(start.getTime()) && !isNaN(completion.getTime())) {
+            const diffTime = completion.getTime() - start.getTime()
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1
+            projectData.project_duration = diffDays >= 0 ? diffDays : 0
+            console.log('✅ [PRIORITY 2] Calculating project_duration from dates:', projectData.project_duration)
+          }
+        } else if (projectStartDate && !projectCompletionDate) {
+          // Calculate from start to today
+          const start = new Date(projectStartDate)
+          const today = new Date()
+          if (!isNaN(start.getTime())) {
+            const diffTime = today.getTime() - start.getTime()
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1
+            projectData.project_duration = diffDays >= 0 ? diffDays : 0
+            console.log('✅ [PRIORITY 2] Calculating project_duration from start date to today:', projectData.project_duration)
+          }
         }
       }
+      
+      // ✅ Debug: Log the final projectData to ensure project_duration is included
+      console.log('📦 Final projectData before save:', {
+        project_duration: projectData.project_duration,
+        project_start_date: projectData.project_start_date,
+        project_completion_date: projectData.project_completion_date,
+        hasProjectDuration: 'project_duration' in projectData
+      })
       
       // إضافة العملة كخاصية إضافية (سيتم حفظها لاحقاً عند إضافة العمود)
       const projectDataWithCurrency = {
@@ -1180,17 +1296,37 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                 <Clock className="inline h-4 w-4 mr-1" />
                 Project Duration (Days) <span className="text-red-500">*</span>
               </label>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                Enter the project duration in days. You can enter this without Start/Completion dates.
+              </p>
               <Input
                 type="number"
-                value={projectDuration || ''}
+                value={projectDuration !== undefined && projectDuration !== null ? projectDuration : ''}
                 onChange={(e) => {
                   const value = e.target.value
-                  setProjectDuration(value ? parseInt(value) : undefined)
+                  // ✅ CRITICAL: Parse as integer and ensure it's a valid number
+                  const numValue = value.trim() === '' ? undefined : parseInt(value, 10)
+                  if (numValue !== undefined && !isNaN(numValue) && numValue > 0) {
+                    setProjectDuration(numValue)
+                    console.log('📝 IntelligentProjectForm: User entered duration:', numValue)
+                  } else if (value.trim() === '') {
+                    setProjectDuration(undefined)
+                  }
+                }}
+                onBlur={(e) => {
+                  // ✅ Ensure value is preserved on blur
+                  const value = e.target.value
+                  const numValue = value.trim() === '' ? undefined : parseInt(value, 10)
+                  if (numValue !== undefined && !isNaN(numValue) && numValue > 0) {
+                    setProjectDuration(numValue)
+                    console.log('💾 IntelligentProjectForm: Duration on blur:', numValue)
+                  }
                 }}
                 disabled={loading}
                 required
                 placeholder="Enter project duration in days"
-                min="0"
+                min="1"
+                step="1"
                 className="focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
@@ -1349,23 +1485,27 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
               </select>
             </div>
             
-            {/* Virtual Material Value - Shows only when Workmanship Only = Yes */}
-            {workmanshipOnly === 'Yes' && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  <DollarSign className="inline h-4 w-4 mr-1" />
-                  Virtual Material Value <span className="text-red-500">*</span>
-                </label>
-                <Input
-                  value={virtualMaterialValue}
-                  onChange={(e) => setVirtualMaterialValue(e.target.value)}
-                  placeholder="Enter virtual material value..."
-                  disabled={loading}
-                  required
-                  className="focus:ring-orange-500 focus:border-orange-500"
-                />
-              </div>
-            )}
+            {/* Virtual Material Value - Always visible, but disabled when Workmanship Only = No */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <DollarSign className="inline h-4 w-4 mr-1" />
+                Virtual Material Value <span className="text-red-500">*</span>
+              </label>
+              <Input
+                value={virtualMaterialValue}
+                onChange={(e) => setVirtualMaterialValue(e.target.value)}
+                placeholder={workmanshipOnly === 'No' ? "Automatically set to 0" : "Enter virtual material value..."}
+                disabled={loading || workmanshipOnly === 'No'}
+                required
+                className={`focus:ring-orange-500 focus:border-orange-500 ${workmanshipOnly === 'No' ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' : ''}`}
+                title={workmanshipOnly === 'No' ? 'Virtual Material Value is automatically set to 0 when Workmanship Only is No' : ''}
+              />
+              {workmanshipOnly === 'No' && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Automatically set to 0 when Workmanship Only is "No"
+                </p>
+              )}
+            </div>
           </div>
           
           {/* Advance Payment Required */}
@@ -1382,6 +1522,26 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
               required
               className="focus:ring-orange-500 focus:border-orange-500"
             />
+          </div>
+          
+          {/* Advance Payment Percentage */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <DollarSign className="inline h-4 w-4 mr-1" />
+              Advance Payment Percentage
+            </label>
+            <Input
+              type="number"
+              step="0.01"
+              min="0"
+              max="100"
+              value={advancePaymentPercentage}
+              onChange={(e) => setAdvancePaymentPercentage(e.target.value)}
+              placeholder="e.g., 10.5"
+              disabled={loading}
+              className="focus:ring-orange-500 focus:border-orange-500"
+            />
+            <p className="text-xs text-gray-500 mt-1">Enter percentage value (0-100)</p>
           </div>
           
           {/* Stakeholder Information */}

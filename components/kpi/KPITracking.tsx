@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { PermissionGuard } from '@/components/common/PermissionGuard'
@@ -18,6 +18,7 @@ import { IntelligentKPIForm } from '@/components/kpi/IntelligentKPIForm'
 import { EnhancedSmartActualKPIForm } from '@/components/kpi/EnhancedSmartActualKPIForm'
 import { OptimizedKPITable } from '@/components/kpi/OptimizedKPITable'
 import { KPITableWithCustomization } from '@/components/kpi/KPITableWithCustomization'
+import { BulkEditKPIModal } from '@/components/kpi/BulkEditKPIModal'
 import { syncBOQFromKPI } from '@/lib/boqKpiSync'
 import { calculateActivityProgress, ActivityProgress } from '@/lib/progressCalculator'
 import { autoSaveOnKPIUpdate } from '@/lib/autoCalculationSaver'
@@ -51,9 +52,95 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const isMountedRef = useRef(true) // ✅ Track if component is mounted
+  
+  // ✅ Cache for activity-to-scope mapping from project_type_activities table
+  const [activityScopeMap, setActivityScopeMap] = useState<Map<string, string>>(new Map())
+  
+  // ✅ Helper function to find scope with flexible matching
+  // Handles cases like "Guide Wall - Infra" matching "Guide Wall"
+  const findActivityScope = (activityName: string, scopeMap: Map<string, string>): string | undefined => {
+    if (!activityName || scopeMap.size === 0) return undefined
+    
+    const normalizedName = activityName.trim().toLowerCase()
+    
+    // Try exact match first
+    let scope = scopeMap.get(normalizedName)
+    if (scope) return scope
+    
+    // Try removing last segment after "-" or " -"
+    // Examples: "Guide Wall - Infra" -> "Guide Wall", "Activity - Type" -> "Activity"
+    const segments = normalizedName.split(/\s*-\s*/)
+    if (segments.length > 1) {
+      // Try with first segment only
+      const firstSegment = segments[0].trim()
+      if (firstSegment) {
+        scope = scopeMap.get(firstSegment)
+        if (scope) return scope
+      }
+      
+      // Try with all segments except last
+      const withoutLast = segments.slice(0, -1).join(' - ').trim()
+      if (withoutLast) {
+        scope = scopeMap.get(withoutLast)
+        if (scope) return scope
+      }
+    }
+    
+    // Try partial match (check if any key in map starts with the activity name or vice versa)
+    let foundScope: string | undefined = undefined
+    scopeMap.forEach((value, key) => {
+      if (!foundScope && (normalizedName.startsWith(key) || key.startsWith(normalizedName))) {
+        foundScope = value
+      }
+    })
+    
+    return foundScope
+  }
+  
+  // ✅ Load Activity Scope mapping from project_type_activities table (Settings)
+  useEffect(() => {
+    const loadActivityScopes = async () => {
+      try {
+        const supabase = getSupabaseClient()
+        const { data, error } = await supabase
+          .from('project_type_activities')
+          .select('activity_name, project_type')
+          .eq('is_active', true)
+        
+        if (error) {
+          console.error('❌ Error loading activity scopes:', error)
+          return
+        }
+        
+        // Create a map: activity_name -> project_type (scope)
+        const scopeMap = new Map<string, string>()
+        if (data) {
+          data.forEach((item: any) => {
+            const activityName = item.activity_name?.trim().toLowerCase()
+            const projectType = item.project_type?.trim()
+            if (activityName && projectType) {
+              // Store the first scope found for each activity
+              if (!scopeMap.has(activityName)) {
+                scopeMap.set(activityName, projectType)
+              }
+            }
+          })
+        }
+        
+        setActivityScopeMap(scopeMap)
+        console.log(`✅ Loaded ${scopeMap.size} activity scope mappings`)
+      } catch (error) {
+        console.error('❌ Error in loadActivityScopes:', error)
+      }
+    }
+    
+    loadActivityScopes()
+  }, [])
   const [showForm, setShowForm] = useState(false)
   const [showEnhancedForm, setShowEnhancedForm] = useState(false)
   const [editingKPI, setEditingKPI] = useState<KPIRecord | null>(null)
+  const [showBulkEditModal, setShowBulkEditModal] = useState(false)
+  const [selectedKPIsForBulkEdit, setSelectedKPIsForBulkEdit] = useState<ProcessedKPI[]>([])
   // ✅ Standard View - only enable if user has permission
   const [useCustomizedTable, setUseCustomizedTable] = useState(false)
   const [hasInitializedView, setHasInitializedView] = useState(false)
@@ -80,6 +167,9 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   const [selectedZones, setSelectedZones] = useState<string[]>([])
   const [selectedUnits, setSelectedUnits] = useState<string[]>([])
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>([])
+  const [selectedScopes, setSelectedScopes] = useState<string[]>([])
+  const [selectedActivityTimings, setSelectedActivityTimings] = useState<string[]>([])
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([])
   const [dateRange, setDateRange] = useState<{ from?: string; to?: string }>({})
   const [valueRange, setValueRange] = useState<{ min?: number; max?: number }>({})
   const [quantityRange, setQuantityRange] = useState<{ min?: number; max?: number }>({})
@@ -108,16 +198,11 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     )
   }
 
-  // Handle unified filter changes
+  // Handle unified filter changes (legacy - not used with SmartFilter)
   const handleFilterChange = (newFilters: FilterState) => {
     setFilters(newFilters)
-    setCurrentPage(1) // Reset to first page when filter changes
-    
-    // If project filter changed, reload data for that specific project
-    if (newFilters.project !== filters.project) {
-      console.log('🔄 Project filter changed to:', newFilters.project || 'none')
-      fetchData(newFilters.project)
-    }
+    setCurrentPage(1)
+    // No need to fetch data - filtering is done locally
   }
 
   // Fetch count of KPIs pending approval
@@ -186,231 +271,280 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     }
   }
 
-  const fetchData = async (selectedProjectCodes?: string | string[], forceRefresh = false) => {
+  // ✅ Fetch data based on filters (only when filters are applied)
+  const fetchData = useCallback(async (filterProjects: string[] = []) => {
     if (!isMountedRef.current) return
+    
+    // ✅ Only fetch if filters are applied
+    if (filterProjects.length === 0) {
+      console.log('💡 No filters applied - not loading data')
+      setKpis([])
+      setActivities([])
+      setTotalKPICount(0)
+      return
+    }
     
     try {
       startSmartLoading(setLoading)
+      setError('')
+      console.log('📊 Loading KPI data for projects:', filterProjects)
       
-      // Force refresh by clearing state first if requested
-      if (forceRefresh) {
-        console.log('🧹 Force refresh: Clearing state...')
-        setKpis([])
-        setActivities([])
-        await new Promise(resolve => setTimeout(resolve, 100))
-      }
-      
-      // Handle multiple project codes
-      const projectCodesArray = Array.isArray(selectedProjectCodes) 
-        ? selectedProjectCodes 
-        : selectedProjectCodes 
-          ? [selectedProjectCodes] 
-          : []
-
-      // ✅ إذا لم يتم اختيار مشاريع، حمل المشاريع فقط ولا تحمل KPIs
-      if (projectCodesArray.length === 0) {
-        console.log('💡 KPITracking: No filter selected - Loading projects list only...')
-        
-        // تحميل المشاريع فقط
-        if (projects.length === 0) {
-          const projectsResult = await supabase
-            .from(TABLES.PROJECTS)
-            .select('*')
-            .order('created_at', { ascending: false })
-          
-          if (projectsResult.data) {
-            setProjects(projectsResult.data.map(mapProjectFromDB))
-            console.log('✅ Loaded', projectsResult.data.length, 'projects')
-          }
-        }
-        
-        // الحصول على العدد الإجمالي للـ KPIs (بدون تحميل البيانات)
-        const { count: totalCount } = await supabase
-          .from(TABLES.KPI)
-          .select('*', { count: 'exact', head: true })
-        
-        setTotalKPICount(totalCount || 0)
-        console.log(`📊 Total KPIs in database: ${totalCount || 0}`)
-        
-        // تعيين البيانات فارغة
-        setKpis([])
-        setActivities([])
-        
-        console.log('💡 Use filter to load KPI data')
-        stopSmartLoading(setLoading)
-        return
-      }
-      
-      // ✅ إذا تم اختيار مشاريع، حمل البيانات
-      console.log(`📊 Fetching KPIs for ${projectCodesArray.length} selected project(s):`, projectCodesArray)
-      
-      // ✅ FIX: Extract project_code from project_full_code if needed
-      // selectedProjects now contains project_full_code (e.g., "P5066-1"), but Activities table
-      // might use "Project Code" (e.g., "P5066") or "Project Full Code"
-      // We'll try both: first with project_full_code, then fallback to project_code
-      const extractProjectCode = (fullCode: string): string => {
-        // If it contains "-", extract the part before it (project_code)
-        if (fullCode.includes('-')) {
-          return fullCode.split('-')[0]
-        }
-        return fullCode
-      }
-      
-      const projectCodesForActivities = projectCodesArray.map(extractProjectCode)
-      const uniqueProjectCodes = Array.from(new Set(projectCodesForActivities))
-      
-      // تحميل Activities و KPIs معاً
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('KPI fetch timeout')), 60000) // زيادة إلى 60 ثانية
-      )
-      
-      // تحميل Activities مع فلتر المشاريع المحددة
-      // ✅ FIX: Try to match using Project Full Code first, then fallback to Project Code
-      let activitiesQuery = supabase
-        .from(TABLES.BOQ_ACTIVITIES)
+      // ✅ Fetch projects first (always needed)
+      const projectsRes = await supabase
+        .from(TABLES.PROJECTS)
         .select('*')
+        .order('created_at', { ascending: false })
       
-      // تطبيق فلتر المشاريع على الأنشطة
-      // Try matching by Project Full Code first (if available in DB)
-      if (uniqueProjectCodes.length === 1) {
-        // Try both Project Full Code and Project Code
-        activitiesQuery = activitiesQuery.or(`Project Full Code.eq.${projectCodesArray[0]},Project Code.eq.${uniqueProjectCodes[0]}`)
-      } else if (uniqueProjectCodes.length > 1) {
-        // For multiple projects, we need to check both fields
-        // Use 'in' for Project Code and 'in' for Project Full Code
-        const fullCodeFilter = projectCodesArray.map(code => `Project Full Code.eq.${code}`).join(',')
-        const codeFilter = uniqueProjectCodes.map(code => `Project Code.eq.${code}`).join(',')
-        activitiesQuery = activitiesQuery.or(`${fullCodeFilter},${codeFilter}`)
-      }
-      
-      const activitiesResult = await activitiesQuery
-      
-      if (activitiesResult.data) {
-        const mappedActivities = activitiesResult.data.map(mapBOQFromDB)
-        setActivities(mappedActivities)
-        console.log('✅ Loaded', mappedActivities.length, 'activities for', projectCodesArray.length, 'project(s)')
-        console.log('🔍 Activities loaded:', mappedActivities.map(a => a.activity_name))
-      }
-      
-      // تحميل KPIs للمشاريع المحددة مع pagination لتحميل جميع السجلات
-      let kpisData: any[] = []
-      let count = 0
-      
-      // ✅ FIX: استخدام pagination لتحميل جميع السجلات (بدلاً من limit 500)
-      // Supabase default limit is 1000, so we need to fetch in chunks
-      const chunkSize = 1000
-      let offset = 0
-      let hasMore = true
-      
-      // Build base query with filters
-      const buildKPIQuery = (includeCount = false, useHead = false, rangeStart?: number, rangeEnd?: number) => {
-        let query = supabase
-          .from(TABLES.KPI)
-          .select('*', includeCount ? { count: 'exact', head: useHead } : undefined)
-          .order('created_at', { ascending: false })
-        
-        // Filter by multiple projects
-        if (projectCodesArray.length === 1) {
-          query = query.eq('Project Full Code', projectCodesArray[0])
-        } else if (projectCodesArray.length > 1) {
-          query = query.in('Project Full Code', projectCodesArray)
-        }
-        
-        // Apply range if provided
-        if (rangeStart !== undefined && rangeEnd !== undefined) {
-          query = query.range(rangeStart, rangeEnd)
-        }
-        
-        return query
-      }
-      
-      // Get total count first (using head: true for faster count)
-      const { count: totalCount, error: countError } = await buildKPIQuery(true, true)
-      
-      if (countError) {
-        console.error('❌ KPITracking: Error getting KPI count:', countError)
-        setError(`Failed to load KPIs: ${countError.message}`)
-        setKpis([])
-        setTotalKPICount(0)
+      if (projectsRes.error) {
+        console.error('❌ Projects Error:', projectsRes.error)
+        setError(`Failed to load projects: ${projectsRes.error.message}`)
         return
       }
       
-      count = totalCount || 0
-      console.log(`📊 Total KPIs to fetch: ${count} for ${projectCodesArray.length} project(s)`)
+      const mappedProjects = (projectsRes.data || []).map(mapProjectFromDB)
+      setProjects(mappedProjects)
       
-      // Fetch all KPIs in chunks
-      while (hasMore) {
-        try {
-          const { data: chunkData, error: chunkError } = await Promise.race([
-            buildKPIQuery(false, false, offset, offset + chunkSize - 1),
-            timeoutPromise
-          ]) as any
+      // ✅ SIMPLIFIED: Fetch by Project Full Code only
+      // ✅ CRITICAL: project_full_code is the ONLY identifier - any difference means separate project
+      console.log('🔍 Filter by Project Full Code only:', filterProjects)
+      
+      // ✅ FIX: Try both Project Full Code and Project Code queries
+      // Some projects might not have Project Full Code in DB, so we fetch by Project Code first
+      // then filter client-side by Project Full Code
+      const projectCodes = filterProjects.map(code => {
+        const parts = code.split('-')
+        return parts[0] // Extract project code (e.g., "P9999" from "P9999-01")
+      })
+      const uniqueProjectCodes = Array.from(new Set(projectCodes))
+      
+      console.log('🔍 Extracted project codes:', uniqueProjectCodes)
+      
+      // ✅ Helper function to fetch all records with pagination (Supabase default limit is 1000)
+      const fetchAllRecords = async (table: string, filter: string) => {
+        let allData: any[] = []
+        let offset = 0
+        const chunkSize = 1000
+        let hasMore = true
+        
+        while (hasMore) {
+          let query = supabase
+            .from(table)
+            .select('*')
+            .range(offset, offset + chunkSize - 1)
           
-          if (chunkError) {
-            if (chunkError.message?.includes('timeout')) {
-              console.warn(`⚠️ Timeout fetching chunk at offset ${offset}, stopping pagination`)
-              hasMore = false
-              break
-            } else {
-              throw chunkError
-            }
+          if (filter && filter.trim()) {
+            query = query.or(filter)
           }
           
-          if (!chunkData || chunkData.length === 0) {
+          if (table === TABLES.KPI) {
+            query = query.order('created_at', { ascending: false })
+          }
+          
+          const { data, error } = await query
+          
+          if (error) {
+            console.error(`❌ Error fetching ${table}:`, error)
+            break
+          }
+          
+          if (!data || data.length === 0) {
             hasMore = false
             break
           }
           
-          kpisData = [...kpisData, ...chunkData]
-          console.log(`📥 Fetched chunk: ${chunkData.length} KPIs (total so far: ${kpisData.length}/${count})`)
+          allData = [...allData, ...data]
+          console.log(`📥 Fetched ${table} chunk: ${data.length} records (total so far: ${allData.length})`)
           
-          // If we got less than chunkSize, we're done
-          if (chunkData.length < chunkSize) {
+          if (data.length < chunkSize) {
             hasMore = false
           } else {
             offset += chunkSize
-            // Small delay to prevent overwhelming the database
-            await new Promise(resolve => setTimeout(resolve, 50))
-          }
-        } catch (error: any) {
-          console.error('❌ KPITracking: Error fetching KPI chunk:', error)
-          if (error.message?.includes('timeout')) {
-            setError('Loading KPIs is taking longer than expected. Some data may be missing.')
-            hasMore = false
-            break
-          } else {
-            throw error
           }
         }
+        
+        console.log(`✅ Total ${table} records fetched: ${allData.length}`)
+        return allData
       }
       
-      console.log(`✅ Fetched ${kpisData.length} KPIs out of ${count} total for ${projectCodesArray.length} project(s)`)
+      // ✅ Fetch activities and KPIs - try Project Full Code first, then fallback to Project Code
+      // Use pagination to fetch ALL records, not just 1000
+      const [activitiesByFullCode, activitiesByCode, kpisByFullCode, kpisByCode] = await Promise.all([
+        fetchAllRecords(TABLES.BOQ_ACTIVITIES, filterProjects.map(code => `Project Full Code.eq.${code}`).join(',')),
+        fetchAllRecords(TABLES.BOQ_ACTIVITIES, uniqueProjectCodes.map(code => `Project Code.eq.${code}`).join(',')),
+        fetchAllRecords(TABLES.KPI, filterProjects.map(code => `Project Full Code.eq.${code}`).join(',')),
+        fetchAllRecords(TABLES.KPI, uniqueProjectCodes.map(code => `Project Code.eq.${code}`).join(','))
+      ])
       
-      // ✅ ALWAYS update state (React handles unmounted components safely)
-      setTotalKPICount(count)
-
-      console.log('✅ KPITracking: Fetched', activitiesResult.data?.length || 0, 'activities,', kpisData?.length || 0, 'KPIs')
+      // Create response objects to match expected format
+      const activitiesResByFullCode = { data: activitiesByFullCode, error: null }
+      const activitiesResByCode = { data: activitiesByCode, error: null }
+      const kpisResByFullCode = { data: kpisByFullCode, error: null }
+      const kpisResByCode = { data: kpisByCode, error: null }
       
-      // Log KPI types distribution
-      if (kpisData && kpisData.length > 0) {
-        const plannedCount = kpisData.filter((k: any) => k['Input Type'] === 'Planned').length
-        const actualCount = kpisData.filter((k: any) => k['Input Type'] === 'Actual').length
-        console.log('📊 KPI Distribution: Planned =', plannedCount, ', Actual =', actualCount)
+      // ✅ Combine results and remove duplicates
+      const allActivities: any[] = [
+        ...(activitiesResByFullCode.data || []),
+        ...(activitiesResByCode.data || [])
+      ]
+      const uniqueActivities = allActivities.filter((activity: any, index: number, self: any[]) => 
+        index === self.findIndex((a: any) => a.id === activity.id)
+      )
+      
+      const allKPIs: any[] = [
+        ...(kpisResByFullCode.data || []),
+        ...(kpisResByCode.data || [])
+      ]
+      const uniqueKPIs = allKPIs.filter((kpi: any, index: number, self: any[]) => 
+        index === self.findIndex((k: any) => k.id === kpi.id)
+      )
+      
+      // Use combined results
+      const activitiesRes = { data: uniqueActivities, error: activitiesResByFullCode.error || activitiesResByCode.error }
+      const kpisRes = { data: uniqueKPIs, error: kpisResByFullCode.error || kpisResByCode.error }
+      
+      // ✅ CRITICAL: Map data FIRST to build project_full_code correctly, THEN filter
+      console.log(`📥 Fetched ${activitiesRes.data?.length || 0} activities, ${kpisRes.data?.length || 0} KPIs from database`)
+      
+      // ✅ STEP 1: Map all activities and KPIs to build project_full_code correctly
+      const mappedActivitiesRaw = (activitiesRes.data || []).map(mapBOQFromDB)
+      const mappedKPIsRaw = (kpisRes.data || []).map(mapKPIFromDB)
+      
+      // ✅ DEBUG: Log sample KPIs after mapping
+      if (mappedKPIsRaw.length > 0) {
+        console.log('📋 Sample KPIs after mapping (first 3):', mappedKPIsRaw.slice(0, 3).map((k: any) => ({
+          activityName: k.activity_name,
+          projectFullCode: k.project_full_code,
+          projectCode: k.project_code,
+          projectSubCode: k.project_sub_code
+        })))
       }
       
-      // ✅ Activities already loaded in parallel fetch above
+      // ✅ STEP 2: Filter by exact Project Full Code match using BUILT project_full_code
+      let filteredActivitiesData = mappedActivitiesRaw.filter((activity: any) => {
+        const activityFullCode = (activity.project_full_code || '').toString().trim()
+        const activityProjectCode = (activity.project_code || '').toString().trim()
+        const activityProjectSubCode = (activity.project_sub_code || '').toString().trim()
+        
+        // ✅ Match by exact Project Full Code OR by Project Code if activity has no sub_code
+        return filterProjects.some(selectedFullCode => {
+          const selectedFullCodeUpper = selectedFullCode.toUpperCase().trim()
+          const activityFullCodeUpper = activityFullCode.toUpperCase().trim()
+          
+          // Priority 1: Exact match on project_full_code
+          if (activityFullCodeUpper === selectedFullCodeUpper) {
+            return true
+          }
+          
+          // Priority 2: If selected project has sub_code (e.g., "P10001-01") and activity has no sub_code (e.g., "P10001"),
+          // match by project_code only (activities might not have sub_code in DB)
+          const selectedParts = selectedFullCode.split('-')
+          const selectedCode = selectedParts[0]?.toUpperCase().trim()
+          const selectedSubCode = selectedParts.slice(1).join('-').toUpperCase().trim()
+          
+          // If selected project has sub_code and activity has no sub_code, match by project_code
+          if (selectedSubCode && !activityProjectSubCode && activityProjectCode.toUpperCase() === selectedCode) {
+            return true
+          }
+          
+          // Priority 3: If both have sub_codes, build activity full code and match
+          if (activityProjectCode && activityProjectSubCode) {
+            let builtActivityFullCode = activityProjectCode
+            if (activityProjectSubCode.toUpperCase().startsWith(activityProjectCode.toUpperCase())) {
+              builtActivityFullCode = activityProjectSubCode
+            } else if (activityProjectSubCode.startsWith('-')) {
+              builtActivityFullCode = `${activityProjectCode}${activityProjectSubCode}`
+            } else {
+              builtActivityFullCode = `${activityProjectCode}-${activityProjectSubCode}`
+            }
+            
+            if (builtActivityFullCode.toUpperCase() === selectedFullCodeUpper) {
+              return true
+            }
+          }
+          
+          return false
+        })
+      })
       
-      // Map and process KPI data
-      const mappedKPIs = (kpisData || []).map(mapKPIFromDB)
+      let filteredKPIsData = mappedKPIsRaw.filter((kpi: any) => {
+        const kpiFullCode = (kpi.project_full_code || '').toString().trim()
+        const kpiProjectCode = (kpi.project_code || '').toString().trim()
+        const kpiProjectSubCode = (kpi.project_sub_code || '').toString().trim()
+        
+        // ✅ Match by exact Project Full Code OR by Project Code if KPI has no sub_code
+        return filterProjects.some(selectedFullCode => {
+          const selectedFullCodeUpper = selectedFullCode.toUpperCase().trim()
+          const kpiFullCodeUpper = kpiFullCode.toUpperCase().trim()
+          
+          // Priority 1: Exact match on project_full_code
+          if (kpiFullCodeUpper === selectedFullCodeUpper) {
+            return true
+          }
+          
+          // Priority 2: If selected project has sub_code (e.g., "P10001-01") and KPI has no sub_code (e.g., "P10001"),
+          // match by project_code only (KPIs might not have sub_code in DB)
+          const selectedParts = selectedFullCode.split('-')
+          const selectedCode = selectedParts[0]?.toUpperCase().trim()
+          const selectedSubCode = selectedParts.slice(1).join('-').toUpperCase().trim()
+          
+          // If selected project has sub_code and KPI has no sub_code, match by project_code
+          if (selectedSubCode && !kpiProjectSubCode && kpiProjectCode.toUpperCase() === selectedCode) {
+            return true
+          }
+          
+          // Priority 3: If both have sub_codes, build KPI full code and match
+          if (kpiProjectCode && kpiProjectSubCode) {
+            let builtKpiFullCode = kpiProjectCode
+            if (kpiProjectSubCode.toUpperCase().startsWith(kpiProjectCode.toUpperCase())) {
+              builtKpiFullCode = kpiProjectSubCode
+            } else if (kpiProjectSubCode.startsWith('-')) {
+              builtKpiFullCode = `${kpiProjectCode}${kpiProjectSubCode}`
+            } else {
+              builtKpiFullCode = `${kpiProjectCode}-${kpiProjectSubCode}`
+            }
+            
+            if (builtKpiFullCode.toUpperCase() === selectedFullCodeUpper) {
+              return true
+            }
+          }
+          
+          return false
+        })
+      })
+      
+      console.log(`✅ Filtered: ${filteredActivitiesData.length} activities, ${filteredKPIsData.length} KPIs out of ${mappedActivitiesRaw.length} total activities, ${mappedKPIsRaw.length} total KPIs`)
+      
+      if (filteredKPIsData.length === 0 && mappedKPIsRaw.length > 0) {
+        console.warn('⚠️ No KPIs matched filters!', {
+          sampleKPI: {
+            activityName: mappedKPIsRaw[0]?.activity_name,
+            projectFullCode: mappedKPIsRaw[0]?.project_full_code,
+            projectCode: mappedKPIsRaw[0]?.project_code,
+            projectSubCode: mappedKPIsRaw[0]?.project_sub_code
+          },
+          selectedProjects: filterProjects,
+          allProjectFullCodes: mappedKPIsRaw.slice(0, 5).map((k: any) => k.project_full_code)
+        })
+      }
+      
+      if (activitiesRes.error) {
+        console.warn('⚠️ Activities Error:', activitiesRes.error)
+      }
+      
+      if (kpisRes.error) {
+        console.warn('⚠️ KPIs Error:', kpisRes.error)
+      }
+      
+      // Use filtered and mapped data
+      const mappedActivities = filteredActivitiesData
+      const mappedKPIs = filteredKPIsData
       
       // ✅ Filter: For Actual KPIs, only show approved ones (or old ones without approval status)
-      // New Actual KPIs must be approved to appear in main KPI page
-      // Planned KPIs always show (they don't need approval to view)
       const dateThreshold = new Date()
       dateThreshold.setDate(dateThreshold.getDate() - 90)
       
       const filteredKPIs = mappedKPIs.filter((kpi: any) => {
-        // If it's Planned KPI, always show (no approval needed to view)
+        // If it's Planned KPI, always show
         if (kpi.input_type === 'Planned') return true
         
         // For Actual KPIs: Check if this is a new KPI (created in last 90 days)
@@ -419,183 +553,147 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         
         if (isNewKPI) {
           // New Actual KPIs: Only show if approved
-          // ✅ IMPORTANT: Check raw row data for Approval Status (mapKPIFromDB doesn't include it)
-          const rawRow = (kpisData || []).find((r: any) => r.id === kpi.id)
-          if (!rawRow) {
-            console.warn(`⚠️ Could not find raw row for KPI ${kpi.id} - showing anyway`)
-            return true // Show if we can't find raw row
-          }
+          const rawRow = (kpisRes.data || []).find((r: any) => r.id === kpi.id)
+          if (!rawRow) return true
           
-          // Check Approval Status column from raw row
           const dbApprovalStatus = rawRow['Approval Status']
           let approvalStatusStr = ''
           if (dbApprovalStatus !== null && dbApprovalStatus !== undefined && dbApprovalStatus !== '') {
             approvalStatusStr = String(dbApprovalStatus).toLowerCase().trim()
           }
           
-          // Check Notes field for approval status (fallback)
           const notes = rawRow['Notes'] || kpi.notes || ''
           const notesStr = String(notes)
           const notesHasApproved = notesStr.includes('APPROVED:') && notesStr.includes(':approved:')
           
-          // Approved if Approval Status = 'approved' OR Notes contains 'APPROVED:approved:'
-          const isApproved = (approvalStatusStr === 'approved') || notesHasApproved
-          
-          if (!isApproved) {
-            console.log(`🚫 Filtering out unapproved KPI ${kpi.id} (Status: ${approvalStatusStr || 'null'}, Notes: ${notesHasApproved ? 'has approval' : 'no approval'})`)
-          }
-          
-          return isApproved
+          return (approvalStatusStr === 'approved') || notesHasApproved
         } else {
-          // Old Actual KPIs: Show all (they were created before approval system)
+          // Old Actual KPIs: Show all
           return true
         }
       })
       
       const processedKPIs = filteredKPIs.map(processKPIRecord)
       
-      console.log('📊 Setting KPIs:', processedKPIs.length)
-      console.log('🔍 KPI IDs:', processedKPIs.map((k: any) => k.id))
-      
-      setKpis(processedKPIs)
-      
-      // Calculate progress for all activities
-      try {
-        // ✅ FIX: Convert ProcessedKPI[] to KPIRecord[] for calculateActivityProgress
-        // calculateActivityProgress expects KPIRecord[] but we have ProcessedKPI[]
-        const kpiRecordsForProgress: KPIRecord[] = processedKPIs.map((processed: ProcessedKPI) => ({
-          id: processed.id,
-          project_full_code: processed.project_full_code,
-          activity_name: processed.activity_name,
-          quantity: processed.quantity,
-          input_type: processed.input_type,
-          section: processed.section,
-          zone: processed.zone,
-          drilled_meters: processed.drilled_meters,
-          unit: processed.unit,
-          value: processed.value,
-          planned_value: processed.planned_value,
-          actual_value: processed.actual_value,
-          target_date: processed.target_date,
-          activity_date: processed.activity_date,
-          created_at: processed.created_at,
-          updated_at: processed.updated_at,
-          // Map status from ProcessedKPI to KPIRecord format
-          status: processed.status === 'excellent' || processed.status === 'good' 
-            ? 'on_track' 
-            : processed.status === 'average' 
-            ? 'at_risk' 
-            : 'delayed'
-        }))
+      // Update state
+      if (isMountedRef.current) {
+        setActivities(mappedActivities)
+        setKpis(processedKPIs)
+        setTotalKPICount(mappedKPIs.length)
         
-        const progresses = activities.map(activity => 
-          calculateActivityProgress(activity, kpiRecordsForProgress)
-        )
-        setActivityProgresses(progresses)
-        console.log('✅ Activity progress calculated successfully')
-      } catch (progressError) {
-        console.log('⚠️ Progress calculation not available:', progressError)
+        // Calculate progress for activities
+        try {
+          const kpiRecordsForProgress: KPIRecord[] = processedKPIs.map((processed: ProcessedKPI) => ({
+            id: processed.id,
+            project_full_code: processed.project_full_code,
+            activity_name: processed.activity_name,
+            quantity: processed.quantity,
+            input_type: processed.input_type,
+            section: processed.section,
+            zone: processed.zone,
+            drilled_meters: processed.drilled_meters,
+            unit: processed.unit,
+            value: processed.value,
+            planned_value: processed.planned_value,
+            actual_value: processed.actual_value,
+            target_date: processed.target_date,
+            activity_date: processed.activity_date,
+            created_at: processed.created_at,
+            updated_at: processed.updated_at,
+            status: processed.status === 'excellent' || processed.status === 'good' 
+              ? 'on_track' 
+              : processed.status === 'average' 
+              ? 'at_risk' 
+              : 'delayed'
+          }))
+          
+          const progresses = mappedActivities.map(activity => 
+            calculateActivityProgress(activity, kpiRecordsForProgress)
+          )
+          setActivityProgresses(progresses)
+        } catch (progressError) {
+          console.log('⚠️ Progress calculation not available:', progressError)
+        }
+        
+        console.log('✅ Data loaded:', {
+          activities: mappedActivities.length,
+          kpis: processedKPIs.length
+        })
       }
-      
-      // Verify KPIs were set
-      setTimeout(() => {
-        console.log('🔍 Verification: KPIs set successfully, count:', processedKPIs.length)
-      }, 100)
       
       // Fetch pending KPIs count
       fetchPendingKPICount()
     } catch (error: any) {
       console.error('❌ KPITracking: Error:', error)
-      setError(error.message)
-      
-      // ✅ Try to reconnect if connection failed
-      if (error.message?.includes('connection') || error.message?.includes('network')) {
-        console.log('🔄 Connection error detected, attempting to reconnect...')
-        const { resetClient } = await import('@/lib/simpleConnectionManager')
-        resetClient()
-        console.log('✅ Client reset, retrying data fetch...')
-        // Retry the fetch after reset
-          setTimeout(() => {
-            if (isMountedRef.current) {
-              fetchData(filters.project)
-            }
-          }, 1000)
-          return
+      if (isMountedRef.current) {
+        setError(error.message || 'Failed to load data')
       }
     } finally {
-      // ✅ ALWAYS stop loading (React handles unmounted safely)
-      stopSmartLoading(setLoading)
-      console.log('🟡 KPITracking: Loading finished')
+      if (isMountedRef.current) {
+        stopSmartLoading(setLoading)
+      }
     }
-  }
+  }, [supabase, startSmartLoading, stopSmartLoading])
 
-  // ✅ Initial mount effect
+  // ✅ Fetch projects only on mount (lightweight)
+  const fetchProjects = useCallback(async () => {
+    if (!isMountedRef.current) return
+    
+    try {
+      const projectsRes = await supabase
+        .from(TABLES.PROJECTS)
+        .select('*')
+        .order('created_at', { ascending: false })
+      
+      if (projectsRes.error) {
+        console.error('❌ Projects Error:', projectsRes.error)
+        return
+      }
+      
+      const mappedProjects = (projectsRes.data || []).map(mapProjectFromDB)
+      if (isMountedRef.current) {
+        setProjects(mappedProjects)
+        console.log('✅ Projects loaded:', mappedProjects.length)
+      }
+    } catch (error: any) {
+      console.error('❌ Error loading projects:', error)
+    }
+  }, [supabase])
+
+  // ✅ Initial mount effect - simplified like ProjectsList
   useEffect(() => {
     isMountedRef.current = true
     console.log('🟡 KPITracking: Component mounted')
     
-    // ✅ الاستماع للتحديثات من Database Management
+    // Listen for database updates
     const handleDatabaseUpdate = (event: CustomEvent) => {
       const { tableName } = event.detail
       console.log(`🔔 KPI: Database updated event received for ${tableName}`)
       
-      // إعادة تحميل البيانات إذا كان الجدول ذو صلة
-      if (tableName === TABLES.KPI) {
-        console.log(`🔄 KPI: Reloading KPIs due to ${tableName} update...`)
-        fetchPendingKPICount() // Update pending count
+      if (tableName === TABLES.KPI || tableName === TABLES.BOQ_ACTIVITIES) {
+        console.log(`🔄 KPI: Reloading data due to ${tableName} update...`)
         if (selectedProjects.length > 0) {
+          console.log(`📊 Reloading KPIs for ${selectedProjects.length} selected project(s)...`)
           fetchData(selectedProjects)
         } else {
-          getTotalCount()
+          console.log('⚠️ No projects selected - KPIs will not be loaded until a project is selected')
+          console.log('💡 Tip: Select a project in the filter to see the newly created KPIs')
         }
-      } else if (tableName === TABLES.PROJECTS || tableName === TABLES.BOQ_ACTIVITIES) {
-        console.log(`🔄 KPI: Reloading related data due to ${tableName} update...`)
-        fetchData(filters.project)
+      } else if (tableName === TABLES.PROJECTS) {
+        fetchProjects()
       }
     }
     
     window.addEventListener('database-updated', handleDatabaseUpdate as EventListener)
-    console.log('👂 KPI: Listening for database updates')
     
-    // Connection monitoring is handled globally by ConnectionMonitor
-    
-    // Get total KPI count for info display (without loading all data)
-    async function getTotalCount() {
-      try {
-        const { count } = await supabase
-          .from(TABLES.KPI)
-          .select('*', { count: 'exact', head: true })
-        
-        // ✅ ALWAYS update state (React handles unmounted safely)
-        setTotalKPICount(count || 0)
-        console.log('📊 Total KPIs in database:', count)
-      } catch (error) {
-        console.error('❌ Error getting KPI count:', error)
-      }
-    }
-    
-    // Main data fetch with error handling
-    async function fetchInitialData() {
-      try {
-        await getTotalCount()
-        await fetchPendingKPICount() // Fetch pending KPIs count
-        await fetchData() // Fetch projects/activities/KPIs - has its own finally block
-      } catch (error) {
-        console.error('❌ Error in KPI initial load:', error)
-      } finally {
-        // ✅ ALWAYS ensure loading stops (backup if fetchData fails early)
-        setLoading(false)
-      }
-    }
-    
-    fetchInitialData()
+    // Initial load: Only fetch projects (lightweight)
+    fetchProjects()
+    fetchPendingKPICount()
     
     return () => {
-      console.log('🔴 KPITracking: Component unmounting - cleanup')
+      console.log('🔴 KPITracking: Component unmounting')
       isMountedRef.current = false
       window.removeEventListener('database-updated', handleDatabaseUpdate as EventListener)
-      console.log('👋 KPI: Stopped listening for database updates')
-      // Connection monitoring is handled globally
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // Run only once on mount
@@ -658,6 +756,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         'Project Code': kpiData['Project Code'] || kpiData.project_code || '',
         'Project Sub Code': kpiData['Project Sub Code'] || kpiData.project_sub_code || '',
         'Activity Name': activityName,
+        'Activity Division': kpiData['Activity Division'] || kpiData.activity_division || '', // ✅ Division field
         'Quantity': quantity.toString(),
         'Value': calculatedValue.toString(), // ✅ Include calculated Value
         'Input Type': inputType, // ✅ Required in unified table
@@ -669,6 +768,22 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         'Zone Number': kpiData['Zone Number'] || kpiData.zone_number || '',
         'Day': kpiData['Day'] || kpiData.day || '',
         'Drilled Meters': kpiData['Drilled Meters'] || kpiData.drilled_meters?.toString() || '0'
+      }
+      
+      // ✅ Get Activity Division from related activity if not provided
+      if (!dbData['Activity Division']) {
+        const relatedActivity = activities.find((a: any) => 
+          (a['Activity Name'] || a.activity_name) === activityName && 
+          ((a['Project Code'] || a.project_code) === projectCode || (a['Project Full Code'] || a.project_full_code) === projectCode)
+        )
+        
+        if (relatedActivity) {
+          const activityDivision = (relatedActivity as any).activity_division || (relatedActivity as any)['Activity Division'] || ''
+          if (activityDivision) {
+            dbData['Activity Division'] = activityDivision
+            console.log(`✅ Copied Activity Division from BOQ Activity: ${dbData['Activity Division']}`)
+          }
+        }
       }
       
       // ✅ Find related activity to copy Activity Timing if not provided
@@ -702,6 +817,16 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
 
       if (error) {
         console.error('Create error:', error)
+        
+        // ✅ Helpful error message for missing Activity Timing column
+        if (error.message && error.message.includes("Activity Timing") && error.message.includes("schema cache")) {
+          console.error('')
+          console.error('🔧 SOLUTION: The "Activity Timing" column is missing from the KPI table.')
+          console.error('   Please run the migration script: Database/add-activity-timing-to-kpi.sql')
+          console.error('   This will add the required column to the "Planning Database - KPI" table.')
+          console.error('')
+        }
+        
         throw error
       }
       
@@ -742,19 +867,11 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         console.log(`📊 BOQ Actual updated to: ${syncResult.updatedBOQActual}`)
       }
       
-      // Refresh data to show new record (reload with current project filter)
+      // Refresh data to show new record
       setShowForm(false)
-      
-      // Force refresh by clearing state first
-      setKpis([])
-      setActivities([])
-      
-      // Wait a bit for state to clear
-      await new Promise(resolve => setTimeout(resolve, 100))
-      
-      // Then fetch fresh data
-      await fetchData(filters.project)
-      console.log('✅ DATA REFRESHED AFTER CREATE')
+      if (selectedProjects.length > 0) {
+        await fetchData(selectedProjects)
+      }
     } catch (error: any) {
       console.error('Create failed:', error)
       setError(error.message)
@@ -783,6 +900,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         'Project Code': kpiData['Project Code'] || kpiData.project_code || '',
         'Project Sub Code': kpiData['Project Sub Code'] || kpiData.project_sub_code || '',
         'Activity Name': kpiData['Activity Name'] || kpiData.activity_name || '',
+        'Activity Division': kpiData['Activity Division'] || kpiData.activity_division || '', // ✅ Division field
         'Quantity': kpiData['Quantity'] || kpiData.quantity?.toString() || '0',
         'Input Type': kpiData['Input Type'] || kpiData.input_type || 'Planned', // ✅ Required in unified table
         'Target Date': kpiData['Target Date'] || kpiData.target_date || '',
@@ -914,76 +1032,9 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       
       // Close form and refresh (editingKPI is now handled by EnhancedKPITable)
       
-      // Refresh data to ensure consistency (reload with current project filter)
-      console.log('🔄 Refreshing data after update...')
-      console.log('Current filters.project:', filters.project)
-      
-      try {
-        // Force refresh by clearing state first
-        console.log('🧹 Clearing KPI and Activities state...')
-        setKpis([])
-        setActivities([])
-        
-        // Wait a bit for state to clear
-        await new Promise(resolve => setTimeout(resolve, 200))
-        
-        // Then fetch fresh data
-        console.log('🔄 Fetching fresh data after update...')
-        console.log('🔍 Current project filter:', filters.project)
-        
-        // Force a complete refresh - use selectedProjects if available, otherwise filters.project
-        const projectToFetch = selectedProjects.length > 0 ? selectedProjects : filters.project
-        console.log('🔍 Current selectedProjects:', selectedProjects)
-        console.log('🔍 Current filters.project:', filters.project)
-        console.log('🔍 Using project filter:', projectToFetch)
-        await fetchData(projectToFetch, true) // forceRefresh = true
-        console.log('✅ DATA REFRESHED SUCCESSFULLY')
-        
-        // Verify that the updated KPI is in the refreshed data
-        console.log('🔍 Verifying updated KPI is in refreshed data...')
-        const updatedKPI = kpis.find(k => k.id === id)
-        if (updatedKPI) {
-          console.log('✅ Updated KPI found in refreshed data:', updatedKPI)
-        } else {
-          console.error('❌ Updated KPI NOT found in refreshed data!')
-          console.log('Available KPI IDs:', kpis.map(k => k.id))
-        }
-      
-      // Double-check by fetching again after a short delay
-      setTimeout(async () => {
-        console.log('🔄 Double-checking data after update...')
-        try {
-          const projectToFetch = selectedProjects.length > 0 ? selectedProjects : filters.project
-          await fetchData(projectToFetch, true) // forceRefresh = true
-          console.log('✅ Double-check completed')
-        } catch (doubleCheckError) {
-          console.error('❌ Double-check failed:', doubleCheckError)
-        }
-      }, 1000)
-        
-        // Additional verification - check if KPIs are loaded
-        setTimeout(() => {
-          console.log('🔍 Verification: Current KPIs count:', kpis.length)
-          if (kpis.length === 0) {
-            console.log('⚠️ WARNING: No KPIs found after refresh!')
-            console.log('🔄 Attempting manual refresh...')
-            // Try one more fetch before reloading
-            fetchData(filters.project).then(() => {
-              console.log('🔄 Manual fetch completed')
-            }).catch(() => {
-              console.log('🔄 Manual fetch failed, reloading page...')
-              window.location.reload()
-            })
-          } else {
-            console.log('✅ KPIs loaded successfully after update!')
-          }
-        }, 500)
-        
-      } catch (refreshError) {
-        console.error('❌ Failed to refresh data:', refreshError)
-        // Try to reload the page as fallback
-        console.log('🔄 Falling back to page reload...')
-        window.location.reload()
+      // Refresh data to ensure consistency
+      if (selectedProjects.length > 0) {
+        await fetchData(selectedProjects)
       }
       
       // ✅ Auto-save calculations after KPI update
@@ -1056,16 +1107,9 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         }
       }
       
-      // Force refresh to ensure data consistency
-      console.log('🔄 Refreshing data after deletion...')
-      console.log('⚠️ IMPORTANT: This should NOT delete the BOQ activity, only refresh KPI data')
-      
-      try {
-        await fetchData(filters.project)
-        console.log('✅ DATA REFRESHED AFTER DELETE')
-        console.log('🔍 Check if BOQ activity still exists in the activities list')
-      } catch (refreshError) {
-        console.error('❌ Failed to refresh data after delete:', refreshError)
+      // Refresh data to ensure consistency
+      if (selectedProjects.length > 0) {
+        await fetchData(selectedProjects)
       }
     } catch (error: any) {
       setError(error.message)
@@ -1093,7 +1137,9 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       console.log('========================================')
       
       // Refresh data
-      await fetchData(filters.project)
+      if (selectedProjects.length > 0) {
+        await fetchData(selectedProjects)
+      }
       
       // Show success message
       alert(`✅ Successfully deleted ${count || ids.length} KPI(s)`)
@@ -1105,134 +1151,637 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     }
   }
 
-  // Get filtered KPIs using Smart Filters
-  // (Moved to useEffect to avoid logging on every render)
-  
-  const filteredKPIs = kpis.filter(kpi => {
-    // Multi-Project filter (Smart Filter)
-    if (selectedProjects.length > 0) {
-      const matchesProject = selectedProjects.some(projectCode => 
-        kpi.project_full_code === projectCode ||
-        kpi.project_full_code?.includes(projectCode)
-      )
-      if (!matchesProject) return false
+  // ✅ BULK EDIT: Update multiple KPIs at once
+  const handleBulkUpdateKPI = async (ids: string[], updateData: any): Promise<{ success: boolean; updated: number; errors: string[] }> => {
+    if (ids.length === 0) {
+      return { success: false, updated: 0, errors: ['No KPIs selected'] }
     }
     
-    // Multi-Activity filter (Smart Filter)
-    if (selectedActivities.length > 0) {
-      const matchesActivity = selectedActivities.some(activityName =>
-        kpi.activity_name === activityName ||
-        kpi.activity_name?.toLowerCase().includes(activityName.toLowerCase())
-      )
-      if (!matchesActivity) return false
-    }
-    
-    // Multi-Type filter (Smart Filter)
-    if (selectedTypes.length > 0) {
-      if (!selectedTypes.includes(kpi.input_type)) return false
-    }
-    
-    // Zone filter (Smart Filter)
-    if (selectedZones.length > 0) {
-      const kpiZone = (kpi.zone || kpi.section || (kpi as any).zone_ref || (kpi as any).zone_number || '').toLowerCase().trim()
-      const matchesZone = selectedZones.some(zone =>
-        kpiZone === zone.toLowerCase().trim() ||
-        kpiZone.includes(zone.toLowerCase().trim()) ||
-        zone.toLowerCase().trim().includes(kpiZone)
-      )
-      if (!matchesZone) return false
-    }
-    
-    // Unit filter (Smart Filter)
-    if (selectedUnits.length > 0) {
-      const kpiUnit = ((kpi as any).unit || '').toLowerCase().trim()
-      if (!selectedUnits.some(unit => kpiUnit === unit.toLowerCase().trim())) return false
-    }
-    
-    // Division filter (Smart Filter)
-    if (selectedDivisions.length > 0) {
-      const kpiDivision = ((kpi as any).activity_division || (kpi as any)['Activity Division'] || '').toLowerCase().trim()
-      const matchesDivision = selectedDivisions.some(division =>
-        kpiDivision === division.toLowerCase().trim() ||
-        kpiDivision.includes(division.toLowerCase().trim()) ||
-        division.toLowerCase().trim().includes(kpiDivision)
-      )
-      if (!matchesDivision) return false
-    }
-    
-    // Date range filter (Smart Filter)
-    if (dateRange.from || dateRange.to) {
-      const kpiDate = new Date(kpi.target_date || kpi.activity_date || kpi.created_at)
-      if (dateRange.from) {
-        const fromDate = new Date(dateRange.from)
-        fromDate.setHours(0, 0, 0, 0)
-        if (kpiDate < fromDate) return false
+    try {
+      console.log('========================================')
+      console.log('🔄 BULK UPDATE STARTED')
+      console.log(`Updating ${ids.length} KPIs`)
+      console.log('Update Data:', updateData)
+      console.log('========================================')
+      
+      startSmartLoading(setLoading)
+      setError('')
+      
+      // Map update data to database format
+      const dbUpdateData: any = {}
+      
+      if (updateData.quantity !== undefined) {
+        dbUpdateData['Quantity'] = updateData.quantity.toString()
       }
-      if (dateRange.to) {
-        const toDate = new Date(dateRange.to)
-        toDate.setHours(23, 59, 59, 999)
-        if (kpiDate > toDate) return false
+      
+      if (updateData.unit !== undefined) {
+        dbUpdateData['Unit'] = updateData.unit
       }
+      
+      if (updateData.target_date !== undefined) {
+        dbUpdateData['Target Date'] = updateData.target_date || null
+      }
+      
+      if (updateData.actual_date !== undefined) {
+        dbUpdateData['Actual Date'] = updateData.actual_date || null
+      }
+      
+      if (updateData.activity_date !== undefined) {
+        dbUpdateData['Activity Date'] = updateData.activity_date || null
+      }
+      
+      if (updateData.zone !== undefined) {
+        dbUpdateData['Zone'] = updateData.zone
+      }
+      
+      if (updateData.section !== undefined) {
+        dbUpdateData['Section'] = updateData.section
+      }
+      
+      if (updateData.day !== undefined) {
+        dbUpdateData['Day'] = updateData.day
+      }
+      
+      if (updateData.drilled_meters !== undefined) {
+        dbUpdateData['Drilled Meters'] = updateData.drilled_meters.toString()
+      }
+      
+      if (updateData.notes !== undefined) {
+        dbUpdateData['Notes'] = updateData.notes
+      }
+      
+      // ✅ Calculate Value from Quantity × Rate if quantity is being updated
+      if (updateData.quantity !== undefined) {
+        // Get all KPIs being updated to calculate values
+        const kpisToUpdate = kpis.filter(k => ids.includes(k.id))
+        
+        // Update value for each KPI based on its activity rate
+        // We'll need to update in batches with calculated values
+        const updatePromises: Array<Promise<void>> = []
+        const errors: string[] = []
+        let successCount = 0
+        
+        // Process in chunks to avoid overwhelming the database
+        const chunkSize = 50
+        for (let i = 0; i < ids.length; i += chunkSize) {
+          const chunkIds = ids.slice(i, i + chunkSize)
+          
+          // For each KPI in chunk, calculate value and update
+          for (const id of chunkIds) {
+            const kpi = kpisToUpdate.find(k => k.id === id)
+            if (!kpi) {
+              errors.push(`KPI ${id} not found`)
+              continue
+            }
+            
+            // Find related activity to get rate
+            const relatedActivity = activities.find((a: any) => 
+              a.activity_name === kpi.activity_name && 
+              (a.project_code === kpi.project_full_code || a.project_full_code === kpi.project_full_code)
+            )
+            
+            // Calculate value from quantity × rate
+            let calculatedValue = 0
+            if (relatedActivity) {
+              let rate = 0
+              if (relatedActivity.rate && relatedActivity.rate > 0) {
+                rate = relatedActivity.rate
+              } else if (relatedActivity.total_value && relatedActivity.total_units && relatedActivity.total_units > 0) {
+                rate = relatedActivity.total_value / relatedActivity.total_units
+              }
+              
+              if (rate > 0) {
+                const newQuantity = parseFloat(updateData.quantity) || kpi.quantity
+                calculatedValue = newQuantity * rate
+              }
+            }
+            
+            // Build update data for this specific KPI
+            const kpiUpdateData: any = { ...dbUpdateData }
+            if (calculatedValue > 0) {
+              kpiUpdateData['Value'] = calculatedValue.toString()
+            }
+            
+            // Update this KPI
+            const updatePromise = (async () => {
+              try {
+                const { error: updateError } = await (supabase as any)
+                  .from(TABLES.KPI)
+                  .update(kpiUpdateData)
+                  .eq('id', id)
+                
+                if (updateError) {
+                  errors.push(`KPI ${id}: ${updateError.message}`)
+                } else {
+                  successCount++
+                }
+              } catch (err: any) {
+                errors.push(`KPI ${id}: ${err.message || 'Unknown error'}`)
+              }
+            })()
+            
+            updatePromises.push(updatePromise)
+          }
+        }
+        
+        // Wait for all updates to complete
+        await Promise.all(updatePromises)
+        
+        console.log(`✅ Bulk update completed: ${successCount} succeeded, ${errors.length} failed`)
+        console.log('========================================')
+        
+        // ✅ AUTO-SYNC: Update BOQ for all affected activities
+        const affectedActivities = Array.from(new Set(kpisToUpdate.map(k => ({
+          project_full_code: k.project_full_code,
+          activity_name: k.activity_name
+        }))))
+        
+        console.log('🔄 Auto-syncing BOQ for affected activities...')
+        const syncPromises = affectedActivities.map(async (activity) => {
+          try {
+            const syncResult = await syncBOQFromKPI(
+              activity.project_full_code,
+              activity.activity_name
+            )
+            if (syncResult.success) {
+              console.log(`✅ BOQ synced for ${activity.activity_name}`)
+            }
+          } catch (syncError) {
+            console.error(`❌ BOQ sync failed for ${activity.activity_name}:`, syncError)
+          }
+        })
+        
+        await Promise.all(syncPromises)
+        
+        // Refresh data
+        if (selectedProjects.length > 0) {
+          await fetchData(selectedProjects)
+        }
+        
+        return {
+          success: successCount > 0,
+          updated: successCount,
+          errors
+        }
+      } else {
+        // No quantity update - simple bulk update
+        const { error: updateError, count } = await (supabase as any)
+          .from(TABLES.KPI)
+          .update(dbUpdateData)
+          .in('id', ids)
+        
+        if (updateError) {
+          throw updateError
+        }
+        
+        console.log(`✅ Updated ${count || ids.length} KPIs`)
+        console.log('========================================')
+        
+        // ✅ AUTO-SYNC: Update BOQ for all affected activities
+        const kpisToUpdate = kpis.filter(k => ids.includes(k.id))
+        const affectedActivities = Array.from(new Set(kpisToUpdate.map(k => ({
+          project_full_code: k.project_full_code,
+          activity_name: k.activity_name
+        }))))
+        
+        console.log('🔄 Auto-syncing BOQ for affected activities...')
+        const syncPromises = affectedActivities.map(async (activity) => {
+          try {
+            const syncResult = await syncBOQFromKPI(
+              activity.project_full_code,
+              activity.activity_name
+            )
+            if (syncResult.success) {
+              console.log(`✅ BOQ synced for ${activity.activity_name}`)
+            }
+          } catch (syncError) {
+            console.error(`❌ BOQ sync failed for ${activity.activity_name}:`, syncError)
+          }
+        })
+        
+        await Promise.all(syncPromises)
+        
+        // Refresh data
+        if (selectedProjects.length > 0) {
+          await fetchData(selectedProjects)
+        }
+        
+        return {
+          success: true,
+          updated: count || ids.length,
+          errors: []
+        }
+      }
+    } catch (error: any) {
+      console.error('❌ Bulk update failed:', error)
+      setError(`Failed to update KPIs: ${error.message}`)
+      return {
+        success: false,
+        updated: 0,
+        errors: [error.message || 'Unknown error']
+      }
+    } finally {
+      stopSmartLoading(setLoading)
     }
-    
-    // Value range filter (Smart Filter)
-    if (valueRange.min !== undefined || valueRange.max !== undefined) {
-      const kpiValue = (kpi as any).value || kpi.value || 0
-      if (valueRange.min !== undefined && kpiValue < valueRange.min) return false
-      if (valueRange.max !== undefined && kpiValue > valueRange.max) return false
-    }
-    
-    // Quantity range filter (Smart Filter)
-    if (quantityRange.min !== undefined || quantityRange.max !== undefined) {
-      const kpiQuantity = kpi.quantity || 0
-      if (quantityRange.min !== undefined && kpiQuantity < quantityRange.min) return false
-      if (quantityRange.max !== undefined && kpiQuantity > quantityRange.max) return false
-    }
-    
-    // Legacy filter support (fallback for backward compatibility)
-    // Search filter
-    if (filters.search) {
-      const searchLower = filters.search.toLowerCase()
-      const project = projects.find(p => p.project_code === kpi.project_full_code)
-      const matchesSearch = 
-        (kpi.activity_name || '').toLowerCase().includes(searchLower) ||
-        (project?.project_name || '').toLowerCase().includes(searchLower) ||
-        (project?.project_code || '').toLowerCase().includes(searchLower) ||
-        (kpi.project_full_code || '').toLowerCase().includes(searchLower) ||
-        (kpi.section || '').toLowerCase().includes(searchLower)
-      if (!matchesSearch) return false
-    }
-    
-    // Legacy project filter
-    if (filters.project && selectedProjects.length === 0) {
-      const matchesProject = 
-        kpi.project_full_code === filters.project ||
-        kpi.project_full_code?.includes(filters.project)
-      if (!matchesProject) return false
-    }
-    
-    // Legacy status filter (removed - Status filter no longer available)
-    
-    // Legacy type filter
-    if (filters.type && selectedTypes.length === 0) {
-      if (kpi.input_type !== filters.type) return false
-    }
-    
-    // Date range filter
-    if (filters.dateFrom) {
-      const kpiDate = new Date(kpi.target_date)
-      const fromDate = new Date(filters.dateFrom)
-      if (kpiDate < fromDate) return false
-    }
-    
-    if (filters.dateTo) {
-      const kpiDate = new Date(kpi.target_date)
-      const toDate = new Date(filters.dateTo)
-      if (kpiDate > toDate) return false
-    }
-    
-    return true
-  })
+  }
+
+  // ✅ Helper function to normalize timing values (used in both filter and display)
+  const normalizeTiming = (value: string): string => {
+    return value.toString()
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, '-') // Replace spaces with hyphens
+      .replace(/-+/g, '-') // Replace multiple hyphens with single hyphen
+  }
+
+  // ✅ SIMPLIFIED: Filter KPIs locally like ProjectsList
+  const filteredKPIs = useMemo(() => {
+    return kpis.filter(kpi => {
+      // Multi-Project filter (Smart Filter)
+      // ✅ Use same matching logic as fetchData to handle KPIs without sub_code
+      if (selectedProjects.length > 0) {
+        const kpiFullCode = (kpi.project_full_code || '').toString().trim()
+        const kpiProjectCode = ((kpi as any).project_code || '').toString().trim()
+        const kpiProjectSubCode = ((kpi as any).project_sub_code || '').toString().trim()
+        
+        const matchesProject = selectedProjects.some(selectedProject => {
+          const selectedFullCodeUpper = selectedProject.toUpperCase().trim()
+          const kpiFullCodeUpper = kpiFullCode.toUpperCase().trim()
+          
+          // Priority 1: Exact match on project_full_code
+          if (kpiFullCodeUpper === selectedFullCodeUpper) {
+            return true
+          }
+          
+          // Priority 2: If selected project has sub_code (e.g., "P10001-01") and KPI has no sub_code (e.g., "P10001"),
+          // match by project_code only (KPIs might not have sub_code in DB)
+          const selectedParts = selectedProject.split('-')
+          const selectedCode = selectedParts[0]?.toUpperCase().trim()
+          const selectedSubCode = selectedParts.slice(1).join('-').toUpperCase().trim()
+          
+          // If selected project has sub_code and KPI has no sub_code, match by project_code
+          if (selectedSubCode && !kpiProjectSubCode && kpiProjectCode.toUpperCase() === selectedCode) {
+            return true
+          }
+          
+          // Priority 3: If both have sub_codes, build KPI full code and match
+          if (kpiProjectCode && kpiProjectSubCode) {
+            let builtKpiFullCode = kpiProjectCode
+            if (kpiProjectSubCode.toUpperCase().startsWith(kpiProjectCode.toUpperCase())) {
+              builtKpiFullCode = kpiProjectSubCode
+            } else if (kpiProjectSubCode.startsWith('-')) {
+              builtKpiFullCode = `${kpiProjectCode}${kpiProjectSubCode}`
+            } else {
+              builtKpiFullCode = `${kpiProjectCode}-${kpiProjectSubCode}`
+            }
+            
+            if (builtKpiFullCode.toUpperCase() === selectedFullCodeUpper) {
+              return true
+            }
+          }
+          
+          return false
+        })
+        
+        if (!matchesProject) return false
+      }
+      
+      // Multi-Activity filter
+      if (selectedActivities.length > 0) {
+        const matchesActivity = selectedActivities.some(activityName =>
+          kpi.activity_name === activityName ||
+          kpi.activity_name?.toLowerCase().includes(activityName.toLowerCase())
+        )
+        if (!matchesActivity) return false
+      }
+      
+      // Multi-Type filter
+      if (selectedTypes.length > 0) {
+        if (!selectedTypes.includes(kpi.input_type)) return false
+      }
+      
+      // Zone filter
+      if (selectedZones.length > 0) {
+        // ✅ FIX: Extract zone from multiple sources and normalize (same logic as SmartFilter)
+        const kpiZoneRaw = (kpi.zone || (kpi as any).section || (kpi as any).zone_ref || (kpi as any).zone_number || '').toString().trim()
+        
+        // Normalize zone by removing project code prefix
+        const projectCodes = selectedProjects.map(p => {
+          const parts = p.split('-')
+          return parts[0] // Extract project code (e.g., "P5068" from "P5068-01")
+        })
+        
+        let kpiZone = kpiZoneRaw
+        for (const projectCode of projectCodes) {
+          const codeUpper = projectCode.toUpperCase()
+          kpiZone = kpiZone.replace(new RegExp(`^${codeUpper}\\s*-\\s*`, 'i'), '').trim()
+          kpiZone = kpiZone.replace(new RegExp(`^${codeUpper}\\s+`, 'i'), '').trim()
+          kpiZone = kpiZone.replace(new RegExp(`^${codeUpper}-`, 'i'), '').trim()
+        }
+        // If normalization results in empty, use original
+        if (!kpiZone) kpiZone = kpiZoneRaw
+        
+        const matchesZone = selectedZones.some(selectedZone => {
+          // Normalize selected zone too
+          let normalizedSelectedZone = selectedZone
+          for (const projectCode of projectCodes) {
+            const codeUpper = projectCode.toUpperCase()
+            normalizedSelectedZone = normalizedSelectedZone.replace(new RegExp(`^${codeUpper}\\s*-\\s*`, 'i'), '').trim()
+            normalizedSelectedZone = normalizedSelectedZone.replace(new RegExp(`^${codeUpper}\\s+`, 'i'), '').trim()
+            normalizedSelectedZone = normalizedSelectedZone.replace(new RegExp(`^${codeUpper}-`, 'i'), '').trim()
+          }
+          if (!normalizedSelectedZone) normalizedSelectedZone = selectedZone
+          
+          const zoneLower = normalizedSelectedZone.toLowerCase().trim()
+          const kpiZoneLower = kpiZone.toLowerCase().trim()
+          // ✅ Exact match or contains match
+          return kpiZoneLower === zoneLower ||
+                 kpiZoneLower.includes(zoneLower) ||
+                 zoneLower.includes(kpiZoneLower)
+        })
+        if (!matchesZone) return false
+      }
+      
+      // Unit filter
+      if (selectedUnits.length > 0) {
+        const kpiUnit = ((kpi as any).unit || '').toLowerCase().trim()
+        if (!selectedUnits.some(unit => kpiUnit === unit.toLowerCase().trim())) return false
+      }
+      
+      // Division filter
+      if (selectedDivisions.length > 0) {
+        // ✅ Get Activity Division from multiple sources (same logic as KPITableWithCustomization)
+        const rawKPIDivision = (kpi as any).raw || {}
+        let kpiDivision = ''
+        
+        // Priority 1: Get Activity Division directly from KPI data (from database)
+        kpiDivision = rawKPIDivision['Activity Division'] ||
+                     (kpi as any)['Activity Division'] ||
+                     (kpi as any).activity_division ||
+                     ''
+        
+        // Priority 2: Fallback to BOQ Activity if not found in KPI
+        if ((!kpiDivision || kpiDivision.trim() === '') && activities && activities.length > 0) {
+          const activityName = kpi.activity_name || (kpi as any).activity || ''
+          const projectCode = (kpi as any).project_code || kpi.project_full_code || ''
+          
+          if (activityName && projectCode) {
+            const relatedActivity = activities.find((a: any) => {
+              const nameMatch = (
+                a.activity_name?.toLowerCase().trim() === activityName.toLowerCase().trim() ||
+                a.activity?.toLowerCase().trim() === activityName.toLowerCase().trim()
+              )
+              const projectMatch = (
+                a.project_code === projectCode ||
+                a.project_full_code === projectCode ||
+                a.project_code === kpi.project_full_code ||
+                a.project_full_code === kpi.project_full_code
+              )
+              return nameMatch && projectMatch
+            })
+            
+            if (relatedActivity) {
+              const rawActivityDivision = (relatedActivity as any).raw || {}
+              // Get Activity Division from BOQ Activity
+              kpiDivision = relatedActivity.activity_division || 
+                           rawActivityDivision['Activity Division'] ||
+                           ''
+            }
+          }
+        }
+        
+        // Normalize division value
+        const normalizedKpiDivision = kpiDivision.toLowerCase().trim()
+        
+        const matchesDivision = selectedDivisions.some(division => {
+          const normalizedDivision = division.toLowerCase().trim()
+          return normalizedKpiDivision === normalizedDivision ||
+                 normalizedKpiDivision.includes(normalizedDivision) ||
+                 normalizedDivision.includes(normalizedKpiDivision)
+        })
+        
+        if (!matchesDivision) return false
+      }
+      
+      // Scope filter
+      if (selectedScopes.length > 0) {
+        // ✅ Get scope from multiple sources (same logic as KPITableWithCustomization)
+        const rawKPIScope = (kpi as any).raw || {}
+        let kpiScope = ''
+        
+        // Priority 1: From project_type_activities table (cached map) with flexible matching
+        const activityName = kpi.activity_name?.trim().toLowerCase()
+        if (activityName && activityScopeMap.size > 0) {
+          const scope = findActivityScope(activityName, activityScopeMap)
+          if (scope) {
+            kpiScope = scope
+          }
+        }
+        
+        // Priority 2: From KPI raw data
+        if (!kpiScope) {
+          kpiScope = rawKPIScope['Activity Scope'] ||
+                     rawKPIScope['Activity Scope of Works'] ||
+                     rawKPIScope['Scope of Works'] ||
+                     rawKPIScope['Scope'] ||
+                     (kpi as any).activity_scope ||
+                     ''
+        }
+        
+        // Priority 3: Try to get from activities if available
+        if (!kpiScope && activities.length > 0 && activityName) {
+          const relatedActivity = activities.find((a: any) => {
+            const activityNameMatch = (
+              a.activity_name?.toLowerCase().trim() === activityName ||
+              a.activity?.toLowerCase().trim() === activityName
+            )
+            const projectMatch = (
+              a.project_code === (kpi as any).project_code ||
+              a.project_full_code === (kpi as any).project_code ||
+              a.project_code === kpi.project_full_code ||
+              a.project_full_code === kpi.project_full_code
+            )
+            return activityNameMatch && projectMatch
+          })
+          
+          if (relatedActivity) {
+            const rawActivityScope = (relatedActivity as any).raw || {}
+            kpiScope = rawActivityScope['Activity Scope'] ||
+                      rawActivityScope['Activity Scope of Works'] ||
+                      rawActivityScope['Scope of Works'] ||
+                      rawActivityScope['Scope'] ||
+                      ''
+          }
+        }
+        
+        // ✅ Only filter if scope was found, otherwise exclude the KPI when scope filter is active
+        if (kpiScope && kpiScope !== 'N/A' && kpiScope.trim() !== '') {
+          const kpiScopeLower = kpiScope.toLowerCase().trim()
+          const matchesScope = selectedScopes.some(scope => {
+            const scopeLower = scope.toLowerCase().trim()
+            const match = kpiScopeLower === scopeLower ||
+                         kpiScopeLower.includes(scopeLower) ||
+                         scopeLower.includes(kpiScopeLower)
+            return match
+          })
+          if (!matchesScope) {
+            // ✅ DEBUG: Log when scope doesn't match
+            if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
+              console.log('🔍 Scope filter - No match:', {
+                activityName: kpi.activity_name,
+                kpiScope,
+                selectedScopes,
+                activityScopeMapSize: activityScopeMap.size,
+                activityNameInMap: activityName ? activityScopeMap.has(activityName) : false
+              })
+            }
+            return false
+          }
+        } else {
+          // ✅ If no scope found and scope filter is active, exclude the KPI
+          // This ensures that only KPIs with matching scopes are shown
+          if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
+            console.log('🔍 Scope filter - No scope found for KPI:', {
+              activityName: kpi.activity_name,
+              activityNameLower: activityName,
+              activityScopeMapSize: activityScopeMap.size,
+              hasActivityInMap: activityName ? activityScopeMap.has(activityName) : false
+            })
+          }
+          return false
+        }
+      }
+      
+      // Activity Timing filter
+      if (selectedActivityTimings.length > 0) {
+        // ✅ Get Activity Timing from multiple sources (same logic as KPITableWithCustomization)
+        const rawKPI = (kpi as any).raw || {}
+        // ✅ FIX: Read Activity Timing from KPI first - check both mapped field and raw data
+        let kpiTiming = (kpi as any).activity_timing || 
+                       rawKPI['Activity Timing'] ||
+                       rawKPI['activity_timing'] ||
+                       ''
+        
+        // ✅ Normalize empty strings to undefined
+        if (kpiTiming === '' || kpiTiming === 'N/A') {
+          kpiTiming = undefined
+        }
+        
+        // ✅ Try to get from related BOQ Activity ONLY if not found in KPI
+        if (!kpiTiming) {
+          const activityName = kpi.activity_name || (kpi as any).activity || ''
+          const projectCode = (kpi as any).project_code || kpi.project_full_code || ''
+          
+          if (activityName && activities && activities.length > 0) {
+            const relatedActivity = activities.find((a: any) => {
+              const nameMatch = (
+                a.activity_name?.toLowerCase().trim() === activityName.toLowerCase().trim() ||
+                a.activity?.toLowerCase().trim() === activityName.toLowerCase().trim()
+              )
+              const projectMatch = (
+                a.project_code === projectCode ||
+                a.project_full_code === projectCode ||
+                a.project_code === kpi.project_full_code ||
+                a.project_full_code === kpi.project_full_code
+              )
+              return nameMatch && projectMatch
+            })
+            
+            if (relatedActivity) {
+              const boqTiming = relatedActivity.activity_timing || 
+                                  (relatedActivity as any).raw?.['Activity Timing'] ||
+                                  ''
+              
+              if (boqTiming && boqTiming !== 'N/A' && boqTiming.trim() !== '') {
+                kpiTiming = boqTiming.trim()
+              }
+            }
+          }
+        }
+        
+        // ✅ Default to 'post-commencement' only if no timing found at all
+        if (!kpiTiming || kpiTiming === 'N/A' || kpiTiming.trim() === '') {
+          kpiTiming = 'post-commencement'
+        }
+        
+        // ✅ Normalize timing value for comparison (using helper function defined above)
+        const normalizedKpiTiming = normalizeTiming(kpiTiming.toString())
+        
+        const matchesTiming = selectedActivityTimings.some(timing => {
+          const normalizedTiming = normalizeTiming(timing)
+          
+          // ✅ Match exact or partial (handles "Post Commencement" vs "post-commencement")
+          const exactMatch = normalizedKpiTiming === normalizedTiming
+          const partialMatch1 = normalizedKpiTiming.includes(normalizedTiming)
+          const partialMatch2 = normalizedTiming.includes(normalizedKpiTiming)
+          
+          // ✅ DEBUG: Log first KPI to diagnose
+          if (process.env.NODE_ENV === 'development' && kpis.length > 0 && kpi === kpis[0] && selectedActivityTimings.length > 0 && timing === selectedActivityTimings[0]) {
+            console.log('🔍 Activity Timing Filter - First Comparison:', {
+              kpi_id: kpi.id,
+              activity_name: kpi.activity_name,
+              kpiTiming_original: kpiTiming,
+              normalizedKpiTiming,
+              selectedTiming_original: timing,
+              normalizedTiming,
+              exactMatch,
+              partialMatch1,
+              partialMatch2,
+              finalMatch: exactMatch || partialMatch1 || partialMatch2
+            })
+          }
+          
+          return exactMatch || partialMatch1 || partialMatch2
+        })
+        
+        if (!matchesTiming) {
+          // ✅ DEBUG: Log when KPI is filtered out (sample)
+          if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
+            console.log('❌ Activity Timing Filter - KPI filtered out:', {
+              kpi_id: kpi.id,
+              activity_name: kpi.activity_name,
+              kpiTiming: kpiTiming,
+              normalizedKpiTiming,
+              selectedActivityTimings,
+              normalizedSelectedTimings: selectedActivityTimings.map(t => normalizeTiming(t))
+            })
+          }
+          return false
+        }
+      }
+      
+      // Date range filter
+      if (dateRange.from || dateRange.to) {
+        const kpiDate = new Date(kpi.target_date || kpi.activity_date || kpi.created_at)
+        if (dateRange.from) {
+          const fromDate = new Date(dateRange.from)
+          fromDate.setHours(0, 0, 0, 0)
+          if (kpiDate < fromDate) return false
+        }
+        if (dateRange.to) {
+          const toDate = new Date(dateRange.to)
+          toDate.setHours(23, 59, 59, 999)
+          if (kpiDate > toDate) return false
+        }
+      }
+      
+      // Value range filter
+      if (valueRange.min !== undefined || valueRange.max !== undefined) {
+        const kpiValue = (kpi as any).value || kpi.value || 0
+        if (valueRange.min !== undefined && kpiValue < valueRange.min) return false
+        if (valueRange.max !== undefined && kpiValue > valueRange.max) return false
+      }
+      
+      // Quantity range filter
+      if (quantityRange.min !== undefined || quantityRange.max !== undefined) {
+        const kpiQuantity = kpi.quantity || 0
+        if (quantityRange.min !== undefined && kpiQuantity < quantityRange.min) return false
+        if (quantityRange.max !== undefined && kpiQuantity > quantityRange.max) return false
+      }
+      
+      return true
+    })
+  }, [kpis, activities, activityScopeMap, selectedProjects, selectedActivities, selectedTypes, selectedZones, selectedUnits, selectedDivisions, selectedScopes, selectedActivityTimings, dateRange, valueRange, quantityRange, globalSearchTerm])
 
   // Pagination logic
   const totalPages = Math.ceil(filteredKPIs.length / itemsPerPage)
@@ -1535,92 +2084,178 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       {/* Smart Filter */}
       <SmartFilter
         projects={projects.map(p => {
-          // ✅ FIX: Build project_full_code correctly, avoiding duplication
-          // Check if project_sub_code already contains project_code
+          // ✅ CRITICAL: Use project_full_code from project object directly
+          // This ensures consistency with database values
           const projectCode = (p.project_code || '').trim()
           const projectSubCode = (p.project_sub_code || '').trim()
-          
-          let projectFullCode = projectCode
-          if (projectSubCode) {
-            // Check if sub_code already starts with project_code (case-insensitive)
-            if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
-              // project_sub_code already contains project_code (e.g., "P5066-R1")
-              projectFullCode = projectSubCode
-            } else {
-              // project_sub_code is just the suffix (e.g., "R1" or "-R1")
-              if (projectSubCode.startsWith('-')) {
-                projectFullCode = `${projectCode}${projectSubCode}`
-              } else {
-                projectFullCode = `${projectCode}-${projectSubCode}`
-              }
-            }
-          }
+          const projectFullCode = (p.project_full_code || projectCode).trim() // Use from DB, fallback to code
           
           return {
             project_code: projectCode,
             project_sub_code: projectSubCode,
-            project_full_code: projectFullCode,
+            project_full_code: projectFullCode, // ✅ Use from database, not manually built
             project_name: p.project_name 
           }
         })}
         activities={activities.map(a => ({
           activity_name: a.activity_name,
           project_code: a.project_code,
+          project_full_code: a.project_full_code || a.project_code, // ✅ CRITICAL: Include project_full_code
           zone: a.zone_ref || a.zone_number || '',
           unit: a.unit || '',
           activity_division: a.activity_division || ''
         }))}
-        kpis={kpis.map(k => ({
-          zone: (k as any).zone || (k as any).section || '',
-          unit: (k as any).unit || '',
-          activity_division: (k as any).activity_division || '',
-          value: (k as any).value || 0,
-          quantity: (k as any).quantity || 0
-        }))}
+        kpis={kpis.map(k => {
+          // ✅ Get activity_scope from multiple sources
+          const rawKPIScope = (k as any).raw || {}
+          let activityScope = ''
+          
+          // Priority 1: From project_type_activities table (cached map) with flexible matching
+          const activityName = k.activity_name?.trim().toLowerCase()
+          if (activityName && activityScopeMap.size > 0) {
+            const scope = findActivityScope(activityName, activityScopeMap)
+            if (scope) {
+              activityScope = scope
+            }
+          }
+          
+          // Priority 2: From KPI raw data
+          if (!activityScope) {
+            activityScope = rawKPIScope['Activity Scope'] ||
+                           rawKPIScope['Activity Scope of Works'] ||
+                           rawKPIScope['Scope of Works'] ||
+                           rawKPIScope['Scope'] ||
+                           (k as any).activity_scope ||
+                           ''
+          }
+          
+          // Priority 3: From activities if available
+          if (!activityScope && activities.length > 0 && activityName) {
+            const relatedActivity = activities.find((a: any) => {
+              const activityNameMatch = (
+                a.activity_name?.toLowerCase().trim() === activityName ||
+                a.activity?.toLowerCase().trim() === activityName
+              )
+              return activityNameMatch
+            })
+            
+            if (relatedActivity) {
+              const rawActivityScope = (relatedActivity as any).raw || {}
+              activityScope = rawActivityScope['Activity Scope'] ||
+                            rawActivityScope['Activity Scope of Works'] ||
+                            rawActivityScope['Scope of Works'] ||
+                            rawActivityScope['Scope'] ||
+                            ''
+            }
+          }
+          
+          // ✅ Get Activity Timing using same logic as Activity Commencement Relation column
+          const rawKPI = (k as any).raw || {}
+          let activityTiming = (k as any).activity_timing || 
+                             rawKPI['Activity Timing'] ||
+                             rawKPI['activity_timing'] ||
+                             ''
+          
+          // Normalize empty strings to undefined
+          if (activityTiming === '' || activityTiming === 'N/A') {
+            activityTiming = undefined
+          }
+          
+          // Try to get from related BOQ Activity ONLY if not found in KPI
+          if (!activityTiming && activities && activities.length > 0) {
+            const activityName = k.activity_name || (k as any).activity || ''
+            const projectCode = (k as any).project_code || k.project_full_code || ''
+            
+            if (activityName && projectCode) {
+              const relatedActivity = activities.find((a: any) => {
+                const nameMatch = (
+                  a.activity_name?.toLowerCase().trim() === activityName.toLowerCase().trim() ||
+                  a.activity?.toLowerCase().trim() === activityName.toLowerCase().trim()
+                )
+                const projectMatch = (
+                  a.project_code === projectCode ||
+                  a.project_full_code === projectCode ||
+                  a.project_code === k.project_full_code ||
+                  a.project_full_code === k.project_full_code
+                )
+                return nameMatch && projectMatch
+              })
+              
+              if (relatedActivity) {
+                const boqTiming = relatedActivity.activity_timing || 
+                                (relatedActivity as any).raw?.['Activity Timing'] ||
+                                ''
+                
+                if (boqTiming && boqTiming !== 'N/A' && boqTiming.trim() !== '') {
+                  activityTiming = boqTiming.trim()
+                }
+              }
+            }
+          }
+          
+          // Default to 'post-commencement' only if no timing found at all
+          if (!activityTiming || activityTiming === 'N/A' || activityTiming.trim() === '') {
+            activityTiming = 'post-commencement'
+          }
+          
+          return {
+            // ✅ FIX: Extract zone from multiple sources (same logic as filtering)
+            zone: ((k as any).zone || (k as any).section || (k as any).zone_ref || (k as any).zone_number || '').toString().trim(),
+            unit: (k as any).unit || '',
+            activity_division: (k as any).activity_division || '',
+            activity_scope: activityScope || undefined, // Only include if not empty
+            activity_timing: activityTiming, // ✅ Use calculated activity timing (same as Activity Commencement Relation)
+            value: (k as any).value || 0,
+            quantity: (k as any).quantity || 0
+          }
+        })}
         selectedProjects={selectedProjects}
         selectedActivities={selectedActivities}
         selectedTypes={selectedTypes}
         selectedZones={selectedZones}
         selectedUnits={selectedUnits}
         selectedDivisions={selectedDivisions}
+        selectedScopes={selectedScopes}
+        selectedActivityTimings={selectedActivityTimings}
+        selectedStatuses={selectedStatuses}
         dateRange={dateRange}
         valueRange={valueRange}
         quantityRange={quantityRange}
         onProjectsChange={(projectCodes) => {
           setSelectedProjects(projectCodes)
           setCurrentPage(1) // Reset to page 1
-          
-          // Auto-fetch KPIs for ALL selected projects
-          if (projectCodes.length > 0) {
-            console.log(`🔄 Loading KPIs for ${projectCodes.length} project(s)...`)
-            fetchData(projectCodes) // Pass all project codes!
-          } else {
-            // Clear KPIs when no project selected
-            console.log('🔄 No projects selected, clearing KPIs...')
-            setKpis([])
-          }
+          // ✅ Fetch data when filters are applied
+          fetchData(projectCodes)
         }}
         onActivitiesChange={setSelectedActivities}
         onTypesChange={setSelectedTypes}
         onZonesChange={setSelectedZones}
         onUnitsChange={setSelectedUnits}
         onDivisionsChange={setSelectedDivisions}
+        onScopesChange={setSelectedScopes}
+        onActivityTimingsChange={setSelectedActivityTimings}
+        onStatusesChange={setSelectedStatuses}
         onDateRangeChange={setDateRange}
         onValueRangeChange={setValueRange}
         onQuantityRangeChange={setQuantityRange}
         onClearAll={() => {
-          console.log('🔄 Clearing all filters...')
           setSelectedProjects([])
           setSelectedActivities([])
           setSelectedTypes([])
           setSelectedZones([])
           setSelectedUnits([])
           setSelectedDivisions([])
+          setSelectedScopes([])
+          setSelectedActivityTimings([])
+          setSelectedStatuses([])
           setDateRange({})
           setValueRange({})
           setQuantityRange({})
-          setKpis([]) // Clear KPIs too
           setCurrentPage(1)
+          // Clear data when filters are cleared
+          setKpis([])
+          setActivities([])
+          setTotalKPICount(0)
         }}
       />
 
@@ -1631,24 +2266,6 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       )}
       
       
-      {/* Info about loaded records */}
-      {filters.project && totalKPICount > 0 && (
-        <div className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-lg">
-          <div className="flex items-start gap-3">
-            <CheckCircle className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
-            <div className="text-sm text-gray-700 dark:text-gray-300">
-              <p className="font-semibold text-green-900 dark:text-green-100 mb-1">
-                ✅ Project KPIs Loaded
-              </p>
-              <p>
-                Loaded <strong>{kpis.length.toLocaleString()}</strong> KPI records for project <strong>{filters.project}</strong>.
-                {filteredKPIs.length !== kpis.length && ` Showing ${filteredKPIs.length.toLocaleString()} after additional filtering.`}
-                {` Displaying ${itemsPerPage} records per page.`}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* KPI Statistics - Show if KPIs are loaded */}
       {kpis.length > 0 && (
@@ -1854,6 +2471,10 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
                 }}
                 onDelete={handleDeleteKPI}
                 onBulkDelete={handleBulkDeleteKPI}
+                onBulkEdit={(selectedKPIs) => {
+                  setSelectedKPIsForBulkEdit(selectedKPIs as unknown as ProcessedKPI[])
+                  setShowBulkEditModal(true)
+                }}
               />
             ) : guard.hasAccess('kpi.view') ? (
               <OptimizedKPITable
@@ -1863,6 +2484,10 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
               onDelete={handleDeleteKPI}
               onBulkDelete={handleBulkDeleteKPI}
               onUpdate={handleUpdateKPI}
+              onBulkEdit={(selectedKPIs) => {
+                setSelectedKPIsForBulkEdit(selectedKPIs)
+                setShowBulkEditModal(true)
+              }}
             />
             ) : null
           ) : null}
@@ -1910,6 +2535,21 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           activities={activities}
           onSubmit={handleCreateKPI}
           onCancel={() => setShowEnhancedForm(false)}
+        />
+      )}
+
+      {/* Bulk Edit Modal */}
+      {showBulkEditModal && (
+        <BulkEditKPIModal
+          selectedKPIs={selectedKPIsForBulkEdit}
+          projects={projects}
+          activities={activities}
+          onUpdate={handleBulkUpdateKPI}
+          onCancel={() => {
+            setShowBulkEditModal(false)
+            setSelectedKPIsForBulkEdit([])
+          }}
+          isOpen={showBulkEditModal}
         />
       )}
 

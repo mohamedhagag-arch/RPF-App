@@ -165,12 +165,25 @@ export async function deleteActivity(id: string): Promise<{ success: boolean; er
 }
 
 // زيادة عداد الاستخدام
-export async function incrementActivityUsage(activityName: string): Promise<{ success: boolean; error?: string }> {
+export async function incrementActivityUsage(
+  activityName: string, 
+  projectType?: string
+): Promise<{ success: boolean; error?: string }> {
   try {
     const supabase = getSupabaseClient()
-    // ✅ Use the correct unified function name
+    // ✅ Use the correct unified function name with both parameters
+    // The database function expects: p_activity_name and p_project_type
+    const params: any = { 
+      p_activity_name: activityName 
+    }
+    
+    // Only include project_type if provided
+    if (projectType && projectType.trim() !== '') {
+      params.p_project_type = projectType.trim()
+    }
+    
     const { error } = await executeQuery(async () =>
-      supabase.rpc('increment_activity_usage_unified', { activity_name: activityName } as any)
+      supabase.rpc('increment_activity_usage_unified', params)
     )
 
     if (error) throw error

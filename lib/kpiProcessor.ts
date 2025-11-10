@@ -94,8 +94,11 @@ export function processKPIRecord(kpi: any): ProcessedKPI {
     status: smartStatus.status,
     performance_level: smartStatus.performance_level,
     created_at: kpi.created_at,
-    updated_at: kpi.updated_at
-  }
+    updated_at: kpi.updated_at,
+    // ✅ Preserve project_code and project_sub_code for filtering
+    project_code: (kpi as any).project_code || '',
+    project_sub_code: (kpi as any).project_sub_code || ''
+  } as ProcessedKPI & { project_code?: string; project_sub_code?: string }
 }
 
 /**
