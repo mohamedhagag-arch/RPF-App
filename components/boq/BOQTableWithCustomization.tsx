@@ -873,15 +873,26 @@ export function BOQTableWithCustomization({
           // This ensures Planned is dynamic: it sums all Planned KPI quantities for this activity up to yesterday
           if (activityKPIsQuantities.length > 0) {
             const plannedKPIsUntilYesterday = activityKPIsQuantities.filter((kpi: any) => {
-              const kpiDateStr = kpi.activity_date || kpi.target_date || kpi['Activity Date'] || kpi['Target Date'] || kpi.raw?.['Activity Date'] || kpi.raw?.['Target Date'] || ''
-              if (!kpiDateStr) return true // Include KPIs without dates
+              // ✅ Get date from multiple sources (priority: target_date, activity_date, created_at)
+              const kpiDateStr = kpi.target_date || 
+                                kpi.activity_date || 
+                                kpi['Target Date'] || 
+                                kpi['Activity Date'] || 
+                                kpi.raw?.['Target Date'] || 
+                                kpi.raw?.['Activity Date'] ||
+                                kpi.created_at || // Fallback to created_at if no target/activity date
+                                ''
+              
+              // ✅ If no date found, include the KPI (KPIs without dates are included)
+              if (!kpiDateStr) return true
               
               try {
                 const kpiDate = new Date(kpiDateStr)
-                if (isNaN(kpiDate.getTime())) return true // Include invalid dates
-                return kpiDate <= yesterdayQuantities // Only include KPIs up to yesterday
+                if (isNaN(kpiDate.getTime())) return true // Include invalid dates (treat as valid)
+                // ✅ Only include KPIs with date <= yesterday (end of yesterday)
+                return kpiDate <= yesterdayQuantities
               } catch {
-                return true // Include on error
+                return true // Include on error (treat as valid)
               }
             })
             
