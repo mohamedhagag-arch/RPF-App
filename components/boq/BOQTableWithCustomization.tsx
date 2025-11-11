@@ -852,17 +852,65 @@ export function BOQTableWithCustomization({
           )
           if (!activityMatch) return false
           
-          // 3. Zone Matching (if both have zones, they must match)
+          // 3. Zone Matching (STRICT: If activity has zone, KPI must have matching zone)
           const kpiZone = getKPIZone(kpi)
           const activityZone = getActivityZone(activity)
-          if (activityZone && kpiZone) {
+          
+          // ✅ STRICT: If activity has zone, KPI MUST have zone and they MUST match
+          if (activityZone) {
+            // Activity has zone - KPI must have zone and match
+            if (!kpiZone) {
+              // Debug: KPI rejected because it has no zone but activity has zone
+              if (process.env.NODE_ENV === 'development') {
+                console.log(`🚫 [Zone Match] KPI rejected: Activity has zone "${activityZone}" but KPI has no zone`, {
+                  activityName: activity.activity_name,
+                  kpiActivityName: kpi.activity_name || kpi['Activity Name'],
+                  kpiProjectCode: kpi.project_code || kpi['Project Code']
+                })
+              }
+              return false // KPI has no zone, reject it
+            }
+            
+            // Both have zones - they must match exactly or be similar
             const zoneMatch = (
               activityZone === kpiZone ||
               activityZone.includes(kpiZone) ||
               kpiZone.includes(activityZone)
             )
-            if (!zoneMatch) return false
+            if (!zoneMatch) {
+              // Debug: KPI rejected because zones don't match
+              if (process.env.NODE_ENV === 'development') {
+                console.log(`🚫 [Zone Match] KPI rejected: Zones don't match`, {
+                  activityName: activity.activity_name,
+                  activityZone,
+                  kpiZone,
+                  kpiActivityName: kpi.activity_name || kpi['Activity Name'],
+                  kpiProjectCode: kpi.project_code || kpi['Project Code']
+                })
+              }
+              return false // Zones don't match, reject it
+            }
+            
+            // Debug: KPI accepted because zones match
+            if (process.env.NODE_ENV === 'development') {
+              const rawKPI = (kpi as any).raw || {}
+              const quantityStr = String(
+                kpi.quantity || 
+                kpi['Quantity'] || 
+                rawKPI['Quantity'] || 
+                '0'
+              ).replace(/,/g, '').trim()
+              const kpiQuantity = parseFloat(quantityStr) || 0
+              console.log(`✅ [Zone Match] KPI accepted: Zones match`, {
+                activityName: activity.activity_name,
+                activityZone,
+                kpiZone,
+                kpiActivityName: kpi.activity_name || kpi['Activity Name'],
+                kpiQuantity
+              })
+            }
           }
+          // If activity has no zone, accept KPI (with or without zone)
           
           return true
         }
@@ -986,7 +1034,26 @@ export function BOQTableWithCustomization({
         
         // Debug logging
         if (process.env.NODE_ENV === 'development') {
-          console.log(`📊 [BOQ Quantities] "${activity.activity_name}" (Zone: ${getActivityZone(activity) || 'N/A'}):`, {
+          const activityZone = getActivityZone(activity)
+          
+          // Count matched KPIs for debugging
+          let matchedPlannedCount = 0
+          let matchedActualCount = 0
+          if (allKPIs.length > 0) {
+            const plannedKPIs = allKPIs.filter((kpi: any) => {
+              const inputType = (kpi.input_type || kpi['Input Type'] || (kpi as any).raw?.['Input Type'] || '').toLowerCase()
+              return inputType === 'planned'
+            })
+            const actualKPIs = allKPIs.filter((kpi: any) => {
+              const inputType = (kpi.input_type || kpi['Input Type'] || (kpi as any).raw?.['Input Type'] || '').toLowerCase()
+              return inputType === 'actual'
+            })
+            
+            matchedPlannedCount = plannedKPIs.filter((kpi: any) => kpiMatchesActivity(kpi, activity)).length
+            matchedActualCount = actualKPIs.filter((kpi: any) => kpiMatchesActivity(kpi, activity)).length
+          }
+          
+          console.log(`📊 [BOQ Quantities] "${activity.activity_name}" (Zone: ${activityZone || 'N/A'}):`, {
             totalUnits,
             plannedUnits,
             cappedPlanned,
@@ -994,7 +1061,11 @@ export function BOQTableWithCustomization({
             cappedActual,
             remaining,
             plannedExceeded: plannedUnits > totalUnits,
-            actualExceeded: actualUnits > totalUnits
+            actualExceeded: actualUnits > totalUnits,
+            matchedPlannedKPIs: matchedPlannedCount,
+            matchedActualKPIs: matchedActualCount,
+            activityZone: activityZone || 'No Zone',
+            note: activityZone ? 'Zone matching is STRICT - only KPIs with matching zone are included' : 'No zone - all KPIs for this activity are included'
           })
         }
         
