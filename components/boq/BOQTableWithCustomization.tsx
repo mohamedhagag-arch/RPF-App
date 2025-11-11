@@ -1055,8 +1055,8 @@ export function BOQTableWithCustomization({
         
         // Calculate Actual: Sum of Actual KPIs until yesterday (with Zone matching)
         let actualUnits = activity.actual_units || 
-                         parseFloat(String(rawActivityQuantities['Actual Units'] || '0').replace(/,/g, '')) || 
-                         0
+                                  parseFloat(String(rawActivityQuantities['Actual Units'] || '0').replace(/,/g, '')) || 
+                                  0
         
         // If actual_units is 0 or not set, calculate from Actual KPIs
         if (actualUnits === 0 && allKPIs.length > 0) {
@@ -1069,52 +1069,93 @@ export function BOQTableWithCustomization({
           })
           
           // Step 2: Match Actual KPIs to this activity (Project, Activity Name, Zone) - ULTRA STRICT
+          // ✅ CRITICAL: Extract zone info BEFORE filtering to ensure correct matching
+          const extractZoneNumber = (zone: string): string => {
+            if (!zone || zone.trim() === '') return ''
+            const numberMatch = zone.match(/\d+/)
+            if (numberMatch) return numberMatch[0]
+            return zone.toLowerCase().trim()
+          }
+          
+          const activityZoneNum = activityZone ? extractZoneNumber(activityZone) : ''
+          
+          // ✅ DEBUG: Log activity zone info BEFORE filtering
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`🔍 [Actual Filtering] Activity "${activity.activity_name}":`, {
+              activityZone: activityZone || 'N/A',
+              activityZoneNum: activityZoneNum || 'N/A',
+              activityZoneRef: activity.zone_ref || 'N/A',
+              activityZoneNumber: activity.zone_number || 'N/A',
+              rawZoneRef: (activity as any).raw?.['Zone Ref'] || 'N/A',
+              rawZoneNumber: (activity as any).raw?.['Zone Number'] || 'N/A',
+              totalActualKPIs: actualKPIs.length
+            })
+          }
+          
           const matchedActualKPIs = actualKPIs.filter((kpi: any) => {
-            const matches = kpiMatchesActivity(kpi, activity)
+            // ✅ FIRST: Check Project and Activity Name match
+            const rawKPI = (kpi as any).raw || {}
+            const kpiProjectCode = (kpi.project_code || kpi['Project Code'] || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+            const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
+            const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPI['Activity Name'] || '').toLowerCase().trim()
+            const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
             
-            // ✅ ADDITIONAL VALIDATION: Double-check zone matching for Actual KPIs
-            if (matches && activityZone && activityZone.trim() !== '') {
+            // Project and Activity must match
+            if (kpiProjectCode !== activityProjectCode || !kpiActivityName || !activityName || 
+                (kpiActivityName !== activityName && !kpiActivityName.includes(activityName) && !activityName.includes(kpiActivityName))) {
+              return false
+            }
+            
+            // ✅ SECOND: STRICT Zone matching (if activity has zone)
+            if (activityZone && activityZone.trim() !== '') {
               const kpiZone = getKPIZone(kpi)
+              
+              // KPI MUST have zone
               if (!kpiZone || kpiZone.trim() === '') {
-                // This should not happen if kpiMatchesActivity works correctly, but double-check
                 if (process.env.NODE_ENV === 'development') {
-                  console.log(`⚠️ [Actual Validation] KPI passed kpiMatchesActivity but has no zone - rejecting`, {
-                    activityName: activity.activity_name,
+                  console.log(`🚫 [Actual Filter] KPI rejected: No zone`, {
+                    kpiActivityName: kpi.activity_name || kpi['Activity Name'],
+                    kpiProjectCode,
                     activityZone,
-                    kpiActivityName: kpi.activity_name || kpi['Activity Name']
+                    activityZoneNum
                   })
                 }
                 return false
               }
               
-              // Extract zone numbers for final validation
-              const extractZoneNumber = (zone: string): string => {
-                if (!zone || zone.trim() === '') return ''
-                const numberMatch = zone.match(/\d+/)
-                if (numberMatch) return numberMatch[0]
-                return zone.toLowerCase().trim()
-              }
-              
-              const activityZoneNum = extractZoneNumber(activityZone)
+              // Extract zone numbers
               const kpiZoneNum = extractZoneNumber(kpiZone)
               
-              // Final zone number validation
+              // Zone numbers MUST match EXACTLY
               if (activityZoneNum && kpiZoneNum && activityZoneNum !== kpiZoneNum) {
                 if (process.env.NODE_ENV === 'development') {
-                  console.log(`⚠️ [Actual Validation] KPI passed kpiMatchesActivity but zone numbers don't match - rejecting`, {
-                    activityName: activity.activity_name,
+                  console.log(`🚫 [Actual Filter] KPI rejected: Zone mismatch`, {
+                    kpiActivityName: kpi.activity_name || kpi['Activity Name'],
+                    kpiProjectCode,
                     activityZone,
                     activityZoneNum,
                     kpiZone,
-                    kpiZoneNum,
-                    kpiActivityName: kpi.activity_name || kpi['Activity Name']
+                    kpiZoneNum
                   })
                 }
                 return false
               }
+              
+              // ✅ ACCEPT: Zone numbers match
+              if (process.env.NODE_ENV === 'development') {
+                console.log(`✅ [Actual Filter] KPI accepted: Zone match`, {
+                  kpiActivityName: kpi.activity_name || kpi['Activity Name'],
+                  kpiProjectCode,
+                  activityZone,
+                  activityZoneNum,
+                  kpiZone,
+                  kpiZoneNum,
+                  quantity: getKPIQuantity(kpi)
+                })
+              }
             }
             
-            return matches
+                  return true
           })
           
           // ✅ DEBUG: Log matched KPIs with their zones
