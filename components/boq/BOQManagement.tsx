@@ -20,13 +20,14 @@ import { BOQTable } from './BOQTable'
 import { BOQTableWithCustomization } from './BOQTableWithCustomization'
 import { Pagination } from '@/components/ui/Pagination'
 import { BOQFilter } from './BOQFilter'
-import { Plus, ClipboardList, CheckCircle, Clock, AlertCircle, Filter, X, Search, Lock, Building2, ChevronDown } from 'lucide-react'
+import { Plus, ClipboardList, CheckCircle, Clock, AlertCircle, Filter, X, Search, Lock, Building2, ChevronDown, BarChart3, Target, Coins, DollarSign } from 'lucide-react'
 import { ExportButton } from '@/components/ui/ExportButton'
 import { ImportButton } from '@/components/ui/ImportButton'
 import { PrintButton } from '@/components/ui/PrintButton'
 import { PermissionButton } from '@/components/ui/PermissionButton'
 import { syncBOQFromKPI } from '@/lib/boqKpiSync'
 import { updateProjectStatus } from '@/lib/projectStatusUpdater'
+import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 
 interface BOQManagementProps {
   globalSearchTerm?: string
@@ -2349,6 +2350,72 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   const delayedActivities = activities.filter(a => a.activity_delayed).length
   const onTrackActivities = activities.filter(a => a.activity_on_track).length
 
+  // ✅ BOQ Summary Statistics (same as KPI page)
+  const boqSummaryStats = useMemo(() => {
+    const totalRecords = filteredActivities.length
+    
+    // Planned Targets: Activities with planned_units > 0 or total_units > 0
+    const plannedActivities = filteredActivities.filter(a => {
+      const plannedUnits = a.planned_units || 0
+      const totalUnits = a.total_units || 0
+      return plannedUnits > 0 || totalUnits > 0
+    })
+    const plannedCount = plannedActivities.length
+    const totalPlannedQty = plannedActivities.reduce((sum, a) => {
+      return sum + (a.planned_units || a.total_units || 0)
+    }, 0)
+    
+    // Actual Achieved: Activities with actual_units > 0
+    const actualActivities = filteredActivities.filter(a => {
+      const actualUnits = a.actual_units || 0
+      return actualUnits > 0
+    })
+    const actualCount = actualActivities.length
+    const totalActualQty = actualActivities.reduce((sum, a) => sum + (a.actual_units || 0), 0)
+    
+    // Planned Value: Sum of total_value from all activities
+    const totalPlannedValue = filteredActivities.reduce((sum, a) => {
+      return sum + (a.total_value || 0)
+    }, 0)
+    
+    // Actual Value: Sum of earned_value or calculated from actual_units * rate
+    const totalActualValue = filteredActivities.reduce((sum, a) => {
+      // Try earned_value first (if available)
+      if (a.earned_value && a.earned_value > 0) {
+        return sum + a.earned_value
+      }
+      // Calculate from actual_units * rate if available
+      const actualUnits = a.actual_units || 0
+      const rate = a.rate || 0
+      if (actualUnits > 0 && rate > 0) {
+        return sum + (actualUnits * rate)
+      }
+      return sum
+    }, 0)
+    
+    // Achievement Rate: (Actual Value / Planned Value) * 100
+    const valueAchievementRate = totalPlannedValue > 0 
+      ? (totalActualValue / totalPlannedValue) * 100 
+      : 0
+    
+    // Achievement Rate (by count): (Actual Count / Planned Count) * 100
+    const achievementRate = plannedCount > 0 
+      ? (actualCount / plannedCount) * 100 
+      : 0
+    
+    return {
+      totalRecords,
+      plannedCount,
+      totalPlannedQty,
+      actualCount,
+      totalActualQty,
+      totalPlannedValue,
+      totalActualValue,
+      valueAchievementRate,
+      achievementRate
+    }
+  }, [filteredActivities])
+
   // Don't show full-page loading spinner - show skeleton instead
   const isInitialLoad = loading && activities.length === 0
 
@@ -2552,6 +2619,150 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         <Alert variant="error">
           {error}
         </Alert>
+      )}
+
+      {/* ✅ BOQ Statistics - Show if Activities are loaded */}
+      {filteredActivities.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-4">
+          <Card className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900 dark:to-purple-800 border-purple-200 dark:border-purple-700">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-purple-600 dark:text-purple-300">Total Records</p>
+                  <p className="text-3xl font-bold text-purple-900 dark:text-purple-100">{boqSummaryStats.totalRecords}</p>
+                </div>
+                <BarChart3 className="h-10 w-10 text-purple-500" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900 dark:to-blue-800 border-blue-200 dark:border-blue-700">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-blue-600 dark:text-blue-300">🎯 Planned Targets</p>
+                  <p className="text-3xl font-bold text-blue-900 dark:text-blue-100">{boqSummaryStats.plannedCount}</p>
+                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                    {boqSummaryStats.totalPlannedQty.toLocaleString()} total qty
+                  </p>
+                </div>
+                <Target className="h-10 w-10 text-blue-500" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900 dark:to-green-800 border-green-200 dark:border-green-700">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-green-600 dark:text-green-300">✓ Actual Achieved</p>
+                  <p className="text-3xl font-bold text-green-900 dark:text-green-100">{boqSummaryStats.actualCount}</p>
+                  <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                    {boqSummaryStats.totalActualQty.toLocaleString()} total qty
+                  </p>
+                </div>
+                <CheckCircle className="h-10 w-10 text-green-500" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-indigo-50 to-indigo-100 dark:from-indigo-900 dark:to-indigo-800 border-indigo-200 dark:border-indigo-700">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-indigo-600 dark:text-indigo-300">Planned Value</p>
+                  <p className="text-3xl font-bold text-indigo-900 dark:text-indigo-100">
+                    {(() => {
+                      // Get currency from first selected project or default
+                      const firstProject = selectedProjects.length > 0 
+                        ? projects.find(p => selectedProjects.includes(p.project_code))
+                        : projects[0]
+                      const currencyCode = firstProject?.currency || 'AED'
+                      return formatCurrencyByCodeSync(boqSummaryStats.totalPlannedValue, currencyCode)
+                    })()}
+                  </p>
+                  <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-1">
+                    Across {boqSummaryStats.plannedCount.toLocaleString()} planned activities
+                  </p>
+                </div>
+                <Coins className="h-10 w-10 text-indigo-500" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-emerald-900 dark:to-emerald-800 border-emerald-200 dark:border-emerald-700">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-emerald-600 dark:text-emerald-300">Actual Value</p>
+                  <p className="text-3xl font-bold text-emerald-900 dark:text-emerald-100">
+                    {(() => {
+                      // Get currency from first selected project or default
+                      const firstProject = selectedProjects.length > 0 
+                        ? projects.find(p => selectedProjects.includes(p.project_code))
+                        : projects[0]
+                      const currencyCode = firstProject?.currency || 'AED'
+                      return formatCurrencyByCodeSync(boqSummaryStats.totalActualValue, currencyCode)
+                    })()}
+                  </p>
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1">
+                    {boqSummaryStats.valueAchievementRate.toFixed(1)}% of planned value
+                  </p>
+                </div>
+                <DollarSign className="h-10 w-10 text-emerald-500" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900 dark:to-orange-800 border-orange-200 dark:border-orange-700">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-orange-600 dark:text-orange-300">Achievement Rate</p>
+                  <p className="text-3xl font-bold text-orange-900 dark:text-orange-100">
+                    {boqSummaryStats.achievementRate.toFixed(1)}%
+                  </p>
+                  <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
+                    {(() => {
+                      // Get currency from first selected project or default
+                      const firstProject = selectedProjects.length > 0 
+                        ? projects.find(p => selectedProjects.includes(p.project_code))
+                        : projects[0]
+                      const currencyCode = firstProject?.currency || 'AED'
+                      return `${formatCurrencyByCodeSync(boqSummaryStats.totalActualValue, currencyCode)} / ${formatCurrencyByCodeSync(boqSummaryStats.totalPlannedValue, currencyCode)}`
+                    })()}
+                  </p>
+                  <p className="text-[11px] text-orange-500 dark:text-orange-300">
+                    {boqSummaryStats.actualCount.toLocaleString()} / {boqSummaryStats.plannedCount.toLocaleString()} activities
+                  </p>
+                </div>
+                <div className="relative w-10 h-10">
+                  <svg className="transform -rotate-90 w-10 h-10">
+                    <circle
+                      cx="20"
+                      cy="20"
+                      r="16"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      fill="transparent"
+                      className="text-orange-200 dark:text-orange-950"
+                    />
+                    <circle
+                      cx="20"
+                      cy="20"
+                      r="16"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      fill="transparent"
+                      strokeDasharray={`${boqSummaryStats.achievementRate} 100`}
+                      className="text-orange-500"
+                    />
+                  </svg>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* ✅ Removed all filters - Simple BOQ without filtering */}
