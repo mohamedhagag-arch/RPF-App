@@ -352,7 +352,7 @@ export function ModernReportsManager() {
   const summary = {
     totalProjects: filteredProjects.length,
     activeProjects: filteredProjects.filter(p => p.project_status === 'on-going').length,
-    completedProjects: filteredProjects.filter(p => p.project_status === 'completed' || p.project_status === 'completed-duration' || p.project_status === 'contract-duration').length,
+    completedProjects: filteredProjects.filter(p => p.project_status === 'completed-duration' || p.project_status === 'contract-completed').length,
     onHoldProjects: filteredProjects.filter(p => p.project_status === 'on-hold').length,
     
     totalActivities: filteredActivities.length,
@@ -1339,7 +1339,7 @@ function ProjectsReport({ projects, activities, kpis }: { projects: Project[], a
                   <td className="px-6 py-4">
                     <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
                       project.project_status === 'on-going' ? 'bg-green-100 text-green-800' :
-                      project.project_status === 'completed' || project.project_status === 'completed-duration' || project.project_status === 'contract-duration' ? 'bg-blue-100 text-blue-800' :
+                      project.project_status === 'completed-duration' || project.project_status === 'contract-completed' ? 'bg-blue-100 text-blue-800' :
                       project.project_status === 'on-hold' ? 'bg-yellow-100 text-yellow-800' :
                       'bg-red-100 text-red-800'
                     }`}>

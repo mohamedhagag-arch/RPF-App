@@ -137,7 +137,7 @@ export function ReportsManager({ userRole = 'viewer' }: ReportsManagerProps) {
       const summary = {
         totalProjects: filteredProjects.length,
         activeProjects: filteredProjects.filter((p: any) => p.project_status === 'on-going').length,
-        completedProjects: filteredProjects.filter((p: any) => p.project_status === 'completed' || p.project_status === 'completed-duration' || p.project_status === 'contract-duration').length,
+        completedProjects: filteredProjects.filter((p: any) => p.project_status === 'completed-duration' || p.project_status === 'contract-completed').length,
         totalActivities: filteredActivities.length,
         completedActivities: filteredActivities.filter((a: any) => a.activity_completed).length,
         totalKPIs: filteredKPIs.length,
