@@ -145,11 +145,22 @@ export function UltraFastProjectsList({
         query: () => fastQueryExecutor.execute(
           'completed_projects_count',
           async (client) => {
-            const { count, error } = await client
+            // Count projects with completed-duration or contract-completed status
+            const { count: count1, error: error1 } = await client
               .from(TABLES.PROJECTS)
               .select('*', { count: 'exact', head: true })
-              .eq('project_status', 'completed')
-            return { data: count, error }
+              .eq('project_status', 'completed-duration')
+            
+            if (error1) return { data: 0, error: error1 }
+            
+            const { count: count2, error: error2 } = await client
+              .from(TABLES.PROJECTS)
+              .select('*', { count: 'exact', head: true })
+              .eq('project_status', 'contract-completed')
+            
+            if (error2) return { data: count1 || 0, error: error2 }
+            
+            return { data: (count1 || 0) + (count2 || 0), error: null }
           },
           { cache: true, timeout: 5000 }
         )
@@ -207,7 +218,7 @@ export function UltraFastProjectsList({
             <span className={`px-2 py-1 text-xs font-medium rounded-full ${
               project.project_status === 'on-going' 
                 ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                : project.project_status === 'completed'
+                : project.project_status === 'completed-duration' || project.project_status === 'contract-completed'
                 ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
                 : 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200'
             }`}>
