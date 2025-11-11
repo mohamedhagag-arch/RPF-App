@@ -39,7 +39,7 @@ export function DashboardCharts({ projects, activities, kpis }: DashboardChartsP
       }
       
       acc[month].total++
-      if (project.project_status === 'completed') {
+      if (project.project_status === 'completed-duration' || project.project_status === 'contract-completed') {
         acc[month].completed++
       }
       
@@ -64,7 +64,7 @@ export function DashboardCharts({ projects, activities, kpis }: DashboardChartsP
       }
       
       acc[division].total++
-      if (project.project_status === 'completed') {
+      if (project.project_status === 'completed-duration' || project.project_status === 'contract-completed') {
         acc[division].completed++
       }
       
