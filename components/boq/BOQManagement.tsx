@@ -2350,47 +2350,224 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   const delayedActivities = activities.filter(a => a.activity_delayed).length
   const onTrackActivities = activities.filter(a => a.activity_on_track).length
 
-  // ✅ BOQ Summary Statistics (same as KPI page)
+  // ✅ SMART BOQ Summary Statistics - Calculated from KPIs (not BOQ activities)
   const boqSummaryStats = useMemo(() => {
     const totalRecords = filteredActivities.length
     
-    // Planned Targets: Activities with planned_units > 0 or total_units > 0
-    const plannedActivities = filteredActivities.filter(a => {
-      const plannedUnits = a.planned_units || 0
-      const totalUnits = a.total_units || 0
-      return plannedUnits > 0 || totalUnits > 0
+    // ============================================
+    // Helper Functions
+    // ============================================
+    
+    // Normalize zone (remove project code prefix)
+    const normalizeZone = (zone: string, projectCode: string): string => {
+      if (!zone || !projectCode) return (zone || '').toLowerCase().trim()
+      let normalized = zone.trim()
+      const codeUpper = projectCode.toUpperCase()
+      normalized = normalized.replace(new RegExp(`^${codeUpper}\\s*-\\s*`, 'i'), '').trim()
+      normalized = normalized.replace(new RegExp(`^${codeUpper}\\s+`, 'i'), '').trim()
+      normalized = normalized.replace(new RegExp(`^${codeUpper}-`, 'i'), '').trim()
+      return normalized.toLowerCase()
+    }
+    
+    // Extract zone from activity
+    const getActivityZone = (activity: BOQActivity): string => {
+      const rawActivity = (activity as any).raw || {}
+      let zoneValue = activity.zone_number || 
+                     activity.zone_ref || 
+                     rawActivity['Zone Number'] ||
+                     rawActivity['Zone Ref'] ||
+                     rawActivity['Zone #'] ||
+                     ''
+      
+      if (zoneValue && activity.project_code) {
+        const projectCodeUpper = activity.project_code.toUpperCase().trim()
+        let zoneStr = zoneValue.toString()
+        zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+        zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
+        zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
+        zoneStr = zoneStr.replace(/^\s*-\s*/, '').trim()
+        zoneStr = zoneStr.replace(/\s+/g, ' ').trim()
+        zoneValue = zoneStr || ''
+      }
+      
+      return (zoneValue || '').toString().toLowerCase().trim()
+    }
+    
+    // Extract zone from KPI
+    const getKPIZone = (kpi: any): string => {
+      const rawKPI = (kpi as any).raw || {}
+      const zoneRaw = (
+        kpi.zone || 
+        kpi.section || 
+        rawKPI['Zone'] || 
+        rawKPI['Zone Number'] || 
+        ''
+      ).toString().trim()
+      const projectCode = (kpi.project_code || kpi['Project Code'] || rawKPI['Project Code'] || '').toString().trim()
+      return normalizeZone(zoneRaw, projectCode)
+    }
+    
+    // Extract zone number for exact matching
+    const extractZoneNumber = (zone: string): string => {
+      if (!zone || zone.trim() === '') return ''
+      const numberMatch = zone.match(/\d+/)
+      if (numberMatch) return numberMatch[0]
+      return zone.toLowerCase().trim()
+    }
+    
+    // Get activity rate (from BOQ activity)
+    const getActivityRate = (activity: BOQActivity, kpi: any): number => {
+      // Try rate directly from activity
+      if (activity.rate && activity.rate > 0) {
+        return activity.rate
+      }
+      
+      // Calculate from total_value / total_units
+      if (activity.total_value && activity.total_units && activity.total_units > 0) {
+        return activity.total_value / activity.total_units
+      }
+      
+      // Try to get from raw data
+      const rawActivity = (activity as any).raw || {}
+      const rateFromRaw = parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
+      if (rateFromRaw > 0) return rateFromRaw
+      
+      return 0
+    }
+    
+    // Check if KPI matches activity (Project + Activity Name + Zone)
+    const kpiMatchesActivity = (kpi: any, activity: BOQActivity): boolean => {
+      const rawKPI = (kpi as any).raw || {}
+      
+      // 1. Project Code Matching (required)
+      const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+      const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+      const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
+      const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+      
+      const projectMatch = (
+        (kpiProjectCode && activityProjectCode && kpiProjectCode === activityProjectCode) ||
+        (kpiProjectFullCode && activityProjectFullCode && kpiProjectFullCode === activityProjectFullCode) ||
+        (kpiProjectCode && activityProjectFullCode && kpiProjectCode === activityProjectFullCode) ||
+        (kpiProjectFullCode && activityProjectCode && kpiProjectFullCode === activityProjectCode)
+      )
+      if (!projectMatch) return false
+      
+      // 2. Activity Name Matching (required)
+      const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
+      const activityName = (activity.activity_name || '').toLowerCase().trim()
+      if (!kpiActivityName || !activityName) return false
+      if (kpiActivityName !== activityName && !kpiActivityName.includes(activityName) && !activityName.includes(kpiActivityName)) {
+        return false
+      }
+      
+      // 3. Zone Matching (ULTRA STRICT: If activity has zone, KPI MUST have EXACT matching zone)
+      const activityZone = getActivityZone(activity)
+      if (activityZone && activityZone.trim() !== '') {
+        const kpiZone = getKPIZone(kpi)
+        if (!kpiZone || kpiZone.trim() === '') return false
+        
+        const activityZoneNum = extractZoneNumber(activityZone)
+        const kpiZoneNum = extractZoneNumber(kpiZone)
+        if (activityZoneNum && kpiZoneNum && activityZoneNum !== kpiZoneNum) {
+          return false
+        }
+      }
+      
+      return true
+    }
+    
+    // Calculate value from KPI (priority: k.value > rate * quantity > planned_value/actual_value)
+    const getKPIValue = (kpi: any, activity: BOQActivity): number => {
+      const rawKPI = (kpi as any).raw || {}
+      
+      // Priority 1: Use value directly from KPI if available (most accurate)
+      const kpiValue = parseFloat(String(kpi.value || rawKPI['Value'] || '0').replace(/,/g, '')) || 0
+      if (kpiValue > 0) {
+        return kpiValue
+      }
+      
+      // Priority 2: Calculate from rate * quantity
+      const rate = getActivityRate(activity, kpi)
+      const quantity = parseFloat(String(kpi.quantity || rawKPI['Quantity'] || '0').replace(/,/g, '')) || 0
+      if (rate > 0 && quantity > 0) {
+        return rate * quantity
+      }
+      
+      // Priority 3: Fallback to planned_value or actual_value
+      const inputType = (kpi.input_type || rawKPI['Input Type'] || '').toString().toLowerCase().trim()
+      if (inputType === 'planned') {
+        const plannedValue = parseFloat(String(kpi.planned_value || rawKPI['Planned Value'] || '0').replace(/,/g, '')) || 0
+        if (plannedValue > 0) return plannedValue
+      } else if (inputType === 'actual') {
+        const actualValue = parseFloat(String(kpi.actual_value || rawKPI['Actual Value'] || '0').replace(/,/g, '')) || 0
+        if (actualValue > 0) return actualValue
+      }
+      
+      return 0
+    }
+    
+    // ============================================
+    // Calculate Statistics from KPIs
+    // ============================================
+    
+    // Filter KPIs by filtered activities
+    const plannedKPIs = allKPIs.filter((kpi: any) => {
+      const inputType = (kpi.input_type || (kpi as any).raw?.['Input Type'] || '').toString().toLowerCase().trim()
+      if (inputType !== 'planned') return false
+      return filteredActivities.some(activity => kpiMatchesActivity(kpi, activity))
+    })
+    
+    const actualKPIs = allKPIs.filter((kpi: any) => {
+      const inputType = (kpi.input_type || (kpi as any).raw?.['Input Type'] || '').toString().toLowerCase().trim()
+      if (inputType !== 'actual') return false
+      return filteredActivities.some(activity => kpiMatchesActivity(kpi, activity))
+    })
+    
+    // Planned Targets: Activities with planned KPIs
+    const plannedActivities = filteredActivities.filter(activity => {
+      return plannedKPIs.some(kpi => kpiMatchesActivity(kpi, activity))
     })
     const plannedCount = plannedActivities.length
-    const totalPlannedQty = plannedActivities.reduce((sum, a) => {
-      return sum + (a.planned_units || a.total_units || 0)
+    
+    // Planned Quantity: Sum of quantities from Planned KPIs
+    const totalPlannedQty = plannedKPIs.reduce((sum, kpi) => {
+      const rawKPI = (kpi as any).raw || {}
+      const quantity = parseFloat(String(kpi.quantity || rawKPI['Quantity'] || '0').replace(/,/g, '')) || 0
+      return sum + quantity
     }, 0)
     
-    // Actual Achieved: Activities with actual_units > 0
-    const actualActivities = filteredActivities.filter(a => {
-      const actualUnits = a.actual_units || 0
-      return actualUnits > 0
+    // Actual Achieved: Activities with actual KPIs
+    const actualActivities = filteredActivities.filter(activity => {
+      return actualKPIs.some(kpi => kpiMatchesActivity(kpi, activity))
     })
     const actualCount = actualActivities.length
-    const totalActualQty = actualActivities.reduce((sum, a) => sum + (a.actual_units || 0), 0)
     
-    // Planned Value: Sum of total_value from all activities
-    const totalPlannedValue = filteredActivities.reduce((sum, a) => {
-      return sum + (a.total_value || 0)
+    // Actual Quantity: Sum of quantities from Actual KPIs
+    const totalActualQty = actualKPIs.reduce((sum, kpi) => {
+      const rawKPI = (kpi as any).raw || {}
+      const quantity = parseFloat(String(kpi.quantity || rawKPI['Quantity'] || '0').replace(/,/g, '')) || 0
+      return sum + quantity
     }, 0)
     
-    // Actual Value: Sum of earned_value or calculated from actual_units * rate
-    const totalActualValue = filteredActivities.reduce((sum, a) => {
-      // Try earned_value first (if available)
-      if (a.earned_value && a.earned_value > 0) {
-        return sum + a.earned_value
-      }
-      // Calculate from actual_units * rate if available
-      const actualUnits = a.actual_units || 0
-      const rate = a.rate || 0
-      if (actualUnits > 0 && rate > 0) {
-        return sum + (actualUnits * rate)
-      }
-      return sum
+    // Planned Value: Sum of values from Planned KPIs (matching activities)
+    const totalPlannedValue = plannedKPIs.reduce((sum, kpi) => {
+      // Find matching activity for this KPI
+      const matchingActivity = filteredActivities.find(activity => kpiMatchesActivity(kpi, activity))
+      if (!matchingActivity) return sum
+      
+      const value = getKPIValue(kpi, matchingActivity)
+      return sum + value
+    }, 0)
+    
+    // Actual Value: Sum of values from Actual KPIs (matching activities)
+    const totalActualValue = actualKPIs.reduce((sum, kpi) => {
+      // Find matching activity for this KPI
+      const matchingActivity = filteredActivities.find(activity => kpiMatchesActivity(kpi, activity))
+      if (!matchingActivity) return sum
+      
+      const value = getKPIValue(kpi, matchingActivity)
+      return sum + value
     }, 0)
     
     // Achievement Rate: (Actual Value / Planned Value) * 100
@@ -2414,7 +2591,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       valueAchievementRate,
       achievementRate
     }
-  }, [filteredActivities])
+  }, [filteredActivities, allKPIs])
 
   // Don't show full-page loading spinner - show skeleton instead
   const isInitialLoad = loading && activities.length === 0
