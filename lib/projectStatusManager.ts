@@ -8,7 +8,7 @@ import { getStatusDisplayInfo, ProjectStatus } from './projectStatusCalculator'
 // Legacy status mapping for backward compatibility
 const LEGACY_STATUS_MAP: Record<string, ProjectStatus> = {
   'active': 'on-going',
-  'completed': 'completed',
+  'completed': 'completed-duration', // Map legacy 'completed' to 'completed-duration'
   'on_hold': 'on-hold',
   'cancelled': 'cancelled'
 }
@@ -18,9 +18,8 @@ const STATUS_DISPLAY_MAP: Record<ProjectStatus, string> = {
   'upcoming': 'Upcoming',
   'site-preparation': 'Site Preparation',
   'on-going': 'On Going',
-  'completed': 'Completed',
   'completed-duration': 'Completed Duration',
-  'contract-duration': 'Contract Duration',
+  'contract-completed': 'Contract Completed',
   'on-hold': 'On Hold',
   'cancelled': 'Cancelled'
 }
@@ -116,7 +115,7 @@ export function getAllProjectStatuses(): Array<{
  */
 export function isProjectActive(status: string): boolean {
   const unifiedStatus = getUnifiedProjectStatus({ project_status: status })
-  return !['completed', 'completed-duration', 'contract-duration', 'cancelled'].includes(unifiedStatus)
+  return !['completed-duration', 'contract-completed', 'cancelled'].includes(unifiedStatus)
 }
 
 /**
@@ -124,7 +123,7 @@ export function isProjectActive(status: string): boolean {
  */
 export function isProjectCompleted(status: string): boolean {
   const unifiedStatus = getUnifiedProjectStatus({ project_status: status })
-  return ['completed', 'completed-duration', 'contract-duration'].includes(unifiedStatus)
+  return ['completed-duration', 'contract-completed'].includes(unifiedStatus)
 }
 
 /**
@@ -144,11 +143,10 @@ export function getProjectStatusPriority(status: string): number {
     'upcoming': 1,
     'site-preparation': 2,
     'on-going': 3,
-    'completed': 4,
-    'completed-duration': 5,
-    'contract-duration': 6,
-    'on-hold': 7,
-    'cancelled': 8
+    'completed-duration': 4,
+    'contract-completed': 5,
+    'on-hold': 6,
+    'cancelled': 7
   }
   return priorityMap[unifiedStatus] || 0
 }
@@ -190,10 +188,9 @@ export function validateProjectStatusTransition(currentStatus: string, newStatus
   const validTransitions: Record<ProjectStatus, ProjectStatus[]> = {
     'upcoming': ['site-preparation', 'on-hold', 'cancelled'],
     'site-preparation': ['on-going', 'on-hold', 'cancelled'],
-    'on-going': ['completed', 'completed-duration', 'contract-duration', 'on-hold', 'cancelled'],
-    'completed': ['completed-duration', 'contract-duration'],
-    'completed-duration': ['contract-duration'],
-    'contract-duration': [], // Final state
+    'on-going': ['completed-duration', 'contract-completed', 'on-hold', 'cancelled'],
+    'completed-duration': ['contract-completed'],
+    'contract-completed': [], // Final state
     'on-hold': ['site-preparation', 'on-going', 'cancelled'],
     'cancelled': [] // Final state
   }
