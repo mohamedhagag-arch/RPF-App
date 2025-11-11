@@ -874,14 +874,14 @@ export function BOQTableWithCustomization({
           )
           if (!activityMatch) return false
           
-          // 3. Zone Matching (STRICT: If activity has zone, KPI must have matching zone)
+          // 3. Zone Matching (ULTRA STRICT: If activity has zone, KPI MUST have EXACT matching zone)
           const kpiZone = getKPIZone(kpi)
           const activityZone = getActivityZone(activity)
           
-          // ✅ STRICT: If activity has zone, KPI MUST have zone and they MUST match
-          if (activityZone) {
-            // Activity has zone - KPI must have zone and match
-            if (!kpiZone) {
+          // ✅ ULTRA STRICT: If activity has zone, KPI MUST have zone and they MUST match EXACTLY
+          if (activityZone && activityZone.trim() !== '') {
+            // Activity has zone - KPI MUST have zone (no exceptions)
+            if (!kpiZone || kpiZone.trim() === '') {
               // Debug: KPI rejected because it has no zone but activity has zone
               if (process.env.NODE_ENV === 'development') {
                 console.log(`🚫 [Zone Match] KPI rejected: Activity has zone "${activityZone}" but KPI has no zone`, {
@@ -890,40 +890,54 @@ export function BOQTableWithCustomization({
                   kpiProjectCode: kpi.project_code || kpi['Project Code']
                 })
               }
-              return false // KPI has no zone, reject it
+              return false // KPI has no zone, reject it immediately
             }
             
-            // Both have zones - they must match exactly or be similar
-            // ✅ IMPROVED: Extract zone number from both (e.g., "zone 1" -> "1", "Zone 2" -> "2")
+            // ✅ ULTRA STRICT: Extract zone number from both and match EXACTLY
             const extractZoneNumber = (zone: string): string => {
+              if (!zone || zone.trim() === '') return ''
               // Try to extract number from zone (e.g., "Zone 1" -> "1", "zone 2" -> "2", "1" -> "1")
               const numberMatch = zone.match(/\d+/)
               if (numberMatch) return numberMatch[0]
-              return zone
+              // If no number found, return normalized zone
+              return zone.toLowerCase().trim()
             }
             
             const activityZoneNum = extractZoneNumber(activityZone)
             const kpiZoneNum = extractZoneNumber(kpiZone)
             
-            // Match by zone number first (most reliable)
-            const zoneMatch = (
-              activityZoneNum === kpiZoneNum ||
-              activityZone === kpiZone ||
-              activityZone.includes(kpiZone) ||
-              kpiZone.includes(activityZone)
-            )
-            if (!zoneMatch) {
-              // Debug: KPI rejected because zones don't match
+            // ✅ CRITICAL: Zone numbers MUST match EXACTLY (primary check)
+            if (activityZoneNum && kpiZoneNum && activityZoneNum !== kpiZoneNum) {
+              // Debug: KPI rejected because zone numbers don't match
               if (process.env.NODE_ENV === 'development') {
-                console.log(`🚫 [Zone Match] KPI rejected: Zones don't match`, {
+                console.log(`🚫 [Zone Match] KPI rejected: Zone numbers don't match`, {
                   activityName: activity.activity_name,
                   activityZone,
+                  activityZoneNum,
                   kpiZone,
+                  kpiZoneNum,
                   kpiActivityName: kpi.activity_name || kpi['Activity Name'],
                   kpiProjectCode: kpi.project_code || kpi['Project Code']
                 })
               }
-              return false // Zones don't match, reject it
+              return false // Zone numbers don't match, reject it
+            }
+            
+            // ✅ SECONDARY CHECK: If zone numbers match, verify full zone text also matches (for extra safety)
+            const normalizedActivityZone = activityZone.toLowerCase().trim()
+            const normalizedKpiZone = kpiZone.toLowerCase().trim()
+            
+            // If zone numbers match but full text doesn't, still accept (zone number is primary)
+            // But log it for debugging
+            if (activityZoneNum === kpiZoneNum && normalizedActivityZone !== normalizedKpiZone) {
+              if (process.env.NODE_ENV === 'development') {
+                console.log(`⚠️ [Zone Match] Zone numbers match but text differs (accepting):`, {
+                  activityName: activity.activity_name,
+                  activityZone: normalizedActivityZone,
+                  kpiZone: normalizedKpiZone,
+                  zoneNumber: activityZoneNum
+                })
+              }
             }
             
             // Debug: KPI accepted because zones match
@@ -938,8 +952,10 @@ export function BOQTableWithCustomization({
               const kpiQuantity = parseFloat(quantityStr) || 0
               console.log(`✅ [Zone Match] KPI accepted: Zones match`, {
                 activityName: activity.activity_name,
-                activityZone,
-                kpiZone,
+                activityZone: normalizedActivityZone,
+                activityZoneNum,
+                kpiZone: normalizedKpiZone,
+                kpiZoneNum,
                 kpiActivityName: kpi.activity_name || kpi['Activity Name'],
                 kpiQuantity
               })
@@ -1052,20 +1068,76 @@ export function BOQTableWithCustomization({
             return inputType === 'actual'
           })
           
-          // Step 2: Match Actual KPIs to this activity (Project, Activity Name, Zone)
-          const matchedActualKPIs = actualKPIs.filter((kpi: any) => kpiMatchesActivity(kpi, activity))
+          // Step 2: Match Actual KPIs to this activity (Project, Activity Name, Zone) - ULTRA STRICT
+          const matchedActualKPIs = actualKPIs.filter((kpi: any) => {
+            const matches = kpiMatchesActivity(kpi, activity)
+            
+            // ✅ ADDITIONAL VALIDATION: Double-check zone matching for Actual KPIs
+            if (matches && activityZone && activityZone.trim() !== '') {
+              const kpiZone = getKPIZone(kpi)
+              if (!kpiZone || kpiZone.trim() === '') {
+                // This should not happen if kpiMatchesActivity works correctly, but double-check
+                if (process.env.NODE_ENV === 'development') {
+                  console.log(`⚠️ [Actual Validation] KPI passed kpiMatchesActivity but has no zone - rejecting`, {
+                    activityName: activity.activity_name,
+                    activityZone,
+                    kpiActivityName: kpi.activity_name || kpi['Activity Name']
+                  })
+                }
+                return false
+              }
+              
+              // Extract zone numbers for final validation
+              const extractZoneNumber = (zone: string): string => {
+                if (!zone || zone.trim() === '') return ''
+                const numberMatch = zone.match(/\d+/)
+                if (numberMatch) return numberMatch[0]
+                return zone.toLowerCase().trim()
+              }
+              
+              const activityZoneNum = extractZoneNumber(activityZone)
+              const kpiZoneNum = extractZoneNumber(kpiZone)
+              
+              // Final zone number validation
+              if (activityZoneNum && kpiZoneNum && activityZoneNum !== kpiZoneNum) {
+                if (process.env.NODE_ENV === 'development') {
+                  console.log(`⚠️ [Actual Validation] KPI passed kpiMatchesActivity but zone numbers don't match - rejecting`, {
+                    activityName: activity.activity_name,
+                    activityZone,
+                    activityZoneNum,
+                    kpiZone,
+                    kpiZoneNum,
+                    kpiActivityName: kpi.activity_name || kpi['Activity Name']
+                  })
+                }
+                return false
+              }
+            }
+            
+            return matches
+          })
           
           // ✅ DEBUG: Log matched KPIs with their zones
-          if (process.env.NODE_ENV === 'development' && matchedActualKPIs.length > 0) {
+          if (process.env.NODE_ENV === 'development') {
             console.log(`🔍 [Actual KPIs] Activity "${activity.activity_name}" (Zone: ${activityZone || 'N/A'}):`, {
               totalActualKPIs: actualKPIs.length,
               matchedKPIs: matchedActualKPIs.length,
               matchedKPIsDetails: matchedActualKPIs.map((kpi: any) => ({
                 kpiZone: getKPIZone(kpi),
+                kpiZoneNum: (() => {
+                  const zone = getKPIZone(kpi)
+                  const numMatch = zone.match(/\d+/)
+                  return numMatch ? numMatch[0] : zone
+                })(),
                 quantity: getKPIQuantity(kpi),
                 activityName: kpi.activity_name || kpi['Activity Name'],
                 projectCode: kpi.project_code || kpi['Project Code']
-              }))
+              })),
+              activityZoneNum: (() => {
+                if (!activityZone) return 'N/A'
+                const numMatch = activityZone.match(/\d+/)
+                return numMatch ? numMatch[0] : activityZone
+              })()
             })
           }
           
@@ -1082,7 +1154,11 @@ export function BOQTableWithCustomization({
               kpisUntilYesterday: actualKPIsUntilYesterday.length,
               calculatedActual: actualUnits,
               totalUnits,
-              willBeCapped: actualUnits > totalUnits
+              willBeCapped: actualUnits > totalUnits,
+              sumBreakdown: actualKPIsUntilYesterday.map((kpi: any) => ({
+                kpiZone: getKPIZone(kpi),
+                quantity: getKPIQuantity(kpi)
+              }))
             })
           }
         }
