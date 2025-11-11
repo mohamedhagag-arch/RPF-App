@@ -471,25 +471,87 @@ export function BOQTableWithCustomization({
   const getPlannedStartDate = (activity: BOQActivity): string => {
     const raw = (activity as any).raw || {}
     
+    // Helper: Normalize zone value (remove project code prefix)
+    const normalizeZone = (zone: string, projectCode: string): string => {
+      if (!zone || !projectCode) return (zone || '').toLowerCase().trim()
+      let normalized = zone.trim()
+      const codeUpper = projectCode.toUpperCase()
+      normalized = normalized.replace(new RegExp(`^${codeUpper}\\s*-\\s*`, 'i'), '').trim()
+      normalized = normalized.replace(new RegExp(`^${codeUpper}\\s+`, 'i'), '').trim()
+      normalized = normalized.replace(new RegExp(`^${codeUpper}-`, 'i'), '').trim()
+      return normalized.toLowerCase()
+    }
+    
+    // Helper: Extract zone from activity
+    const getActivityZone = (activity: BOQActivity): string => {
+      const rawActivity = (activity as any).raw || {}
+      let zoneValue = activity.zone_number || 
+                     activity.zone_ref || 
+                     rawActivity['Zone Number'] ||
+                     rawActivity['Zone Ref'] ||
+                     rawActivity['Zone #'] ||
+                     ''
+      
+      if (zoneValue && activity.project_code) {
+        const projectCodeUpper = activity.project_code.toUpperCase().trim()
+        let zoneStr = zoneValue.toString()
+        zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+        zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
+        zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
+        zoneStr = zoneStr.replace(/^\s*-\s*/, '').trim()
+        zoneStr = zoneStr.replace(/\s+/g, ' ').trim()
+        zoneValue = zoneStr || ''
+      }
+      
+      return (zoneValue || '').toString().toLowerCase().trim()
+    }
+    
+    // Helper: Extract zone from KPI
+    const getKPIZone = (kpi: any): string => {
+      const rawKPI = (kpi as any).raw || {}
+      const zoneRaw = (
+        kpi.zone || 
+        kpi.section || 
+        rawKPI['Zone'] || 
+        rawKPI['Zone Number'] || 
+        ''
+      ).toString().trim()
+      const projectCode = (kpi.project_code || kpi['Project Code'] || rawKPI['Project Code'] || '').toString().trim()
+      return normalizeZone(zoneRaw, projectCode)
+    }
+    
+    // Helper: Extract zone number for exact matching
+    const extractZoneNumber = (zone: string): string => {
+      if (!zone || zone.trim() === '') return ''
+      const numberMatch = zone.match(/\d+/)
+      if (numberMatch) return numberMatch[0]
+      return zone.toLowerCase().trim()
+    }
+    
     // ✅ PRIORITY 1: Get from first Planned KPI Date column (target_date or activity_date)
     // This is the highest priority as requested by user
+    // ✅ ENHANCED: Now considers Activity Details including Zone matching
     if (allKPIs && allKPIs.length > 0) {
       const activityName = (activity.activity_name || '').toLowerCase().trim()
       const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
       const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+      const activityZone = getActivityZone(activity)
+      const activityZoneNum = extractZoneNumber(activityZone)
       
-      // Find matching Planned KPIs
+      // Find matching Planned KPIs (with Activity Details matching: Project + Activity Name + Zone)
       const matchingKPIs = allKPIs.filter((kpi: any) => {
         const rawKPI = (kpi as any).raw || {}
         const kpiInputType = (kpi.input_type || rawKPI['Input Type'] || '').toString().toLowerCase().trim()
         if (kpiInputType !== 'planned') return false
         
+        // 1. Activity Name Matching (required)
         const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
         if (!kpiActivityName || !activityName) return false
         if (kpiActivityName !== activityName && !kpiActivityName.includes(activityName) && !activityName.includes(kpiActivityName)) {
           return false
         }
         
+        // 2. Project Code Matching (required)
         const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
         const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
         
@@ -499,8 +561,23 @@ export function BOQTableWithCustomization({
           (kpiProjectCode && activityProjectFullCode && kpiProjectCode === activityProjectFullCode) ||
           (kpiProjectFullCode && activityProjectCode && kpiProjectFullCode === activityProjectCode)
         )
+        if (!projectMatch) return false
         
-        return projectMatch
+        // 3. Zone Matching (ULTRA STRICT: If activity has zone, KPI MUST have EXACT matching zone)
+        if (activityZone && activityZone.trim() !== '') {
+          const kpiZone = getKPIZone(kpi)
+          if (!kpiZone || kpiZone.trim() === '') {
+            return false // Activity has zone but KPI has no zone
+          }
+          
+          const kpiZoneNum = extractZoneNumber(kpiZone)
+          // Zone numbers MUST match EXACTLY
+          if (activityZoneNum && kpiZoneNum && activityZoneNum !== kpiZoneNum) {
+            return false // Zone numbers don't match
+          }
+        }
+        
+        return true
       })
       
       // Get earliest date from Planned KPIs (from Date column: target_date or activity_date)
