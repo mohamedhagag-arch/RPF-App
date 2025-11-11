@@ -31,7 +31,7 @@ export function AdvancedAnalytics({ projects, activities, kpis }: AdvancedAnalyt
   const performanceMetrics = useMemo(() => {
     const totalProjects = projects.length
     const activeProjects = projects.filter(p => p.project_status === 'on-going').length
-    const completedProjects = projects.filter(p => p.project_status === 'completed' || p.project_status === 'completed-duration' || p.project_status === 'contract-duration').length
+    const completedProjects = projects.filter(p => p.project_status === 'completed-duration' || p.project_status === 'contract-completed').length
     
     const totalActivities = activities.length
     const completedActivities = activities.filter(a => a.activity_completed).length
@@ -137,7 +137,7 @@ export function AdvancedAnalytics({ projects, activities, kpis }: AdvancedAnalyt
       }
       
       acc[division].totalProjects++
-      if (project.project_status === 'completed') {
+      if (project.project_status === 'completed-duration' || project.project_status === 'contract-completed') {
         acc[division].completedProjects++
       }
       
