@@ -647,325 +647,170 @@ export function KPITableWithCustomization({
         )
       
       case 'value':
-        // ✅ Value = Quantity × Rate (Rate from BOQ Activity)
-        // Display: Total Value + Rate (Value per Unit)
+        // ============================================
+        // ✅ COMPLETE REWRITE: Value Column - Clean & Simple
+        // ============================================
+        // Logic:
+        // 1. Find BOQ Activity matching: Project + Activity Name + Zone
+        // 2. Get Total Value and Total Units from that Activity
+        // 3. Rate = Total Value / Total Units
+        // 4. Total Value = Quantity × Rate
+        // ============================================
+        
         const rawKPIValue = (kpi as any).raw || {}
         
-        // ✅ IMPROVED: Helper function to extract project codes (same logic as projectAnalytics.ts)
-        const extractProjectCodes = (item: any): string[] => {
-          const codes: string[] = []
-          const raw = (item as any).raw || {}
-          
-          const sources = [
-            item.project_full_code,
-            (item as any)['Project Full Code'],
-            raw['Project Full Code'],
-            item.project_code,
-            (item as any)['Project Code'],
-            raw['Project Code']
-          ]
-          
-          for (const source of sources) {
-            if (source) {
-              const code = source.toString().trim()
-              if (code) {
-                codes.push(code)
-                codes.push(code.toUpperCase())
-              }
-            }
-          }
-          
-          return Array.from(new Set(codes))
+        // Helper: Normalize zone (remove project code prefix)
+        const normalizeZone = (zone: string, projectCode: string): string => {
+          if (!zone || !projectCode) return (zone || '').toLowerCase().trim()
+          let normalized = zone.trim()
+          const codeUpper = projectCode.toUpperCase()
+          normalized = normalized.replace(new RegExp(`^${codeUpper}\\s*-\\s*`, 'i'), '').trim()
+          normalized = normalized.replace(new RegExp(`^${codeUpper}\\s+`, 'i'), '').trim()
+          normalized = normalized.replace(new RegExp(`^${codeUpper}-`, 'i'), '').trim()
+          return normalized.toLowerCase()
         }
         
-        // ✅ IMPROVED: Helper function to check if codes match (same logic as projectAnalytics.ts)
-        const codesMatch = (itemCodes: string[], targetCodes: string[]): boolean => {
-          const targetCodesUpper = targetCodes.map(c => c.toUpperCase().trim())
-          for (const itemCode of itemCodes) {
-            const itemCodeUpper = itemCode.toUpperCase().trim()
-            if (targetCodesUpper.includes(itemCodeUpper)) {
-              return true
-            }
-            // Also check if item code starts with any target code (for sub-projects)
-            for (const targetCode of targetCodesUpper) {
-              if (itemCodeUpper.startsWith(targetCode) || targetCode.startsWith(itemCodeUpper)) {
-                return true
-              }
-            }
-          }
-          return false
+        // Helper: Extract zone number
+        const extractZoneNumber = (zone: string): string => {
+          if (!zone || zone.trim() === '') return ''
+          const numberMatch = zone.match(/\d+/)
+          if (numberMatch) return numberMatch[0]
+          return zone.toLowerCase().trim()
         }
         
-        // Get Quantity from raw data first, then fallback to mapped data
+        // Get Quantity
         let quantityForValue = parseFloat(String(rawKPIValue['Quantity'] || '0').replace(/,/g, '')) || 0
         if (quantityForValue === 0) {
           quantityForValue = kpi.quantity || 0
         }
         
-        // ✅ Get Rate from BOQ Activity (Priority: BOQ Activity Rate)
-        let rateForValue = 0
-        let relatedActivity: any = null
-        let totalValueFromActivity = 0
+        // Extract KPI info
+        const kpiProjectCode = (kpi.project_code || rawKPIValue['Project Code'] || '').toString().trim().toUpperCase()
+        const kpiProjectFullCode = (kpi.project_full_code || rawKPIValue['Project Full Code'] || '').toString().trim().toUpperCase()
+        const kpiActivityName = (kpi.activity_name || rawKPIValue['Activity Name'] || '').toLowerCase().trim()
+        const kpiZoneRaw = (kpi.zone || rawKPIValue['Zone'] || rawKPIValue['Zone Number'] || '').toString().trim()
+        const kpiZone = normalizeZone(kpiZoneRaw, kpiProjectCode)
+        const kpiZoneNum = extractZoneNumber(kpiZone)
         
-        // Priority 1: Find related BOQ Activity and get Rate from it (IMPROVED MATCHING)
-        if (allActivities.length > 0) {
-          // Extract KPI project codes
-          const kpiProjectCodes = extractProjectCodes(kpi)
-          const kpiActivityName = (kpi.activity_name || '').toLowerCase().trim()
-          
-          // ✅ Extract KPI Zone from multiple sources
-          const rawKPI = (kpi as any).raw || {}
-          const kpiZoneRaw = (kpi.zone || rawKPI['Zone'] || rawKPI['Zone Number'] || '').toString().trim()
-          // Normalize KPI zone (remove project code prefix if exists)
-          let kpiZone = kpiZoneRaw.toLowerCase().trim()
-          if (kpiZone && kpi.project_code) {
-            const projectCodeUpper = (kpi.project_code || '').toUpperCase()
-            kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
-            kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
-            kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
-          }
-          if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
-          
-          // ✅ IMPROVED: More flexible matching with Zone consideration
-          let relatedActivity = allActivities.find((activity: any) => {
-            // Activity name matching (flexible)
+        // Find matching Activity from BOQ
+        let matchedActivity: any = null
+        if (allActivities.length > 0 && kpiActivityName) {
+          matchedActivity = allActivities.find((activity: any) => {
+            // 1. Activity Name must match
             const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
-            const activityNameMatch = (
-              activityName === kpiActivityName ||
-              activityName.includes(kpiActivityName) ||
-              kpiActivityName.includes(activityName)
+            if (!activityName || (activityName !== kpiActivityName && !activityName.includes(kpiActivityName) && !kpiActivityName.includes(activityName))) {
+              return false
+            }
+            
+            // 2. Project Code must match
+            const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
+            const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+            const projectMatch = (
+              (kpiProjectCode && activityProjectCode && kpiProjectCode === activityProjectCode) ||
+              (kpiProjectFullCode && activityProjectFullCode && kpiProjectFullCode === activityProjectFullCode) ||
+              (kpiProjectCode && activityProjectFullCode && kpiProjectCode === activityProjectFullCode) ||
+              (kpiProjectFullCode && activityProjectCode && kpiProjectFullCode === activityProjectCode)
             )
+            if (!projectMatch) return false
             
-            if (!activityNameMatch) return false
-            
-            // Project code matching (improved - same logic as projectAnalytics.ts)
-            const activityProjectCodes = extractProjectCodes(activity)
-            const projectCodeMatch = codesMatch(activityProjectCodes, kpiProjectCodes)
-            
-            if (!projectCodeMatch) return false
-            
-            // ✅ STRICT Zone matching (if KPI has zone, Activity MUST have matching zone)
-            const rawActivity = (activity as any).raw || {}
-            const activityZoneRaw = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
-            let activityZone = activityZoneRaw.toLowerCase().trim()
-            
-            // Normalize activity zone (remove project code prefix if exists)
-            if (activityZone && activity.project_code) {
-              const projectCodeUpper = (activity.project_code || '').toUpperCase()
-              activityZone = activityZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
-              activityZone = activityZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
-              activityZone = activityZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
-            }
-            
-            // ✅ ULTRA STRICT: If KPI has zone, Activity MUST have zone and they MUST match EXACTLY
+            // 3. Zone MUST match EXACTLY (if KPI has zone)
             if (kpiZone && kpiZone.trim() !== '') {
-              // KPI has zone - Activity MUST have zone
+              const rawActivity = (activity as any).raw || {}
+              const activityZoneRaw = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
+              const activityZone = normalizeZone(activityZoneRaw, activityProjectCode)
+              
               if (!activityZone || activityZone.trim() === '') {
-                return false // Activity has no zone, reject it
+                return false // Activity has no zone but KPI has zone
               }
               
-              // Extract zone numbers for exact matching
-              const extractZoneNumber = (zone: string): string => {
-                if (!zone || zone.trim() === '') return ''
-                const numberMatch = zone.match(/\d+/)
-                if (numberMatch) return numberMatch[0]
-                return zone.toLowerCase().trim()
-              }
-              
-              const kpiZoneNum = extractZoneNumber(kpiZone)
               const activityZoneNum = extractZoneNumber(activityZone)
-              
-              // Zone numbers MUST match EXACTLY
               if (kpiZoneNum && activityZoneNum && kpiZoneNum !== activityZoneNum) {
-                return false // Zone numbers don't match, reject it
-              }
-              
-              // Also check full zone text match (secondary check)
-              const zoneMatch = (
-                kpiZone === activityZone ||
-                kpiZone.includes(activityZone) ||
-                activityZone.includes(kpiZone)
-              )
-              if (!zoneMatch) {
-                return false // Zones don't match, reject it
+                return false // Zone numbers don't match
               }
             }
-            // If KPI has no zone, accept activity (with or without zone)
             
             return true
           })
+        }
+        
+        // Calculate Rate from matched Activity
+        let rateForValue = 0
+        let totalValueFromActivity = 0
+        
+        if (matchedActivity) {
+          const rawActivity = (matchedActivity as any).raw || {}
           
-          if (relatedActivity) {
-            const rawActivity = (relatedActivity as any).raw || {}
-            
-            // ✅ CRITICAL: Verify Zone match BEFORE calculating Rate
-            // Extract and normalize activity zone
-            const activityZoneRaw = (relatedActivity.zone_ref || relatedActivity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
-            let activityZone = activityZoneRaw.toLowerCase().trim()
-            
-            // Normalize activity zone (remove project code prefix)
-            if (activityZone && relatedActivity.project_code) {
-              const projectCodeUpper = (relatedActivity.project_code || '').toUpperCase()
-              activityZone = activityZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
-              activityZone = activityZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
-              activityZone = activityZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
-            }
-            
-            // Extract zone numbers for validation
-            const extractZoneNumber = (zone: string): string => {
-              if (!zone || zone.trim() === '') return ''
-              const numberMatch = zone.match(/\d+/)
-              if (numberMatch) return numberMatch[0]
-              return zone.toLowerCase().trim()
-            }
-            
-            const kpiZoneNum = kpiZone ? extractZoneNumber(kpiZone) : ''
-            const activityZoneNum = activityZone ? extractZoneNumber(activityZone) : ''
-            
-            // ✅ VALIDATION: If KPI has zone, Activity MUST be in same zone
-            if (kpiZone && kpiZone.trim() !== '' && kpiZoneNum) {
-              if (!activityZoneNum || activityZoneNum !== kpiZoneNum) {
-                // Activity is NOT in the correct zone - reject it
-                if (process.env.NODE_ENV === 'development') {
-                  console.warn(`⚠️ [KPI Value] Activity found but Zone mismatch - rejecting:`, {
-                    kpiActivityName: kpi.activity_name,
-                    kpiZone: kpiZone,
-                    kpiZoneNum,
-                    activityName: relatedActivity.activity_name,
-                    activityZone: activityZone || 'N/A',
-                    activityZoneNum: activityZoneNum || 'N/A'
-                  })
-                }
-                relatedActivity = null // Reject this activity
-              }
-            }
-            
-            // ✅ Only calculate Rate if Activity is in correct Zone
-            if (relatedActivity) {
-              // ✅ Get Total Value directly from BOQ Activity in THIS Zone (most accurate)
-              totalValueFromActivity = relatedActivity.total_value || 
-                                     parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
-                                     0
-              
-              // Try to get rate from activity
-              rateForValue = relatedActivity.rate || 
-                            parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
-                            0
-              
-              // ✅ CRITICAL: If rate is 0, calculate from Total Value / Total Units of THIS Zone's Activity
-              if (rateForValue === 0) {
-                const totalUnits = relatedActivity.total_units || 
-                                relatedActivity.planned_units ||
-                                parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
-                                0
-                
-                if (totalUnits > 0 && totalValueFromActivity > 0) {
-                  rateForValue = totalValueFromActivity / totalUnits
-                }
-              }
-            }
-            
-            // ✅ FIX: If quantity is 0 in KPI, try to get from BOQ Activity (only if Activity is in correct Zone)
-            if (relatedActivity && quantityForValue === 0) {
-              const activityQuantity = relatedActivity.total_units || 
-                                     relatedActivity.planned_units ||
-                                     parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
-                                     0
-              if (activityQuantity > 0) {
-                quantityForValue = activityQuantity
-              }
-            }
-            
-            // ✅ DEBUG: Log matching with zone details
-            if (process.env.NODE_ENV === 'development' && relatedActivity) {
-              const rawActivity = (relatedActivity as any).raw || {}
-              const activityZoneRaw = (relatedActivity.zone_ref || relatedActivity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
-              let activityZone = activityZoneRaw.toLowerCase().trim()
-              
-              // Normalize activity zone
-              if (activityZone && relatedActivity.project_code) {
-                const projectCodeUpper = (relatedActivity.project_code || '').toUpperCase()
-                activityZone = activityZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
-                activityZone = activityZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
-                activityZone = activityZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
-              }
-              
-              // Extract zone numbers
-              const extractZoneNumber = (zone: string): string => {
-                if (!zone || zone.trim() === '') return ''
-                const numberMatch = zone.match(/\d+/)
-                if (numberMatch) return numberMatch[0]
-                return zone.toLowerCase().trim()
-              }
-              
-              const kpiZoneNum = kpiZone ? extractZoneNumber(kpiZone) : 'N/A'
-              const activityZoneNum = activityZone ? extractZoneNumber(activityZone) : 'N/A'
-              
-              console.log(`✅ [KPI Value] Matched Activity for ${kpi.activity_name}:`, {
-                kpiId: kpi.id,
-                kpiProjectCodes,
-                kpiZone: kpiZone || 'N/A',
-                kpiZoneNum,
-                activityName: relatedActivity.activity_name,
-                activityProjectCodes: extractProjectCodes(relatedActivity),
-                activityZone: activityZone || 'N/A',
-                activityZoneNum,
-                zoneMatched: kpiZoneNum === activityZoneNum ? 'YES' : 'NO',
-                quantityForValue,
-                rateForValue,
-                totalValueFromActivity,
-                totalUnits: relatedActivity.total_units || relatedActivity.planned_units || 0,
-                rateCalculation: rateForValue > 0 ? `${totalValueFromActivity} / ${relatedActivity.total_units || relatedActivity.planned_units || 0} = ${rateForValue}` : 'N/A'
-              })
-            }
+          // Get Total Value and Total Units from Activity in THIS Zone
+          totalValueFromActivity = matchedActivity.total_value || 
+                                 parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                 0
+          
+          const totalUnits = matchedActivity.total_units || 
+                           matchedActivity.planned_units ||
+                           parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                           0
+          
+          // Calculate Rate = Total Value / Total Units
+          if (totalUnits > 0 && totalValueFromActivity > 0) {
+            rateForValue = totalValueFromActivity / totalUnits
           } else {
-            // ✅ DEBUG: Log when no activity is found
-            if (process.env.NODE_ENV === 'development' && kpis.indexOf(kpi) < 10 && quantityForValue === 0) {
-              console.warn(`⚠️ [KPI Value] No matching activity found for ${kpi.activity_name}:`, {
-                kpiId: kpi.id,
-                kpiProjectCodes: extractProjectCodes(kpi),
-                kpiActivityName,
-                kpiZone: kpiZone || 'N/A',
-                allActivitiesCount: allActivities.length,
-                sampleActivity: allActivities[0] ? {
-                  activity_name: allActivities[0].activity_name,
-                  projectCodes: extractProjectCodes(allActivities[0]),
-                  zone: (allActivities[0].zone_ref || allActivities[0].zone_number || 'N/A')
-                } : null
-              })
-            }
+            // Fallback: Try to get rate directly from activity
+            rateForValue = matchedActivity.rate || 
+                          parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+                          0
+          }
+          
+          // Debug logging
+          if (process.env.NODE_ENV === 'development') {
+            const activityZoneRaw = (matchedActivity.zone_ref || matchedActivity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
+            const activityZone = normalizeZone(activityZoneRaw, matchedActivity.project_code || '')
+            const activityZoneNum = extractZoneNumber(activityZone)
+            
+            console.log(`✅ [KPI Value] Rate calculated for "${kpi.activity_name}":`, {
+              kpiZone: kpiZone || 'N/A',
+              kpiZoneNum: kpiZoneNum || 'N/A',
+              activityZone: activityZone || 'N/A',
+              activityZoneNum: activityZoneNum || 'N/A',
+              totalValueFromActivity,
+              totalUnits,
+              rateForValue,
+              calculation: `${totalValueFromActivity} / ${totalUnits} = ${rateForValue}`
+            })
+          }
+        } else {
+          // Fallback: Try to get rate from KPI raw data
+          rateForValue = parseFloat(String(rawKPIValue['Rate'] || '0').replace(/,/g, '')) || 0
+          
+          if (process.env.NODE_ENV === 'development') {
+            console.warn(`⚠️ [KPI Value] No matching Activity found for "${kpi.activity_name}" (Zone: ${kpiZone || 'N/A'}):`, {
+              kpiProjectCode,
+              kpiActivityName,
+              kpiZone: kpiZone || 'N/A',
+              kpiZoneNum: kpiZoneNum || 'N/A',
+              totalActivities: allActivities.length
+            })
           }
         }
         
-        // Priority 2: Fallback to KPI raw data Rate
-        if (rateForValue === 0) {
-          rateForValue = parseFloat(String(rawKPIValue['Rate'] || '0').replace(/,/g, '')) || 0
-        }
-        
-        // Priority 3: Fallback to Activity Rate in raw KPI data
-        if (rateForValue === 0) {
-          rateForValue = parseFloat(String(rawKPIValue['Activity Rate'] || '0').replace(/,/g, '')) || 0
-        }
-        
-        // ✅ Calculate Total Value: Priority 1 = Quantity × Rate, Priority 2 = Total Value from Activity
+        // Calculate Total Value = Quantity × Rate
         let totalValue = quantityForValue * rateForValue
-        
-        // ✅ FIX: If calculated value is 0 but we have Total Value from Activity, use it
-        if (totalValue === 0 && totalValueFromActivity > 0) {
-          totalValue = totalValueFromActivity
-        }
         
         // Get project currency
         const projectForValue = projects.find(p => {
-          const projectCodes = extractProjectCodes(p)
-          const kpiCodes = extractProjectCodes(kpi)
-          return codesMatch(projectCodes, kpiCodes)
+          const pCode = (p.project_code || '').toString().trim().toUpperCase()
+          const pFullCode = (p.project_full_code || p.project_code || '').toString().trim().toUpperCase()
+          return (
+            (kpiProjectCode && pCode && kpiProjectCode === pCode) ||
+            (kpiProjectFullCode && pFullCode && kpiProjectFullCode === pFullCode) ||
+            (kpiProjectCode && pFullCode && kpiProjectCode === pFullCode) ||
+            (kpiProjectFullCode && pCode && kpiProjectFullCode === pCode)
+          )
         })
         const currencyCode = projectForValue?.currency || 'AED'
         
         return (
           <div className="space-y-1">
-          <div className="text-sm text-gray-900 dark:text-white">
+            <div className="text-sm text-gray-900 dark:text-white">
               Total: {formatCurrencyByCodeSync(totalValue, currencyCode)}
             </div>
             {rateForValue > 0 && (
@@ -977,272 +822,153 @@ export function KPITableWithCustomization({
         )
       
       case 'virtual_value':
-        // ✅ Get Virtual Material Value from project (not from KPI)
+        // ============================================
+        // ✅ COMPLETE REWRITE: Virtual Value Column - Clean & Simple
+        // ============================================
+        // Logic:
+        // 1. Get Virtual Material Value from project
+        // 2. Find BOQ Activity matching: Project + Activity Name + Zone
+        // 3. Get Total Value and Total Units from that Activity
+        // 4. Rate = Total Value / Total Units
+        // 5. Base Value = Quantity × Rate
+        // 6. Total Virtual Value = Virtual Material Value + Base Value
+        // ============================================
+        
         const rawKPIVirtual = (kpi as any).raw || {}
         
-        // ✅ IMPROVED: Use same helper functions as value column
-        const extractProjectCodesVirtual = (item: any): string[] => {
-          const codes: string[] = []
-          const raw = (item as any).raw || {}
-          
-          const sources = [
-            item.project_full_code,
-            (item as any)['Project Full Code'],
-            raw['Project Full Code'],
-            item.project_code,
-            (item as any)['Project Code'],
-            raw['Project Code']
-          ]
-          
-          for (const source of sources) {
-            if (source) {
-              const code = source.toString().trim()
-              if (code) {
-                codes.push(code)
-                codes.push(code.toUpperCase())
-              }
-            }
-          }
-          
-          return Array.from(new Set(codes))
+        // Helper: Normalize zone (same as value column)
+        const normalizeZoneVirtual = (zone: string, projectCode: string): string => {
+          if (!zone || !projectCode) return (zone || '').toLowerCase().trim()
+          let normalized = zone.trim()
+          const codeUpper = projectCode.toUpperCase()
+          normalized = normalized.replace(new RegExp(`^${codeUpper}\\s*-\\s*`, 'i'), '').trim()
+          normalized = normalized.replace(new RegExp(`^${codeUpper}\\s+`, 'i'), '').trim()
+          normalized = normalized.replace(new RegExp(`^${codeUpper}-`, 'i'), '').trim()
+          return normalized.toLowerCase()
         }
         
-        const codesMatchVirtual = (itemCodes: string[], targetCodes: string[]): boolean => {
-          const targetCodesUpper = targetCodes.map(c => c.toUpperCase().trim())
-          for (const itemCode of itemCodes) {
-            const itemCodeUpper = itemCode.toUpperCase().trim()
-            if (targetCodesUpper.includes(itemCodeUpper)) {
-              return true
-            }
-            for (const targetCode of targetCodesUpper) {
-              if (itemCodeUpper.startsWith(targetCode) || targetCode.startsWith(itemCodeUpper)) {
-                return true
-              }
-            }
-          }
-          return false
+        // Helper: Extract zone number (same as value column)
+        const extractZoneNumberVirtual = (zone: string): string => {
+          if (!zone || zone.trim() === '') return ''
+          const numberMatch = zone.match(/\d+/)
+          if (numberMatch) return numberMatch[0]
+          return zone.toLowerCase().trim()
         }
         
-        // Get Virtual Material Value from project (IMPROVED MATCHING)
-        const kpiProjectCodesVirtual = extractProjectCodesVirtual(kpi)
+        // Get Virtual Material Value from project
+        const kpiProjectCodeVirtual = (kpi.project_code || rawKPIVirtual['Project Code'] || '').toString().trim().toUpperCase()
+        const kpiProjectFullCodeVirtual = (kpi.project_full_code || rawKPIVirtual['Project Full Code'] || '').toString().trim().toUpperCase()
+        
         const projectForVirtual = projects.find(p => {
-          const projectCodes = extractProjectCodesVirtual(p)
-          return codesMatchVirtual(projectCodes, kpiProjectCodesVirtual)
+          const pCode = (p.project_code || '').toString().trim().toUpperCase()
+          const pFullCode = (p.project_full_code || p.project_code || '').toString().trim().toUpperCase()
+          return (
+            (kpiProjectCodeVirtual && pCode && kpiProjectCodeVirtual === pCode) ||
+            (kpiProjectFullCodeVirtual && pFullCode && kpiProjectFullCodeVirtual === pFullCode) ||
+            (kpiProjectCodeVirtual && pFullCode && kpiProjectCodeVirtual === pFullCode) ||
+            (kpiProjectFullCodeVirtual && pCode && kpiProjectFullCodeVirtual === pCode)
+          )
         })
         
-        // Priority 1: Get Virtual Material Value from project
         let virtualMaterialValue = 0
         if (projectForVirtual) {
           virtualMaterialValue = parseFloat(String(projectForVirtual.virtual_material_value || '0').replace(/,/g, '')) || 0
         }
-        
-        // Priority 2: Fallback to raw KPI data if project value not found
         if (virtualMaterialValue === 0) {
-          virtualMaterialValue = parseFloat(String(
-            rawKPIVirtual['Virtual Material Value'] || 
-            getKPIField(kpi, 'Virtual Material Value') || 
-            getKPIField(kpi, 'Virtual Material') || 
-            '0'
-          ).replace(/,/g, '')) || 0
+          virtualMaterialValue = parseFloat(String(rawKPIVirtual['Virtual Material Value'] || '0').replace(/,/g, '')) || 0
         }
         
-        // Get Base Value (KPI Value) - Value = Quantity × Rate (Rate from BOQ Activity)
+        // Get Quantity
         let quantityForVirtual = parseFloat(String(rawKPIVirtual['Quantity'] || '0').replace(/,/g, '')) || 0
         if (quantityForVirtual === 0) {
           quantityForVirtual = kpi.quantity || 0
         }
         
-        // ✅ Get Rate from BOQ Activity (IMPROVED MATCHING - same logic as value column)
-        let rateForVirtual = 0
-        let totalValueFromActivityVirtual = 0
+        // Extract KPI info
+        const kpiActivityNameVirtual = (kpi.activity_name || rawKPIVirtual['Activity Name'] || '').toLowerCase().trim()
+        const kpiZoneRawVirtual = (kpi.zone || rawKPIVirtual['Zone'] || rawKPIVirtual['Zone Number'] || '').toString().trim()
+        const kpiZoneVirtual = normalizeZoneVirtual(kpiZoneRawVirtual, kpiProjectCodeVirtual)
+        const kpiZoneNumVirtual = extractZoneNumberVirtual(kpiZoneVirtual)
         
-        // Priority 1: Find related BOQ Activity and get Rate from it (IMPROVED MATCHING)
-        if (allActivities.length > 0) {
-          const kpiActivityNameVirtual = (kpi.activity_name || '').toLowerCase().trim()
-          
-          // ✅ IMPROVED: More flexible matching
-          // ✅ Extract KPI Zone for virtual value matching
-          const kpiZoneVirtualRaw = (kpi.zone || rawKPIVirtual['Zone'] || rawKPIVirtual['Zone Number'] || '').toString().trim()
-          let kpiZoneVirtual = kpiZoneVirtualRaw.toLowerCase().trim()
-          if (kpiZoneVirtual && kpi.project_code) {
-            const projectCodeUpper = (kpi.project_code || '').toUpperCase()
-            kpiZoneVirtual = kpiZoneVirtual.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
-            kpiZoneVirtual = kpiZoneVirtual.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
-            kpiZoneVirtual = kpiZoneVirtual.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
-          }
-          if (!kpiZoneVirtual) kpiZoneVirtual = kpiZoneVirtualRaw.toLowerCase().trim()
-          
-          let relatedActivityVirtual = allActivities.find((activity: any) => {
-            // Activity name matching (flexible)
+        // Find matching Activity from BOQ (same logic as value column)
+        let matchedActivityVirtual: any = null
+        if (allActivities.length > 0 && kpiActivityNameVirtual) {
+          matchedActivityVirtual = allActivities.find((activity: any) => {
+            // 1. Activity Name must match
             const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
-            const activityNameMatch = (
-              activityName === kpiActivityNameVirtual ||
-              activityName.includes(kpiActivityNameVirtual) ||
-              kpiActivityNameVirtual.includes(activityName)
+            if (!activityName || (activityName !== kpiActivityNameVirtual && !activityName.includes(kpiActivityNameVirtual) && !kpiActivityNameVirtual.includes(activityName))) {
+              return false
+            }
+            
+            // 2. Project Code must match
+            const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
+            const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+            const projectMatch = (
+              (kpiProjectCodeVirtual && activityProjectCode && kpiProjectCodeVirtual === activityProjectCode) ||
+              (kpiProjectFullCodeVirtual && activityProjectFullCode && kpiProjectFullCodeVirtual === activityProjectFullCode) ||
+              (kpiProjectCodeVirtual && activityProjectFullCode && kpiProjectCodeVirtual === activityProjectFullCode) ||
+              (kpiProjectFullCodeVirtual && activityProjectCode && kpiProjectFullCodeVirtual === activityProjectCode)
             )
+            if (!projectMatch) return false
             
-            if (!activityNameMatch) return false
-            
-            // Project code matching (improved - same logic as projectAnalytics.ts)
-            const activityProjectCodes = extractProjectCodesVirtual(activity)
-            const projectCodeMatch = codesMatchVirtual(activityProjectCodes, kpiProjectCodesVirtual)
-            
-            if (!projectCodeMatch) return false
-            
-            // ✅ STRICT Zone matching (if KPI has zone, Activity MUST have matching zone)
-            const rawActivityVirtual = (activity as any).raw || {}
-            const activityZoneRaw = (activity.zone_ref || activity.zone_number || rawActivityVirtual['Zone Ref'] || rawActivityVirtual['Zone Number'] || '').toString().trim()
-            let activityZone = activityZoneRaw.toLowerCase().trim()
-            
-            // Normalize activity zone (remove project code prefix if exists)
-            if (activityZone && activity.project_code) {
-              const projectCodeUpper = (activity.project_code || '').toUpperCase()
-              activityZone = activityZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
-              activityZone = activityZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
-              activityZone = activityZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
-            }
-            
-            // ✅ ULTRA STRICT: If KPI has zone, Activity MUST have zone and they MUST match EXACTLY
+            // 3. Zone MUST match EXACTLY (if KPI has zone)
             if (kpiZoneVirtual && kpiZoneVirtual.trim() !== '') {
-              // KPI has zone - Activity MUST have zone
+              const rawActivity = (activity as any).raw || {}
+              const activityZoneRaw = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
+              const activityZone = normalizeZoneVirtual(activityZoneRaw, activityProjectCode)
+              
               if (!activityZone || activityZone.trim() === '') {
-                return false // Activity has no zone, reject it
+                return false // Activity has no zone but KPI has zone
               }
               
-              // Extract zone numbers for exact matching
-              const extractZoneNumber = (zone: string): string => {
-                if (!zone || zone.trim() === '') return ''
-                const numberMatch = zone.match(/\d+/)
-                if (numberMatch) return numberMatch[0]
-                return zone.toLowerCase().trim()
-              }
-              
-              const kpiZoneNum = extractZoneNumber(kpiZoneVirtual)
-              const activityZoneNum = extractZoneNumber(activityZone)
-              
-              // Zone numbers MUST match EXACTLY
-              if (kpiZoneNum && activityZoneNum && kpiZoneNum !== activityZoneNum) {
-                return false // Zone numbers don't match, reject it
-              }
-              
-              // Also check full zone text match (secondary check)
-              const zoneMatch = (
-                kpiZoneVirtual === activityZone ||
-                kpiZoneVirtual.includes(activityZone) ||
-                activityZone.includes(kpiZoneVirtual)
-              )
-              if (!zoneMatch) {
-                return false // Zones don't match, reject it
+              const activityZoneNum = extractZoneNumberVirtual(activityZone)
+              if (kpiZoneNumVirtual && activityZoneNum && kpiZoneNumVirtual !== activityZoneNum) {
+                return false // Zone numbers don't match
               }
             }
-            // If KPI has no zone, accept activity (with or without zone)
             
             return true
           })
-          
-          if (relatedActivityVirtual) {
-            const rawActivityVirtual = (relatedActivityVirtual as any).raw || {}
-            
-            // ✅ CRITICAL: Verify Zone match BEFORE calculating Rate
-            // Extract and normalize activity zone
-            const activityZoneRawVirtual = (relatedActivityVirtual.zone_ref || relatedActivityVirtual.zone_number || rawActivityVirtual['Zone Ref'] || rawActivityVirtual['Zone Number'] || '').toString().trim()
-            let activityZoneVirtual = activityZoneRawVirtual.toLowerCase().trim()
-            
-            // Normalize activity zone (remove project code prefix)
-            if (activityZoneVirtual && relatedActivityVirtual.project_code) {
-              const projectCodeUpper = (relatedActivityVirtual.project_code || '').toUpperCase()
-              activityZoneVirtual = activityZoneVirtual.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
-              activityZoneVirtual = activityZoneVirtual.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
-              activityZoneVirtual = activityZoneVirtual.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
-            }
-            
-            // Extract zone numbers for validation
-            const extractZoneNumberVirtual = (zone: string): string => {
-              if (!zone || zone.trim() === '') return ''
-              const numberMatch = zone.match(/\d+/)
-              if (numberMatch) return numberMatch[0]
-              return zone.toLowerCase().trim()
-            }
-            
-            const kpiZoneNumVirtual = kpiZoneVirtual ? extractZoneNumberVirtual(kpiZoneVirtual) : ''
-            const activityZoneNumVirtual = activityZoneVirtual ? extractZoneNumberVirtual(activityZoneVirtual) : ''
-            
-            // ✅ VALIDATION: If KPI has zone, Activity MUST be in same zone
-            if (kpiZoneVirtual && kpiZoneVirtual.trim() !== '' && kpiZoneNumVirtual) {
-              if (!activityZoneNumVirtual || activityZoneNumVirtual !== kpiZoneNumVirtual) {
-                // Activity is NOT in the correct zone - reject it
-                if (process.env.NODE_ENV === 'development') {
-                  console.warn(`⚠️ [KPI Virtual Value] Activity found but Zone mismatch - rejecting:`, {
-                    kpiActivityName: kpi.activity_name,
-                    kpiZone: kpiZoneVirtual,
-                    kpiZoneNum: kpiZoneNumVirtual,
-                    activityName: relatedActivityVirtual.activity_name,
-                    activityZone: activityZoneVirtual || 'N/A',
-                    activityZoneNum: activityZoneNumVirtual || 'N/A'
-                  })
-                }
-                relatedActivityVirtual = null // Reject this activity
-              }
-            }
-            
-            // ✅ Only calculate Rate if Activity is in correct Zone
-            if (relatedActivityVirtual) {
-              // ✅ Get Total Value directly from BOQ Activity in THIS Zone (most accurate)
-              totalValueFromActivityVirtual = relatedActivityVirtual.total_value || 
-                                             parseFloat(String(rawActivityVirtual['Total Value'] || '0').replace(/,/g, '')) || 
-                                             0
-              
-              rateForVirtual = relatedActivityVirtual.rate || 
-                              parseFloat(String(rawActivityVirtual['Rate'] || '0').replace(/,/g, '')) || 
-                              0
-              
-              // ✅ CRITICAL: If rate is 0, calculate from Total Value / Total Units of THIS Zone's Activity
-              if (rateForVirtual === 0) {
-                const totalUnitsVirtual = relatedActivityVirtual.total_units || 
-                                        relatedActivityVirtual.planned_units ||
-                                        parseFloat(String(rawActivityVirtual['Total Units'] || rawActivityVirtual['Planned Units'] || '0').replace(/,/g, '')) || 
-                                        0
-                
-                if (totalUnitsVirtual > 0 && totalValueFromActivityVirtual > 0) {
-                  rateForVirtual = totalValueFromActivityVirtual / totalUnitsVirtual
-                }
-              }
-            }
-            
-            // ✅ FIX: If quantity is 0 in KPI, try to get from BOQ Activity (only if Activity is in correct Zone)
-            if (relatedActivityVirtual && quantityForVirtual === 0) {
-              const activityQuantity = relatedActivityVirtual.total_units || 
-                                     relatedActivityVirtual.planned_units ||
-                                     parseFloat(String(rawActivityVirtual['Total Units'] || rawActivityVirtual['Planned Units'] || '0').replace(/,/g, '')) || 
-                                     0
-              if (activityQuantity > 0) {
-                quantityForVirtual = activityQuantity
-              }
-            }
-          }
         }
         
-        // Priority 2: Fallback to KPI raw data Rate
-        if (rateForVirtual === 0) {
+        // Calculate Rate from matched Activity
+        let rateForVirtual = 0
+        let totalValueFromActivityVirtual = 0
+        
+        if (matchedActivityVirtual) {
+          const rawActivityVirtual = (matchedActivityVirtual as any).raw || {}
+          
+          // Get Total Value and Total Units from Activity in THIS Zone
+          totalValueFromActivityVirtual = matchedActivityVirtual.total_value || 
+                                         parseFloat(String(rawActivityVirtual['Total Value'] || '0').replace(/,/g, '')) || 
+                                         0
+          
+          const totalUnitsVirtual = matchedActivityVirtual.total_units || 
+                                   matchedActivityVirtual.planned_units ||
+                                   parseFloat(String(rawActivityVirtual['Total Units'] || rawActivityVirtual['Planned Units'] || '0').replace(/,/g, '')) || 
+                                   0
+          
+          // Calculate Rate = Total Value / Total Units
+          if (totalUnitsVirtual > 0 && totalValueFromActivityVirtual > 0) {
+            rateForVirtual = totalValueFromActivityVirtual / totalUnitsVirtual
+          } else {
+            // Fallback: Try to get rate directly from activity
+            rateForVirtual = matchedActivityVirtual.rate || 
+                            parseFloat(String(rawActivityVirtual['Rate'] || '0').replace(/,/g, '')) || 
+                            0
+          }
+        } else {
+          // Fallback: Try to get rate from KPI raw data
           rateForVirtual = parseFloat(String(rawKPIVirtual['Rate'] || '0').replace(/,/g, '')) || 0
         }
         
-        // Priority 3: Fallback to Activity Rate in raw KPI data
-        if (rateForVirtual === 0) {
-          rateForVirtual = parseFloat(String(rawKPIVirtual['Activity Rate'] || '0').replace(/,/g, '')) || 0
-        }
-        
-        // ✅ Calculate Base Value: Priority 1 = Quantity × Rate, Priority 2 = Total Value from Activity
+        // Calculate Base Value = Quantity × Rate
         let baseValue = quantityForVirtual * rateForVirtual
         
-        // ✅ FIX: If calculated value is 0 but we have Total Value from Activity, use it
-        if (baseValue === 0 && totalValueFromActivityVirtual > 0) {
-          baseValue = totalValueFromActivityVirtual
-        }
-        
+        // Total Virtual Value = Virtual Material Value + Base Value
         const totalVirtualValue = virtualMaterialValue + baseValue
         
-        // Get project currency (already found above as projectForVirtual)
+        // Get project currency
         const currencyCodeForVirtual = projectForVirtual?.currency || 'AED'
         
         return (
