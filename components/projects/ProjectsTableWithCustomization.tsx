@@ -2879,8 +2879,8 @@ export function ProjectsTableWithCustomization({
               projectActivities = analytics.activities
             } else if (allActivities.length > 0) {
               projectActivities = filterActivitiesByProject(allActivities, projectCode, projectSubCode, projectFullCode)
-            }
-            
+          }
+          
             // 3. جلب KPIs للمشروع
             let projectKPIs: any[] = []
             if (analytics && analytics.kpis && analytics.kpis.length > 0) {
@@ -2972,14 +2972,14 @@ export function ProjectsTableWithCustomization({
                 }
               } else if (activities.length > 0 || kpis.length > 0) {
                 // ✅ فقط إذا كانت هناك Actual KPIs، نحسب الحالة
-                const statusData: ProjectStatusData = {
-                  project_id: project.id,
+            const statusData: ProjectStatusData = {
+              project_id: project.id,
                   project_code: projectCode,
-                  project_name: project.project_name || '',
-                  project_start_date: project.project_start_date || project.created_at || new Date().toISOString(),
-                  project_end_date: project.project_completion_date || getProjectField(project, 'Planned Completion Date') || new Date().toISOString(),
+              project_name: project.project_name || '',
+              project_start_date: project.project_start_date || project.created_at || new Date().toISOString(),
+              project_end_date: project.project_completion_date || getProjectField(project, 'Planned Completion Date') || new Date().toISOString(),
                   project_award_date: undefined, // ✅ لا نستخدم Project Award Date
-                  current_date: new Date().toISOString(),
+              current_date: new Date().toISOString(),
                   activities,
                   kpis
                 }
@@ -3037,8 +3037,8 @@ export function ProjectsTableWithCustomization({
                     result.confidence = 95
                   }
                 }
-              }
-              
+            }
+            
               // ✅ تحديث الحالة في قاعدة البيانات إذا تغيرت
               const currentStatus = project.project_status || 'upcoming'
               if (calculatedStatus !== currentStatus && result) {
@@ -3062,7 +3062,7 @@ export function ProjectsTableWithCustomization({
                 })
                 
                 console.log(`📊 [Status] ${projectCode}:`, {
-                  status: calculatedStatus,
+                status: calculatedStatus,
                   oldStatus: currentStatus,
                   changed: calculatedStatus !== currentStatus,
                   reason: result.reason,

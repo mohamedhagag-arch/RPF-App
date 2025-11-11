@@ -2689,11 +2689,11 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
             ).values()
           )
           return uniqueActivities.map(a => ({
-            activity_name: a.activity_name,
-            project_full_code: a.project_full_code || a.project_code,
-            zone: a.zone_ref || a.zone_number || '',
-            unit: a.unit || '',
-            activity_division: a.activity_division || ''
+          activity_name: a.activity_name,
+          project_full_code: a.project_full_code || a.project_code,
+          zone: a.zone_ref || a.zone_number || '',
+          unit: a.unit || '',
+          activity_division: a.activity_division || ''
           }))
         })()}
         selectedProjects={selectedProjects}

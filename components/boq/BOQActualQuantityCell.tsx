@@ -67,7 +67,7 @@ export function BOQActualQuantityCell({ activity, allKPIs }: BOQActualQuantityCe
       // ✅ Activity name matching
       const kpiActivityName = (kpi.activity_name || '').toLowerCase().trim()
       const activityNameMatch = kpiActivityName.includes(activityNameLower) || 
-                                activityNameLower.includes(kpiActivityName)
+             activityNameLower.includes(kpiActivityName)
       if (!activityNameMatch) return false
       
       // ✅ Zone matching (if both have zones, they must match)

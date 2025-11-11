@@ -739,27 +739,27 @@ export function KPITableWithCustomization({
         
         if (matchedActivity) {
           const rawActivity = (matchedActivity as any).raw || {}
-          
+            
           // Get Total Value and Total Units from Activity in THIS Zone
           totalValueFromActivity = matchedActivity.total_value || 
-                                 parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
-                                 0
-          
+                                   parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                   0
+            
           const totalUnits = matchedActivity.total_units || 
                            matchedActivity.planned_units ||
-                           parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
-                           0
-          
+                              parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                              0
+              
           // Calculate Rate = Total Value / Total Units
-          if (totalUnits > 0 && totalValueFromActivity > 0) {
-            rateForValue = totalValueFromActivity / totalUnits
+              if (totalUnits > 0 && totalValueFromActivity > 0) {
+                rateForValue = totalValueFromActivity / totalUnits
           } else {
             // Fallback: Try to get rate directly from activity
             rateForValue = matchedActivity.rate || 
                           parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
-                          0
-          }
-          
+                                     0
+            }
+            
           // Debug logging
           if (process.env.NODE_ENV === 'development') {
             const activityZoneRaw = (matchedActivity.zone_ref || matchedActivity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
@@ -771,20 +771,20 @@ export function KPITableWithCustomization({
               kpiZoneNum: kpiZoneNum || 'N/A',
               activityZone: activityZone || 'N/A',
               activityZoneNum: activityZoneNum || 'N/A',
-              totalValueFromActivity,
+                totalValueFromActivity,
               totalUnits,
               rateForValue,
               calculation: `${totalValueFromActivity} / ${totalUnits} = ${rateForValue}`
-            })
-          }
-        } else {
+              })
+            }
+          } else {
           // Fallback: Try to get rate from KPI raw data
           rateForValue = parseFloat(String(rawKPIValue['Rate'] || '0').replace(/,/g, '')) || 0
           
           if (process.env.NODE_ENV === 'development') {
             console.warn(`⚠️ [KPI Value] No matching Activity found for "${kpi.activity_name}" (Zone: ${kpiZone || 'N/A'}):`, {
               kpiProjectCode,
-              kpiActivityName,
+                kpiActivityName,
               kpiZone: kpiZone || 'N/A',
               kpiZoneNum: kpiZoneNum || 'N/A',
               totalActivities: allActivities.length
@@ -810,7 +810,7 @@ export function KPITableWithCustomization({
         
         return (
           <div className="space-y-1">
-            <div className="text-sm text-gray-900 dark:text-white">
+          <div className="text-sm text-gray-900 dark:text-white">
               Total: {formatCurrencyByCodeSync(totalValue, currencyCode)}
             </div>
             {rateForValue > 0 && (
@@ -937,25 +937,25 @@ export function KPITableWithCustomization({
         
         if (matchedActivityVirtual) {
           const rawActivityVirtual = (matchedActivityVirtual as any).raw || {}
-          
+            
           // Get Total Value and Total Units from Activity in THIS Zone
           totalValueFromActivityVirtual = matchedActivityVirtual.total_value || 
-                                         parseFloat(String(rawActivityVirtual['Total Value'] || '0').replace(/,/g, '')) || 
-                                         0
-          
+                                           parseFloat(String(rawActivityVirtual['Total Value'] || '0').replace(/,/g, '')) || 
+                                           0
+            
           const totalUnitsVirtual = matchedActivityVirtual.total_units || 
                                    matchedActivityVirtual.planned_units ||
-                                   parseFloat(String(rawActivityVirtual['Total Units'] || rawActivityVirtual['Planned Units'] || '0').replace(/,/g, '')) || 
-                                   0
-          
+                                      parseFloat(String(rawActivityVirtual['Total Units'] || rawActivityVirtual['Planned Units'] || '0').replace(/,/g, '')) || 
+                                      0
+              
           // Calculate Rate = Total Value / Total Units
-          if (totalUnitsVirtual > 0 && totalValueFromActivityVirtual > 0) {
-            rateForVirtual = totalValueFromActivityVirtual / totalUnitsVirtual
+              if (totalUnitsVirtual > 0 && totalValueFromActivityVirtual > 0) {
+                rateForVirtual = totalValueFromActivityVirtual / totalUnitsVirtual
           } else {
             // Fallback: Try to get rate directly from activity
             rateForVirtual = matchedActivityVirtual.rate || 
                             parseFloat(String(rawActivityVirtual['Rate'] || '0').replace(/,/g, '')) || 
-                            0
+                                     0
           }
         } else {
           // Fallback: Try to get rate from KPI raw data

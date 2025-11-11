@@ -108,11 +108,12 @@ export function UnifiedProjectTypesManager() {
   const [showImportMenu, setShowImportMenu] = useState(false)
   
   // Units and Divisions for dropdowns
-  const [availableUnits] = useState<string[]>([
-    'No.', 'Meter', 'Running Meter', 'Square Meter', 'Cubic Meter', 
-    'm²', 'm³', 'Lump Sum', 'Ton', 'Kilogram', 'Day', 'Week', 'Month', 'Set', 'Linear Meter'
-  ])
+  const [availableUnits, setAvailableUnits] = useState<string[]>([])
   const [availableDivisions, setAvailableDivisions] = useState<string[]>([])
+  const [showCreateUnitModal, setShowCreateUnitModal] = useState(false)
+  const [newUnitName, setNewUnitName] = useState('')
+  const [newUnitCode, setNewUnitCode] = useState('')
+  const [newUnitDescription, setNewUnitDescription] = useState('')
   
   // Form State - Project Scope
   const [scopeFormData, setScopeFormData] = useState({
@@ -154,6 +155,39 @@ export function UnifiedProjectTypesManager() {
     }
     loadDivisions()
   }, [])
+
+  // Load Units from database
+  useEffect(() => {
+    const loadUnits = async () => {
+      try {
+        const { data, error } = await (supabase as any)
+          .from('units')
+          .select('name')
+          .eq('is_active', true)
+          .order('name', { ascending: true })
+        
+        if (error) throw error
+        
+        if (data && data.length > 0) {
+          setAvailableUnits(data.map((u: any) => u.name))
+        } else {
+          // Fallback to default units if database is empty
+          setAvailableUnits([
+            'No.', 'Meter', 'Running Meter', 'Square Meter', 'Cubic Meter', 
+            'm²', 'm³', 'Lump Sum', 'Ton', 'Kilogram', 'Day', 'Week', 'Month', 'Set', 'Linear Meter'
+          ])
+        }
+      } catch (error) {
+        console.error('Error loading units:', error)
+        // Fallback to default units
+        setAvailableUnits([
+          'No.', 'Meter', 'Running Meter', 'Square Meter', 'Cubic Meter', 
+          'm²', 'm³', 'Lump Sum', 'Ton', 'Kilogram', 'Day', 'Week', 'Month', 'Set', 'Linear Meter'
+        ])
+      }
+    }
+    loadUnits()
+  }, [supabase, showCreateUnitModal]) // Reload when modal closes
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -1870,7 +1904,13 @@ export function UnifiedProjectTypesManager() {
                   </label>
                   <select
                     value={activityFormData.default_unit}
-                    onChange={(e) => setActivityFormData({ ...activityFormData, default_unit: e.target.value })}
+                    onChange={(e) => {
+                      if (e.target.value === '__create_new__') {
+                        setShowCreateUnitModal(true)
+                      } else {
+                        setActivityFormData({ ...activityFormData, default_unit: e.target.value })
+                      }
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
                   >
                     <option value="">Select Unit...</option>
@@ -1879,6 +1919,9 @@ export function UnifiedProjectTypesManager() {
                         {unit}
                       </option>
                     ))}
+                    <option value="__create_new__" className="font-semibold text-blue-600">
+                      + Create New Unit
+                    </option>
                   </select>
                 </div>
 
@@ -1967,6 +2010,139 @@ export function UnifiedProjectTypesManager() {
                   disabled={loading}
                 >
                   {editingActivity ? 'Update' : 'Create'}
+                </ModernButton>
+              </div>
+            </div>
+          </ModernCard>
+        </div>
+      )}
+
+      {/* Create New Unit Modal */}
+      {showCreateUnitModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <ModernCard className="w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Create New Unit</h3>
+              <button
+                onClick={() => {
+                  setShowCreateUnitModal(false)
+                  setNewUnitName('')
+                  setNewUnitCode('')
+                  setNewUnitDescription('')
+                }}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Unit Name <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  value={newUnitName}
+                  onChange={(e) => setNewUnitName(e.target.value)}
+                  placeholder="e.g., Meter, Kilogram, Day"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Unit Code (Optional)
+                </label>
+                <Input
+                  value={newUnitCode}
+                  onChange={(e) => setNewUnitCode(e.target.value)}
+                  placeholder="e.g., m, kg, d"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Description (Optional)
+                </label>
+                <textarea
+                  value={newUnitDescription}
+                  onChange={(e) => setNewUnitDescription(e.target.value)}
+                  placeholder="Brief description of the unit"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                  rows={3}
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-4">
+                <ModernButton
+                  onClick={() => {
+                    setShowCreateUnitModal(false)
+                    setNewUnitName('')
+                    setNewUnitCode('')
+                    setNewUnitDescription('')
+                  }}
+                  variant="outline"
+                  size="md"
+                >
+                  Cancel
+                </ModernButton>
+                <ModernButton
+                  onClick={async () => {
+                    if (!newUnitName.trim()) {
+                      setError('Unit name is required')
+                      return
+                    }
+
+                    try {
+                      setLoading(true)
+                      setError('')
+                      
+                      const { data, error: createError } = await (supabase as any)
+                        .from('units')
+                        .insert({
+                          name: newUnitName.trim(),
+                          code: newUnitCode.trim() || null,
+                          description: newUnitDescription.trim() || null,
+                          is_active: true,
+                          usage_count: 0
+                        })
+                        .select()
+                        .single()
+                      
+                      if (createError) throw createError
+                      
+                      setSuccess('Unit created successfully')
+                      setActivityFormData({ ...activityFormData, default_unit: newUnitName.trim() })
+                      setShowCreateUnitModal(false)
+                      setNewUnitName('')
+                      setNewUnitCode('')
+                      setNewUnitDescription('')
+                      
+                      // Reload units
+                      const { data: unitsData } = await (supabase as any)
+                        .from('units')
+                        .select('name')
+                        .eq('is_active', true)
+                        .order('name', { ascending: true })
+                      
+                      if (unitsData && unitsData.length > 0) {
+                        setAvailableUnits(unitsData.map((u: any) => u.name))
+                      }
+                      
+                      setTimeout(() => setSuccess(''), 3000)
+                    } catch (err: any) {
+                      console.error('Error creating unit:', err)
+                      setError('Failed to create unit: ' + err.message)
+                    } finally {
+                      setLoading(false)
+                    }
+                  }}
+                  variant="primary"
+                  size="md"
+                  icon={<Save className="h-4 w-4" />}
+                  disabled={loading || !newUnitName.trim()}
+                >
+                  Create Unit
                 </ModernButton>
               </div>
             </div>
