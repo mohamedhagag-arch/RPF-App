@@ -96,7 +96,7 @@ export function DataInsights({ expanded = false }: DataInsightsProps) {
         const kpis = (kpisResult.data || []).map(mapKPIFromDB)
 
         // Calculate project distribution
-        const projectStatuses = ['upcoming', 'site-preparation', 'on-going', 'completed', 'completed-duration', 'contract-duration', 'on-hold', 'cancelled']
+        const projectStatuses = ['upcoming', 'site-preparation', 'on-going', 'completed-duration', 'contract-completed', 'on-hold', 'cancelled']
         const projectDistribution = projectStatuses.map(status => {
           const count = projects.filter(p => p.project_status === status).length
           return {
@@ -163,7 +163,7 @@ export function DataInsights({ expanded = false }: DataInsightsProps) {
         const averageProjectValue = projects.length > 0 ? totalValue / projects.length : 0
 
         // Calculate time insights
-        const completedProjects = projects.filter(p => p.project_status === 'completed')
+        const completedProjects = projects.filter(p => p.project_status === 'completed-duration' || p.project_status === 'contract-completed')
         const onTimeProjects = completedProjects.filter(p => {
           // This would need actual deadline data to be accurate
           return true // Placeholder
