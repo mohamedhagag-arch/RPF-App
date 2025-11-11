@@ -744,23 +744,53 @@ export function KPITableWithCustomization({
             
             if (!projectCodeMatch) return false
             
-            // ✅ Zone matching (if both KPI and Activity have zones, they must match)
+            // ✅ STRICT Zone matching (if KPI has zone, Activity MUST have matching zone)
             const rawActivity = (activity as any).raw || {}
             const activityZoneRaw = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
-            const activityZone = activityZoneRaw.toLowerCase().trim()
+            let activityZone = activityZoneRaw.toLowerCase().trim()
             
-            // If both have zones, they must match (for precision)
-            if (kpiZone && activityZone) {
+            // Normalize activity zone (remove project code prefix if exists)
+            if (activityZone && activity.project_code) {
+              const projectCodeUpper = (activity.project_code || '').toUpperCase()
+              activityZone = activityZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+              activityZone = activityZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
+              activityZone = activityZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
+            }
+            
+            // ✅ ULTRA STRICT: If KPI has zone, Activity MUST have zone and they MUST match EXACTLY
+            if (kpiZone && kpiZone.trim() !== '') {
+              // KPI has zone - Activity MUST have zone
+              if (!activityZone || activityZone.trim() === '') {
+                return false // Activity has no zone, reject it
+              }
+              
+              // Extract zone numbers for exact matching
+              const extractZoneNumber = (zone: string): string => {
+                if (!zone || zone.trim() === '') return ''
+                const numberMatch = zone.match(/\d+/)
+                if (numberMatch) return numberMatch[0]
+                return zone.toLowerCase().trim()
+              }
+              
+              const kpiZoneNum = extractZoneNumber(kpiZone)
+              const activityZoneNum = extractZoneNumber(activityZone)
+              
+              // Zone numbers MUST match EXACTLY
+              if (kpiZoneNum && activityZoneNum && kpiZoneNum !== activityZoneNum) {
+                return false // Zone numbers don't match, reject it
+              }
+              
+              // Also check full zone text match (secondary check)
               const zoneMatch = (
                 kpiZone === activityZone ||
                 kpiZone.includes(activityZone) ||
                 activityZone.includes(kpiZone)
               )
-              // If zones don't match, skip this activity
-              if (!zoneMatch) return false
+              if (!zoneMatch) {
+                return false // Zones don't match, reject it
+              }
             }
-            // If KPI has zone but activity doesn't, or vice versa, still allow match (flexible)
-            // This handles cases where zone might not be set in one of them
+            // If KPI has no zone, accept activity (with or without zone)
             
             return true
           })
@@ -801,22 +831,46 @@ export function KPITableWithCustomization({
               }
             }
             
-            // ✅ DEBUG: Log matching for first few KPIs with 0 values
-            if (process.env.NODE_ENV === 'development' && kpis.indexOf(kpi) < 10 && (quantityForValue === 0 || rateForValue === 0)) {
+            // ✅ DEBUG: Log matching with zone details
+            if (process.env.NODE_ENV === 'development') {
               const rawActivity = (relatedActivity as any).raw || {}
-              const activityZone = (relatedActivity.zone_ref || relatedActivity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
-              console.log(`🔍 [KPI Value] Matching for ${kpi.activity_name}:`, {
+              const activityZoneRaw = (relatedActivity.zone_ref || relatedActivity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
+              let activityZone = activityZoneRaw.toLowerCase().trim()
+              
+              // Normalize activity zone
+              if (activityZone && relatedActivity.project_code) {
+                const projectCodeUpper = (relatedActivity.project_code || '').toUpperCase()
+                activityZone = activityZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+                activityZone = activityZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
+                activityZone = activityZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
+              }
+              
+              // Extract zone numbers
+              const extractZoneNumber = (zone: string): string => {
+                if (!zone || zone.trim() === '') return ''
+                const numberMatch = zone.match(/\d+/)
+                if (numberMatch) return numberMatch[0]
+                return zone.toLowerCase().trim()
+              }
+              
+              const kpiZoneNum = kpiZone ? extractZoneNumber(kpiZone) : 'N/A'
+              const activityZoneNum = activityZone ? extractZoneNumber(activityZone) : 'N/A'
+              
+              console.log(`✅ [KPI Value] Matched Activity for ${kpi.activity_name}:`, {
                 kpiId: kpi.id,
                 kpiProjectCodes,
                 kpiZone: kpiZone || 'N/A',
+                kpiZoneNum,
                 activityName: relatedActivity.activity_name,
                 activityProjectCodes: extractProjectCodes(relatedActivity),
                 activityZone: activityZone || 'N/A',
-                zoneMatched: kpiZone && activityZone ? (kpiZone === activityZone.toLowerCase() || kpiZone.includes(activityZone.toLowerCase()) || activityZone.toLowerCase().includes(kpiZone)) : 'N/A',
+                activityZoneNum,
+                zoneMatched: kpiZoneNum === activityZoneNum ? 'YES' : 'NO',
                 quantityForValue,
                 rateForValue,
                 totalValueFromActivity,
-                matched: true
+                totalUnits: relatedActivity.total_units || relatedActivity.planned_units || 0,
+                rateCalculation: rateForValue > 0 ? `${totalValueFromActivity} / ${relatedActivity.total_units || relatedActivity.planned_units || 0} = ${rateForValue}` : 'N/A'
               })
             }
           } else {
@@ -990,22 +1044,53 @@ export function KPITableWithCustomization({
             
             if (!projectCodeMatch) return false
             
-            // ✅ Zone matching (if both KPI and Activity have zones, they must match)
+            // ✅ STRICT Zone matching (if KPI has zone, Activity MUST have matching zone)
             const rawActivityVirtual = (activity as any).raw || {}
             const activityZoneRaw = (activity.zone_ref || activity.zone_number || rawActivityVirtual['Zone Ref'] || rawActivityVirtual['Zone Number'] || '').toString().trim()
-            const activityZone = activityZoneRaw.toLowerCase().trim()
+            let activityZone = activityZoneRaw.toLowerCase().trim()
             
-            // If both have zones, they must match (for precision)
-            if (kpiZoneVirtual && activityZone) {
+            // Normalize activity zone (remove project code prefix if exists)
+            if (activityZone && activity.project_code) {
+              const projectCodeUpper = (activity.project_code || '').toUpperCase()
+              activityZone = activityZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+              activityZone = activityZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
+              activityZone = activityZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
+            }
+            
+            // ✅ ULTRA STRICT: If KPI has zone, Activity MUST have zone and they MUST match EXACTLY
+            if (kpiZoneVirtual && kpiZoneVirtual.trim() !== '') {
+              // KPI has zone - Activity MUST have zone
+              if (!activityZone || activityZone.trim() === '') {
+                return false // Activity has no zone, reject it
+              }
+              
+              // Extract zone numbers for exact matching
+              const extractZoneNumber = (zone: string): string => {
+                if (!zone || zone.trim() === '') return ''
+                const numberMatch = zone.match(/\d+/)
+                if (numberMatch) return numberMatch[0]
+                return zone.toLowerCase().trim()
+              }
+              
+              const kpiZoneNum = extractZoneNumber(kpiZoneVirtual)
+              const activityZoneNum = extractZoneNumber(activityZone)
+              
+              // Zone numbers MUST match EXACTLY
+              if (kpiZoneNum && activityZoneNum && kpiZoneNum !== activityZoneNum) {
+                return false // Zone numbers don't match, reject it
+              }
+              
+              // Also check full zone text match (secondary check)
               const zoneMatch = (
                 kpiZoneVirtual === activityZone ||
                 kpiZoneVirtual.includes(activityZone) ||
                 activityZone.includes(kpiZoneVirtual)
               )
-              // If zones don't match, skip this activity
-              if (!zoneMatch) return false
+              if (!zoneMatch) {
+                return false // Zones don't match, reject it
+              }
             }
-            // If KPI has zone but activity doesn't, or vice versa, still allow match (flexible)
+            // If KPI has no zone, accept activity (with or without zone)
             
             return true
           })
