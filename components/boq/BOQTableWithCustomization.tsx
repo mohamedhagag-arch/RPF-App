@@ -471,51 +471,8 @@ export function BOQTableWithCustomization({
   const getPlannedStartDate = (activity: BOQActivity): string => {
     const raw = (activity as any).raw || {}
     
-    // Priority 1: Direct BOQ Activity fields
-    const directStart = activity.planned_activity_start_date || 
-                       activity.activity_planned_start_date ||
-                       getActivityField(activity, 'Planned Activity Start Date') ||
-                       getActivityField(activity, 'Planned Start Date') ||
-                       getActivityField(activity, 'Activity Planned Start Date') ||
-                       raw['Planned Activity Start Date'] ||
-                       raw['Planned Start Date'] ||
-                       raw['Activity Planned Start Date'] ||
-                       ''
-    
-    if (directStart && directStart.trim() !== '' && directStart !== 'N/A') {
-      return directStart
-    }
-    
-    // Priority 2: Calculate from Completion Date - Duration
-    const plannedEnd = activity.deadline || 
-                      activity.activity_planned_completion_date ||
-                      getActivityField(activity, 'Deadline') ||
-                      getActivityField(activity, 'Planned Completion Date') ||
-                      getActivityField(activity, 'Activity Planned Completion Date') ||
-                      raw['Deadline'] ||
-                      raw['Planned Completion Date'] ||
-                      raw['Activity Planned Completion Date'] ||
-                      ''
-    
-    const plannedDuration = activity.calendar_duration || 
-                           parseFloat(String(getActivityField(activity, 'Calendar Duration') || '0')) ||
-                           parseFloat(String(raw['Calendar Duration'] || '0')) ||
-                           0
-    
-    if (plannedEnd && plannedEnd.trim() !== '' && plannedEnd !== 'N/A' && plannedDuration > 0) {
-      try {
-        const endDate = new Date(plannedEnd)
-        if (!isNaN(endDate.getTime())) {
-          const startDate = new Date(endDate)
-          startDate.setDate(startDate.getDate() - plannedDuration)
-          return startDate.toISOString().split('T')[0]
-        }
-      } catch (e) {
-        // Invalid date, continue to next priority
-      }
-    }
-    
-    // Priority 3: Get from first Planned KPI for this activity
+    // ✅ PRIORITY 1: Get from first Planned KPI Date column (target_date or activity_date)
+    // This is the highest priority as requested by user
     if (allKPIs && allKPIs.length > 0) {
       const activityName = (activity.activity_name || '').toLowerCase().trim()
       const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
@@ -546,11 +503,12 @@ export function BOQTableWithCustomization({
         return projectMatch
       })
       
-      // Get earliest date from Planned KPIs
+      // Get earliest date from Planned KPIs (from Date column: target_date or activity_date)
       if (matchingKPIs.length > 0) {
         const dates: string[] = []
         matchingKPIs.forEach((kpi: any) => {
           const rawKPI = (kpi as any).raw || {}
+          // ✅ Get Date from Date column (target_date or activity_date)
           const kpiDate = kpi.target_date || 
                         kpi.activity_date ||
                         rawKPI['Target Date'] ||
@@ -573,6 +531,50 @@ export function BOQTableWithCustomization({
             return sortedDates[0].toISOString().split('T')[0]
           }
         }
+      }
+    }
+    
+    // Priority 2: Direct BOQ Activity fields
+    const directStart = activity.planned_activity_start_date || 
+                       activity.activity_planned_start_date ||
+                       getActivityField(activity, 'Planned Activity Start Date') ||
+                       getActivityField(activity, 'Planned Start Date') ||
+                       getActivityField(activity, 'Activity Planned Start Date') ||
+                       raw['Planned Activity Start Date'] ||
+                       raw['Planned Start Date'] ||
+                       raw['Activity Planned Start Date'] ||
+                       ''
+    
+    if (directStart && directStart.trim() !== '' && directStart !== 'N/A') {
+      return directStart
+    }
+    
+    // Priority 3: Calculate from Completion Date - Duration
+    const plannedEnd = activity.deadline || 
+                      activity.activity_planned_completion_date ||
+                      getActivityField(activity, 'Deadline') ||
+                      getActivityField(activity, 'Planned Completion Date') ||
+                      getActivityField(activity, 'Activity Planned Completion Date') ||
+                      raw['Deadline'] ||
+                      raw['Planned Completion Date'] ||
+                      raw['Activity Planned Completion Date'] ||
+                      ''
+    
+    const plannedDuration = activity.calendar_duration || 
+                           parseFloat(String(getActivityField(activity, 'Calendar Duration') || '0')) ||
+                           parseFloat(String(raw['Calendar Duration'] || '0')) ||
+                           0
+    
+    if (plannedEnd && plannedEnd.trim() !== '' && plannedEnd !== 'N/A' && plannedDuration > 0) {
+      try {
+        const endDate = new Date(plannedEnd)
+        if (!isNaN(endDate.getTime())) {
+          const startDate = new Date(endDate)
+          startDate.setDate(startDate.getDate() - plannedDuration)
+          return startDate.toISOString().split('T')[0]
+        }
+      } catch (e) {
+        // Invalid date, continue to next priority
       }
     }
     
