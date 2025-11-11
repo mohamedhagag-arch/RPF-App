@@ -772,303 +772,252 @@ export function BOQTableWithCustomization({
         )
       
       case 'quantities':
-        // ✅ Get quantities from multiple sources (same logic as other columns)
+        // ============================================
+        // ✅ COMPLETE REWRITE: Quantities Column
+        // ============================================
+        // Requirements:
+        // 1. Planned = Sum of Planned KPIs until yesterday (with Zone matching)
+        // 2. Actual = Sum of Actual KPIs until yesterday (with Zone matching)
+        // 3. Planned and Actual must not exceed Total
+        // 4. Zone matching is required for precision
+        // ============================================
+        
+        // Helper: Normalize zone value (remove project code prefix)
+        const normalizeZone = (zone: string, projectCode: string): string => {
+          if (!zone || !projectCode) return (zone || '').toLowerCase().trim()
+          let normalized = zone.trim()
+          const codeUpper = projectCode.toUpperCase()
+          normalized = normalized.replace(new RegExp(`^${codeUpper}\\s*-\\s*`, 'i'), '').trim()
+          normalized = normalized.replace(new RegExp(`^${codeUpper}\\s+`, 'i'), '').trim()
+          normalized = normalized.replace(new RegExp(`^${codeUpper}-`, 'i'), '').trim()
+          return normalized.toLowerCase()
+        }
+        
+        // Helper: Extract zone from activity
+        const getActivityZone = (activity: BOQActivity): string => {
+          const raw = (activity as any).raw || {}
+          const zoneRaw = (
+            activity.zone_ref || 
+            activity.zone_number || 
+            raw['Zone Ref'] || 
+            raw['Zone Number'] || 
+            ''
+          ).toString().trim()
+          return normalizeZone(zoneRaw, activity.project_code || '')
+        }
+        
+        // Helper: Extract zone from KPI
+        const getKPIZone = (kpi: any): string => {
+          const raw = (kpi as any).raw || {}
+          const zoneRaw = (
+            kpi.zone || 
+            kpi.section || 
+            raw['Zone'] || 
+            raw['Zone Number'] || 
+            ''
+          ).toString().trim()
+          const projectCode = (kpi.project_code || kpi['Project Code'] || raw['Project Code'] || '').toString().trim()
+          return normalizeZone(zoneRaw, projectCode)
+        }
+        
+        // Helper: Check if KPI matches activity (Project, Activity Name, Zone)
+        const kpiMatchesActivity = (kpi: any, activity: BOQActivity): boolean => {
+          const rawKPI = (kpi as any).raw || {}
+          
+          // 1. Project Code Matching
+          const kpiProjectCode = (kpi.project_code || kpi['Project Code'] || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+          const kpiProjectFullCode = (kpi.project_full_code || kpi['Project Full Code'] || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+          const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
+          const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+          
+          const projectMatch = (
+            (kpiProjectCode && activityProjectCode && kpiProjectCode === activityProjectCode) ||
+            (kpiProjectFullCode && activityProjectFullCode && kpiProjectFullCode === activityProjectFullCode) ||
+            (kpiProjectCode && activityProjectFullCode && kpiProjectCode === activityProjectFullCode) ||
+            (kpiProjectFullCode && activityProjectCode && kpiProjectFullCode === activityProjectCode) ||
+            (kpiProjectCode && activityProjectCode && (
+              kpiProjectCode.includes(activityProjectCode) || 
+              activityProjectCode.includes(kpiProjectCode)
+            ))
+          )
+          if (!projectMatch) return false
+          
+          // 2. Activity Name Matching (required)
+          const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPI['Activity Name'] || '').toLowerCase().trim()
+          const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+          const activityMatch = kpiActivityName && activityName && (
+            kpiActivityName === activityName || 
+            kpiActivityName.includes(activityName) || 
+            activityName.includes(kpiActivityName)
+          )
+          if (!activityMatch) return false
+          
+          // 3. Zone Matching (if both have zones, they must match)
+          const kpiZone = getKPIZone(kpi)
+          const activityZone = getActivityZone(activity)
+          if (activityZone && kpiZone) {
+            const zoneMatch = (
+              activityZone === kpiZone ||
+              activityZone.includes(kpiZone) ||
+              kpiZone.includes(activityZone)
+            )
+            if (!zoneMatch) return false
+          }
+          
+          return true
+        }
+        
+        // Helper: Extract quantity from KPI
+        const getKPIQuantity = (kpi: any): number => {
+          const raw = (kpi as any).raw || {}
+          const quantityStr = String(
+            kpi.quantity || 
+            kpi['Quantity'] || 
+            kpi.Quantity ||
+            raw['Quantity'] || 
+            raw.Quantity ||
+            '0'
+          ).replace(/,/g, '').trim()
+          return parseFloat(quantityStr) || 0
+        }
+        
+        // Helper: Check if KPI date is until yesterday
+        const isKPIUntilYesterday = (kpi: any, inputType: 'planned' | 'actual'): boolean => {
+          const yesterday = new Date()
+          yesterday.setDate(yesterday.getDate() - 1)
+          yesterday.setHours(23, 59, 59, 999)
+          
+          const raw = (kpi as any).raw || {}
+          let kpiDateStr = ''
+          
+          if (inputType === 'planned') {
+            kpiDateStr = kpi.target_date || 
+                        kpi.activity_date || 
+                        kpi['Target Date'] || 
+                        kpi['Activity Date'] || 
+                        raw['Target Date'] || 
+                        raw['Activity Date'] ||
+                        kpi.created_at ||
+                        ''
+          } else {
+            kpiDateStr = kpi.actual_date || 
+                        kpi.activity_date || 
+                        kpi['Actual Date'] || 
+                        kpi['Activity Date'] || 
+                        raw['Actual Date'] || 
+                        raw['Activity Date'] ||
+                        kpi.created_at ||
+                        ''
+          }
+          
+          // If no date, include it (treat as valid)
+          if (!kpiDateStr) return true
+          
+          try {
+            const kpiDate = new Date(kpiDateStr)
+            if (isNaN(kpiDate.getTime())) return true // Invalid date, include it
+            return kpiDate <= yesterday
+          } catch {
+            return true // Error, include it
+          }
+        }
+        
+        // Get Total Units
         const rawActivityQuantities = (activity as any).raw || {}
+        const totalUnits = activity.total_units || 
+                          parseFloat(String(rawActivityQuantities['Total Units'] || '0').replace(/,/g, '')) || 
+                          activity.planned_units ||
+                          parseFloat(String(rawActivityQuantities['Planned Units'] || '0').replace(/,/g, '')) || 
+                          0
         
-        // ✅ Get Total Units (base for calculations)
-        const totalUnitsQuantities = activity.total_units || 
-                                    parseFloat(String(rawActivityQuantities['Total Units'] || '0').replace(/,/g, '')) || 
-                                    activity.planned_units ||
-                                    parseFloat(String(rawActivityQuantities['Planned Units'] || '0').replace(/,/g, '')) || 
-                                    0
-        
-        // ✅ Calculate yesterday date for filtering KPIs
+        // Calculate yesterday date for filtering KPIs
         const yesterdayQuantities = new Date()
         yesterdayQuantities.setDate(yesterdayQuantities.getDate() - 1)
         yesterdayQuantities.setHours(23, 59, 59, 999) // End of yesterday
         
-        // ✅ Get Planned Units from Planned KPIs until yesterday only
-        // This calculates Planned by summing all Planned KPI quantities for this activity up to yesterday
-        let plannedUnitsQuantities = 0
+        // Calculate Planned: Sum of Planned KPIs until yesterday (with Zone matching)
+        let plannedUnits = 0
         if (allKPIs.length > 0) {
-          // ✅ FIX: Filter Planned KPIs FIRST, then match Activity and Zone
-          const plannedKPIsOnly = allKPIs.filter((kpi: any) => {
-            const inputType = (kpi.input_type || kpi['Input Type'] || kpi.raw?.['Input Type'] || '').toLowerCase()
+          // Step 1: Filter Planned KPIs only
+          const plannedKPIs = allKPIs.filter((kpi: any) => {
+            const inputType = (kpi.input_type || kpi['Input Type'] || (kpi as any).raw?.['Input Type'] || '').toLowerCase()
             return inputType === 'planned'
           })
           
-          // ✅ Now match Planned KPIs to this activity with Zone matching
-          const activityKPIsQuantities = plannedKPIsOnly.filter((kpi: any) => {
-            const rawKPIQuantities = (kpi as any).raw || {}
-            
-            const kpiProjectCodeQuantities = (kpi.project_code || kpi['Project Code'] || rawKPIQuantities['Project Code'] || '').toString().trim().toUpperCase()
-            const kpiProjectFullCodeQuantities = (kpi.project_full_code || kpi['Project Full Code'] || rawKPIQuantities['Project Full Code'] || '').toString().trim().toUpperCase()
-            const activityProjectCodeQuantities = (activity.project_code || '').toString().trim().toUpperCase()
-            const activityProjectFullCodeQuantities = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
-            
-            const kpiActivityNameQuantities = (kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPIQuantities['Activity Name'] || '').toLowerCase().trim()
-            const activityNameQuantities = (activity.activity_name || activity.activity || '').toLowerCase().trim()
-            
-            // ✅ Extract and normalize Zone from multiple sources
-            const kpiZoneRawQuantities = (kpi.zone || kpi['Zone'] || kpi.section || rawKPIQuantities['Zone'] || rawKPIQuantities['Zone Number'] || '').toString().trim()
-            let kpiZoneQuantities = kpiZoneRawQuantities.toLowerCase().trim()
-            
-            // Normalize KPI zone (remove project code prefix if exists)
-            if (kpiZoneQuantities && kpiProjectCodeQuantities) {
-              kpiZoneQuantities = kpiZoneQuantities
-                .replace(new RegExp(`^${kpiProjectCodeQuantities}\\s*-\\s*`, 'i'), '')
-                .replace(new RegExp(`^${kpiProjectCodeQuantities}\\s+`, 'i'), '')
-                .replace(new RegExp(`^${kpiProjectCodeQuantities}-`, 'i'), '')
-                .trim()
-            }
-            
-            const activityZoneRawQuantities = (activity.zone_ref || activity.zone_number || (activity as any).raw?.['Zone Ref'] || (activity as any).raw?.['Zone Number'] || '').toString().trim()
-            let activityZoneQuantities = activityZoneRawQuantities.toLowerCase().trim()
-            
-            // Normalize activity zone (remove project code prefix if exists)
-            if (activityZoneQuantities && activityProjectCodeQuantities) {
-              activityZoneQuantities = activityZoneQuantities
-                .replace(new RegExp(`^${activityProjectCodeQuantities}\\s*-\\s*`, 'i'), '')
-                .replace(new RegExp(`^${activityProjectCodeQuantities}\\s+`, 'i'), '')
-                .replace(new RegExp(`^${activityProjectCodeQuantities}-`, 'i'), '')
-                .trim()
-            }
-            
-            const projectMatchQuantities = (
-              (kpiProjectCodeQuantities && activityProjectCodeQuantities && kpiProjectCodeQuantities === activityProjectCodeQuantities) ||
-              (kpiProjectFullCodeQuantities && activityProjectFullCodeQuantities && kpiProjectFullCodeQuantities === activityProjectFullCodeQuantities) ||
-              (kpiProjectCodeQuantities && activityProjectFullCodeQuantities && kpiProjectCodeQuantities === activityProjectFullCodeQuantities) ||
-              (kpiProjectFullCodeQuantities && activityProjectCodeQuantities && kpiProjectFullCodeQuantities === activityProjectCodeQuantities) ||
-              (kpiProjectCodeQuantities && activityProjectCodeQuantities && (
-                kpiProjectCodeQuantities.includes(activityProjectCodeQuantities) || 
-                activityProjectCodeQuantities.includes(kpiProjectCodeQuantities)
-              ))
-            )
-            
-            if (!projectMatchQuantities) return false
-            
-            // ✅ STRICT: Activity name must match (required for activity-specific matching)
-            const activityMatchQuantities = kpiActivityNameQuantities && activityNameQuantities && 
-              (kpiActivityNameQuantities === activityNameQuantities || 
-               kpiActivityNameQuantities.includes(activityNameQuantities) || 
-               activityNameQuantities.includes(kpiActivityNameQuantities))
-            
-            if (!activityMatchQuantities) return false
-            
-            // ✅ Zone match: If both have zones, they must match for precision
-            if (activityZoneQuantities && kpiZoneQuantities) {
-              const zoneMatchQuantities = (
-                activityZoneQuantities === kpiZoneQuantities ||
-                activityZoneQuantities.includes(kpiZoneQuantities) ||
-                kpiZoneQuantities.includes(activityZoneQuantities)
-              )
-              if (!zoneMatchQuantities) return false
-            }
-            
-            // If activity has zone but KPI doesn't, or vice versa, still allow match (flexible)
-            return true
-          })
+          // Step 2: Match Planned KPIs to this activity (Project, Activity Name, Zone)
+          const matchedPlannedKPIs = plannedKPIs.filter((kpi: any) => kpiMatchesActivity(kpi, activity))
           
-          // ✅ Filter Planned KPIs until yesterday only and sum quantities
-          // This ensures Planned is dynamic: it sums all Planned KPI quantities for this activity up to yesterday
-          if (activityKPIsQuantities.length > 0) {
-            const plannedKPIsUntilYesterday = activityKPIsQuantities.filter((kpi: any) => {
-              // ✅ Get date from multiple sources (priority: target_date, activity_date, created_at)
-              const kpiDateStr = kpi.target_date || 
-                                kpi.activity_date || 
-                                kpi['Target Date'] || 
-                                kpi['Activity Date'] || 
-                                kpi.raw?.['Target Date'] || 
-                                kpi.raw?.['Activity Date'] ||
-                                kpi.created_at || // Fallback to created_at if no target/activity date
-                                ''
-              
-              // ✅ If no date found, include the KPI (KPIs without dates are included)
-              if (!kpiDateStr) return true
-              
-              try {
-                const kpiDate = new Date(kpiDateStr)
-                if (isNaN(kpiDate.getTime())) return true // Include invalid dates (treat as valid)
-                // ✅ Only include KPIs with date <= yesterday (end of yesterday)
-                return kpiDate <= yesterdayQuantities
-              } catch {
-                return true // Include on error (treat as valid)
-              }
-            })
-            
-            // Sum all quantities from Planned KPIs until yesterday
-            // Extract quantity from all possible sources: quantity, Quantity, raw.Quantity
-            plannedUnitsQuantities = plannedKPIsUntilYesterday.reduce((sum: number, kpi: any) => {
-              const rawKPI = (kpi as any).raw || {}
-              const quantityStr = String(
-                kpi.quantity || 
-                kpi['Quantity'] || 
-                kpi.Quantity ||
-                rawKPI['Quantity'] || 
-                rawKPI.Quantity ||
-                '0'
-              ).replace(/,/g, '').trim()
-              const quantity = parseFloat(quantityStr) || 0
-              return sum + quantity
-            }, 0)
-          }
+          // Step 3: Filter until yesterday and sum quantities
+          const plannedKPIsUntilYesterday = matchedPlannedKPIs.filter((kpi: any) => isKPIUntilYesterday(kpi, 'planned'))
+          plannedUnits = plannedKPIsUntilYesterday.reduce((sum: number, kpi: any) => {
+            return sum + getKPIQuantity(kpi)
+          }, 0)
         }
         
-        // ✅ Planned should start from 0 and increase as KPIs Planned are added until yesterday
-        // No fallback to activity.planned_units - it should be 0 if no KPIs Planned exist until yesterday
-        // This ensures Planned is dynamic and based on actual KPIs data
+        // Calculate Actual: Sum of Actual KPIs until yesterday (with Zone matching)
+        let actualUnits = activity.actual_units || 
+                         parseFloat(String(rawActivityQuantities['Actual Units'] || '0').replace(/,/g, '')) || 
+                         0
         
-        // Get Actual Units from multiple sources
-        let actualUnitsQuantities = activity.actual_units || 
-                                  parseFloat(String(rawActivityQuantities['Actual Units'] || '0').replace(/,/g, '')) || 
-                                  0
-        
-        // ✅ If actual_units is 0, try to get from KPIs (Actual KPIs until yesterday)
-        if (actualUnitsQuantities === 0 && allKPIs.length > 0) {
-          // ✅ FIX: Filter Actual KPIs FIRST, then match Activity and Zone
-          const actualKPIsOnly = allKPIs.filter((kpi: any) => {
-            const inputType = (kpi.input_type || kpi['Input Type'] || kpi.raw?.['Input Type'] || '').toLowerCase()
+        // If actual_units is 0 or not set, calculate from Actual KPIs
+        if (actualUnits === 0 && allKPIs.length > 0) {
+          // Step 1: Filter Actual KPIs only
+          const actualKPIs = allKPIs.filter((kpi: any) => {
+            const inputType = (kpi.input_type || kpi['Input Type'] || (kpi as any).raw?.['Input Type'] || '').toLowerCase()
             return inputType === 'actual'
           })
           
-          // ✅ Now match Actual KPIs to this activity with Zone matching
-          const activityKPIsActualQuantities = actualKPIsOnly.filter((kpi: any) => {
-            const rawKPIQuantities = (kpi as any).raw || {}
-            
-            const kpiProjectCodeQuantities = (kpi.project_code || kpi['Project Code'] || rawKPIQuantities['Project Code'] || '').toString().trim().toUpperCase()
-            const kpiProjectFullCodeQuantities = (kpi.project_full_code || kpi['Project Full Code'] || rawKPIQuantities['Project Full Code'] || '').toString().trim().toUpperCase()
-            const activityProjectCodeQuantities = (activity.project_code || '').toString().trim().toUpperCase()
-            const activityProjectFullCodeQuantities = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
-            
-            const kpiActivityNameQuantities = (kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPIQuantities['Activity Name'] || '').toLowerCase().trim()
-            const activityNameQuantities = (activity.activity_name || activity.activity || '').toLowerCase().trim()
-            
-            // ✅ Extract and normalize Zone from multiple sources
-            const kpiZoneRawQuantities = (kpi.zone || kpi['Zone'] || kpi.section || rawKPIQuantities['Zone'] || rawKPIQuantities['Zone Number'] || '').toString().trim()
-            let kpiZoneQuantities = kpiZoneRawQuantities.toLowerCase().trim()
-            
-            // Normalize KPI zone (remove project code prefix if exists)
-            if (kpiZoneQuantities && kpiProjectCodeQuantities) {
-              kpiZoneQuantities = kpiZoneQuantities
-                .replace(new RegExp(`^${kpiProjectCodeQuantities}\\s*-\\s*`, 'i'), '')
-                .replace(new RegExp(`^${kpiProjectCodeQuantities}\\s+`, 'i'), '')
-                .replace(new RegExp(`^${kpiProjectCodeQuantities}-`, 'i'), '')
-                .trim()
-            }
-            
-            const activityZoneRawQuantities = (activity.zone_ref || activity.zone_number || (activity as any).raw?.['Zone Ref'] || (activity as any).raw?.['Zone Number'] || '').toString().trim()
-            let activityZoneQuantities = activityZoneRawQuantities.toLowerCase().trim()
-            
-            // Normalize activity zone (remove project code prefix if exists)
-            if (activityZoneQuantities && activityProjectCodeQuantities) {
-              activityZoneQuantities = activityZoneQuantities
-                .replace(new RegExp(`^${activityProjectCodeQuantities}\\s*-\\s*`, 'i'), '')
-                .replace(new RegExp(`^${activityProjectCodeQuantities}\\s+`, 'i'), '')
-                .replace(new RegExp(`^${activityProjectCodeQuantities}-`, 'i'), '')
-                .trim()
-            }
-            
-            const projectMatchQuantities = (
-              (kpiProjectCodeQuantities && activityProjectCodeQuantities && kpiProjectCodeQuantities === activityProjectCodeQuantities) ||
-              (kpiProjectFullCodeQuantities && activityProjectFullCodeQuantities && kpiProjectFullCodeQuantities === activityProjectFullCodeQuantities) ||
-              (kpiProjectCodeQuantities && activityProjectFullCodeQuantities && kpiProjectCodeQuantities === activityProjectFullCodeQuantities) ||
-              (kpiProjectFullCodeQuantities && activityProjectCodeQuantities && kpiProjectFullCodeQuantities === activityProjectCodeQuantities) ||
-              (kpiProjectCodeQuantities && activityProjectCodeQuantities && (
-                kpiProjectCodeQuantities.includes(activityProjectCodeQuantities) || 
-                activityProjectCodeQuantities.includes(kpiProjectCodeQuantities)
-              ))
-            )
-            
-            if (!projectMatchQuantities) return false
-            
-            // ✅ STRICT: Activity name must match (required for activity-specific matching)
-            const activityMatchQuantities = kpiActivityNameQuantities && activityNameQuantities && 
-              (kpiActivityNameQuantities === activityNameQuantities || 
-               kpiActivityNameQuantities.includes(activityNameQuantities) || 
-               activityNameQuantities.includes(kpiActivityNameQuantities))
-            
-            if (!activityMatchQuantities) return false
-            
-            // ✅ Zone match: If both have zones, they must match for precision
-            if (activityZoneQuantities && kpiZoneQuantities) {
-              const zoneMatchQuantities = (
-                activityZoneQuantities === kpiZoneQuantities ||
-                activityZoneQuantities.includes(kpiZoneQuantities) ||
-                kpiZoneQuantities.includes(activityZoneQuantities)
-              )
-              if (!zoneMatchQuantities) return false
-            }
-            
-            // If activity has zone but KPI doesn't, or vice versa, still allow match (flexible)
-            return true
-          })
+          // Step 2: Match Actual KPIs to this activity (Project, Activity Name, Zone)
+          const matchedActualKPIs = actualKPIs.filter((kpi: any) => kpiMatchesActivity(kpi, activity))
           
-          // ✅ Filter Actual KPIs until yesterday only and sum quantities
-          if (activityKPIsActualQuantities.length > 0) {
-            actualUnitsQuantities = activityKPIsActualQuantities
-              .filter((kpi: any) => {
-                const kpiDateStr = kpi.actual_date || kpi.activity_date || kpi['Actual Date'] || kpi['Activity Date'] || kpi.raw?.['Actual Date'] || kpi.raw?.['Activity Date'] || ''
-                if (!kpiDateStr) return true
-                
-                try {
-                  const kpiDate = new Date(kpiDateStr)
-                  if (isNaN(kpiDate.getTime())) return true
-                  return kpiDate <= yesterdayQuantities
-                } catch {
-                  return true
-                }
-              })
-              .reduce((sum: number, kpi: any) => {
-                const quantity = parseFloat(String(kpi.quantity || kpi['Quantity'] || kpi.raw?.['Quantity'] || '0').replace(/,/g, '')) || 0
-                return sum + quantity
-              }, 0)
-          }
+          // Step 3: Filter until yesterday and sum quantities
+          const actualKPIsUntilYesterday = matchedActualKPIs.filter((kpi: any) => isKPIUntilYesterday(kpi, 'actual'))
+          actualUnits = actualKPIsUntilYesterday.reduce((sum: number, kpi: any) => {
+            return sum + getKPIQuantity(kpi)
+          }, 0)
         }
         
-        // ✅ FIX: Ensure Planned and Actual don't exceed Total (logical constraint)
-        // Planned and Actual should never exceed Total Units
-        const cappedPlannedUnits = totalUnitsQuantities > 0 
-          ? Math.min(plannedUnitsQuantities, totalUnitsQuantities) 
-          : plannedUnitsQuantities
-        const cappedActualUnits = totalUnitsQuantities > 0 
-          ? Math.min(actualUnitsQuantities, totalUnitsQuantities) 
-          : actualUnitsQuantities
+        // ✅ CRITICAL: Cap Planned and Actual to not exceed Total (logical constraint)
+        const cappedPlanned = totalUnits > 0 ? Math.min(plannedUnits, totalUnits) : plannedUnits
+        const cappedActual = totalUnits > 0 ? Math.min(actualUnits, totalUnits) : actualUnits
         
-        // ✅ Calculate Remaining: Total Units - Actual Units
-        const remainingQuantity = totalUnitsQuantities - cappedActualUnits
+        // Calculate Remaining
+        const remaining = Math.max(0, totalUnits - cappedActual)
         
-        // ✅ DEBUG: Log calculation in development
+        // Debug logging
         if (process.env.NODE_ENV === 'development') {
-          console.log(`📊 [BOQ] Quantities for "${activity.activity_name}":`, {
-            totalUnits: totalUnitsQuantities,
-            plannedUnitsFromKPIs: plannedUnitsQuantities,
-            cappedPlannedUnits,
-            plannedUnitsFromBOQ: activity.planned_units,
-            actualUnitsFromBOQ: activity.actual_units,
-            actualUnitsFromKPIs: actualUnitsQuantities !== activity.actual_units ? actualUnitsQuantities : 'N/A',
-            cappedActualUnits,
-            remaining: remainingQuantity,
-            plannedExceeded: plannedUnitsQuantities > totalUnitsQuantities,
-            actualExceeded: actualUnitsQuantities > totalUnitsQuantities
+          console.log(`📊 [BOQ Quantities] "${activity.activity_name}" (Zone: ${getActivityZone(activity) || 'N/A'}):`, {
+            totalUnits,
+            plannedUnits,
+            cappedPlanned,
+            actualUnits,
+            cappedActual,
+            remaining,
+            plannedExceeded: plannedUnits > totalUnits,
+            actualExceeded: actualUnits > totalUnits
           })
         }
         
         return (
           <div className="space-y-1">
-            <div className="text-xs text-gray-600 dark:text-gray-400">Total: {totalUnitsQuantities.toLocaleString()}</div>
-            <div className={`text-xs ${cappedPlannedUnits < plannedUnitsQuantities ? 'text-orange-600 dark:text-orange-400' : 'text-gray-600 dark:text-gray-400'}`}>
-              Planned: {cappedPlannedUnits.toLocaleString()}
-              {cappedPlannedUnits < plannedUnitsQuantities && (
-                <span className="ml-1 text-[10px]">(capped from {plannedUnitsQuantities.toLocaleString()})</span>
+            <div className="text-xs text-gray-600 dark:text-gray-400">
+              Total: {totalUnits.toLocaleString()}
+            </div>
+            <div className={`text-xs ${cappedPlanned < plannedUnits ? 'text-orange-600 dark:text-orange-400 font-medium' : 'text-gray-600 dark:text-gray-400'}`}>
+              Planned: {cappedPlanned.toLocaleString()}
+              {cappedPlanned < plannedUnits && (
+                <span className="ml-1 text-[10px] opacity-75">(capped from {plannedUnits.toLocaleString()})</span>
               )}
             </div>
-            <div className={`text-xs ${cappedActualUnits < actualUnitsQuantities ? 'text-orange-600 dark:text-orange-400' : 'text-gray-600 dark:text-gray-400'}`}>
-              Actual: {cappedActualUnits.toLocaleString()}
-              {cappedActualUnits < actualUnitsQuantities && (
-                <span className="ml-1 text-[10px]">(capped from {actualUnitsQuantities.toLocaleString()})</span>
+            <div className={`text-xs ${cappedActual < actualUnits ? 'text-orange-600 dark:text-orange-400 font-medium' : 'text-gray-600 dark:text-gray-400'}`}>
+              Actual: {cappedActual.toLocaleString()}
+              {cappedActual < actualUnits && (
+                <span className="ml-1 text-[10px] opacity-75">(capped from {actualUnits.toLocaleString()})</span>
               )}
             </div>
-            <div className="text-sm font-medium text-gray-900 dark:text-white">Remaining: {Math.max(0, remainingQuantity).toLocaleString()}</div>
+            <div className="text-sm font-medium text-gray-900 dark:text-white">
+              Remaining: {remaining.toLocaleString()}
+            </div>
           </div>
         )
       
