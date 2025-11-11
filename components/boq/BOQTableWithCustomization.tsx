@@ -567,14 +567,47 @@ export function BOQTableWithCustomization({
         if (activityZone && activityZone.trim() !== '') {
           const kpiZone = getKPIZone(kpi)
           if (!kpiZone || kpiZone.trim() === '') {
+            // ✅ DEBUG: Log rejected KPI (no zone)
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`🚫 [Planned Start Date] KPI rejected - Activity has zone "${activityZone}" but KPI has no zone:`, {
+                kpiActivityName: kpi.activity_name || rawKPI['Activity Name'],
+                kpiDate: kpi.target_date || kpi.activity_date || rawKPI['Date'] || 'N/A',
+                activityName,
+                activityZone
+              })
+            }
             return false // Activity has zone but KPI has no zone
           }
           
           const kpiZoneNum = extractZoneNumber(kpiZone)
           // Zone numbers MUST match EXACTLY
           if (activityZoneNum && kpiZoneNum && activityZoneNum !== kpiZoneNum) {
+            // ✅ DEBUG: Log rejected KPI (zone mismatch)
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`🚫 [Planned Start Date] KPI rejected - Zone mismatch:`, {
+                kpiActivityName: kpi.activity_name || rawKPI['Activity Name'],
+                kpiDate: kpi.target_date || kpi.activity_date || rawKPI['Date'] || 'N/A',
+                activityZone,
+                activityZoneNum,
+                kpiZone,
+                kpiZoneNum,
+                activityName
+              })
+            }
             return false // Zone numbers don't match
           }
+        }
+        
+        // ✅ DEBUG: Log accepted KPI
+        if (process.env.NODE_ENV === 'development') {
+          const rawKPI = (kpi as any).raw || {}
+          console.log(`✅ [Planned Start Date] KPI accepted:`, {
+            kpiActivityName: kpi.activity_name || rawKPI['Activity Name'],
+            kpiDate: kpi.target_date || kpi.activity_date || rawKPI['Date'] || 'N/A',
+            activityName,
+            activityZone: activityZone || 'N/A',
+            activityProjectCode
+          })
         }
         
         return true
@@ -582,7 +615,7 @@ export function BOQTableWithCustomization({
       
       // Get earliest date from Planned KPIs (from Date column: target_date or activity_date)
       if (matchingKPIs.length > 0) {
-        const dates: string[] = []
+        const dates: Array<{ date: string; kpi: any }> = []
         matchingKPIs.forEach((kpi: any) => {
           const rawKPI = (kpi as any).raw || {}
           // ✅ Get Date from Date column (target_date or activity_date)
@@ -593,19 +626,46 @@ export function BOQTableWithCustomization({
                         rawKPI['Date'] ||
                         ''
           if (kpiDate && kpiDate.trim() !== '' && kpiDate !== 'N/A') {
-            dates.push(kpiDate)
+            dates.push({ date: kpiDate, kpi })
           }
         })
         
         if (dates.length > 0) {
           // Sort dates and return earliest
           const sortedDates = dates
-            .map(d => new Date(d))
-            .filter(d => !isNaN(d.getTime()))
-            .sort((a, b) => a.getTime() - b.getTime())
+            .map(({ date, kpi }) => {
+              try {
+                const dateObj = new Date(date)
+                return { dateObj, date, kpi }
+              } catch {
+                return null
+              }
+            })
+            .filter((d): d is { dateObj: Date; date: string; kpi: any } => d !== null && !isNaN(d.dateObj.getTime()))
+            .sort((a, b) => a.dateObj.getTime() - b.dateObj.getTime())
           
           if (sortedDates.length > 0) {
-            return sortedDates[0].toISOString().split('T')[0]
+            const earliestDate = sortedDates[0].dateObj.toISOString().split('T')[0]
+            
+            // ✅ DEBUG: Log date selection for troubleshooting
+            if (process.env.NODE_ENV === 'development') {
+              const rawKPI = (sortedDates[0].kpi as any).raw || {}
+              console.log(`📅 [Planned Start Date] Activity "${activity.activity_name}" (Zone: ${activityZone || 'N/A'}):`, {
+                matchingKPIsCount: matchingKPIs.length,
+                allDates: dates.map(d => d.date),
+                sortedDates: sortedDates.map(d => d.date),
+                earliestDate,
+                earliestDateSource: {
+                  kpiDate: sortedDates[0].kpi.target_date || sortedDates[0].kpi.activity_date || rawKPI['Date'] || 'N/A',
+                  kpiZone: getKPIZone(sortedDates[0].kpi) || 'N/A',
+                  kpiActivityName: sortedDates[0].kpi.activity_name || rawKPI['Activity Name'] || 'N/A'
+                },
+                activityProjectCode,
+                activityZone: activityZone || 'N/A'
+              })
+            }
+            
+            return earliestDate
           }
         }
       }
