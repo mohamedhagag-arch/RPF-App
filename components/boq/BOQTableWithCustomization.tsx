@@ -793,17 +793,39 @@ export function BOQTableWithCustomization({
           return normalized.toLowerCase()
         }
         
-        // Helper: Extract zone from activity
+        // Helper: Extract zone from activity (IMPROVED: Same logic as activity_details case)
         const getActivityZone = (activity: BOQActivity): string => {
           const raw = (activity as any).raw || {}
-          const zoneRaw = (
-            activity.zone_ref || 
-            activity.zone_number || 
-            raw['Zone Ref'] || 
-            raw['Zone Number'] || 
-            ''
-          ).toString().trim()
-          return normalizeZone(zoneRaw, activity.project_code || '')
+          let zoneValue = activity.zone_number || 
+                         activity.zone_ref || 
+                         raw['Zone Number'] ||
+                         raw['Zone Ref'] ||
+                         raw['Zone #'] ||
+                         ''
+          
+          // ✅ IMPROVED: Remove project code from zone value (same logic as activity_details)
+          if (zoneValue && activity.project_code) {
+            const projectCodeUpper = activity.project_code.toUpperCase().trim()
+            let zoneStr = zoneValue.toString()
+            
+            // Remove project code patterns:
+            // 1. "P9999 - " or "P9999 -" at start
+            zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+            // 2. " P9999 - " or " P9999 -" in middle
+            zoneStr = zoneStr.replace(new RegExp(`\\s+${projectCodeUpper}\\s*-\\s*`, 'gi'), ' ').trim()
+            // 3. Just "P9999" at start followed by space or dash
+            zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}(\\s|-)+`, 'i'), '').trim()
+            // 4. Just "P9999" in middle with spaces/dashes around
+            zoneStr = zoneStr.replace(new RegExp(`(\\s|-)+${projectCodeUpper}(\\s|-)+`, 'gi'), ' ').trim()
+            // 5. Clean up any remaining " - " or "- " at the start
+            zoneStr = zoneStr.replace(/^\s*-\s*/, '').trim()
+            // 6. Clean up multiple spaces
+            zoneStr = zoneStr.replace(/\s+/g, ' ').trim()
+            
+            zoneValue = zoneStr || ''
+          }
+          
+          return (zoneValue || '').toString().toLowerCase().trim()
         }
         
         // Helper: Extract zone from KPI
@@ -872,7 +894,20 @@ export function BOQTableWithCustomization({
             }
             
             // Both have zones - they must match exactly or be similar
+            // ✅ IMPROVED: Extract zone number from both (e.g., "zone 1" -> "1", "Zone 2" -> "2")
+            const extractZoneNumber = (zone: string): string => {
+              // Try to extract number from zone (e.g., "Zone 1" -> "1", "zone 2" -> "2", "1" -> "1")
+              const numberMatch = zone.match(/\d+/)
+              if (numberMatch) return numberMatch[0]
+              return zone
+            }
+            
+            const activityZoneNum = extractZoneNumber(activityZone)
+            const kpiZoneNum = extractZoneNumber(kpiZone)
+            
+            // Match by zone number first (most reliable)
             const zoneMatch = (
+              activityZoneNum === kpiZoneNum ||
               activityZone === kpiZone ||
               activityZone.includes(kpiZone) ||
               kpiZone.includes(activityZone)
@@ -1009,6 +1044,8 @@ export function BOQTableWithCustomization({
         
         // If actual_units is 0 or not set, calculate from Actual KPIs
         if (actualUnits === 0 && allKPIs.length > 0) {
+          const activityZone = getActivityZone(activity)
+          
           // Step 1: Filter Actual KPIs only
           const actualKPIs = allKPIs.filter((kpi: any) => {
             const inputType = (kpi.input_type || kpi['Input Type'] || (kpi as any).raw?.['Input Type'] || '').toLowerCase()
@@ -1018,11 +1055,36 @@ export function BOQTableWithCustomization({
           // Step 2: Match Actual KPIs to this activity (Project, Activity Name, Zone)
           const matchedActualKPIs = actualKPIs.filter((kpi: any) => kpiMatchesActivity(kpi, activity))
           
+          // ✅ DEBUG: Log matched KPIs with their zones
+          if (process.env.NODE_ENV === 'development' && matchedActualKPIs.length > 0) {
+            console.log(`🔍 [Actual KPIs] Activity "${activity.activity_name}" (Zone: ${activityZone || 'N/A'}):`, {
+              totalActualKPIs: actualKPIs.length,
+              matchedKPIs: matchedActualKPIs.length,
+              matchedKPIsDetails: matchedActualKPIs.map((kpi: any) => ({
+                kpiZone: getKPIZone(kpi),
+                quantity: getKPIQuantity(kpi),
+                activityName: kpi.activity_name || kpi['Activity Name'],
+                projectCode: kpi.project_code || kpi['Project Code']
+              }))
+            })
+          }
+          
           // Step 3: Filter until yesterday and sum quantities
           const actualKPIsUntilYesterday = matchedActualKPIs.filter((kpi: any) => isKPIUntilYesterday(kpi, 'actual'))
           actualUnits = actualKPIsUntilYesterday.reduce((sum: number, kpi: any) => {
             return sum + getKPIQuantity(kpi)
           }, 0)
+          
+          // ✅ DEBUG: Log final calculation
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`📊 [Actual Calculation] Activity "${activity.activity_name}" (Zone: ${activityZone || 'N/A'}):`, {
+              matchedKPIs: matchedActualKPIs.length,
+              kpisUntilYesterday: actualKPIsUntilYesterday.length,
+              calculatedActual: actualUnits,
+              totalUnits,
+              willBeCapped: actualUnits > totalUnits
+            })
+          }
         }
         
         // ✅ CRITICAL: Cap Planned and Actual to not exceed Total (logical constraint)
