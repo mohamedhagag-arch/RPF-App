@@ -2503,13 +2503,22 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
             project_name: p.project_name 
           }
         })}
-        activities={[...activities, ...filteredActivities].map(a => ({
-          activity_name: a.activity_name,
-          project_full_code: a.project_full_code || a.project_code,
-          zone: a.zone_ref || a.zone_number || '',
-          unit: a.unit || '',
-          activity_division: a.activity_division || ''
-        }))}
+        activities={(() => {
+          // Combine activities and filteredActivities, then remove duplicates by activity_name
+          const allActivities = [...activities, ...filteredActivities]
+          const uniqueActivities = Array.from(
+            new Map(
+              allActivities.map(activity => [activity.activity_name, activity])
+            ).values()
+          )
+          return uniqueActivities.map(a => ({
+            activity_name: a.activity_name,
+            project_full_code: a.project_full_code || a.project_code,
+            zone: a.zone_ref || a.zone_number || '',
+            unit: a.unit || '',
+            activity_division: a.activity_division || ''
+          }))
+        })()}
         selectedProjects={selectedProjects}
         selectedActivities={selectedActivities}
         selectedZones={selectedZones}

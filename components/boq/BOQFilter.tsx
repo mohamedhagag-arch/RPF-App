@@ -189,15 +189,28 @@ export function BOQFilter({
            projectName.includes(searchTerm)
   })
   
-  // Filter activities by selected projects and search
-  const availableActivities = selectedProjects.length > 0 ? activities.filter(a => {
-    const activityFullCode = ((a as any).project_full_code || '').toString().trim()
-    return selectedProjects.some(selectedFullCode => 
-      activityFullCode.toUpperCase() === selectedFullCode.toUpperCase()
+  // Filter activities by selected projects and search, then remove duplicates
+  const availableActivities = selectedProjects.length > 0 ? (() => {
+    // First filter by selected projects
+    const filteredByProject = activities.filter(a => {
+      const activityFullCode = ((a as any).project_full_code || '').toString().trim()
+      return selectedProjects.some(selectedFullCode => 
+        activityFullCode.toUpperCase() === selectedFullCode.toUpperCase()
+      )
+    })
+    
+    // Remove duplicates by activity_name (keep unique activities)
+    const uniqueActivities = Array.from(
+      new Map(
+        filteredByProject.map(activity => [activity.activity_name, activity])
+      ).values()
     )
-  }).filter(activity =>
-    !activitySearch || activity.activity_name.toLowerCase().includes(activitySearch.toLowerCase())
-  ) : []
+    
+    // Then filter by search term
+    return uniqueActivities.filter(activity =>
+      !activitySearch || activity.activity_name.toLowerCase().includes(activitySearch.toLowerCase())
+    )
+  })() : []
   
   // Get unique zones, units, divisions from filtered activities
   const uniqueZones = Array.from(new Set(
