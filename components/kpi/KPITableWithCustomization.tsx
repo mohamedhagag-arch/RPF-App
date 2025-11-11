@@ -727,7 +727,7 @@ export function KPITableWithCustomization({
           if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
           
           // ✅ IMPROVED: More flexible matching with Zone consideration
-          relatedActivity = allActivities.find((activity: any) => {
+          let relatedActivity = allActivities.find((activity: any) => {
             // Activity name matching (flexible)
             const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
             const activityNameMatch = (
@@ -798,30 +798,75 @@ export function KPITableWithCustomization({
           if (relatedActivity) {
             const rawActivity = (relatedActivity as any).raw || {}
             
-            // ✅ Get Total Value directly from BOQ Activity (most accurate)
-            totalValueFromActivity = relatedActivity.total_value || 
-                                   parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
-                                   0
+            // ✅ CRITICAL: Verify Zone match BEFORE calculating Rate
+            // Extract and normalize activity zone
+            const activityZoneRaw = (relatedActivity.zone_ref || relatedActivity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
+            let activityZone = activityZoneRaw.toLowerCase().trim()
             
-            // Try to get rate from activity
-            rateForValue = relatedActivity.rate || 
-                          parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
-                          0
+            // Normalize activity zone (remove project code prefix)
+            if (activityZone && relatedActivity.project_code) {
+              const projectCodeUpper = (relatedActivity.project_code || '').toUpperCase()
+              activityZone = activityZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+              activityZone = activityZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
+              activityZone = activityZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
+            }
             
-            // If rate is 0, calculate from Total Value / Total Units
-            if (rateForValue === 0) {
-              const totalUnits = relatedActivity.total_units || 
-                              relatedActivity.planned_units ||
-                              parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
-                              0
-              
-              if (totalUnits > 0 && totalValueFromActivity > 0) {
-                rateForValue = totalValueFromActivity / totalUnits
+            // Extract zone numbers for validation
+            const extractZoneNumber = (zone: string): string => {
+              if (!zone || zone.trim() === '') return ''
+              const numberMatch = zone.match(/\d+/)
+              if (numberMatch) return numberMatch[0]
+              return zone.toLowerCase().trim()
+            }
+            
+            const kpiZoneNum = kpiZone ? extractZoneNumber(kpiZone) : ''
+            const activityZoneNum = activityZone ? extractZoneNumber(activityZone) : ''
+            
+            // ✅ VALIDATION: If KPI has zone, Activity MUST be in same zone
+            if (kpiZone && kpiZone.trim() !== '' && kpiZoneNum) {
+              if (!activityZoneNum || activityZoneNum !== kpiZoneNum) {
+                // Activity is NOT in the correct zone - reject it
+                if (process.env.NODE_ENV === 'development') {
+                  console.warn(`⚠️ [KPI Value] Activity found but Zone mismatch - rejecting:`, {
+                    kpiActivityName: kpi.activity_name,
+                    kpiZone: kpiZone,
+                    kpiZoneNum,
+                    activityName: relatedActivity.activity_name,
+                    activityZone: activityZone || 'N/A',
+                    activityZoneNum: activityZoneNum || 'N/A'
+                  })
+                }
+                relatedActivity = null // Reject this activity
               }
             }
             
-            // ✅ FIX: If quantity is 0 in KPI, try to get from BOQ Activity
-            if (quantityForValue === 0) {
+            // ✅ Only calculate Rate if Activity is in correct Zone
+            if (relatedActivity) {
+              // ✅ Get Total Value directly from BOQ Activity in THIS Zone (most accurate)
+              totalValueFromActivity = relatedActivity.total_value || 
+                                     parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                     0
+              
+              // Try to get rate from activity
+              rateForValue = relatedActivity.rate || 
+                            parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+                            0
+              
+              // ✅ CRITICAL: If rate is 0, calculate from Total Value / Total Units of THIS Zone's Activity
+              if (rateForValue === 0) {
+                const totalUnits = relatedActivity.total_units || 
+                                relatedActivity.planned_units ||
+                                parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                                0
+                
+                if (totalUnits > 0 && totalValueFromActivity > 0) {
+                  rateForValue = totalValueFromActivity / totalUnits
+                }
+              }
+            }
+            
+            // ✅ FIX: If quantity is 0 in KPI, try to get from BOQ Activity (only if Activity is in correct Zone)
+            if (relatedActivity && quantityForValue === 0) {
               const activityQuantity = relatedActivity.total_units || 
                                      relatedActivity.planned_units ||
                                      parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
@@ -832,7 +877,7 @@ export function KPITableWithCustomization({
             }
             
             // ✅ DEBUG: Log matching with zone details
-            if (process.env.NODE_ENV === 'development') {
+            if (process.env.NODE_ENV === 'development' && relatedActivity) {
               const rawActivity = (relatedActivity as any).raw || {}
               const activityZoneRaw = (relatedActivity.zone_ref || relatedActivity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
               let activityZone = activityZoneRaw.toLowerCase().trim()
@@ -1027,7 +1072,7 @@ export function KPITableWithCustomization({
           }
           if (!kpiZoneVirtual) kpiZoneVirtual = kpiZoneVirtualRaw.toLowerCase().trim()
           
-          const relatedActivityVirtual = allActivities.find((activity: any) => {
+          let relatedActivityVirtual = allActivities.find((activity: any) => {
             // Activity name matching (flexible)
             const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
             const activityNameMatch = (
@@ -1098,29 +1143,74 @@ export function KPITableWithCustomization({
           if (relatedActivityVirtual) {
             const rawActivityVirtual = (relatedActivityVirtual as any).raw || {}
             
-            // ✅ Get Total Value directly from BOQ Activity (most accurate)
-            totalValueFromActivityVirtual = relatedActivityVirtual.total_value || 
-                                           parseFloat(String(rawActivityVirtual['Total Value'] || '0').replace(/,/g, '')) || 
-                                           0
+            // ✅ CRITICAL: Verify Zone match BEFORE calculating Rate
+            // Extract and normalize activity zone
+            const activityZoneRawVirtual = (relatedActivityVirtual.zone_ref || relatedActivityVirtual.zone_number || rawActivityVirtual['Zone Ref'] || rawActivityVirtual['Zone Number'] || '').toString().trim()
+            let activityZoneVirtual = activityZoneRawVirtual.toLowerCase().trim()
             
-            rateForVirtual = relatedActivityVirtual.rate || 
-                            parseFloat(String(rawActivityVirtual['Rate'] || '0').replace(/,/g, '')) || 
-                            0
+            // Normalize activity zone (remove project code prefix)
+            if (activityZoneVirtual && relatedActivityVirtual.project_code) {
+              const projectCodeUpper = (relatedActivityVirtual.project_code || '').toUpperCase()
+              activityZoneVirtual = activityZoneVirtual.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+              activityZoneVirtual = activityZoneVirtual.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
+              activityZoneVirtual = activityZoneVirtual.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
+            }
             
-            // If rate is 0, calculate from Total Value / Total Units
-            if (rateForVirtual === 0) {
-              const totalUnitsVirtual = relatedActivityVirtual.total_units || 
-                                      relatedActivityVirtual.planned_units ||
-                                      parseFloat(String(rawActivityVirtual['Total Units'] || rawActivityVirtual['Planned Units'] || '0').replace(/,/g, '')) || 
-                                      0
-              
-              if (totalUnitsVirtual > 0 && totalValueFromActivityVirtual > 0) {
-                rateForVirtual = totalValueFromActivityVirtual / totalUnitsVirtual
+            // Extract zone numbers for validation
+            const extractZoneNumberVirtual = (zone: string): string => {
+              if (!zone || zone.trim() === '') return ''
+              const numberMatch = zone.match(/\d+/)
+              if (numberMatch) return numberMatch[0]
+              return zone.toLowerCase().trim()
+            }
+            
+            const kpiZoneNumVirtual = kpiZoneVirtual ? extractZoneNumberVirtual(kpiZoneVirtual) : ''
+            const activityZoneNumVirtual = activityZoneVirtual ? extractZoneNumberVirtual(activityZoneVirtual) : ''
+            
+            // ✅ VALIDATION: If KPI has zone, Activity MUST be in same zone
+            if (kpiZoneVirtual && kpiZoneVirtual.trim() !== '' && kpiZoneNumVirtual) {
+              if (!activityZoneNumVirtual || activityZoneNumVirtual !== kpiZoneNumVirtual) {
+                // Activity is NOT in the correct zone - reject it
+                if (process.env.NODE_ENV === 'development') {
+                  console.warn(`⚠️ [KPI Virtual Value] Activity found but Zone mismatch - rejecting:`, {
+                    kpiActivityName: kpi.activity_name,
+                    kpiZone: kpiZoneVirtual,
+                    kpiZoneNum: kpiZoneNumVirtual,
+                    activityName: relatedActivityVirtual.activity_name,
+                    activityZone: activityZoneVirtual || 'N/A',
+                    activityZoneNum: activityZoneNumVirtual || 'N/A'
+                  })
+                }
+                relatedActivityVirtual = null // Reject this activity
               }
             }
             
-            // ✅ FIX: If quantity is 0 in KPI, try to get from BOQ Activity
-            if (quantityForVirtual === 0) {
+            // ✅ Only calculate Rate if Activity is in correct Zone
+            if (relatedActivityVirtual) {
+              // ✅ Get Total Value directly from BOQ Activity in THIS Zone (most accurate)
+              totalValueFromActivityVirtual = relatedActivityVirtual.total_value || 
+                                             parseFloat(String(rawActivityVirtual['Total Value'] || '0').replace(/,/g, '')) || 
+                                             0
+              
+              rateForVirtual = relatedActivityVirtual.rate || 
+                              parseFloat(String(rawActivityVirtual['Rate'] || '0').replace(/,/g, '')) || 
+                              0
+              
+              // ✅ CRITICAL: If rate is 0, calculate from Total Value / Total Units of THIS Zone's Activity
+              if (rateForVirtual === 0) {
+                const totalUnitsVirtual = relatedActivityVirtual.total_units || 
+                                        relatedActivityVirtual.planned_units ||
+                                        parseFloat(String(rawActivityVirtual['Total Units'] || rawActivityVirtual['Planned Units'] || '0').replace(/,/g, '')) || 
+                                        0
+                
+                if (totalUnitsVirtual > 0 && totalValueFromActivityVirtual > 0) {
+                  rateForVirtual = totalValueFromActivityVirtual / totalUnitsVirtual
+                }
+              }
+            }
+            
+            // ✅ FIX: If quantity is 0 in KPI, try to get from BOQ Activity (only if Activity is in correct Zone)
+            if (relatedActivityVirtual && quantityForVirtual === 0) {
               const activityQuantity = relatedActivityVirtual.total_units || 
                                      relatedActivityVirtual.planned_units ||
                                      parseFloat(String(rawActivityVirtual['Total Units'] || rawActivityVirtual['Planned Units'] || '0').replace(/,/g, '')) || 
