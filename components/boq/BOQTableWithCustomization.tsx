@@ -613,35 +613,53 @@ export function BOQTableWithCustomization({
         return true
       })
       
-      // Get earliest date from Planned KPIs (from Date column: target_date or activity_date)
+      // ✅ CRITICAL: Get earliest date from Planned KPIs (from Date column ONLY)
+      // This MUST be the first date from the Date column in KPIs for this activity
+      // Matching is done by: Project Code + Activity Name + Zone (if activity has zone)
       if (matchingKPIs.length > 0) {
-        const dates: Array<{ date: string; kpi: any }> = []
+        const dates: Array<{ date: string; kpi: any; source: string }> = []
         matchingKPIs.forEach((kpi: any) => {
           const rawKPI = (kpi as any).raw || {}
-          // ✅ Get Date from Date column (target_date or activity_date)
-          const kpiDate = kpi.target_date || 
-                        kpi.activity_date ||
-                        rawKPI['Target Date'] ||
-                        rawKPI['Activity Date'] ||
-                        rawKPI['Date'] ||
-                        ''
+          // ✅ PRIORITY: Get Date from Date column (target_date or activity_date or Date field)
+          // Priority order: target_date > activity_date > raw['Date'] > raw['Target Date'] > raw['Activity Date']
+          let kpiDate = ''
+          let dateSource = ''
+          
+          if (kpi.target_date && kpi.target_date.trim() !== '' && kpi.target_date !== 'N/A') {
+            kpiDate = kpi.target_date
+            dateSource = 'target_date'
+          } else if (kpi.activity_date && kpi.activity_date.trim() !== '' && kpi.activity_date !== 'N/A') {
+            kpiDate = kpi.activity_date
+            dateSource = 'activity_date'
+          } else if (rawKPI['Date'] && rawKPI['Date'].toString().trim() !== '' && rawKPI['Date'] !== 'N/A') {
+            kpiDate = rawKPI['Date'].toString()
+            dateSource = 'raw[Date]'
+          } else if (rawKPI['Target Date'] && rawKPI['Target Date'].toString().trim() !== '' && rawKPI['Target Date'] !== 'N/A') {
+            kpiDate = rawKPI['Target Date'].toString()
+            dateSource = 'raw[Target Date]'
+          } else if (rawKPI['Activity Date'] && rawKPI['Activity Date'].toString().trim() !== '' && rawKPI['Activity Date'] !== 'N/A') {
+            kpiDate = rawKPI['Activity Date'].toString()
+            dateSource = 'raw[Activity Date]'
+          }
+          
           if (kpiDate && kpiDate.trim() !== '' && kpiDate !== 'N/A') {
-            dates.push({ date: kpiDate, kpi })
+            dates.push({ date: kpiDate, kpi, source: dateSource })
           }
         })
         
         if (dates.length > 0) {
-          // Sort dates and return earliest
+          // Sort dates and return earliest (first date from Date column in KPIs)
           const sortedDates = dates
-            .map(({ date, kpi }) => {
+            .map(({ date, kpi, source }) => {
               try {
                 const dateObj = new Date(date)
-                return { dateObj, date, kpi }
+                if (isNaN(dateObj.getTime())) return null
+                return { dateObj, date, kpi, source }
               } catch {
                 return null
               }
             })
-            .filter((d): d is { dateObj: Date; date: string; kpi: any } => d !== null && !isNaN(d.dateObj.getTime()))
+            .filter((d): d is { dateObj: Date; date: string; kpi: any; source: string } => d !== null)
             .sort((a, b) => a.dateObj.getTime() - b.dateObj.getTime())
           
           if (sortedDates.length > 0) {
@@ -650,28 +668,44 @@ export function BOQTableWithCustomization({
             // ✅ DEBUG: Log date selection for troubleshooting
             if (process.env.NODE_ENV === 'development') {
               const rawKPI = (sortedDates[0].kpi as any).raw || {}
-              console.log(`📅 [Planned Start Date] Activity "${activity.activity_name}" (Zone: ${activityZone || 'N/A'}):`, {
+              const kpiZone = getKPIZone(sortedDates[0].kpi)
+              console.log(`📅 [Planned Start Date] ✅ Activity "${activity.activity_name}" (Zone: ${activityZone || 'N/A'}):`, {
                 matchingKPIsCount: matchingKPIs.length,
-                allDates: dates.map(d => d.date),
-                sortedDates: sortedDates.map(d => d.date),
+                allDates: dates.map(d => ({ date: d.date, source: d.source })),
+                sortedDates: sortedDates.map(d => ({ date: d.date, source: d.source })),
                 earliestDate,
                 earliestDateSource: {
-                  kpiDate: sortedDates[0].kpi.target_date || sortedDates[0].kpi.activity_date || rawKPI['Date'] || 'N/A',
-                  kpiZone: getKPIZone(sortedDates[0].kpi) || 'N/A',
-                  kpiActivityName: sortedDates[0].kpi.activity_name || rawKPI['Activity Name'] || 'N/A'
+                  kpiDate: sortedDates[0].date,
+                  dateSource: sortedDates[0].source,
+                  kpiZone: kpiZone || 'N/A',
+                  kpiActivityName: sortedDates[0].kpi.activity_name || rawKPI['Activity Name'] || 'N/A',
+                  kpiProjectCode: sortedDates[0].kpi.project_code || rawKPI['Project Code'] || 'N/A'
                 },
                 activityProjectCode,
-                activityZone: activityZone || 'N/A'
+                activityZone: activityZone || 'N/A',
+                note: '✅ Start Date is taken from FIRST date in Date column of Planned KPIs for this activity'
               })
             }
             
+            // ✅ CRITICAL: Return earliest date from KPIs (this is the Start Date)
+            // This is the FIRST date from the Date column in Planned KPIs for this activity
             return earliestDate
           }
+        }
+        
+        // ✅ If we have matching KPIs but no valid dates, log warning
+        if (process.env.NODE_ENV === 'development') {
+          console.warn(`⚠️ [Planned Start Date] Activity "${activity.activity_name}" has ${matchingKPIs.length} matching Planned KPIs but no valid dates found`)
+        }
+      } else {
+        // ✅ If no matching KPIs found, log info
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`ℹ️ [Planned Start Date] Activity "${activity.activity_name}" (Zone: ${activityZone || 'N/A'}): No matching Planned KPIs found, trying other sources...`)
         }
       }
     }
     
-    // Priority 2: Direct BOQ Activity fields
+    // ✅ Priority 2: Direct BOQ Activity fields (ONLY if no Planned KPIs found)
     const directStart = activity.planned_activity_start_date || 
                        activity.activity_planned_start_date ||
                        getActivityField(activity, 'Planned Activity Start Date') ||
