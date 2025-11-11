@@ -329,7 +329,7 @@ export function ProjectsList({
       setError('')
       // ✅ PERFORMANCE: Only log in development mode
       if (process.env.NODE_ENV === 'development') {
-        console.log('📊 Loading all project data...')
+      console.log('📊 Loading all project data...')
       }
       
       // ✅ Helper function to fetch all records with pagination (Supabase default limit is 1000)
@@ -364,7 +364,7 @@ export function ProjectsList({
           allData = [...allData, ...data]
           // ✅ PERFORMANCE: Only log in development mode
           if (process.env.NODE_ENV === 'development') {
-            console.log(`📥 Fetched ${table} chunk: ${data.length} records (total so far: ${allData.length})`)
+          console.log(`📥 Fetched ${table} chunk: ${data.length} records (total so far: ${allData.length})`)
           }
           
           if (data.length < chunkSize) {
@@ -376,7 +376,7 @@ export function ProjectsList({
         
         // ✅ PERFORMANCE: Only log in development mode
         if (process.env.NODE_ENV === 'development') {
-          console.log(`✅ Total ${table} records fetched: ${allData.length}`)
+        console.log(`✅ Total ${table} records fetched: ${allData.length}`)
         }
         return allData
       }
@@ -418,11 +418,11 @@ export function ProjectsList({
         
         // ✅ PERFORMANCE: Only log in development mode
         if (process.env.NODE_ENV === 'development') {
-          console.log('✅ Data loaded:', {
-            projects: mappedProjects.length,
-            activities: mappedActivities.length,
-            kpis: mappedKPIs.length
-          })
+        console.log('✅ Data loaded:', {
+          projects: mappedProjects.length,
+          activities: mappedActivities.length,
+          kpis: mappedKPIs.length
+        })
         }
         
         // ✅ PERFORMANCE: Auto-update project statuses in background (non-blocking)
@@ -433,7 +433,7 @@ export function ProjectsList({
           setTimeout(async () => {
             try {
               if (process.env.NODE_ENV === 'development') {
-                console.log('🔄 Auto-updating project statuses based on activities...')
+              console.log('🔄 Auto-updating project statuses based on activities...')
               }
               let updatedCount = 0
               // ✅ PERFORMANCE: Reduced from 10 to 5 projects to avoid overload
@@ -628,13 +628,13 @@ export function ProjectsList({
     // This reduces complexity from O(n*m) to O(n+m)
     const activitiesByProject = new Map<string, any[]>()
     const kpisByProject = new Map<string, any[]>()
-    
+        
     // Build activities lookup map
     allActivities.forEach(activity => {
       const activityProjectFullCode = (activity.project_full_code || '').toString().trim()
       const activityProjectCode = (activity.project_code || '').toString().trim()
       const activityProjectSubCode = (activity.project_sub_code || '').toString().trim()
-      
+          
       // Add to map by project_full_code (primary key)
       if (activityProjectFullCode) {
         if (!activitiesByProject.has(activityProjectFullCode)) {
@@ -644,23 +644,23 @@ export function ProjectsList({
       }
       
       // Also add by built full code if different
-      if (activityProjectCode && activityProjectSubCode) {
+          if (activityProjectCode && activityProjectSubCode) {
         let builtFullCode = activityProjectCode
-        if (activityProjectSubCode.toUpperCase().startsWith(activityProjectCode.toUpperCase())) {
+            if (activityProjectSubCode.toUpperCase().startsWith(activityProjectCode.toUpperCase())) {
           builtFullCode = activityProjectSubCode
-        } else if (activityProjectSubCode.startsWith('-')) {
+            } else if (activityProjectSubCode.startsWith('-')) {
           builtFullCode = `${activityProjectCode}${activityProjectSubCode}`
-        } else {
+            } else {
           builtFullCode = `${activityProjectCode}-${activityProjectSubCode}`
-        }
+            }
         if (builtFullCode !== activityProjectFullCode) {
           if (!activitiesByProject.has(builtFullCode)) {
             activitiesByProject.set(builtFullCode, [])
           }
           activitiesByProject.get(builtFullCode)!.push(activity)
-        }
-      }
-      
+            }
+          }
+          
       // Add by project_code only if no sub_code (fallback)
       if (!activityProjectSubCode && activityProjectCode) {
         if (!activitiesByProject.has(activityProjectCode)) {
@@ -675,7 +675,7 @@ export function ProjectsList({
       const kpiProjectFullCode = ((kpi.project_full_code || (kpi as any)['Project Full Code'] || '')).toString().trim()
       const kpiProjectCode = ((kpi as any).project_code || (kpi as any)['Project Code'] || '').toString().trim()
       const kpiProjectSubCode = ((kpi as any).project_sub_code || (kpi as any)['Project Sub Code'] || '').toString().trim()
-      
+          
       // Add to map by project_full_code (primary key)
       if (kpiProjectFullCode) {
         if (!kpisByProject.has(kpiProjectFullCode)) {
@@ -685,23 +685,23 @@ export function ProjectsList({
       }
       
       // Also add by built full code if different
-      if (kpiProjectCode && kpiProjectSubCode) {
+          if (kpiProjectCode && kpiProjectSubCode) {
         let builtFullCode = kpiProjectCode
-        if (kpiProjectSubCode.toUpperCase().startsWith(kpiProjectCode.toUpperCase())) {
+            if (kpiProjectSubCode.toUpperCase().startsWith(kpiProjectCode.toUpperCase())) {
           builtFullCode = kpiProjectSubCode
-        } else if (kpiProjectSubCode.startsWith('-')) {
+            } else if (kpiProjectSubCode.startsWith('-')) {
           builtFullCode = `${kpiProjectCode}${kpiProjectSubCode}`
-        } else {
+            } else {
           builtFullCode = `${kpiProjectCode}-${kpiProjectSubCode}`
-        }
+            }
         if (builtFullCode !== kpiProjectFullCode) {
           if (!kpisByProject.has(builtFullCode)) {
             kpisByProject.set(builtFullCode, [])
           }
           kpisByProject.get(builtFullCode)!.push(kpi)
-        }
-      }
-      
+            }
+          }
+          
       // Add by project_code only if no sub_code (fallback)
       if (!kpiProjectSubCode && kpiProjectCode) {
         if (!kpisByProject.has(kpiProjectCode)) {
@@ -735,7 +735,7 @@ export function ProjectsList({
       } catch (error) {
         // ✅ PERFORMANCE: Only log errors in development mode
         if (process.env.NODE_ENV === 'development') {
-          console.error(`❌ Error calculating analytics for ${project.project_code}:`, error)
+        console.error(`❌ Error calculating analytics for ${project.project_code}:`, error)
         }
       }
     })

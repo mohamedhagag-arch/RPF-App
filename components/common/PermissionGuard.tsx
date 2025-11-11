@@ -32,7 +32,7 @@ export function PermissionGuard({
 
   // ✅ PERFORMANCE: Only log in development mode and very rarely (0.1%)
   if (process.env.NODE_ENV === 'development' && Math.random() < 0.001) {
-    console.log('🔍 Permission Guard Component: Access result:', hasPermission ? '✅ Granted' : '❌ Denied')
+  console.log('🔍 Permission Guard Component: Access result:', hasPermission ? '✅ Granted' : '❌ Denied')
   }
 
   return hasPermission ? <>{children}</> : <>{fallback}</>

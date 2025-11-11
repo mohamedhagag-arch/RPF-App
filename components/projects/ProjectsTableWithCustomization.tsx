@@ -17,6 +17,7 @@ import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { buildProjectFullCode, filterActivitiesByProject, filterKPIsByProject } from '@/lib/projectDataFetcher'
 import { calculateActivityRate } from '@/lib/rateCalculator'
 import { calculateWorkValueStatus, calculateProgressFromWorkValue } from '@/lib/workValueCalculator'
+import { TABLES } from '@/lib/supabase'
 
 interface ProjectsTableWithCustomizationProps {
   projects: Project[]
@@ -288,6 +289,58 @@ export function ProjectsTableWithCustomization({
       return raw[fieldName] || raw[fieldName.replace(/\s+/g, ' ')] || (project as any)[fieldName] || ''
     } catch {
       return ''
+    }
+  }, [])
+
+  // ✅ Helper: تحديث حالة المشروع في قاعدة البيانات
+  const updateProjectStatusInDB = useCallback(async (
+    projectId: string,
+    newStatus: string,
+    confidence: number,
+    reason: string
+  ) => {
+    try {
+      const supabase = getSupabaseClient()
+      
+      const updateData: any = {
+        project_status: newStatus,
+        updated_at: new Date().toISOString()
+      }
+      
+      // إضافة حقول إضافية إذا كانت موجودة
+      try {
+        updateData.status_confidence = confidence
+        updateData.status_reason = reason
+        updateData.status_updated_at = new Date().toISOString()
+      } catch {
+        // تجاهل إذا كانت الحقول غير موجودة
+      }
+      
+      const { error } = await (supabase as any)
+        .from(TABLES.PROJECTS)
+        .update(updateData)
+        .eq('id', projectId)
+      
+      if (error) {
+        // محاولة التحديث بدون الحقول الإضافية
+        const { error: retryError } = await (supabase as any)
+          .from(TABLES.PROJECTS)
+          .update({
+            project_status: newStatus,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', projectId)
+        
+        if (retryError && process.env.NODE_ENV === 'development') {
+          console.error(`❌ [Status Update] Failed to update project ${projectId}:`, retryError)
+        }
+      } else if (process.env.NODE_ENV === 'development') {
+        console.log(`✅ [Status Update] Updated project ${projectId} to ${newStatus}`)
+      }
+    } catch (error) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error(`❌ [Status Update] Error updating project ${projectId}:`, error)
+      }
     }
   }, [])
 
@@ -2811,93 +2864,280 @@ export function ProjectsTableWithCustomization({
           )
         
         case 'project_status':
-          // ✅ Display Project Status calculated automatically based on activities and KPIs
-          // ✅ CRITICAL: Status is calculated automatically and saved to database
-          // Default status is 'upcoming' when project is created, but changes automatically based on activities
+          // ✅ إعادة كتابة كاملة ونظيفة لحساب حالة المشروع
           let calculatedStatus: string = project.project_status || 'upcoming'
           
-          // Get project activities and KPIs from analytics
-          const statusActivities = analytics?.activities || []
-          const statusKPIs = analytics?.kpis || []
-          
-          // ✅ Calculate status automatically based on Activity Commencement Relation
-          // Logic:
-          // 1. No activities = 'upcoming'
-          // 2. Post-Commencement activity started = 'site-preparation'
-          // 3. Pre-Commencement in progress = 'site-preparation'
-          // 4. Post-Commencement in progress = 'on-going'
-          // 5. All completed = 'completed'
           try {
-            // Prepare data for status calculation
-            const statusData: ProjectStatusData = {
-              project_id: project.id,
-              project_code: project.project_code || '',
-              project_name: project.project_name || '',
-              project_start_date: project.project_start_date || project.created_at || new Date().toISOString(),
-              project_end_date: project.project_completion_date || getProjectField(project, 'Planned Completion Date') || new Date().toISOString(),
-              current_date: new Date().toISOString(),
-              activities: statusActivities.map((activity: any) => ({
-                id: activity.id || activity.activity_id || '',
-                activity_timing: activity.activity_timing || (activity as any).raw?.['Activity Timing'] || 'post-commencement',
-                planned_units: activity.planned_units || activity.total_units || 0,
-                actual_units: activity.actual_units || 0,
-                planned_activity_start_date: activity.planned_start_date || activity.planned_activity_start_date || (activity as any).raw?.['Planned Start Date'] || (activity as any).raw?.['Planned Activity Start Date'] || '',
-                deadline: activity.deadline || (activity as any).raw?.['Deadline'] || '',
-                status: activity.status || activity.activity_completed ? 'completed' : (activity.activity_delayed ? 'delayed' : 'not_started')
-              })),
-              kpis: statusKPIs.map((kpi: any) => ({
-                id: kpi.id || '',
-                input_type: kpi.input_type || (kpi as any).raw?.['Input Type'] || 'Planned',
-                quantity: kpi.quantity || kpi.Quantity || 0,
-                target_date: kpi.target_date || kpi.activity_date || (kpi as any).raw?.['Target Date'] || (kpi as any).raw?.['Activity Date'] || '',
-                actual_date: kpi.actual_date || (kpi as any).raw?.['Actual Date']
-              }))
+            // 1. بناء Project Full Code
+            const projectFullCode = buildProjectFullCode(project)
+            const projectCode = String(project.project_code || '').trim()
+            const projectSubCode = String(project.project_sub_code || '').trim()
+            
+            // 2. جلب الأنشطة للمشروع
+            let projectActivities: any[] = []
+            if (analytics && analytics.activities && analytics.activities.length > 0) {
+              projectActivities = analytics.activities
+            } else if (allActivities.length > 0) {
+              projectActivities = filterActivitiesByProject(allActivities, projectCode, projectSubCode, projectFullCode)
             }
             
-            // Calculate status using improved logic
-            const statusResult = calculateProjectStatus(statusData)
-            calculatedStatus = statusResult.status
+            // 3. جلب KPIs للمشروع
+            let projectKPIs: any[] = []
+            if (analytics && analytics.kpis && analytics.kpis.length > 0) {
+              projectKPIs = analytics.kpis
+            } else if (allKPIs.length > 0) {
+              projectKPIs = filterKPIsByProject(allKPIs, projectCode, projectSubCode, projectFullCode)
+            }
             
-            // ✅ TODO: Auto-save calculated status to database (will be implemented in background update)
-            // For now, display the calculated status even if database hasn't been updated yet
+            // 4. تحضير الأنشطة (بدون Project Award Date - لا نحتاجه)
+            const activities = projectActivities
+              .map((act: any) => {
+                const raw = act.raw || {}
+                const name = String(act.activity_name || act['Activity Name'] || raw['Activity Name'] || raw['Activity'] || '').trim()
+                if (!name) return null
+                
+                return {
+                  id: act.id || act.activity_id || '',
+                  activity_timing: (act.activity_timing || raw['Activity Timing'] || 'post-commencement') as 'pre-commencement' | 'post-commencement' | 'post-completion',
+                  activity_name: name,
+                  planned_units: parseFloat(String(act.planned_units || act.total_units || raw['Planned Units'] || raw['Total Units'] || '0').replace(/,/g, '')) || 0,
+                  actual_units: parseFloat(String(act.actual_units || raw['Actual Units'] || '0').replace(/,/g, '')) || 0,
+                  planned_activity_start_date: act.planned_activity_start_date || act.planned_start_date || act.activity_planned_start_date || raw['Planned Activity Start Date'] || raw['Planned Start Date'] || raw['Activity Planned Start Date'] || undefined,
+                  activity_actual_start_date: act.activity_actual_start_date || act.actual_start_date || raw['Activity Actual Start Date'] || raw['Actual Start Date'] || undefined,
+                  deadline: act.deadline || act.activity_planned_completion_date || raw['Deadline'] || raw['Activity Planned Completion Date'] || undefined,
+                  activity_actual_completion_date: act.activity_actual_completion_date || act.actual_completion_date || raw['Activity Actual Completion Date'] || raw['Actual Completion Date'] || undefined,
+                  status: act.status || (act.activity_completed ? 'completed' : (act.activity_delayed ? 'delayed' : 'not_started'))
+                }
+              })
+              .filter((a: any): a is NonNullable<typeof a> => a !== null && a.activity_name.length > 0)
+            
+            // 5. تحضير KPIs
+            const kpis = projectKPIs
+              .map((kpi: any) => {
+                const raw = kpi.raw || {}
+                const name = String(kpi.activity_name || kpi['Activity Name'] || raw['Activity Name'] || '').trim()
+                if (!name) return null
+                
+                const inputType = String(kpi.input_type || raw['Input Type'] || kpi['Input Type'] || 'Planned').trim()
+                
+                return {
+                  id: kpi.id || '',
+                  input_type: (inputType === 'Actual' ? 'Actual' : 'Planned') as 'Planned' | 'Actual',
+                  quantity: parseFloat(String(kpi.quantity || kpi.Quantity || raw['Quantity'] || '0').replace(/,/g, '')) || 0,
+                  target_date: kpi.target_date || raw['Target Date'] || kpi['Target Date'] || '',
+                  actual_date: kpi.actual_date || raw['Actual Date'] || kpi['Actual Date'] || undefined,
+                  activity_date: kpi.activity_date || raw['Activity Date'] || kpi['Activity Date'] || kpi.target_date || kpi.actual_date || '',
+                  activity_name: name
+                }
+              })
+              .filter((k: any): k is NonNullable<typeof k> => k !== null && k.activity_name.length > 0)
+            
+            // 6. حساب الحالة (بدون Project Award Date)
+            // ✅ التحقق من الحالات اليدوية أولاً (on-hold, cancelled)
+            const currentStatusFromDB = project.project_status || 'upcoming'
+            if (currentStatusFromDB === 'on-hold' || currentStatusFromDB === 'cancelled') {
+              // الحالات اليدوية لا تتغير تلقائياً
+              calculatedStatus = currentStatusFromDB
+            } else {
+              // ✅ أساسي: التحقق من Actual KPIs أولاً - قبل حساب الحالة
+              const plannedKPIs = kpis.filter((k: any) => k.input_type.toLowerCase() === 'planned')
+              const actualKPIs = kpis.filter((k: any) => k.input_type.toLowerCase() === 'actual')
+              
+              // ✅ التحقق من وجود Actual KPIs مع quantity > 0
+              const hasActualKPIs = actualKPIs.length > 0 && actualKPIs.some((k: any) => {
+                const qty = parseFloat(String(k.quantity || '0').replace(/,/g, '')) || 0
+                return qty > 0
+              })
+              
+              // ✅ إذا لم توجد Actual KPIs، الحالة يجب أن تكون Upcoming دائماً
+              let result: any = null
+              if (!hasActualKPIs) {
+                calculatedStatus = 'upcoming'
+                result = {
+                  status: 'upcoming',
+                  confidence: 100,
+                  reason: 'No Actual KPIs found - status must be Upcoming'
+                }
+                if (process.env.NODE_ENV === 'development') {
+                  console.log(`⚠️ [Status] ${projectCode}: No Actual KPIs found - forcing Upcoming status`, {
+                    totalKPIs: kpis.length,
+                    plannedKPIs: plannedKPIs.length,
+                    actualKPIs: actualKPIs.length,
+                    actualKPIsWithQuantity: actualKPIs.filter((k: any) => {
+                      const qty = parseFloat(String(k.quantity || '0').replace(/,/g, '')) || 0
+                      return qty > 0
+                    }).length,
+                    storedStatus: currentStatusFromDB
+                  })
+                }
+              } else if (activities.length > 0 || kpis.length > 0) {
+                // ✅ فقط إذا كانت هناك Actual KPIs، نحسب الحالة
+                const statusData: ProjectStatusData = {
+                  project_id: project.id,
+                  project_code: projectCode,
+                  project_name: project.project_name || '',
+                  project_start_date: project.project_start_date || project.created_at || new Date().toISOString(),
+                  project_end_date: project.project_completion_date || getProjectField(project, 'Planned Completion Date') || new Date().toISOString(),
+                  project_award_date: undefined, // ✅ لا نستخدم Project Award Date
+                  current_date: new Date().toISOString(),
+                  activities,
+                  kpis
+                }
+                
+                result = calculateProjectStatus(statusData)
+                calculatedStatus = result.status
+                
+                // ✅ تحسين: إذا كان التقدم 100% (Planned و Actual)، يجب أن تكون الحالة مكتملة
+                if (plannedKPIs.length > 0 && actualKPIs.length > 0) {
+                const totalPlannedQuantity = plannedKPIs.reduce((sum: number, k: any) => sum + (k.quantity || 0), 0)
+                const totalActualQuantity = actualKPIs.reduce((sum: number, k: any) => sum + (k.quantity || 0), 0)
+                
+                // إذا كان Actual >= Planned (100% أو أكثر)
+                if (totalPlannedQuantity > 0 && totalActualQuantity >= totalPlannedQuantity) {
+                  // فصل الأنشطة حسب Activity Timing
+                  const postCommencementActivities = activities.filter((a: any) => a.activity_timing === 'post-commencement')
+                  const postCompletionActivities = activities.filter((a: any) => a.activity_timing === 'post-completion')
+                  
+                  // التحقق من اكتمال جميع الأنشطة Post-commencement
+                  const allPostCommencementCompleted = postCommencementActivities.length > 0 && 
+                    postCommencementActivities.every((a: any) => {
+                      const actName = a.activity_name.toLowerCase()
+                      const actPlannedKPIs = plannedKPIs.filter((k: any) => k.activity_name.toLowerCase() === actName)
+                      const actActualKPIs = actualKPIs.filter((k: any) => k.activity_name.toLowerCase() === actName)
+                      const actPlannedQty = actPlannedKPIs.reduce((sum: number, k: any) => sum + (k.quantity || 0), 0)
+                      const actActualQty = actActualKPIs.reduce((sum: number, k: any) => sum + (k.quantity || 0), 0)
+                      return actPlannedQty > 0 && actActualQty >= actPlannedQty
+                    })
+                  
+                  // التحقق من اكتمال جميع الأنشطة Post-Completion
+                  const allPostCompletionCompleted = postCompletionActivities.length > 0 && 
+                    postCompletionActivities.every((a: any) => {
+                      const actName = a.activity_name.toLowerCase()
+                      const actPlannedKPIs = plannedKPIs.filter((k: any) => k.activity_name.toLowerCase() === actName)
+                      const actActualKPIs = actualKPIs.filter((k: any) => k.activity_name.toLowerCase() === actName)
+                      const actPlannedQty = actPlannedKPIs.reduce((sum: number, k: any) => sum + (k.quantity || 0), 0)
+                      const actActualQty = actActualKPIs.reduce((sum: number, k: any) => sum + (k.quantity || 0), 0)
+                      return actPlannedQty > 0 && actActualQty >= actPlannedQty
+                    })
+                  
+                  // تحديد الحالة بناءً على اكتمال الأنشطة
+                  if (postCompletionActivities.length > 0 && allPostCompletionCompleted) {
+                    calculatedStatus = 'contract-completed'
+                    result.reason = 'All activities completed (Actual >= Planned: 100%)'
+                    result.confidence = 100
+                  } else if (postCommencementActivities.length > 0 && allPostCommencementCompleted) {
+                    calculatedStatus = 'completed-duration'
+                    result.reason = 'All Post-commencement activities completed (Actual >= Planned: 100%)'
+                    result.confidence = 100
+                  } else if (totalActualQuantity >= totalPlannedQuantity) {
+                    // إذا كان التقدم الكلي 100% لكن لا توجد Post-Completion أو لم تكتمل
+                    // نستخدم Completed Duration كحالة افتراضية
+                    calculatedStatus = 'completed-duration'
+                    result.reason = 'Project progress 100% (Actual >= Planned)'
+                    result.confidence = 95
+                  }
+                }
+              }
+              
+              // ✅ تحديث الحالة في قاعدة البيانات إذا تغيرت
+              const currentStatus = project.project_status || 'upcoming'
+              if (calculatedStatus !== currentStatus && result) {
+                // تحديث الحالة في قاعدة البيانات بشكل async (لا ينتظر)
+                updateProjectStatusInDB(project.id, calculatedStatus, result.confidence || 100, result.reason || 'Status updated').catch((err) => {
+                  if (process.env.NODE_ENV === 'development') {
+                    console.error(`❌ [Status Update] Failed to update ${projectCode}:`, err)
+                  }
+                })
+              }
+              
+              // Debug logging
+              if (process.env.NODE_ENV === 'development' && result) {
+                const activitiesWithActualKPIs = activities.filter((act: any) => {
+                  const actName = act.activity_name.toLowerCase()
+                  return kpis.some((k: any) => 
+                    k.activity_name.toLowerCase() === actName && 
+                    k.input_type.toLowerCase() === 'actual' && 
+                    k.quantity > 0
+                  )
+                })
+                
+                console.log(`📊 [Status] ${projectCode}:`, {
+                  status: calculatedStatus,
+                  oldStatus: currentStatus,
+                  changed: calculatedStatus !== currentStatus,
+                  reason: result.reason,
+                  activities: activities.length,
+                  kpis: kpis.length,
+                  actualKPIs: kpis.filter((k: any) => k.input_type.toLowerCase() === 'actual' && k.quantity > 0).length,
+                  preCommencementActivities: activities.filter((a: any) => a.activity_timing === 'pre-commencement').length,
+                  postCommencementActivities: activities.filter((a: any) => a.activity_timing === 'post-commencement').length,
+                  postCompletionActivities: activities.filter((a: any) => a.activity_timing === 'post-completion').length,
+                  startedPreCommencement: activities.filter((a: any) => {
+                    const actName = a.activity_name.toLowerCase()
+                    return a.activity_timing === 'pre-commencement' && kpis.some((k: any) => 
+                      k.activity_name.toLowerCase() === actName && 
+                      k.input_type.toLowerCase() === 'actual' && 
+                      k.quantity > 0
+                    )
+                }).length,
+                  startedPostCommencement: activities.filter((a: any) => {
+                    const actName = a.activity_name.toLowerCase()
+                    return a.activity_timing === 'post-commencement' && kpis.some((k: any) => 
+                      k.activity_name.toLowerCase() === actName && 
+                      k.input_type.toLowerCase() === 'actual' && 
+                      k.quantity > 0
+                    )
+                  }).length
+                })
+              }
+              } else {
+                // لا توجد أنشطة أو KPIs - الحالة Upcoming
+                calculatedStatus = 'upcoming'
+                result = {
+                  status: 'upcoming',
+                  confidence: 100,
+                  reason: 'No activities or KPIs found'
+                }
+                
+                // ✅ تحديث الحالة في قاعدة البيانات إذا تغيرت
+                const currentStatus = project.project_status || 'upcoming'
+                if (calculatedStatus !== currentStatus) {
+                  updateProjectStatusInDB(project.id, calculatedStatus, 100, 'No activities or KPIs found').catch((err) => {
+                    if (process.env.NODE_ENV === 'development') {
+                      console.error(`❌ [Status Update] Failed to update ${projectCode}:`, err)
+                    }
+                  })
+                }
+              }
+            }
+            
           } catch (error) {
-            console.error('Error calculating project status:', error)
-            // Fallback to database status if calculation fails
+            console.error(`❌ [Status Error] ${project.project_code}:`, error)
             calculatedStatus = project.project_status || 'upcoming'
           }
           
-          // Get display info for the calculated status
+          // 8. عرض الحالة
           const statusText = getProjectStatusText(calculatedStatus)
           const projectStatusColor = getProjectStatusColor(calculatedStatus)
           const statusInfo = getStatusDisplayInfo(calculatedStatus as any)
           
-          // Map icon emoji to React component
-          const getStatusIconComponent = () => {
-            switch (statusInfo.icon) {
-              case '⏳':
-                return <Clock className="h-3 w-3" />
-              case '🏗️':
-                return <Building className="h-3 w-3" />
-              case '🚀':
-                return <Activity className="h-3 w-3" />
-              case '✅':
-                return <CheckCircle className="h-3 w-3" />
-              case '⏰':
-                return <Clock className="h-3 w-3" />
-              case '📋':
-                return <Target className="h-3 w-3" />
-              case '⏸️':
-                return <Clock className="h-3 w-3" />
-              case '❌':
-                return <AlertCircle className="h-3 w-3" />
-              default:
-                return <Info className="h-3 w-3" />
+          const StatusIcon = () => {
+            const iconMap: Record<string, React.ReactNode> = {
+              '⏳': <Clock className="h-3 w-3" />,
+              '🏗️': <Building className="h-3 w-3" />,
+              '🚀': <Activity className="h-3 w-3" />,
+              '✅': <CheckCircle className="h-3 w-3" />,
+              '⏰': <Clock className="h-3 w-3" />,
+              '📋': <Target className="h-3 w-3" />,
+              '⏸️': <Clock className="h-3 w-3" />,
+              '❌': <AlertCircle className="h-3 w-3" />
             }
+            return iconMap[statusInfo.icon] || <Info className="h-3 w-3" />
           }
           
           return (
             <div className="flex items-center gap-2">
-              {getStatusIconComponent()}
+              <StatusIcon />
               <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${projectStatusColor}`}>
                 {statusText}
               </span>

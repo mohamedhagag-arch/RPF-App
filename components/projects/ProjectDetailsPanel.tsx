@@ -1325,67 +1325,67 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                 const variance = progressSummary.variance
                 
                 return (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <Card>
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                          Actual Progress
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="text-3xl font-bold text-green-600">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                      Actual Progress
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-3xl font-bold text-green-600">
                           {formatPercent(actualProgress)}
-                        </div>
-                        <div className="mt-2 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                          <div 
-                            className="bg-green-600 h-2 rounded-full transition-all"
+                    </div>
+                    <div className="mt-2 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                      <div 
+                        className="bg-green-600 h-2 rounded-full transition-all"
                             style={{ width: `${Math.min(actualProgress, 100)}%` }}
-                          />
-                        </div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                          (Earned Value / Total Value)
-                        </div>
-                      </CardContent>
-                    </Card>
-                    
-                    <Card>
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                          Planned Progress
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="text-3xl font-bold text-blue-600">
+                      />
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      (Earned Value / Total Value)
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                      Planned Progress
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-3xl font-bold text-blue-600">
                           {formatPercent(plannedProgress)}
-                        </div>
-                        <div className="mt-2 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                          <div 
-                            className="bg-blue-600 h-2 rounded-full transition-all"
+                    </div>
+                    <div className="mt-2 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                      <div 
+                        className="bg-blue-600 h-2 rounded-full transition-all"
                             style={{ width: `${Math.min(plannedProgress, 100)}%` }}
-                          />
-                        </div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                          (Planned Value / Total Value)
-                        </div>
-                      </CardContent>
-                    </Card>
-                    
-                    <Card>
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                          Variance
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
+                      />
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      (Planned Value / Total Value)
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                      Variance
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
                         <div className={`text-3xl font-bold ${variance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                           {variance >= 0 ? '+' : ''}{formatPercent(variance)}
-                        </div>
-                        <div className="text-sm text-gray-600 dark:text-gray-400 mt-2">
+                    </div>
+                    <div className="text-sm text-gray-600 dark:text-gray-400 mt-2">
                           Actual - Planned Progress
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
                 )
               })()}
               
@@ -1416,33 +1416,33 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                       
                       return (
                         <>
-                          <div>
-                            <p className="text-sm text-gray-600 dark:text-gray-400">Total Value</p>
+                    <div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Total Value</p>
                             <p className="text-lg font-bold text-gray-900 dark:text-white">{formatCurrency(totalValue)}</p>
                             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Sum of all BOQ or KPI Planned</p>
-                          </div>
-                          <div>
-                            <p className="text-sm text-gray-600 dark:text-gray-400">Planned Value</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Planned Value</p>
                             <p className="text-lg font-bold text-blue-600">{formatCurrency(plannedValue)}</p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Till yesterday (Planned KPI)</p>
-                          </div>
-                          <div>
-                            <p className="text-sm text-gray-600 dark:text-gray-400">Earned Value</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Till yesterday (Planned KPI)</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Earned Value</p>
                             <p className="text-lg font-bold text-green-600">{formatCurrency(earnedValue)}</p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Till yesterday (Actual KPI)</p>
-                          </div>
-                          <div>
-                            <p className="text-sm text-gray-600 dark:text-gray-400">Remaining Value</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Till yesterday (Actual KPI)</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Remaining Value</p>
                             <p className="text-lg font-bold text-orange-600">{formatCurrency(remainingValue)}</p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Total - Earned</p>
-                          </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Total - Earned</p>
+                    </div>
                           <div>
                             <p className="text-sm text-gray-600 dark:text-gray-400">Variance</p>
                             <p className={`text-lg font-bold ${variance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                               {variance >= 0 ? '+' : ''}{formatCurrency(variance)}
                             </p>
                             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Earned - Planned</p>
-                          </div>
+                  </div>
                         </>
                       )
                     })()}
@@ -1487,45 +1487,45 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                 const quantityVariance = earnedQuantity - plannedQuantity
                 
                 return (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <BarChart3 className="h-5 w-5" />
-                        Quantity Summary
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                        <div>
-                          <p className="text-sm text-gray-600 dark:text-gray-400">Total Quantity</p>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <BarChart3 className="h-5 w-5" />
+                    Quantity Summary
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                    <div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Total Quantity</p>
                           <p className="text-lg font-bold text-gray-900 dark:text-white">{totalQuantity.toLocaleString()}</p>
                           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Sum of all BOQ or KPI Planned</p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-gray-600 dark:text-gray-400">Planned Quantity</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Planned Quantity</p>
                           <p className="text-lg font-bold text-blue-600">{plannedQuantity.toLocaleString()}</p>
                           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Till yesterday (Planned KPI)</p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-gray-600 dark:text-gray-400">Earned Quantity</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Earned Quantity</p>
                           <p className="text-lg font-bold text-green-600">{earnedQuantity.toLocaleString()}</p>
                           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Till yesterday (Actual KPI)</p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-gray-600 dark:text-gray-400">Remaining Quantity</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Remaining Quantity</p>
                           <p className="text-lg font-bold text-orange-600">{remainingQuantity.toLocaleString()}</p>
                           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Total - Earned</p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-gray-600 dark:text-gray-400">Quantity Variance</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Quantity Variance</p>
                           <p className={`text-lg font-bold ${quantityVariance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                             {quantityVariance >= 0 ? '+' : ''}{quantityVariance.toLocaleString()}
-                          </p>
+                      </p>
                           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Earned - Planned</p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
                 )
               })()}
               

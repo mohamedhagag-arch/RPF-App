@@ -67,29 +67,35 @@ export async function updateProjectStatus(projectId: string): Promise<ProjectSta
       return null
     }
     
-    // Prepare data for status calculation
+    // ✅ Prepare data for status calculation (based on ACTUAL activities and Activity Timing)
     const statusData: ProjectStatusData = {
       project_id: project.id,
       project_code: project.project_code,
       project_name: project.project_name,
       project_start_date: project.project_start_date || project.created_at,
-      project_end_date: project.project_end_date || project.deadline,
+      project_end_date: project.project_completion_date || project.deadline,
+      project_award_date: project.date_project_awarded || project['Date Project Awarded'] || project['Project Award Date'] || undefined,
       current_date: new Date().toISOString(),
       activities: activities.map((activity: any) => ({
         id: activity.id,
-        activity_timing: activity.activity_timing || 'post-commencement',
-        planned_units: activity.planned_units || 0,
+        activity_timing: activity.activity_timing || activity['Activity Timing'] || 'post-commencement',
+        activity_name: activity.activity_name || activity['Activity Name'] || '',
+        planned_units: activity.planned_units || activity.total_units || 0,
         actual_units: activity.actual_units || 0,
-        planned_activity_start_date: activity.planned_activity_start_date,
-        deadline: activity.deadline,
-        status: activity.status || 'not_started'
+        planned_activity_start_date: activity.planned_activity_start_date || activity['Planned Activity Start Date'] || undefined,
+        activity_actual_start_date: activity.activity_actual_start_date || activity['Activity Actual Start Date'] || activity.actual_start_date || activity['Actual Start Date'] || undefined,
+        deadline: activity.deadline || undefined,
+        activity_actual_completion_date: activity.activity_actual_completion_date || activity['Activity Actual Completion Date'] || activity.actual_completion_date || activity['Actual Completion Date'] || undefined,
+        status: activity.status || activity.activity_completed ? 'completed' : (activity.activity_delayed ? 'delayed' : 'not_started')
       })),
       kpis: kpis.map((kpi: any) => ({
         id: kpi.id,
-        input_type: kpi['Input Type'] || 'Planned',
-        quantity: kpi.Quantity || 0,
-        target_date: kpi['Target Date'] || kpi['Activity Date'],
-        actual_date: kpi['Actual Date']
+        input_type: kpi['Input Type'] || kpi.input_type || 'Planned',
+        quantity: parseFloat(String(kpi.Quantity || kpi.quantity || '0').replace(/,/g, '')) || 0,
+        target_date: kpi['Target Date'] || kpi.target_date || '',
+        actual_date: kpi['Actual Date'] || kpi.actual_date || undefined,
+        activity_date: kpi['Activity Date'] || kpi.activity_date || undefined,
+        activity_name: kpi['Activity Name'] || kpi.activity_name || undefined
       }))
     }
     

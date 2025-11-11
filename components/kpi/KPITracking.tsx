@@ -319,9 +319,13 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       
       console.log('🔍 Extracted project codes:', uniqueProjectCodes)
       
-      // ✅ Helper function to fetch all records with pagination (Supabase default limit is 1000)
-      const fetchAllRecords = async (table: string, filter: string) => {
+      // ✅ IMPROVED: Helper function to fetch all records with pagination
+      // ✅ FIX: Handle multiple project codes by fetching each separately and combining
+      const fetchAllRecords = async (table: string, filterCodes: string[], filterField: string) => {
         let allData: any[] = []
+        
+        // ✅ Fetch each project code separately to avoid .or() pagination issues
+        for (const code of filterCodes) {
         let offset = 0
         const chunkSize = 1000
         let hasMore = true
@@ -330,11 +334,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           let query = supabase
             .from(table)
             .select('*')
+              .eq(filterField, code)
             .range(offset, offset + chunkSize - 1)
-          
-          if (filter && filter.trim()) {
-            query = query.or(filter)
-          }
           
           if (table === TABLES.KPI) {
             query = query.order('created_at', { ascending: false })
@@ -343,7 +344,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           const { data, error } = await query
           
           if (error) {
-            console.error(`❌ Error fetching ${table}:`, error)
+              console.error(`❌ Error fetching ${table} for ${code}:`, error)
             break
           }
           
@@ -353,26 +354,32 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           }
           
           allData = [...allData, ...data]
-          console.log(`📥 Fetched ${table} chunk: ${data.length} records (total so far: ${allData.length})`)
+            console.log(`📥 Fetched ${table} chunk for ${code}: ${data.length} records (total so far: ${allData.length})`)
           
           if (data.length < chunkSize) {
             hasMore = false
           } else {
             offset += chunkSize
+            }
           }
         }
         
-        console.log(`✅ Total ${table} records fetched: ${allData.length}`)
-        return allData
+        // ✅ Remove duplicates by ID
+        const uniqueData = allData.filter((item: any, index: number, self: any[]) => 
+          index === self.findIndex((i: any) => i.id === item.id)
+        )
+        
+        console.log(`✅ Total ${table} records fetched: ${uniqueData.length} (after deduplication)`)
+        return uniqueData
       }
       
       // ✅ Fetch activities and KPIs - try Project Full Code first, then fallback to Project Code
-      // Use pagination to fetch ALL records, not just 1000
+      // ✅ FIX: Use separate queries for each project code to avoid pagination issues
       const [activitiesByFullCode, activitiesByCode, kpisByFullCode, kpisByCode] = await Promise.all([
-        fetchAllRecords(TABLES.BOQ_ACTIVITIES, filterProjects.map(code => `Project Full Code.eq.${code}`).join(',')),
-        fetchAllRecords(TABLES.BOQ_ACTIVITIES, uniqueProjectCodes.map(code => `Project Code.eq.${code}`).join(',')),
-        fetchAllRecords(TABLES.KPI, filterProjects.map(code => `Project Full Code.eq.${code}`).join(',')),
-        fetchAllRecords(TABLES.KPI, uniqueProjectCodes.map(code => `Project Code.eq.${code}`).join(','))
+        fetchAllRecords(TABLES.BOQ_ACTIVITIES, filterProjects, 'Project Full Code'),
+        fetchAllRecords(TABLES.BOQ_ACTIVITIES, uniqueProjectCodes, 'Project Code'),
+        fetchAllRecords(TABLES.KPI, filterProjects, 'Project Full Code'),
+        fetchAllRecords(TABLES.KPI, uniqueProjectCodes, 'Project Code')
       ])
       
       // Create response objects to match expected format
@@ -1800,61 +1807,284 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   const totalPlannedQty = plannedKPIs.reduce((sum: number, k: ProcessedKPI) => sum + k.quantity, 0)
   const totalActualQty = actualKPIs.reduce((sum: number, k: ProcessedKPI) => sum + k.quantity, 0)
   
-  // ✅ FIXED: Calculate Planned Value = Rate × Quantity for each Planned KPI
-  const totalPlannedValue = plannedKPIs.reduce((sum: number, k: ProcessedKPI) => {
-    // Find the related activity to get the rate
-    const relatedActivity = activities.find((a: BOQActivity) => 
-      a.activity_name === k.activity_name &&
-      (a.project_code === k.project_full_code || a.project_full_code === k.project_full_code)
-    )
-    
-    // Calculate rate directly from activity
-    let rate = 0
-    if (relatedActivity) {
-      if (relatedActivity.rate && relatedActivity.rate > 0) {
-        rate = relatedActivity.rate
-      } else if (relatedActivity.total_value && relatedActivity.total_units && relatedActivity.total_units > 0) {
-        rate = relatedActivity.total_value / relatedActivity.total_units
+  // ✅ OPTIMIZED: Create activity index map for O(1) lookup instead of O(n) find() in reduce
+  // This dramatically improves performance for large projects (500+ KPIs)
+  // ✅ IMPROVED: Includes Zone in matching for accuracy
+  const activityIndexMap = useMemo(() => {
+    const map = new Map<string, BOQActivity[]>() // Store array to handle multiple activities with same name but different zones
+    activities.forEach((activity: BOQActivity) => {
+      const activityName = (activity.activity_name || '').toLowerCase().trim()
+      const projectFullCode = (activity.project_full_code || '').toLowerCase().trim()
+      const projectCode = (activity.project_code || '').toLowerCase().trim()
+      const rawActivity = (activity as any).raw || {}
+      const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+      
+      // Create multiple keys for flexible matching (with and without zone)
+      // Key 1: activity_name + project_full_code + zone
+      if (activityName && projectFullCode) {
+        const key1WithZone = `${activityName}|${projectFullCode}|${activityZone}`
+        const key1WithoutZone = `${activityName}|${projectFullCode}`
+        
+        if (activityZone) {
+          if (!map.has(key1WithZone)) {
+            map.set(key1WithZone, [])
+          }
+          map.get(key1WithZone)!.push(activity)
+        }
+        
+        // Also store without zone for fallback
+        if (!map.has(key1WithoutZone)) {
+          map.set(key1WithoutZone, [])
+        }
+        map.get(key1WithoutZone)!.push(activity)
       }
-    }
-    
-    // If we have a rate, calculate value = rate × quantity
-    if (rate > 0) {
-      const kpiValue = rate * k.quantity
-      return sum + kpiValue
-    }
-    
-    // Fallback: use existing value if rate not found
-    return sum + (k.planned_value ?? (k.input_type === 'Planned' ? k.value ?? 0 : 0))
-  }, 0)
+      
+      // Key 2: activity_name + project_code + zone (if different from project_full_code)
+      if (activityName && projectCode && projectCode !== projectFullCode) {
+        const key2WithZone = `${activityName}|${projectCode}|${activityZone}`
+        const key2WithoutZone = `${activityName}|${projectCode}`
+        
+        if (activityZone) {
+          if (!map.has(key2WithZone)) {
+            map.set(key2WithZone, [])
+          }
+          map.get(key2WithZone)!.push(activity)
+        }
+        
+        // Also store without zone for fallback
+        if (!map.has(key2WithoutZone)) {
+          map.set(key2WithoutZone, [])
+        }
+        map.get(key2WithoutZone)!.push(activity)
+      }
+    })
+    return map
+  }, [activities])
   
-  // ✅ FIXED: Calculate Actual Value = Rate × Quantity for each Actual KPI
-  const totalActualValue = actualKPIs.reduce((sum: number, k: ProcessedKPI) => {
-    // Find the related activity to get the rate
-    const relatedActivity = activities.find((a: BOQActivity) => 
-      a.activity_name === k.activity_name &&
-      (a.project_code === k.project_full_code || a.project_full_code === k.project_full_code)
-    )
+  // ✅ OPTIMIZED: Helper function to get activity rate using index map with Zone matching
+  const getActivityRate = useCallback((kpi: ProcessedKPI): number => {
+    const activityName = (kpi.activity_name || '').toLowerCase().trim()
+    const projectFullCode = (kpi.project_full_code || '').toLowerCase().trim()
+    const projectCode = ((kpi as any).project_code || '').toLowerCase().trim()
     
-    // Calculate rate directly from activity
-    let rate = 0
-    if (relatedActivity) {
-      if (relatedActivity.rate && relatedActivity.rate > 0) {
-        rate = relatedActivity.rate
-      } else if (relatedActivity.total_value && relatedActivity.total_units && relatedActivity.total_units > 0) {
-        rate = relatedActivity.total_value / relatedActivity.total_units
+    // ✅ IMPROVED: Extract KPI Zone from multiple sources (same logic as KPITableWithCustomization)
+    const rawKPI = ((kpi as any).raw || {})
+    const kpiZoneRaw = (kpi.zone || rawKPI['Zone'] || rawKPI['Zone Number'] || '').toString().trim()
+    // Normalize KPI zone (remove project code prefix if exists)
+    let kpiZone = kpiZoneRaw.toLowerCase().trim()
+    if (kpiZone && (kpi as any).project_code) {
+      const projectCodeUpper = ((kpi as any).project_code || '').toUpperCase()
+      kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+      kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
+      kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
+    }
+    if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
+    
+    // Try multiple keys for flexible matching (with Zone priority)
+    let relatedActivities: BOQActivity[] | undefined
+    
+    // Try 1: activity_name + project_full_code + zone (most precise)
+    if (activityName && projectFullCode && kpiZone) {
+      const key1WithZone = `${activityName}|${projectFullCode}|${kpiZone}`
+      relatedActivities = activityIndexMap.get(key1WithZone)
+    }
+    
+    // Try 2: activity_name + project_full_code (without zone - fallback)
+    if (!relatedActivities || relatedActivities.length === 0) {
+      if (activityName && projectFullCode) {
+        const key1WithoutZone = `${activityName}|${projectFullCode}`
+        relatedActivities = activityIndexMap.get(key1WithoutZone)
       }
     }
     
-    // If we have a rate, calculate value = rate × quantity
-    if (rate > 0) {
-      const kpiValue = rate * k.quantity
-      return sum + kpiValue
+    // Try 3: activity_name + project_code + zone (if not found and project_code exists)
+    if (!relatedActivities || relatedActivities.length === 0) {
+      if (activityName && projectCode && kpiZone) {
+        const key2WithZone = `${activityName}|${projectCode}|${kpiZone}`
+        relatedActivities = activityIndexMap.get(key2WithZone)
+      }
     }
     
-    // Fallback: use existing value if rate not found
-    return sum + (k.actual_value ?? (k.input_type === 'Actual' ? k.value ?? 0 : 0))
-  }, 0)
+    // Try 4: activity_name + project_code (without zone - fallback)
+    if (!relatedActivities || relatedActivities.length === 0) {
+      if (activityName && projectCode) {
+        const key2WithoutZone = `${activityName}|${projectCode}`
+        relatedActivities = activityIndexMap.get(key2WithoutZone)
+      }
+    }
+    
+    // If multiple activities found, prefer the one with matching zone
+    let relatedActivity: BOQActivity | undefined
+    if (relatedActivities && relatedActivities.length > 0) {
+      if (kpiZone && relatedActivities.length > 1) {
+        // Prefer activity with matching zone
+        relatedActivity = relatedActivities.find(a => {
+          const rawA = (a as any).raw || {}
+          const aZone = (a.zone_ref || a.zone_number || rawA['Zone Ref'] || rawA['Zone Number'] || '').toString().toLowerCase().trim()
+          return aZone === kpiZone || aZone.includes(kpiZone) || kpiZone.includes(aZone)
+        }) || relatedActivities[0]
+      } else {
+        relatedActivity = relatedActivities[0]
+      }
+    }
+    
+    if (relatedActivity) {
+      if (relatedActivity.rate && relatedActivity.rate > 0) {
+        // ✅ DEBUG: Log successful rate match for first few KPIs
+        if (process.env.NODE_ENV === 'development' && Math.random() < 0.01) { // Log 1% randomly
+          const rawA = (relatedActivity as any).raw || {}
+          const aZone = (relatedActivity.zone_ref || relatedActivity.zone_number || rawA['Zone Ref'] || rawA['Zone Number'] || '').toString().toLowerCase().trim()
+          console.log(`✅ [getActivityRate] Found rate for ${activityName}:`, {
+            kpiZone: kpiZone || 'N/A',
+            activityZone: aZone || 'N/A',
+            rate: relatedActivity.rate,
+            projectFullCode,
+            projectCode
+          })
+        }
+        return relatedActivity.rate
+      } else if (relatedActivity.total_value && relatedActivity.total_units && relatedActivity.total_units > 0) {
+        const calculatedRate = relatedActivity.total_value / relatedActivity.total_units
+        // ✅ DEBUG: Log calculated rate for first few KPIs
+        if (process.env.NODE_ENV === 'development' && Math.random() < 0.01) { // Log 1% randomly
+          const rawA = (relatedActivity as any).raw || {}
+          const aZone = (relatedActivity.zone_ref || relatedActivity.zone_number || rawA['Zone Ref'] || rawA['Zone Number'] || '').toString().toLowerCase().trim()
+          console.log(`✅ [getActivityRate] Calculated rate for ${activityName}:`, {
+            kpiZone: kpiZone || 'N/A',
+            activityZone: aZone || 'N/A',
+            calculatedRate,
+            totalValue: relatedActivity.total_value,
+            totalUnits: relatedActivity.total_units,
+            projectFullCode,
+            projectCode
+          })
+        }
+        return calculatedRate
+      }
+    }
+    
+    // ✅ DEBUG: Log when no rate found
+    if (process.env.NODE_ENV === 'development' && Math.random() < 0.01) { // Log 1% randomly
+      console.warn(`⚠️ [getActivityRate] No rate found for ${activityName}:`, {
+        kpiZone: kpiZone || 'N/A',
+        projectFullCode,
+        projectCode,
+        foundActivities: relatedActivities?.length || 0
+      })
+    }
+    
+    return 0
+  }, [activityIndexMap])
+  
+  // ✅ IMPROVED: Calculate Planned Value with priority: 1) KPI.value, 2) Rate × Quantity, 3) planned_value
+  const totalPlannedValue = useMemo(() => {
+    let total = 0
+    let fromValue = 0
+    let fromRate = 0
+    let fromFallback = 0
+    
+    plannedKPIs.forEach((k: ProcessedKPI) => {
+      // ✅ PRIORITY 1: Use value directly from KPI if available (most accurate)
+      const kpiValue = k.value ?? 0
+      if (kpiValue > 0) {
+        total += kpiValue
+        fromValue++
+        return
+      }
+      
+      // ✅ PRIORITY 2: Calculate from Rate × Quantity
+      const rate = getActivityRate(k)
+      if (rate > 0 && k.quantity > 0) {
+        const calculatedValue = rate * k.quantity
+        total += calculatedValue
+        fromRate++
+        return
+      }
+      
+      // ✅ PRIORITY 3: Fallback to planned_value
+      const fallbackValue = k.planned_value ?? 0
+      if (fallbackValue > 0) {
+        total += fallbackValue
+        fromFallback++
+      }
+    })
+    
+    // ✅ DEBUG: Log calculation summary for large projects
+    if (process.env.NODE_ENV === 'development' && plannedKPIs.length > 100) {
+      // Calculate sum of all values for comparison
+      const sumOfAllValues = plannedKPIs.reduce((sum, k) => sum + (k.value ?? 0), 0)
+      const sumOfAllPlannedValues = plannedKPIs.reduce((sum, k) => sum + (k.planned_value ?? 0), 0)
+      
+      console.log(`📊 [Planned Value] Calculated for ${plannedKPIs.length} KPIs:`, {
+        total,
+        fromValue,
+        fromRate,
+        fromFallback,
+        percentageFromValue: ((fromValue / plannedKPIs.length) * 100).toFixed(1) + '%',
+        percentageFromRate: ((fromRate / plannedKPIs.length) * 100).toFixed(1) + '%',
+        sumOfAllValues,
+        sumOfAllPlannedValues,
+        difference: total - sumOfAllValues
+      })
+    }
+    
+    return total
+  }, [plannedKPIs, getActivityRate])
+  
+  // ✅ IMPROVED: Calculate Actual Value with priority: 1) KPI.value, 2) Rate × Quantity, 3) actual_value
+  const totalActualValue = useMemo(() => {
+    let total = 0
+    let fromValue = 0
+    let fromRate = 0
+    let fromFallback = 0
+    
+    actualKPIs.forEach((k: ProcessedKPI) => {
+      // ✅ PRIORITY 1: Use value directly from KPI if available (most accurate)
+      const kpiValue = k.value ?? 0
+      if (kpiValue > 0) {
+        total += kpiValue
+        fromValue++
+        return
+      }
+      
+      // ✅ PRIORITY 2: Calculate from Rate × Quantity
+      const rate = getActivityRate(k)
+      if (rate > 0 && k.quantity > 0) {
+        const calculatedValue = rate * k.quantity
+        total += calculatedValue
+        fromRate++
+        return
+      }
+      
+      // ✅ PRIORITY 3: Fallback to actual_value
+      const fallbackValue = k.actual_value ?? 0
+      if (fallbackValue > 0) {
+        total += fallbackValue
+        fromFallback++
+      }
+    })
+    
+    // ✅ DEBUG: Log calculation summary for large projects
+    if (process.env.NODE_ENV === 'development' && actualKPIs.length > 100) {
+      // Calculate sum of all values for comparison
+      const sumOfAllValues = actualKPIs.reduce((sum, k) => sum + (k.value ?? 0), 0)
+      const sumOfAllActualValues = actualKPIs.reduce((sum, k) => sum + (k.actual_value ?? 0), 0)
+      
+      console.log(`📊 [Actual Value] Calculated for ${actualKPIs.length} KPIs:`, {
+        total,
+        fromValue,
+        fromRate,
+        fromFallback,
+        percentageFromValue: ((fromValue / actualKPIs.length) * 100).toFixed(1) + '%',
+        percentageFromRate: ((fromRate / actualKPIs.length) * 100).toFixed(1) + '%',
+        sumOfAllValues,
+        sumOfAllActualValues,
+        difference: total - sumOfAllValues
+      })
+    }
+    
+    return total
+  }, [actualKPIs, getActivityRate])
   const valueAchievementRate = totalPlannedValue > 0 ? (totalActualValue / totalPlannedValue) * 100 : 0
   const achievementRate = totalPlannedValue > 0 ? valueAchievementRate : 0
   

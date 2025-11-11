@@ -713,7 +713,20 @@ export function KPITableWithCustomization({
           const kpiProjectCodes = extractProjectCodes(kpi)
           const kpiActivityName = (kpi.activity_name || '').toLowerCase().trim()
           
-          // ✅ IMPROVED: More flexible matching
+          // ✅ Extract KPI Zone from multiple sources
+          const rawKPI = (kpi as any).raw || {}
+          const kpiZoneRaw = (kpi.zone || rawKPI['Zone'] || rawKPI['Zone Number'] || '').toString().trim()
+          // Normalize KPI zone (remove project code prefix if exists)
+          let kpiZone = kpiZoneRaw.toLowerCase().trim()
+          if (kpiZone && kpi.project_code) {
+            const projectCodeUpper = (kpi.project_code || '').toUpperCase()
+            kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+            kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
+            kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
+          }
+          if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
+          
+          // ✅ IMPROVED: More flexible matching with Zone consideration
           relatedActivity = allActivities.find((activity: any) => {
             // Activity name matching (flexible)
             const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
@@ -729,7 +742,27 @@ export function KPITableWithCustomization({
             const activityProjectCodes = extractProjectCodes(activity)
             const projectCodeMatch = codesMatch(activityProjectCodes, kpiProjectCodes)
             
-            return projectCodeMatch
+            if (!projectCodeMatch) return false
+            
+            // ✅ Zone matching (if both KPI and Activity have zones, they must match)
+            const rawActivity = (activity as any).raw || {}
+            const activityZoneRaw = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
+            const activityZone = activityZoneRaw.toLowerCase().trim()
+            
+            // If both have zones, they must match (for precision)
+            if (kpiZone && activityZone) {
+              const zoneMatch = (
+                kpiZone === activityZone ||
+                kpiZone.includes(activityZone) ||
+                activityZone.includes(kpiZone)
+              )
+              // If zones don't match, skip this activity
+              if (!zoneMatch) return false
+            }
+            // If KPI has zone but activity doesn't, or vice versa, still allow match (flexible)
+            // This handles cases where zone might not be set in one of them
+            
+            return true
           })
           
           if (relatedActivity) {
@@ -770,11 +803,16 @@ export function KPITableWithCustomization({
             
             // ✅ DEBUG: Log matching for first few KPIs with 0 values
             if (process.env.NODE_ENV === 'development' && kpis.indexOf(kpi) < 10 && (quantityForValue === 0 || rateForValue === 0)) {
+              const rawActivity = (relatedActivity as any).raw || {}
+              const activityZone = (relatedActivity.zone_ref || relatedActivity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
               console.log(`🔍 [KPI Value] Matching for ${kpi.activity_name}:`, {
                 kpiId: kpi.id,
                 kpiProjectCodes,
+                kpiZone: kpiZone || 'N/A',
                 activityName: relatedActivity.activity_name,
                 activityProjectCodes: extractProjectCodes(relatedActivity),
+                activityZone: activityZone || 'N/A',
+                zoneMatched: kpiZone && activityZone ? (kpiZone === activityZone.toLowerCase() || kpiZone.includes(activityZone.toLowerCase()) || activityZone.toLowerCase().includes(kpiZone)) : 'N/A',
                 quantityForValue,
                 rateForValue,
                 totalValueFromActivity,
@@ -788,10 +826,12 @@ export function KPITableWithCustomization({
                 kpiId: kpi.id,
                 kpiProjectCodes: extractProjectCodes(kpi),
                 kpiActivityName,
+                kpiZone: kpiZone || 'N/A',
                 allActivitiesCount: allActivities.length,
                 sampleActivity: allActivities[0] ? {
                   activity_name: allActivities[0].activity_name,
-                  projectCodes: extractProjectCodes(allActivities[0])
+                  projectCodes: extractProjectCodes(allActivities[0]),
+                  zone: (allActivities[0].zone_ref || allActivities[0].zone_number || 'N/A')
                 } : null
               })
             }
@@ -922,6 +962,17 @@ export function KPITableWithCustomization({
           const kpiActivityNameVirtual = (kpi.activity_name || '').toLowerCase().trim()
           
           // ✅ IMPROVED: More flexible matching
+          // ✅ Extract KPI Zone for virtual value matching
+          const kpiZoneVirtualRaw = (kpi.zone || rawKPIVirtual['Zone'] || rawKPIVirtual['Zone Number'] || '').toString().trim()
+          let kpiZoneVirtual = kpiZoneVirtualRaw.toLowerCase().trim()
+          if (kpiZoneVirtual && kpi.project_code) {
+            const projectCodeUpper = (kpi.project_code || '').toUpperCase()
+            kpiZoneVirtual = kpiZoneVirtual.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+            kpiZoneVirtual = kpiZoneVirtual.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
+            kpiZoneVirtual = kpiZoneVirtual.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
+          }
+          if (!kpiZoneVirtual) kpiZoneVirtual = kpiZoneVirtualRaw.toLowerCase().trim()
+          
           const relatedActivityVirtual = allActivities.find((activity: any) => {
             // Activity name matching (flexible)
             const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
@@ -937,7 +988,26 @@ export function KPITableWithCustomization({
             const activityProjectCodes = extractProjectCodesVirtual(activity)
             const projectCodeMatch = codesMatchVirtual(activityProjectCodes, kpiProjectCodesVirtual)
             
-            return projectCodeMatch
+            if (!projectCodeMatch) return false
+            
+            // ✅ Zone matching (if both KPI and Activity have zones, they must match)
+            const rawActivityVirtual = (activity as any).raw || {}
+            const activityZoneRaw = (activity.zone_ref || activity.zone_number || rawActivityVirtual['Zone Ref'] || rawActivityVirtual['Zone Number'] || '').toString().trim()
+            const activityZone = activityZoneRaw.toLowerCase().trim()
+            
+            // If both have zones, they must match (for precision)
+            if (kpiZoneVirtual && activityZone) {
+              const zoneMatch = (
+                kpiZoneVirtual === activityZone ||
+                kpiZoneVirtual.includes(activityZone) ||
+                activityZone.includes(kpiZoneVirtual)
+              )
+              // If zones don't match, skip this activity
+              if (!zoneMatch) return false
+            }
+            // If KPI has zone but activity doesn't, or vice versa, still allow match (flexible)
+            
+            return true
           })
           
           if (relatedActivityVirtual) {

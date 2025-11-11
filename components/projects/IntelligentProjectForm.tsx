@@ -89,7 +89,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
   const [responsibleDivisions, setResponsibleDivisions] = useState<string[]>([])
   const [plotNumber, setPlotNumber] = useState('')
   const [contractAmount, setContractAmount] = useState('')
-  const [projectStatus, setProjectStatus] = useState<'upcoming' | 'site-preparation' | 'on-going' | 'completed' | 'completed-duration' | 'contract-duration' | 'on-hold' | 'cancelled'>('upcoming')
+  const [projectStatus, setProjectStatus] = useState<'upcoming' | 'site-preparation' | 'on-going' | 'completed-duration' | 'contract-completed' | 'on-hold' | 'cancelled'>('upcoming')
   const [kpiCompleted, setKpiCompleted] = useState(false)
   
   // Additional Project Details
@@ -345,7 +345,17 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
       setResponsibleDivisions(project.responsible_division ? project.responsible_division.split(', ') : [])
       setPlotNumber(project.plot_number || '')
       setContractAmount(project.contract_amount?.toString() || '')
-      setProjectStatus(project.project_status)
+      // ✅ Convert old status values to new ones
+      const oldStatus = project.project_status as string
+      let newStatus: 'upcoming' | 'site-preparation' | 'on-going' | 'completed-duration' | 'contract-completed' | 'on-hold' | 'cancelled' = 'upcoming'
+      
+      if (oldStatus === 'completed' || oldStatus === 'contract-duration') {
+        newStatus = 'contract-completed'
+      } else if (oldStatus === 'upcoming' || oldStatus === 'site-preparation' || oldStatus === 'on-going' || oldStatus === 'completed-duration' || oldStatus === 'on-hold' || oldStatus === 'cancelled') {
+        newStatus = oldStatus as typeof newStatus
+      }
+      
+      setProjectStatus(newStatus)
       setKpiCompleted(project.kpi_completed)
       setAutoSubCode(false)
       
@@ -800,7 +810,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
         throw new Error(codeValidation.message || 'Invalid project code')
       }
       
-      const projectData: Partial<Project> = {
+      const projectData: Partial<Project> & { project_status?: string } = {
         project_code: projectCode.trim().toUpperCase(),
         project_sub_code: projectSubCode.trim() || undefined,
         project_name: projectName.trim(),
@@ -809,7 +819,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
         responsible_division: responsibleDivisions.join(', ') || undefined,
         plot_number: plotNumber.trim() || undefined,
         contract_amount: parseFloat(contractAmount) || 0,
-        project_status: projectStatus as 'upcoming' | 'site-preparation' | 'on-going' | 'completed' | 'completed-duration' | 'contract-duration' | 'on-hold' | 'cancelled',
+        project_status: projectStatus, // ✅ Stored as string in database, validated by type system
         kpi_completed: kpiCompleted,
         // Additional project details
         client_name: clientName.trim() || undefined,

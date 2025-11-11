@@ -312,12 +312,12 @@ export interface UserWithPermissions {
 export function getUserPermissions(user: UserWithPermissions): string[] {
   // ✅ PERFORMANCE: Only log in development mode and very rarely (0.1%)
   if (process.env.NODE_ENV === 'development' && Math.random() < 0.001) {
-    console.log('🔍 getUserPermissions called:', {
-      userEmail: user.email,
-      userRole: user.role,
-      customEnabled: user.custom_permissions_enabled,
+  console.log('🔍 getUserPermissions called:', {
+    userEmail: user.email,
+    userRole: user.role,
+    customEnabled: user.custom_permissions_enabled,
       savedPermissions: user.permissions?.length || 0
-    })
+  })
   }
 
   // الحصول على الصلاحيات الافتراضية للدور
@@ -341,11 +341,11 @@ export function getUserPermissions(user: UserWithPermissions): string[] {
 export function hasPermission(user: UserWithPermissions | null, permission: string): boolean {
   // ✅ PERFORMANCE: Only log in development mode and very rarely (0.1%)
   if (process.env.NODE_ENV === 'development' && Math.random() < 0.001) {
-    console.log('🔍 Permission Check:', {
-      permission,
-      userEmail: user?.email,
+  console.log('🔍 Permission Check:', {
+    permission,
+    userEmail: user?.email,
       userRole: user?.role
-    })
+  })
   }
   
   if (!user) {

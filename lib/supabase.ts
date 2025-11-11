@@ -33,7 +33,7 @@ export interface Project {
   plot_number: string
   kpi_completed: boolean
   kpi_added?: string // ✅ Auto-calculated: 'Yes' if has KPI Planned, 'No' otherwise
-  project_status: 'upcoming' | 'site-preparation' | 'on-going' | 'completed' | 'completed-duration' | 'contract-duration' | 'on-hold' | 'cancelled'
+  project_status: 'upcoming' | 'site-preparation' | 'on-going' | 'completed-duration' | 'contract-completed' | 'on-hold' | 'cancelled'
   contract_amount: number
   // Additional project details
   client_name?: string
