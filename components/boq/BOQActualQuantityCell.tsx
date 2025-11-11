@@ -34,18 +34,69 @@ export function BOQActualQuantityCell({ activity, allKPIs }: BOQActualQuantityCe
   }, [activity.project_code, activity.activity_name, allKPIs])
   
   const calculateActualFromKPIs = (kpis: any[]) => {
-    // Filter for this activity
+    // Filter for this activity with Zone matching
     const activityNameLower = (activity.activity_name || '').toLowerCase().trim()
     
+    // ✅ Extract Activity Zone from multiple sources
+    const activityZone = (
+      activity.zone_ref || 
+      activity.zone_number || 
+      (activity as any).raw?.['Zone Ref'] || 
+      (activity as any).raw?.['Zone Number'] || 
+      ''
+    ).toString().toLowerCase().trim()
+    
+    // ✅ Normalize activity zone (remove project code prefix if exists)
+    let normalizedActivityZone = activityZone
+    if (normalizedActivityZone && activity.project_code) {
+      const projectCodeUpper = (activity.project_code || '').toUpperCase()
+      normalizedActivityZone = normalizedActivityZone
+        .replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '')
+        .replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '')
+        .replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '')
+        .trim()
+    }
+    
     const activityKPIs = kpis.filter(kpi => {
+      // ✅ Project matching
       const matchesProject = kpi.project_full_code === activity.project_code ||
                             kpi.project_full_code?.startsWith(activity.project_code) ||
                             kpi.project_code === activity.project_code
       if (!matchesProject) return false
       
+      // ✅ Activity name matching
       const kpiActivityName = (kpi.activity_name || '').toLowerCase().trim()
-      return kpiActivityName.includes(activityNameLower) || 
-             activityNameLower.includes(kpiActivityName)
+      const activityNameMatch = kpiActivityName.includes(activityNameLower) || 
+                                activityNameLower.includes(kpiActivityName)
+      if (!activityNameMatch) return false
+      
+      // ✅ Zone matching (if both have zones, they must match)
+      const rawKPI = (kpi as any).raw || {}
+      const kpiZoneRaw = (kpi.zone || kpi.section || rawKPI['Zone'] || rawKPI['Zone Number'] || '').toString().trim()
+      let kpiZone = kpiZoneRaw.toLowerCase().trim()
+      
+      // Normalize KPI zone (remove project code prefix if exists)
+      if (kpiZone && kpi.project_code) {
+        const projectCodeUpper = (kpi.project_code || '').toUpperCase()
+        kpiZone = kpiZone
+          .replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '')
+          .replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '')
+          .replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '')
+          .trim()
+      }
+      
+      // If both have zones, they must match for precision
+      if (normalizedActivityZone && kpiZone) {
+        const zoneMatch = (
+          normalizedActivityZone === kpiZone ||
+          normalizedActivityZone.includes(kpiZone) ||
+          kpiZone.includes(normalizedActivityZone)
+        )
+        if (!zoneMatch) return false
+      }
+      
+      // If activity has zone but KPI doesn't, or vice versa, still allow match (flexible)
+      return true
     })
     
     // Sum only ACTUAL KPIs

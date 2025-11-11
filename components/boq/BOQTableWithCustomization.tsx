@@ -803,8 +803,30 @@ export function BOQTableWithCustomization({
             const kpiActivityNameQuantities = (kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPIQuantities['Activity Name'] || '').toLowerCase().trim()
             const activityNameQuantities = (activity.activity_name || activity.activity || '').toLowerCase().trim()
             
-            const kpiZoneQuantities = (kpi.zone || kpi['Zone'] || kpi.section || rawKPIQuantities['Zone'] || '').toLowerCase().trim()
-            const activityZoneQuantities = (activity.zone_ref || activity.zone_number || '').toLowerCase().trim()
+            // ✅ Extract and normalize Zone from multiple sources
+            const kpiZoneRawQuantities = (kpi.zone || kpi['Zone'] || kpi.section || rawKPIQuantities['Zone'] || rawKPIQuantities['Zone Number'] || '').toString().trim()
+            let kpiZoneQuantities = kpiZoneRawQuantities.toLowerCase().trim()
+            
+            // Normalize KPI zone (remove project code prefix if exists)
+            if (kpiZoneQuantities && kpiProjectCodeQuantities) {
+              kpiZoneQuantities = kpiZoneQuantities
+                .replace(new RegExp(`^${kpiProjectCodeQuantities}\\s*-\\s*`, 'i'), '')
+                .replace(new RegExp(`^${kpiProjectCodeQuantities}\\s+`, 'i'), '')
+                .replace(new RegExp(`^${kpiProjectCodeQuantities}-`, 'i'), '')
+                .trim()
+            }
+            
+            const activityZoneRawQuantities = (activity.zone_ref || activity.zone_number || (activity as any).raw?.['Zone Ref'] || (activity as any).raw?.['Zone Number'] || '').toString().trim()
+            let activityZoneQuantities = activityZoneRawQuantities.toLowerCase().trim()
+            
+            // Normalize activity zone (remove project code prefix if exists)
+            if (activityZoneQuantities && activityProjectCodeQuantities) {
+              activityZoneQuantities = activityZoneQuantities
+                .replace(new RegExp(`^${activityProjectCodeQuantities}\\s*-\\s*`, 'i'), '')
+                .replace(new RegExp(`^${activityProjectCodeQuantities}\\s+`, 'i'), '')
+                .replace(new RegExp(`^${activityProjectCodeQuantities}-`, 'i'), '')
+                .trim()
+            }
             
             const projectMatchQuantities = (
               (kpiProjectCodeQuantities && activityProjectCodeQuantities && kpiProjectCodeQuantities === activityProjectCodeQuantities) ||
@@ -825,18 +847,20 @@ export function BOQTableWithCustomization({
                kpiActivityNameQuantities.includes(activityNameQuantities) || 
                activityNameQuantities.includes(kpiActivityNameQuantities))
             
-            // ✅ Zone match is optional but helps with precision
-            const zoneMatchQuantities = kpiZoneQuantities && activityZoneQuantities && 
-              (kpiZoneQuantities === activityZoneQuantities || 
-               kpiZoneQuantities.includes(activityZoneQuantities) || 
-               activityZoneQuantities.includes(kpiZoneQuantities))
+            if (!activityMatchQuantities) return false
             
-            // ✅ Require activity name match (not just zone) to ensure activity-specific matching
+            // ✅ Zone match: If both have zones, they must match for precision
             if (activityZoneQuantities && kpiZoneQuantities) {
-              return activityMatchQuantities && zoneMatchQuantities
+              const zoneMatchQuantities = (
+                activityZoneQuantities === kpiZoneQuantities ||
+                activityZoneQuantities.includes(kpiZoneQuantities) ||
+                kpiZoneQuantities.includes(activityZoneQuantities)
+              )
+              if (!zoneMatchQuantities) return false
             }
             
-            return activityMatchQuantities
+            // If activity has zone but KPI doesn't, or vice versa, still allow match (flexible)
+            return true
           })
           
           // Filter for Planned KPIs only
@@ -902,8 +926,30 @@ export function BOQTableWithCustomization({
             const kpiActivityNameQuantities = (kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPIQuantities['Activity Name'] || '').toLowerCase().trim()
             const activityNameQuantities = (activity.activity_name || activity.activity || '').toLowerCase().trim()
             
-            const kpiZoneQuantities = (kpi.zone || kpi['Zone'] || kpi.section || rawKPIQuantities['Zone'] || '').toLowerCase().trim()
-            const activityZoneQuantities = (activity.zone_ref || activity.zone_number || '').toLowerCase().trim()
+            // ✅ Extract and normalize Zone from multiple sources
+            const kpiZoneRawQuantities = (kpi.zone || kpi['Zone'] || kpi.section || rawKPIQuantities['Zone'] || rawKPIQuantities['Zone Number'] || '').toString().trim()
+            let kpiZoneQuantities = kpiZoneRawQuantities.toLowerCase().trim()
+            
+            // Normalize KPI zone (remove project code prefix if exists)
+            if (kpiZoneQuantities && kpiProjectCodeQuantities) {
+              kpiZoneQuantities = kpiZoneQuantities
+                .replace(new RegExp(`^${kpiProjectCodeQuantities}\\s*-\\s*`, 'i'), '')
+                .replace(new RegExp(`^${kpiProjectCodeQuantities}\\s+`, 'i'), '')
+                .replace(new RegExp(`^${kpiProjectCodeQuantities}-`, 'i'), '')
+                .trim()
+            }
+            
+            const activityZoneRawQuantities = (activity.zone_ref || activity.zone_number || (activity as any).raw?.['Zone Ref'] || (activity as any).raw?.['Zone Number'] || '').toString().trim()
+            let activityZoneQuantities = activityZoneRawQuantities.toLowerCase().trim()
+            
+            // Normalize activity zone (remove project code prefix if exists)
+            if (activityZoneQuantities && activityProjectCodeQuantities) {
+              activityZoneQuantities = activityZoneQuantities
+                .replace(new RegExp(`^${activityProjectCodeQuantities}\\s*-\\s*`, 'i'), '')
+                .replace(new RegExp(`^${activityProjectCodeQuantities}\\s+`, 'i'), '')
+                .replace(new RegExp(`^${activityProjectCodeQuantities}-`, 'i'), '')
+                .trim()
+            }
             
             const projectMatchQuantities = (
               (kpiProjectCodeQuantities && activityProjectCodeQuantities && kpiProjectCodeQuantities === activityProjectCodeQuantities) ||
@@ -924,18 +970,20 @@ export function BOQTableWithCustomization({
                kpiActivityNameQuantities.includes(activityNameQuantities) || 
                activityNameQuantities.includes(kpiActivityNameQuantities))
             
-            // ✅ Zone match is optional but helps with precision
-            const zoneMatchQuantities = kpiZoneQuantities && activityZoneQuantities && 
-              (kpiZoneQuantities === activityZoneQuantities || 
-               kpiZoneQuantities.includes(activityZoneQuantities) || 
-               activityZoneQuantities.includes(kpiZoneQuantities))
+            if (!activityMatchQuantities) return false
             
-            // ✅ Require activity name match (not just zone) to ensure activity-specific matching
+            // ✅ Zone match: If both have zones, they must match for precision
             if (activityZoneQuantities && kpiZoneQuantities) {
-              return activityMatchQuantities && zoneMatchQuantities
+              const zoneMatchQuantities = (
+                activityZoneQuantities === kpiZoneQuantities ||
+                activityZoneQuantities.includes(kpiZoneQuantities) ||
+                kpiZoneQuantities.includes(activityZoneQuantities)
+              )
+              if (!zoneMatchQuantities) return false
             }
             
-            return activityMatchQuantities
+            // If activity has zone but KPI doesn't, or vice versa, still allow match (flexible)
+            return true
           })
           
           // Filter for Actual KPIs only
