@@ -198,7 +198,7 @@ export function IntegratedDashboard() {
       // Calculate overall stats
       const totalProjects = projectsWithProgress.length
       const activeProjects = projectsWithProgress.filter(p => (p.project_status as string) === 'on-going').length
-      const completedProjects = projectsWithProgress.filter(p => (p.project_status as string) === 'completed' || (p.project_status as string) === 'completed-duration' || (p.project_status as string) === 'contract-duration').length
+      const completedProjects = projectsWithProgress.filter(p => (p.project_status as string) === 'completed-duration' || (p.project_status as string) === 'contract-completed').length
       const onHoldProjects = projectsWithProgress.filter(p => (p.project_status as string) === 'on-hold').length
       
       const totalActivities = mappedActivities.length
@@ -255,7 +255,7 @@ export function IntegratedDashboard() {
           title: `Project ${project.project_name}`,
           description: `Status: ${project.project_status} | Progress: ${project.progress.toFixed(1)}%`,
           timestamp: project.updated_at,
-          status: (project.project_status as string) === 'completed' || (project.project_status as string) === 'completed-duration' || (project.project_status as string) === 'contract-duration' ? 'success' : 
+          status: (project.project_status as string) === 'completed-duration' || (project.project_status as string) === 'contract-completed' ? 'success' : 
                   (project.project_status as string) === 'on-going' ? 'info' : 'warning',
           projectCode: project.project_code
         })
@@ -777,7 +777,7 @@ export function IntegratedDashboard() {
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-3">
                         <div className={`h-3 w-3 rounded-full ${
-                          (project.project_status as string) === 'completed' || (project.project_status as string) === 'completed-duration' || (project.project_status as string) === 'contract-duration' ? 'bg-green-500' :
+                          (project.project_status as string) === 'completed-duration' || (project.project_status as string) === 'contract-completed' ? 'bg-green-500' :
                           (project.project_status as string) === 'on-going' ? 'bg-blue-500' :
                           (project.project_status as string) === 'site-preparation' ? 'bg-orange-500' :
                           (project.project_status as string) === 'on-hold' ? 'bg-yellow-500' :

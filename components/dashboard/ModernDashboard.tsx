@@ -62,12 +62,12 @@ export function ModernDashboard() {
         setStats({
           totalProjects: projectsCount.count || projects.length || 0,
           activeProjects: projects.filter((p: any) => p.project_status === 'on-going').length,
-          completedProjects: projects.filter((p: any) => p.project_status === 'completed' || p.project_status === 'completed-duration' || p.project_status === 'contract-duration').length,
+          completedProjects: projects.filter((p: any) => p.project_status === 'completed-duration' || p.project_status === 'contract-completed').length,
           totalActivities: activitiesCount.count || activities.length || 0,
           completedActivities: activities.filter((a: any) => a.activity_completed).length,
           totalKPIs: kpisCount.count || 0,
           projectsProgress: projects.length > 0 
-            ? Math.round((projects.filter((p: any) => p.project_status === 'completed').length / projects.length) * 100)
+            ? Math.round((projects.filter((p: any) => p.project_status === 'completed-duration' || p.project_status === 'contract-completed').length / projects.length) * 100)
             : 0
         })
         
