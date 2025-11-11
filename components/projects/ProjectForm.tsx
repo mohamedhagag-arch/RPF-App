@@ -24,7 +24,7 @@ export function ProjectForm({ project, onSubmit, onCancel }: ProjectFormProps) {
     responsible_division: '',
     plot_number: '',
     kpi_completed: false,
-    project_status: 'upcoming' as 'upcoming' | 'site-preparation' | 'on-going' | 'completed' | 'completed-duration' | 'contract-duration' | 'on-hold' | 'cancelled',
+    project_status: 'upcoming' as 'upcoming' | 'site-preparation' | 'on-going' | 'completed-duration' | 'contract-completed' | 'on-hold' | 'cancelled',
     contract_amount: 0,
   })
   const [error, setError] = useState('')
