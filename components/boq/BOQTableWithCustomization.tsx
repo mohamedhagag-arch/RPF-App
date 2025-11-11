@@ -791,8 +791,14 @@ export function BOQTableWithCustomization({
         // This calculates Planned by summing all Planned KPI quantities for this activity up to yesterday
         let plannedUnitsQuantities = 0
         if (allKPIs.length > 0) {
-          // Match KPIs to this activity (same logic as progress_summary)
-          const activityKPIsQuantities = allKPIs.filter((kpi: any) => {
+          // ✅ FIX: Filter Planned KPIs FIRST, then match Activity and Zone
+          const plannedKPIsOnly = allKPIs.filter((kpi: any) => {
+            const inputType = (kpi.input_type || kpi['Input Type'] || kpi.raw?.['Input Type'] || '').toLowerCase()
+            return inputType === 'planned'
+          })
+          
+          // ✅ Now match Planned KPIs to this activity with Zone matching
+          const activityKPIsQuantities = plannedKPIsOnly.filter((kpi: any) => {
             const rawKPIQuantities = (kpi as any).raw || {}
             
             const kpiProjectCodeQuantities = (kpi.project_code || kpi['Project Code'] || rawKPIQuantities['Project Code'] || '').toString().trim().toUpperCase()
@@ -863,16 +869,10 @@ export function BOQTableWithCustomization({
             return true
           })
           
-          // Filter for Planned KPIs only
-          const plannedKPIsQuantities = activityKPIsQuantities.filter((kpi: any) => {
-            const inputType = (kpi.input_type || kpi['Input Type'] || kpi.raw?.['Input Type'] || '').toLowerCase()
-            return inputType === 'planned'
-          })
-          
           // ✅ Filter Planned KPIs until yesterday only and sum quantities
           // This ensures Planned is dynamic: it sums all Planned KPI quantities for this activity up to yesterday
-          if (plannedKPIsQuantities.length > 0) {
-            const plannedKPIsUntilYesterday = plannedKPIsQuantities.filter((kpi: any) => {
+          if (activityKPIsQuantities.length > 0) {
+            const plannedKPIsUntilYesterday = activityKPIsQuantities.filter((kpi: any) => {
               const kpiDateStr = kpi.activity_date || kpi.target_date || kpi['Activity Date'] || kpi['Target Date'] || kpi.raw?.['Activity Date'] || kpi.raw?.['Target Date'] || ''
               if (!kpiDateStr) return true // Include KPIs without dates
               
@@ -914,8 +914,14 @@ export function BOQTableWithCustomization({
         
         // ✅ If actual_units is 0, try to get from KPIs (Actual KPIs until yesterday)
         if (actualUnitsQuantities === 0 && allKPIs.length > 0) {
-          // Match KPIs to this activity (same logic as above)
-          const activityKPIsActualQuantities = allKPIs.filter((kpi: any) => {
+          // ✅ FIX: Filter Actual KPIs FIRST, then match Activity and Zone
+          const actualKPIsOnly = allKPIs.filter((kpi: any) => {
+            const inputType = (kpi.input_type || kpi['Input Type'] || kpi.raw?.['Input Type'] || '').toLowerCase()
+            return inputType === 'actual'
+          })
+          
+          // ✅ Now match Actual KPIs to this activity with Zone matching
+          const activityKPIsActualQuantities = actualKPIsOnly.filter((kpi: any) => {
             const rawKPIQuantities = (kpi as any).raw || {}
             
             const kpiProjectCodeQuantities = (kpi.project_code || kpi['Project Code'] || rawKPIQuantities['Project Code'] || '').toString().trim().toUpperCase()
@@ -986,15 +992,9 @@ export function BOQTableWithCustomization({
             return true
           })
           
-          // Filter for Actual KPIs only
-          const actualKPIsQuantities = activityKPIsActualQuantities.filter((kpi: any) => {
-            const inputType = (kpi.input_type || kpi['Input Type'] || kpi.raw?.['Input Type'] || '').toLowerCase()
-            return inputType === 'actual'
-          })
-          
           // ✅ Filter Actual KPIs until yesterday only and sum quantities
-          if (actualKPIsQuantities.length > 0) {
-            actualUnitsQuantities = actualKPIsQuantities
+          if (activityKPIsActualQuantities.length > 0) {
+            actualUnitsQuantities = activityKPIsActualQuantities
               .filter((kpi: any) => {
                 const kpiDateStr = kpi.actual_date || kpi.activity_date || kpi['Actual Date'] || kpi['Activity Date'] || kpi.raw?.['Actual Date'] || kpi.raw?.['Activity Date'] || ''
                 if (!kpiDateStr) return true
@@ -1014,27 +1014,49 @@ export function BOQTableWithCustomization({
           }
         }
         
+        // ✅ FIX: Ensure Planned and Actual don't exceed Total (logical constraint)
+        // Planned and Actual should never exceed Total Units
+        const cappedPlannedUnits = totalUnitsQuantities > 0 
+          ? Math.min(plannedUnitsQuantities, totalUnitsQuantities) 
+          : plannedUnitsQuantities
+        const cappedActualUnits = totalUnitsQuantities > 0 
+          ? Math.min(actualUnitsQuantities, totalUnitsQuantities) 
+          : actualUnitsQuantities
+        
         // ✅ Calculate Remaining: Total Units - Actual Units
-        const remainingQuantity = totalUnitsQuantities - actualUnitsQuantities
+        const remainingQuantity = totalUnitsQuantities - cappedActualUnits
         
         // ✅ DEBUG: Log calculation in development
         if (process.env.NODE_ENV === 'development') {
           console.log(`📊 [BOQ] Quantities for "${activity.activity_name}":`, {
             totalUnits: totalUnitsQuantities,
             plannedUnitsFromKPIs: plannedUnitsQuantities,
+            cappedPlannedUnits,
             plannedUnitsFromBOQ: activity.planned_units,
             actualUnitsFromBOQ: activity.actual_units,
             actualUnitsFromKPIs: actualUnitsQuantities !== activity.actual_units ? actualUnitsQuantities : 'N/A',
-            finalActualUnits: actualUnitsQuantities,
-            remaining: remainingQuantity
+            cappedActualUnits,
+            remaining: remainingQuantity,
+            plannedExceeded: plannedUnitsQuantities > totalUnitsQuantities,
+            actualExceeded: actualUnitsQuantities > totalUnitsQuantities
           })
         }
         
         return (
           <div className="space-y-1">
             <div className="text-xs text-gray-600 dark:text-gray-400">Total: {totalUnitsQuantities.toLocaleString()}</div>
-            <div className="text-xs text-gray-600 dark:text-gray-400">Planned: {plannedUnitsQuantities.toLocaleString()}</div>
-            <div className="text-xs text-gray-600 dark:text-gray-400">Actual: {actualUnitsQuantities.toLocaleString()}</div>
+            <div className={`text-xs ${cappedPlannedUnits < plannedUnitsQuantities ? 'text-orange-600 dark:text-orange-400' : 'text-gray-600 dark:text-gray-400'}`}>
+              Planned: {cappedPlannedUnits.toLocaleString()}
+              {cappedPlannedUnits < plannedUnitsQuantities && (
+                <span className="ml-1 text-[10px]">(capped from {plannedUnitsQuantities.toLocaleString()})</span>
+              )}
+            </div>
+            <div className={`text-xs ${cappedActualUnits < actualUnitsQuantities ? 'text-orange-600 dark:text-orange-400' : 'text-gray-600 dark:text-gray-400'}`}>
+              Actual: {cappedActualUnits.toLocaleString()}
+              {cappedActualUnits < actualUnitsQuantities && (
+                <span className="ml-1 text-[10px]">(capped from {actualUnitsQuantities.toLocaleString()})</span>
+              )}
+            </div>
             <div className="text-sm font-medium text-gray-900 dark:text-white">Remaining: {Math.max(0, remainingQuantity).toLocaleString()}</div>
           </div>
         )
