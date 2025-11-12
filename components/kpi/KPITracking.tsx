@@ -52,6 +52,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const isMountedRef = useRef(true) // ✅ Track if component is mounted
+  const isLoadingRef = useRef(false) // ✅ Prevent multiple simultaneous loads
+  const hasFetchedRef = useRef(false) // ✅ Track if initial fetch has been done
   
   // ✅ Cache for activity-to-scope mapping from project_type_activities table
   const [activityScopeMap, setActivityScopeMap] = useState<Map<string, string>>(new Map())
@@ -134,7 +136,12 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       }
     }
     
-    loadActivityScopes()
+    // ✅ Defer loading to avoid blocking navigation
+    const scopeTimeout = setTimeout(() => {
+      loadActivityScopes()
+    }, 50) // Small delay to allow UI to render first
+    
+    return () => clearTimeout(scopeTimeout)
   }, [])
   const [showForm, setShowForm] = useState(false)
   const [showEnhancedForm, setShowEnhancedForm] = useState(false)
@@ -271,8 +278,14 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     }
   }
 
-  // ✅ Fetch data based on filters (only when filters are applied)
-  const fetchData = useCallback(async (filterProjects: string[] = []) => {
+  // ✅ PERFORMANCE: Fetch KPI page with pagination (only visible KPIs)
+  const fetchKPIPage = useCallback(async (page: number = 1, filterProjects: string[] = [], search: string = '') => {
+    // ✅ Prevent multiple simultaneous loads
+    if (isLoadingRef.current) {
+      console.log('⏸️ KPI fetch already in progress, skipping...')
+      return
+    }
+    
     if (!isMountedRef.current) return
     
     // ✅ Only fetch if filters are applied
@@ -281,13 +294,19 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       setKpis([])
       setActivities([])
       setTotalKPICount(0)
+      isLoadingRef.current = false
+      stopSmartLoading(setLoading)
       return
     }
     
     try {
+      isLoadingRef.current = true
       startSmartLoading(setLoading)
       setError('')
-      console.log('📊 Loading KPI data for projects:', filterProjects)
+      
+      if (process.env.NODE_ENV === 'development') {
+        console.log('📊 Loading KPI page...', { page, filterProjects, search })
+      }
       
       // ✅ Fetch projects first (always needed)
       const projectsRes = await supabase
@@ -298,6 +317,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       if (projectsRes.error) {
         console.error('❌ Projects Error:', projectsRes.error)
         setError(`Failed to load projects: ${projectsRes.error.message}`)
+        isLoadingRef.current = false
+        stopSmartLoading(setLoading)
         return
       }
       
@@ -636,6 +657,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         setError(error.message || 'Failed to load data')
       }
     } finally {
+      isLoadingRef.current = false
       if (isMountedRef.current) {
         stopSmartLoading(setLoading)
       }
@@ -670,6 +692,10 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   // ✅ Initial mount effect - simplified like ProjectsList
   useEffect(() => {
     isMountedRef.current = true
+    isLoadingRef.current = false
+    hasFetchedRef.current = false
+    // ✅ Ensure loading state is false on mount
+    setLoading(false)
     console.log('🟡 KPITracking: Component mounted')
     
     // Listen for database updates
@@ -693,17 +719,48 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     
     window.addEventListener('database-updated', handleDatabaseUpdate as EventListener)
     
-    // Initial load: Only fetch projects (lightweight)
-    fetchProjects()
-    fetchPendingKPICount()
+    // ✅ PERFORMANCE: Defer all data fetching to avoid blocking navigation
+    // Use setTimeout to run after component is fully rendered
+    const dataTimeout = setTimeout(() => {
+      if (isMountedRef.current) {
+        fetchProjects()
+        // ✅ Defer fetchPendingKPICount (heavy operation) even more
+        setTimeout(() => {
+          if (isMountedRef.current) {
+            fetchPendingKPICount()
+          }
+        }, 200) // Additional delay for heavy operation
+      }
+    }, 50) // Small delay to allow UI to render first
     
     return () => {
+      clearTimeout(dataTimeout)
       console.log('🔴 KPITracking: Component unmounting')
       isMountedRef.current = false
       window.removeEventListener('database-updated', handleDatabaseUpdate as EventListener)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // Run only once on mount
+  
+  // ✅ PERFORMANCE: Fetch data when filters or page change (with stable dependencies)
+  useEffect(() => {
+    if (!hasFetchedRef.current) {
+      hasFetchedRef.current = true
+      return
+    }
+    
+    if (isLoadingRef.current) return
+    
+    if (selectedProjects.length > 0) {
+      fetchKPIPage(currentPage, selectedProjects, '')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, selectedProjects.join(',')])
+  
+  // ✅ LEGACY: Keep fetchData for backward compatibility (wraps fetchKPIPage)
+  const fetchData = useCallback(async (filterProjects: string[] = []) => {
+    await fetchKPIPage(currentPage, filterProjects, '')
+  }, [fetchKPIPage, currentPage])
 
   const handleCreateKPI = async (kpiData: any) => {
     try {

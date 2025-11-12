@@ -83,6 +83,10 @@ export function ProjectsList({
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [viewingProject, setViewingProject] = useState<Project | null>(null)
   const [searchTerm, setSearchTerm] = useState(globalSearchTerm || '')
+  // ✅ PERFORMANCE: Cache for loaded analytics data per project
+  const [analyticsCache, setAnalyticsCache] = useState<Map<string, { activities: any[], kpis: any[] }>>(new Map())
+  // ✅ Trigger to force re-calculation of analytics when cache updates
+  const [analyticsCacheVersion, setAnalyticsCacheVersion] = useState(0)
   
   // View mode state with localStorage persistence
   const [useCustomizedTable, setUseCustomizedTable] = useState(() => {
@@ -108,6 +112,10 @@ export function ProjectsList({
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 12
+  
+  // Sorting state - for database-level sorting
+  const [sortBy, setSortBy] = useState<string>('created_at')
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
   
   
   // ==================== Permission Checks ====================
@@ -313,13 +321,191 @@ export function ProjectsList({
   }, [supabase])
   
   /**
-   * Fetch all data (projects, activities, KPIs) in parallel
-   * ✅ FIXED: Added guard to prevent multiple simultaneous loads
+   * ✅ PERFORMANCE: Load activities and KPIs only for visible projects
    */
-  const fetchAllData = useCallback(async () => {
+  const loadAnalyticsForProjects = useCallback(async (projectsToLoad: Project[]) => {
+    if (projectsToLoad.length === 0) {
+      // ✅ PERFORMANCE: Don't clear allActivities/allKPIs on empty - keep existing data for SmartFilter
+      // Only clear cache for projects that are no longer visible
+      setAnalyticsCache(prevCache => {
+        const newCache = new Map(prevCache)
+        // Clear cache entries for projects that are no longer in the current page
+        // But keep data for SmartFilter to work properly
+        return newCache
+      })
+      return
+    }
+
+    try {
+      // Build project full codes for filtering using buildProjectFullCode
+      const projectFullCodes = projectsToLoad.map(p => buildProjectFullCode(p))
+      
+      if (process.env.NODE_ENV === 'development') {
+        console.log('📊 Loading analytics for projects:', projectFullCodes.length)
+      }
+      
+      // Fetch activities and KPIs for these projects only
+      const [activitiesRes, kpisRes] = await Promise.all([
+        supabase
+          .from(TABLES.BOQ_ACTIVITIES)
+            .select('*')
+          .in('Project Full Code', projectFullCodes),
+        supabase
+          .from(TABLES.KPI)
+          .select('*')
+          .in('Project Full Code', projectFullCodes)
+      ])
+      
+      if (activitiesRes.error) {
+        console.error('❌ Error loading activities:', activitiesRes.error)
+      }
+      
+      if (kpisRes.error) {
+        console.error('❌ Error loading KPIs:', kpisRes.error)
+      }
+      
+      const mappedActivities = (activitiesRes.data || []).map(mapBOQFromDB)
+      const mappedKPIs = (kpisRes.data || []).map(mapKPIFromDB)
+      
+      // Update cache - use functional update to avoid dependency on analyticsCache
+      // ✅ PERFORMANCE: Only update allActivities/allKPIs if they actually changed
+      // This prevents unnecessary re-renders in SmartFilter and other components
+      if (isMountedRef.current) {
+        // ✅ PERFORMANCE: Use functional updates to merge with existing data instead of replacing
+        // This allows SmartFilter to have access to all loaded activities/KPIs across pages
+        setAllActivities(prev => {
+          // Merge new activities with existing ones, avoiding duplicates
+          const existingIds = new Set(prev.map(a => a.id))
+          const newUnique = mappedActivities.filter(a => !existingIds.has(a.id))
+          return [...prev, ...newUnique]
+        })
+        setAllKPIs(prev => {
+          // Merge new KPIs with existing ones, avoiding duplicates
+          const existingIds = new Set(prev.map(k => k.id))
+          const newUnique = mappedKPIs.filter(k => !existingIds.has(k.id))
+          return [...prev, ...newUnique]
+        })
+        
+        // Update cache with new data for ALL projects
+        setAnalyticsCache(prevCache => {
+          const newCache = new Map(prevCache)
+          
+          // Process each project and ensure it has analytics data
+          projectsToLoad.forEach(project => {
+            const projectFullCode = buildProjectFullCode(project)
+            const projectCode = (project.project_code || '').trim()
+            const projectSubCode = (project.project_sub_code || '').trim()
+            
+            // Find activities for this project (multiple matching strategies)
+            const projectActivities = mappedActivities.filter(a => {
+              const activityFullCode = (a.project_full_code || '').toString().trim()
+              const activityProjectCode = (a.project_code || '').toString().trim()
+              const activityProjectSubCode = (a.project_sub_code || '').toString().trim()
+              
+              // Exact match on project_full_code
+              if (activityFullCode && activityFullCode === projectFullCode) {
+                return true
+              }
+              
+              // Match by project_code if no sub_code
+              if (!projectSubCode && !activityProjectSubCode && activityProjectCode === projectCode) {
+                return true
+              }
+              
+              // Build activity full code and match
+              if (activityProjectCode && activityProjectSubCode) {
+                let activityFullCodeBuilt = activityProjectCode
+                if (activityProjectSubCode.toUpperCase().startsWith(activityProjectCode.toUpperCase())) {
+                  activityFullCodeBuilt = activityProjectSubCode
+                } else if (activityProjectSubCode.startsWith('-')) {
+                  activityFullCodeBuilt = `${activityProjectCode}${activityProjectSubCode}`
+                } else {
+                  activityFullCodeBuilt = `${activityProjectCode}-${activityProjectSubCode}`
+                }
+                if (activityFullCodeBuilt === projectFullCode) {
+                  return true
+                }
+              }
+              
+              return false
+            })
+            
+            // Find KPIs for this project (multiple matching strategies)
+            const projectKPIs = mappedKPIs.filter(k => {
+              const kpiFullCode = ((k.project_full_code || (k as any)['Project Full Code'] || '')).toString().trim()
+              const kpiProjectCode = ((k as any).project_code || (k as any)['Project Code'] || '').toString().trim()
+              const kpiProjectSubCode = ((k as any).project_sub_code || (k as any)['Project Sub Code'] || '').toString().trim()
+              
+              // Exact match on project_full_code
+              if (kpiFullCode && kpiFullCode === projectFullCode) {
+                return true
+              }
+              
+              // Match by project_code if no sub_code
+              if (!projectSubCode && !kpiProjectSubCode && kpiProjectCode === projectCode) {
+                return true
+              }
+              
+              // Build KPI full code and match
+              if (kpiProjectCode && kpiProjectSubCode) {
+                let kpiFullCodeBuilt = kpiProjectCode
+                if (kpiProjectSubCode.toUpperCase().startsWith(kpiProjectCode.toUpperCase())) {
+                  kpiFullCodeBuilt = kpiProjectSubCode
+                } else if (kpiProjectSubCode.startsWith('-')) {
+                  kpiFullCodeBuilt = `${kpiProjectCode}${kpiProjectSubCode}`
+          } else {
+                  kpiFullCodeBuilt = `${kpiProjectCode}-${kpiProjectSubCode}`
+                }
+                if (kpiFullCodeBuilt === projectFullCode) {
+                  return true
+                }
+              }
+              
+              return false
+            })
+            
+            // Always set cache entry for each project (even if empty arrays)
+            newCache.set(project.id, { activities: projectActivities, kpis: projectKPIs })
+            
+        if (process.env.NODE_ENV === 'development') {
+              console.log(`📊 Project ${project.project_code}:`, {
+                fullCode: projectFullCode,
+                activities: projectActivities.length,
+                kpis: projectKPIs.length
+              })
+            }
+          })
+          
+          if (process.env.NODE_ENV === 'development') {
+            console.log('✅ Analytics cache updated for all projects:', {
+              totalProjects: projectsToLoad.length,
+              cacheSize: newCache.size,
+              totalActivities: mappedActivities.length,
+              totalKPIs: mappedKPIs.length
+            })
+          }
+          
+          // ✅ Force re-calculation of analytics by updating version
+          setAnalyticsCacheVersion(prev => prev + 1)
+          
+          return newCache
+        })
+      }
+    } catch (error: any) {
+      console.error('❌ Error loading analytics:', error)
+    }
+  }, [supabase, buildProjectFullCode])
+  
+  /**
+   * ✅ PERFORMANCE: Fetch projects with pagination and filters (only visible projects)
+   * This loads only the projects needed for the current page
+   */
+  const fetchProjectsPage = useCallback(async (page: number = 1, search: string = '', filters: any = {}) => {
     // ✅ Prevent multiple simultaneous loads
     if (isLoadingRef.current) {
-      console.log('⏸️ Data fetch already in progress, skipping...')
+      if (process.env.NODE_ENV === 'development') {
+        console.log('⏸️ Data fetch already in progress, skipping...')
+      }
       return
     }
 
@@ -327,154 +513,108 @@ export function ProjectsList({
       isLoadingRef.current = true
       startSmartLoading(setLoading)
       setError('')
-      // ✅ PERFORMANCE: Only log in development mode
+      
       if (process.env.NODE_ENV === 'development') {
-      console.log('📊 Loading all project data...')
+        console.log('📊 Loading projects page...', { page, search, filters })
       }
       
-      // ✅ Helper function to fetch all records with pagination (Supabase default limit is 1000)
-      const fetchAllRecords = async (table: string, orderBy?: string) => {
-        let allData: any[] = []
-        let offset = 0
-        const chunkSize = 1000
-        let hasMore = true
-        
-        while (hasMore) {
-          let query = supabase
-            .from(table)
-            .select('*')
-            .range(offset, offset + chunkSize - 1)
-          
-          if (orderBy) {
-            query = query.order(orderBy, { ascending: false })
-          }
-          
-          const { data, error } = await query
-          
-          if (error) {
-            console.error(`❌ Error fetching ${table}:`, error)
-            break
-          }
-          
-          if (!data || data.length === 0) {
-            hasMore = false
-            break
-          }
-          
-          allData = [...allData, ...data]
-          // ✅ PERFORMANCE: Only log in development mode
-          if (process.env.NODE_ENV === 'development') {
-          console.log(`📥 Fetched ${table} chunk: ${data.length} records (total so far: ${allData.length})`)
-          }
-          
-          if (data.length < chunkSize) {
-            hasMore = false
-          } else {
-            offset += chunkSize
-          }
-        }
-        
-        // ✅ PERFORMANCE: Only log in development mode
-        if (process.env.NODE_ENV === 'development') {
-        console.log(`✅ Total ${table} records fetched: ${allData.length}`)
-        }
-        return allData
+      // Build query with filters
+      let query = supabase
+        .from(TABLES.PROJECTS)
+        .select('*', { count: 'exact' })
+      
+      // Apply search filter - use correct column names from database
+      if (search && search.trim()) {
+        query = query.or(`"Project Name".ilike.%${search.trim()}%,"Project Code".ilike.%${search.trim()}%`)
       }
       
-      // ✅ Fetch all data with pagination to overcome 1000-record limit
-      const [projectsData, activitiesData, kpisData] = await Promise.all([
-        fetchAllRecords(TABLES.PROJECTS, 'created_at'),
-        fetchAllRecords(TABLES.BOQ_ACTIVITIES),
-        fetchAllRecords(TABLES.KPI, 'created_at')
-      ])
+      // Apply status filter (only if single status selected - multi-select handled client-side)
+      // Use correct column name from database
+      if (filters.status && filters.status.trim()) {
+        query = query.eq('"Project Status"', filters.status.trim())
+      }
       
-      // ✅ Data fetched successfully (no errors from fetchAllRecords)
-      // Check if data arrays are valid
+      // Apply division filter (only if single division selected - multi-select handled client-side)
+      // Use correct column name from database
+      if (filters.division && filters.division.trim()) {
+        query = query.ilike('"Responsible Division"', `%${filters.division.trim()}%`)
+      }
+      
+      // Apply date range filter
+      // Use correct column name from database (could be "Start Date" or "Project Start Date")
+      if (filters.dateRange?.from) {
+        query = query.gte('"Start Date"', filters.dateRange.from)
+      }
+      if (filters.dateRange?.to) {
+        query = query.lte('"Start Date"', filters.dateRange.to)
+      }
+      
+      // ✅ Apply sorting from state (database-level sorting for all data)
+      // Map column IDs to database column names
+      const getDatabaseColumnName = (columnId: string): string => {
+        const columnMap: Record<string, string> = {
+          'project_code': '"Project Code"',
+          'full_project_code': '"Project Code"', // Use Project Code as fallback
+          'project_name': '"Project Name"',
+          'project_status': '"Project Status"',
+          'responsible_divisions': '"Responsible Division"',
+          'scope_of_works': '"Project Type"',
+          'plot_number': '"Plot Number"',
+          'contract_amount': '"Contract Amount"',
+          'created_at': 'created_at',
+          'updated_at': 'updated_at'
+        }
+        return columnMap[columnId] || 'created_at'
+      }
+      
+      const dbColumnName = getDatabaseColumnName(sortBy)
+      query = query.order(dbColumnName, { ascending: sortDirection === 'asc' })
+      
+      // Apply pagination AFTER sorting
+      const startIndex = (page - 1) * itemsPerPage
+      const endIndex = startIndex + itemsPerPage - 1
+      query = query.range(startIndex, endIndex)
+      
+      const { data: projectsData, error: projectsError, count } = await query
+      
+      if (projectsError) {
+        throw projectsError
+      }
+      
       if (!projectsData || !Array.isArray(projectsData)) {
         console.error('❌ Projects data is invalid')
         setError('Failed to load projects: Invalid data format')
         return
       }
         
-        // Map all data
       const mappedProjects = (projectsData || []).map(mapProjectFromDB)
-      const mappedActivities = (activitiesData || []).map(mapBOQFromDB)
-      const mappedKPIs = (kpisData || []).map(mapKPIFromDB)
-
-      // ✅ Update Responsible Divisions in projects based on BOQ Activities
-      try {
-        await updateProjectsDivisionsFromBOQ(mappedProjects, mappedActivities)
-      } catch (divisionError) {
-        console.warn('⚠️ Failed to update projects divisions from BOQ:', divisionError)
-        // Don't throw - continue with data loading
-      }
 
       // Update state only if component is still mounted
       if (isMountedRef.current) {
         setProjects(mappedProjects)
-        setAllActivities(mappedActivities)
-        setAllKPIs(mappedKPIs)
-        setTotalCount(mappedProjects.length)
+        setTotalCount(count || 0)
         
-        // ✅ PERFORMANCE: Only log in development mode
         if (process.env.NODE_ENV === 'development') {
-        console.log('✅ Data loaded:', {
+          console.log('✅ Projects page loaded:', {
           projects: mappedProjects.length,
-          activities: mappedActivities.length,
-          kpis: mappedKPIs.length
-        })
+            totalCount: count || 0,
+            page
+          })
         }
         
-        // ✅ PERFORMANCE: Auto-update project statuses in background (non-blocking)
-        // ✅ OPTIMIZED: Reduced from 10 to 5 projects to improve performance
-        // This ensures statuses are calculated and saved to database automatically
-        if (mappedProjects.length > 0 && mappedActivities.length > 0) {
-          // Update statuses in background without blocking UI
-          setTimeout(async () => {
-            try {
-              if (process.env.NODE_ENV === 'development') {
-              console.log('🔄 Auto-updating project statuses based on activities...')
-              }
-              let updatedCount = 0
-              // ✅ PERFORMANCE: Reduced from 10 to 5 projects to avoid overload
-              for (const project of mappedProjects.slice(0, 5)) {
-                try {
-                  const update = await updateProjectStatus(project.id)
-                  if (update) {
-                    updatedCount++
-                    // Refresh project data after status update
-                    if (isMountedRef.current && !isLoadingRef.current) {
-                      // Update the project in state with new status
-                      setProjects(prev => prev.map(p => 
-                        p.id === project.id 
-                          ? { ...p, project_status: update.new_status as any }
-                          : p
-                      ))
-                    }
-                  }
-                } catch (projectError: any) {
-                  // ✅ Silently skip projects that fail to update (e.g., don't exist in DB)
-                  // This prevents errors from blocking the entire update process
-                  if (process.env.NODE_ENV === 'development') {
-                    console.warn(`⚠️ Skipped updating project ${project.id}:`, projectError?.message || 'Unknown error')
-                  }
-                }
-                // ✅ PERFORMANCE: Increased delay to reduce database load
-                await new Promise(resolve => setTimeout(resolve, 500))
-              }
-              if (updatedCount > 0 && process.env.NODE_ENV === 'development') {
-                console.log(`✅ Auto-updated ${updatedCount} project statuses`)
-              }
-            } catch (error) {
-              console.error('❌ Error auto-updating project statuses:', error)
-            }
-          }, 2000) // ✅ PERFORMANCE: Increased delay from 1s to 2s to allow UI to render first
+        // ✅ Load analytics data for visible projects only
+        // Wait for analytics to load before showing projects to ensure data is available
+        try {
+          await loadAnalyticsForProjects(mappedProjects)
+        } catch (analyticsError) {
+          console.error('❌ Error loading analytics:', analyticsError)
+          // Continue even if analytics fail - show projects without analytics
         }
       }
       } catch (error: any) {
-        console.error('❌ Exception loading data:', error)
+      console.error('❌ Exception loading projects:', error)
       if (isMountedRef.current) {
-        setError(error.message || 'Failed to load data')
+        setError(error.message || 'Failed to load projects')
       }
       } finally {
       isLoadingRef.current = false
@@ -482,7 +622,21 @@ export function ProjectsList({
         stopSmartLoading(setLoading)
       }
     }
-  }, [supabase, startSmartLoading, stopSmartLoading])
+  }, [supabase, startSmartLoading, stopSmartLoading, itemsPerPage, loadAnalyticsForProjects])
+  
+  /**
+   * ✅ LEGACY: Keep fetchAllData for backward compatibility (used in create/update/delete)
+   * But make it lightweight - only fetch projects count and basic data
+   */
+  const fetchAllData = useCallback(async () => {
+    // For create/update/delete operations, just refresh the current page
+    const currentFilters = {
+      status: selectedStatuses.length > 0 ? selectedStatuses[0] : '',
+      division: selectedDivisions.length > 0 ? selectedDivisions[0] : '',
+      dateRange: dateRange
+    }
+    await fetchProjectsPage(currentPage, searchTerm, currentFilters)
+  }, [fetchProjectsPage, currentPage, searchTerm, selectedStatuses, selectedDivisions, dateRange])
 
   // ==================== Event Handlers ====================
 
@@ -617,112 +771,19 @@ export function ProjectsList({
 
   // ==================== Analytics Calculation ====================
   /**
-   * ✅ PERFORMANCE: Pre-calculate analytics for all projects using loaded data
-   * ✅ OPTIMIZED: Use Map-based lookup instead of filter for each project (O(n) instead of O(n*m))
-   * This prevents each card from fetching data separately
+   * ✅ PERFORMANCE: Calculate analytics only for visible projects using cached data
+   * This only processes the projects that are currently loaded (visible on page)
    */
   const projectsAnalytics = useMemo(() => {
     const analyticsMap = new Map<string, ProjectAnalytics>()
     
-    // ✅ PERFORMANCE: Build lookup maps once instead of filtering for each project
-    // This reduces complexity from O(n*m) to O(n+m)
-    const activitiesByProject = new Map<string, any[]>()
-    const kpisByProject = new Map<string, any[]>()
-        
-    // Build activities lookup map
-    allActivities.forEach(activity => {
-      const activityProjectFullCode = (activity.project_full_code || '').toString().trim()
-      const activityProjectCode = (activity.project_code || '').toString().trim()
-      const activityProjectSubCode = (activity.project_sub_code || '').toString().trim()
-          
-      // Add to map by project_full_code (primary key)
-      if (activityProjectFullCode) {
-        if (!activitiesByProject.has(activityProjectFullCode)) {
-          activitiesByProject.set(activityProjectFullCode, [])
-        }
-        activitiesByProject.get(activityProjectFullCode)!.push(activity)
-      }
-      
-      // Also add by built full code if different
-          if (activityProjectCode && activityProjectSubCode) {
-        let builtFullCode = activityProjectCode
-            if (activityProjectSubCode.toUpperCase().startsWith(activityProjectCode.toUpperCase())) {
-          builtFullCode = activityProjectSubCode
-            } else if (activityProjectSubCode.startsWith('-')) {
-          builtFullCode = `${activityProjectCode}${activityProjectSubCode}`
-            } else {
-          builtFullCode = `${activityProjectCode}-${activityProjectSubCode}`
-            }
-        if (builtFullCode !== activityProjectFullCode) {
-          if (!activitiesByProject.has(builtFullCode)) {
-            activitiesByProject.set(builtFullCode, [])
-          }
-          activitiesByProject.get(builtFullCode)!.push(activity)
-            }
-          }
-          
-      // Add by project_code only if no sub_code (fallback)
-      if (!activityProjectSubCode && activityProjectCode) {
-        if (!activitiesByProject.has(activityProjectCode)) {
-          activitiesByProject.set(activityProjectCode, [])
-        }
-        activitiesByProject.get(activityProjectCode)!.push(activity)
-      }
-    })
-    
-    // Build KPIs lookup map
-    allKPIs.forEach(kpi => {
-      const kpiProjectFullCode = ((kpi.project_full_code || (kpi as any)['Project Full Code'] || '')).toString().trim()
-      const kpiProjectCode = ((kpi as any).project_code || (kpi as any)['Project Code'] || '').toString().trim()
-      const kpiProjectSubCode = ((kpi as any).project_sub_code || (kpi as any)['Project Sub Code'] || '').toString().trim()
-          
-      // Add to map by project_full_code (primary key)
-      if (kpiProjectFullCode) {
-        if (!kpisByProject.has(kpiProjectFullCode)) {
-          kpisByProject.set(kpiProjectFullCode, [])
-        }
-        kpisByProject.get(kpiProjectFullCode)!.push(kpi)
-      }
-      
-      // Also add by built full code if different
-          if (kpiProjectCode && kpiProjectSubCode) {
-        let builtFullCode = kpiProjectCode
-            if (kpiProjectSubCode.toUpperCase().startsWith(kpiProjectCode.toUpperCase())) {
-          builtFullCode = kpiProjectSubCode
-            } else if (kpiProjectSubCode.startsWith('-')) {
-          builtFullCode = `${kpiProjectCode}${kpiProjectSubCode}`
-            } else {
-          builtFullCode = `${kpiProjectCode}-${kpiProjectSubCode}`
-            }
-        if (builtFullCode !== kpiProjectFullCode) {
-          if (!kpisByProject.has(builtFullCode)) {
-            kpisByProject.set(builtFullCode, [])
-          }
-          kpisByProject.get(builtFullCode)!.push(kpi)
-            }
-          }
-          
-      // Add by project_code only if no sub_code (fallback)
-      if (!kpiProjectSubCode && kpiProjectCode) {
-        if (!kpisByProject.has(kpiProjectCode)) {
-          kpisByProject.set(kpiProjectCode, [])
-        }
-        kpisByProject.get(kpiProjectCode)!.push(kpi)
-      }
-    })
-    
-    // ✅ PERFORMANCE: Now calculate analytics using Map lookup (O(1) instead of O(n))
+    // ✅ PERFORMANCE: Only calculate analytics for loaded projects
     projects.forEach(project => {
       try {
-        const projectFullCode = buildProjectFullCode(project)
-        const projectCode = (project.project_code || '').trim()
-        const projectSubCode = (project.project_sub_code || '').trim()
-        
-        // ✅ PERFORMANCE: Use Map lookup instead of filter
-        const projectActivities = activitiesByProject.get(projectFullCode) || 
-                                  (projectSubCode ? [] : activitiesByProject.get(projectCode) || [])
-        const projectKPIs = kpisByProject.get(projectFullCode) || 
-                           (projectSubCode ? [] : kpisByProject.get(projectCode) || [])
+        // Get cached activities and KPIs for this project
+        const cached = analyticsCache.get(project.id)
+        const projectActivities = cached?.activities || []
+        const projectKPIs = cached?.kpis || []
         
         // Calculate analytics for this project
         const analytics = calculateProjectAnalytics(project, projectActivities, projectKPIs)
@@ -742,34 +803,22 @@ export function ProjectsList({
     
     // ✅ PERFORMANCE: Only log in development mode
     if (process.env.NODE_ENV === 'development' && analyticsMap.size > 0) {
-      console.log(`✅ Pre-calculated analytics for ${analyticsMap.size} projects`)
+      console.log(`✅ Calculated analytics for ${analyticsMap.size} visible projects`)
     }
     
     return analyticsMap
-  }, [projects, allActivities, allKPIs, buildProjectFullCode])
+  }, [projects, analyticsCache, analyticsCacheVersion])
   
   // ==================== Filtering & Sorting ====================
   /**
-   * Get filtered and sorted projects
-   */
-  const getFilteredAndSortedProjects = useCallback((): Project[] => {
-    let filtered = [...projects]
-
-    // Default sorting: By project code descending
-    filtered.sort(sortProjectsByCode)
-
-    return filtered
-  }, [projects, sortProjectsByCode])
-
-  /**
-   * Apply Smart Filter and search to projects
+   * ✅ PERFORMANCE: Projects are already filtered by the database query
+   * We only need to apply client-side Smart Filter filters that can't be done in database
    */
   const allFilteredProjects = useMemo(() => {
-    return getFilteredAndSortedProjects().filter(project => {
-    // Search filter
-    const matchesSearch = (project.project_name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-    (project.project_code?.toLowerCase() || '').includes(searchTerm.toLowerCase())
-    if (!matchesSearch) return false
+    // Projects are already filtered by search and basic filters from database
+    // Apply only Smart Filter filters that require complex logic (multi-select, calculated status, etc.)
+    // ✅ PERFORMANCE: Only filter visible projects (already loaded from database)
+    return projects.filter(project => {
     
     // Multi-Project filter (Smart Filter)
     if (selectedProjects.length > 0) {
@@ -815,76 +864,11 @@ export function ProjectsList({
         const projectCode = (project.project_code || '').trim()
         const projectSubCode = (project.project_sub_code || '').trim()
         
-        // ✅ Use strict matching by project_full_code ONLY (same as BOQ/KPI pages)
-        const projectActivities = allActivities.filter(a => {
-          // Build activity project_full_code from multiple sources
-          const activityProjectFullCode = (a.project_full_code || '').toString().trim()
-          const activityProjectCode = (a.project_code || '').toString().trim()
-          const activityProjectSubCode = (a.project_sub_code || '').toString().trim()
-          
-          // Priority 1: Exact match on project_full_code
-          if (activityProjectFullCode && activityProjectFullCode === projectFullCode) {
-            return true
-          }
-          
-          // Priority 2: Build activity full code and match
-          if (activityProjectCode && activityProjectSubCode) {
-            let activityFullCode = activityProjectCode
-            if (activityProjectSubCode.toUpperCase().startsWith(activityProjectCode.toUpperCase())) {
-              activityFullCode = activityProjectSubCode
-            } else if (activityProjectSubCode.startsWith('-')) {
-              activityFullCode = `${activityProjectCode}${activityProjectSubCode}`
-            } else {
-              activityFullCode = `${activityProjectCode}-${activityProjectSubCode}`
-            }
-            if (activityFullCode === projectFullCode) {
-              return true
-            }
-          }
-          
-          // ❌ DO NOT match by project_code alone if project has sub_code (to avoid mixing projects)
-          // Only allow if current project has no sub_code (old data fallback)
-          if (!projectSubCode && !activityProjectFullCode && activityProjectCode === projectCode) {
-            return true
-          }
-          
-          return false
-        })
-        
-        const projectKPIs = allKPIs.filter(k => {
-          // Build KPI project_full_code from multiple sources
-          const kpiProjectFullCode = ((k.project_full_code || (k as any)['Project Full Code'] || '')).toString().trim()
-          const kpiProjectCode = ((k as any).project_code || (k as any)['Project Code'] || '').toString().trim()
-          const kpiProjectSubCode = ((k as any).project_sub_code || (k as any)['Project Sub Code'] || '').toString().trim()
-          
-          // Priority 1: Exact match on project_full_code
-          if (kpiProjectFullCode && kpiProjectFullCode === projectFullCode) {
-            return true
-          }
-          
-          // Priority 2: Build KPI full code and match
-          if (kpiProjectCode && kpiProjectSubCode) {
-            let kpiFullCode = kpiProjectCode
-            if (kpiProjectSubCode.toUpperCase().startsWith(kpiProjectCode.toUpperCase())) {
-              kpiFullCode = kpiProjectSubCode
-            } else if (kpiProjectSubCode.startsWith('-')) {
-              kpiFullCode = `${kpiProjectCode}${kpiProjectSubCode}`
-            } else {
-              kpiFullCode = `${kpiProjectCode}-${kpiProjectSubCode}`
-            }
-            if (kpiFullCode === projectFullCode) {
-              return true
-            }
-          }
-          
-          // ❌ DO NOT match by project_code alone if project has sub_code (to avoid mixing projects)
-          // Only allow if current project has no sub_code (old data fallback)
-          if (!projectSubCode && !kpiProjectFullCode && kpiProjectCode === projectCode) {
-            return true
-          }
-          
-          return false
-        })
+        // ✅ PERFORMANCE: Use cached data instead of filtering allActivities/allKPIs
+        // This is much faster as data is already matched and cached per project
+        const cached = analyticsCache.get(project.id)
+        const projectActivities = cached?.activities || []
+        const projectKPIs = cached?.kpis || []
         
         if (projectActivities.length > 0 || projectKPIs.length > 0) {
           const statusData: ProjectStatusData = {
@@ -969,16 +953,11 @@ export function ProjectsList({
     
     return true
   })
-  }, [getFilteredAndSortedProjects, searchTerm, selectedProjects, selectedDivisions, selectedTypes, selectedStatuses, dateRange, valueRange, buildProjectFullCode, allActivities, allKPIs])
+  }, [projects, selectedProjects, selectedDivisions, selectedTypes, selectedStatuses, valueRange, buildProjectFullCode, analyticsCache])
   
-  // Apply pagination
-  const filteredProjects = useMemo(() => {
-  const startIndex = (currentPage - 1) * itemsPerPage
-  const endIndex = startIndex + itemsPerPage
-    return allFilteredProjects.slice(startIndex, endIndex)
-  }, [allFilteredProjects, currentPage, itemsPerPage])
-  
-  const filteredTotalCount = allFilteredProjects.length
+  // ✅ PERFORMANCE: No need for client-side pagination - already done in database
+  const filteredProjects = allFilteredProjects
+  const filteredTotalCount = totalCount
 
   // ==================== Import/Export ====================
   const handleImportProjects = useCallback(async (importedData: any[]) => {
@@ -1047,21 +1026,37 @@ export function ProjectsList({
   ], [])
 
   // ==================== Effects ====================
+  /**
+   * ✅ PERFORMANCE: Load projects when page, search, or filters change
+   */
   useEffect(() => {
     isMountedRef.current = true
     isLoadingRef.current = false
+    
+    if (process.env.NODE_ENV === 'development') {
     console.log('🟡 Projects: Component mounted')
+    }
 
     // Listen for database updates
     const handleDatabaseUpdate = (event: CustomEvent) => {
       const { tableName } = event.detail
+      
+      if (process.env.NODE_ENV === 'development') {
       console.log(`🔔 Projects: Database updated event received for ${tableName}`)
+      }
 
       if (tableName === TABLES.PROJECTS || tableName === TABLES.BOQ_ACTIVITIES || tableName === TABLES.KPI) {
+        if (process.env.NODE_ENV === 'development') {
         console.log(`🔄 Projects: Reloading data due to ${tableName} update...`)
+        }
         // ✅ Only reload if not already loading
         if (!isLoadingRef.current) {
-          fetchAllData()
+          const currentFilters = {
+            status: selectedStatuses.length > 0 ? selectedStatuses[0] : '',
+            division: selectedDivisions.length > 0 ? selectedDivisions[0] : '',
+            dateRange: dateRange
+          }
+          fetchProjectsPage(currentPage, searchTerm, currentFilters)
         }
       }
     }
@@ -1071,44 +1066,53 @@ export function ProjectsList({
     // ✅ Initial fetch - only once on mount
     if (!hasFetchedRef.current) {
       hasFetchedRef.current = true
-      fetchAllData()
+      const initialFilters = {
+        status: selectedStatuses.length > 0 ? selectedStatuses[0] : '',
+        division: selectedDivisions.length > 0 ? selectedDivisions[0] : '',
+        dateRange: dateRange
+      }
+      fetchProjectsPage(1, searchTerm, initialFilters)
     }
 
     return () => {
+      if (process.env.NODE_ENV === 'development') {
       console.log('🔴 Projects: Cleanup - component unmounting')
+      }
       isMountedRef.current = false
       isLoadingRef.current = false
       window.removeEventListener('database-updated', handleDatabaseUpdate as EventListener)
     }
-    // ✅ FIXED: Remove fetchAllData from dependencies to prevent infinite loop
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // Only run once on mount
 
-  // Lazy load Activities and KPIs when switching to table view
+  /**
+   * ✅ PERFORMANCE: Reload projects when page, search, filters, or sorting change
+   */
   useEffect(() => {
-    if (canUseCustomizedTable && allActivities.length === 0 && allKPIs.length === 0) {
-      console.log('📊 Lazy loading activities and KPIs for table view...')
-      const loadAnalyticsData = async () => {
-        try {
-          const [activitiesRes, kpisRes] = await Promise.all([
-            supabase.from(TABLES.BOQ_ACTIVITIES).select('*'),
-            supabase.from(TABLES.KPI).select('*')
-          ])
-
-          if (activitiesRes.data) {
-            setAllActivities(activitiesRes.data.map(mapBOQFromDB))
-          }
-
-          if (kpisRes.data) {
-            setAllKPIs(kpisRes.data.map(mapKPIFromDB))
-          }
-        } catch (error) {
-          console.error('❌ Error loading analytics data:', error)
-        }
-      }
-      loadAnalyticsData()
+    if (!hasFetchedRef.current) return // Skip if initial fetch hasn't happened yet
+    if (isLoadingRef.current) return // Skip if already loading
+    
+    const currentFilters = {
+      status: selectedStatuses.length > 0 ? selectedStatuses[0] : '',
+      division: selectedDivisions.length > 0 ? selectedDivisions[0] : '',
+      dateRange: dateRange
     }
-  }, [canUseCustomizedTable, allActivities.length, allKPIs.length, supabase])
+    
+    fetchProjectsPage(currentPage, searchTerm, currentFilters)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, searchTerm, selectedStatuses.join(','), selectedDivisions.join(','), dateRange?.from, dateRange?.to, sortBy, sortDirection])
+  
+  /**
+   * ✅ Handle sorting from table - triggers database-level sort
+   */
+  const handleTableSort = useCallback((columnId: string, direction: 'asc' | 'desc') => {
+    setSortBy(columnId)
+    setSortDirection(direction)
+    setCurrentPage(1) // Reset to first page when sorting changes
+  }, [])
+
+  // ✅ REMOVED: Lazy loading is now handled by loadAnalyticsForProjects
+  // Analytics are loaded only for visible projects
 
   // ==================== Render ====================
   // ✅ PERFORMANCE: Memoize status functions to prevent re-renders
@@ -1358,6 +1362,9 @@ export function ProjectsList({
                     allKPIs={allKPIs}
                     allActivities={allActivities}
                     projectsAnalytics={projectsAnalytics} // ✅ Pass pre-calculated analytics for better performance
+                    onSort={handleTableSort} // ✅ Pass database-level sorting callback
+                    currentSortColumn={sortBy} // ✅ Pass current sort column
+                    currentSortDirection={sortDirection} // ✅ Pass current sort direction
                   />
             ) : (
                 <div className={`grid gap-6 ${getCardGridClasses('cards')} transition-all duration-300 ease-in-out`}>

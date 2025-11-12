@@ -27,6 +27,9 @@ interface ProjectsTableWithCustomizationProps {
   allKPIs?: any[]
   allActivities?: any[]
   projectsAnalytics?: Map<string, ProjectAnalytics> // ✅ Pre-calculated analytics from parent
+  onSort?: (columnId: string, direction: 'asc' | 'desc') => void // ✅ Database-level sorting callback
+  currentSortColumn?: string // ✅ Current sort column from parent
+  currentSortDirection?: 'asc' | 'desc' // ✅ Current sort direction from parent
 }
 
 // Default column configuration for Projects
@@ -79,7 +82,10 @@ export function ProjectsTableWithCustomization({
   onBulkDelete,
   allKPIs = [],
   allActivities = [],
-  projectsAnalytics: propProjectsAnalytics // ✅ Pre-calculated analytics from parent
+  projectsAnalytics: propProjectsAnalytics, // ✅ Pre-calculated analytics from parent
+  onSort, // ✅ Database-level sorting callback
+  currentSortColumn, // ✅ Current sort column from parent
+  currentSortDirection // ✅ Current sort direction from parent
 }: ProjectsTableWithCustomizationProps) {
   const guard = usePermissionGuard()
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -92,9 +98,13 @@ export function ProjectsTableWithCustomization({
   // ✅ FIX: Load project_type_activities to map activity_name to project_type
   const [activityProjectTypesMap, setActivityProjectTypesMap] = useState<Map<string, string>>(new Map()) // activity_name -> project_type
   
-  // Sorting state
-  const [sortColumn, setSortColumn] = useState<string | null>(null)
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
+  // Sorting state - use props if provided (database-level sorting), otherwise use local state (client-side sorting)
+  const [localSortColumn, setLocalSortColumn] = useState<string | null>(null)
+  const [localSortDirection, setLocalSortDirection] = useState<'asc' | 'desc'>('asc')
+  
+  // Use parent's sort state if onSort callback is provided (database-level sorting)
+  const sortColumn = onSort ? (currentSortColumn || null) : localSortColumn
+  const sortDirection = onSort ? (currentSortDirection || 'asc') : localSortDirection
   
   const { 
     columns, 
@@ -4086,18 +4096,29 @@ export function ProjectsTableWithCustomization({
     return columns.filter(col => col.visible).sort((a, b) => a.order - b.order)
   }, [columns])
 
-  // Sorting handler
+  // Sorting handler - use database-level sorting if callback provided
   const handleSort = (columnId: string) => {
     // Don't sort select or actions columns
     if (columnId === 'select' || columnId === 'actions') return
     
-    if (sortColumn === columnId) {
+    // ✅ If onSort callback provided, use database-level sorting
+    if (onSort) {
+      // Use current sort state from parent if available, otherwise default to 'asc'
+      const currentCol = currentSortColumn || sortColumn
+      const currentDir = currentSortDirection || sortDirection
+      const newDirection = currentCol === columnId && currentDir === 'asc' ? 'desc' : 'asc'
+      onSort(columnId, newDirection)
+      return
+    }
+    
+    // Otherwise, use client-side sorting (fallback)
+    if (localSortColumn === columnId) {
       // Toggle direction if same column
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
+      setLocalSortDirection(localSortDirection === 'asc' ? 'desc' : 'asc')
     } else {
       // New column, default to ascending
-      setSortColumn(columnId)
-      setSortDirection('asc')
+      setLocalSortColumn(columnId)
+      setLocalSortDirection('asc')
     }
   }
 

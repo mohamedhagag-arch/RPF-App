@@ -117,6 +117,8 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   
   const supabase = getSupabaseClient()
   const isMountedRef = useRef(true) // ✅ Track if component is mounted
+  const isLoadingRef = useRef(false) // ✅ Prevent multiple simultaneous loads
+  const hasFetchedRef = useRef(false) // ✅ Track if initial fetch has been done
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('boq') // ✅ Smart loading
   
   // ✅ Update Responsible Divisions in Project based on Activity Division
@@ -652,8 +654,14 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     return Array.from(divisionSet).sort()
   }
 
-  // ✅ Fetch data based on filters (only when filters are applied)
-  const fetchData = useCallback(async (filterProjects: string[] = []) => {
+  // ✅ PERFORMANCE: Fetch BOQ page with pagination (only visible activities)
+  const fetchBOQPage = useCallback(async (page: number = 1, filterProjects: string[] = [], search: string = '') => {
+    // ✅ Prevent multiple simultaneous loads
+    if (isLoadingRef.current) {
+      console.log('⏸️ BOQ fetch already in progress, skipping...')
+      return
+    }
+    
     if (!isMountedRef.current) return
     
     // ✅ Only fetch if filters are applied
@@ -661,13 +669,19 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       console.log('💡 No filters applied - not loading data')
       setActivities([])
       setTotalCount(0)
+      isLoadingRef.current = false
+      stopSmartLoading(setLoading)
       return
     }
     
     try {
+      isLoadingRef.current = true
       startSmartLoading(setLoading)
       setError('')
-      console.log('📊 Loading BOQ data for projects:', filterProjects)
+      
+      if (process.env.NODE_ENV === 'development') {
+        console.log('📊 Loading BOQ page...', { page, filterProjects, search })
+      }
       
       // ✅ Fetch projects first (always needed)
       const projectsRes = await supabase
@@ -678,6 +692,8 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       if (projectsRes.error) {
         console.error('❌ Projects Error:', projectsRes.error)
         setError(`Failed to load projects: ${projectsRes.error.message}`)
+        isLoadingRef.current = false
+        stopSmartLoading(setLoading)
         return
       }
       
@@ -986,11 +1002,17 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         setError(error.message || 'Failed to load data')
       }
     } finally {
+      isLoadingRef.current = false
       if (isMountedRef.current) {
         stopSmartLoading(setLoading)
       }
     }
-  }, [supabase, startSmartLoading, stopSmartLoading])
+  }, [supabase, startSmartLoading, stopSmartLoading, itemsPerPage])
+  
+  // ✅ LEGACY: Keep fetchData for backward compatibility (wraps fetchBOQPage)
+  const fetchData = useCallback(async (filterProjects: string[] = []) => {
+    await fetchBOQPage(currentPage, filterProjects, searchTerm)
+  }, [fetchBOQPage, currentPage, searchTerm])
 
   // ✅ Fetch projects only on mount (lightweight)
   const fetchProjects = useCallback(async () => {
@@ -1691,6 +1713,10 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   // ✅ Initial mount effect - simplified like ProjectsList
   useEffect(() => {
     isMountedRef.current = true
+    isLoadingRef.current = false
+    hasFetchedRef.current = false
+    // ✅ Ensure loading state is false on mount
+    setLoading(false)
     console.log('🟡 BOQManagement: Component mounted')
     
     // Listen for database updates
@@ -1710,10 +1736,16 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     
     window.addEventListener('database-updated', handleDatabaseUpdate as EventListener)
     
-    // Initial load: Only fetch projects (lightweight)
-    fetchProjects()
+    // ✅ PERFORMANCE: Defer fetchProjects to avoid blocking navigation
+    // Use setTimeout to run after component is fully rendered
+    const projectsTimeout = setTimeout(() => {
+      if (isMountedRef.current) {
+        fetchProjects()
+      }
+    }, 50) // Small delay to allow UI to render first
     
     return () => {
+      clearTimeout(projectsTimeout)
       console.log('🔴 BOQManagement: Component unmounting')
       isMountedRef.current = false
       window.removeEventListener('database-updated', handleDatabaseUpdate as EventListener)
@@ -1721,13 +1753,20 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // Run only once on mount
   
-  // ✅ Fetch data when page changes
+  // ✅ PERFORMANCE: Fetch data when filters or page change (with stable dependencies)
   useEffect(() => {
-    if (projects.length > 0) {
-      console.log('🔄 Projects loaded, ready for filtering...')
-      // ✅ Don't auto-fetch data - wait for filters to be applied
+    if (!hasFetchedRef.current) {
+      hasFetchedRef.current = true
+      return
     }
-  }, [projects.length])
+    
+    if (isLoadingRef.current) return
+    
+    if (selectedProjects.length > 0) {
+      fetchBOQPage(currentPage, selectedProjects, searchTerm)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, searchTerm, selectedProjects.join(',')])
 
   // ✅ Removed auto-apply filters - now filters are applied at database level
   
@@ -2903,8 +2942,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
           })
           setSelectedProjects(projectCodes)
           setCurrentPage(1)
-          // ✅ Fetch data when filters are applied
-          fetchData(projectCodes)
+          // ✅ Data will be fetched automatically by useEffect when selectedProjects changes
         }}
         onActivitiesChange={(activities) => {
           setSelectedActivities(activities)
