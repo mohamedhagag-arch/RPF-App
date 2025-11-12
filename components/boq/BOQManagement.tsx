@@ -1782,11 +1782,12 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         'Calendar Duration': activityData.calendar_duration?.toString() || '0',
         'Project Full Name': activityData.project_full_name || '',
         'Project Status': activityData.project_status || 'upcoming',
-        // ✅ Activity Timing, Has Value, and Affects Timeline
+        // ✅ Activity Timing, Has Value, Affects Timeline, and Use Virtual Material
         // Note: These columns must exist in the database (run add-activity-timing-column.sql first)
         'Activity Timing': activityData.activity_timing || 'post-commencement',
         'Has Value': activityData.has_value !== undefined ? (activityData.has_value ? 'TRUE' : 'FALSE') : 'TRUE',
-        'Affects Timeline': activityData.affects_timeline !== undefined ? (activityData.affects_timeline ? 'TRUE' : 'FALSE') : 'FALSE'
+        'Affects Timeline': activityData.affects_timeline !== undefined ? (activityData.affects_timeline ? 'TRUE' : 'FALSE') : 'FALSE',
+        'Use Virtual Material': activityData.use_virtual_material !== undefined ? (activityData.use_virtual_material ? 'TRUE' : 'FALSE') : 'FALSE'
       }
 
       console.log('📦 Database Format:', JSON.stringify(dbData, null, 2))
@@ -1879,11 +1880,12 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         'Calendar Duration': activityData.calendar_duration?.toString() || '0',
         'Project Full Name': activityData.project_full_name || '',
         'Project Status': activityData.project_status || 'upcoming',
-        // ✅ Activity Timing, Has Value, and Affects Timeline
+        // ✅ Activity Timing, Has Value, Affects Timeline, and Use Virtual Material
         // Note: These columns must exist in the database (run add-activity-timing-column.sql first)
         'Activity Timing': activityData.activity_timing || 'post-commencement',
         'Has Value': activityData.has_value !== undefined ? (activityData.has_value ? 'TRUE' : 'FALSE') : 'TRUE',
-        'Affects Timeline': activityData.affects_timeline !== undefined ? (activityData.affects_timeline ? 'TRUE' : 'FALSE') : 'FALSE'
+        'Affects Timeline': activityData.affects_timeline !== undefined ? (activityData.affects_timeline ? 'TRUE' : 'FALSE') : 'FALSE',
+        'Use Virtual Material': activityData.use_virtual_material !== undefined ? (activityData.use_virtual_material ? 'TRUE' : 'FALSE') : 'FALSE'
       }
 
       console.log('📦 Database Format:', JSON.stringify(dbData, null, 2))
@@ -2580,6 +2582,23 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       ? (actualCount / plannedCount) * 100 
       : 0
     
+    // Achievement Rate (by value): Use valueAchievementRate as the main achievement rate
+    const achievementRateByValue = valueAchievementRate
+    
+    // Total Value: Sum of total_value from all filtered activities
+    const totalValue = filteredActivities.reduce((sum, activity) => {
+      const rawActivity = (activity as any).raw || {}
+      const activityTotalValue = activity.total_value || 
+                                parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                0
+      return sum + activityTotalValue
+    }, 0)
+    
+    // Actual Value / Total Value Rate: (Actual Value / Total Value) * 100
+    const actualToTotalValueRate = totalValue > 0 
+      ? (totalActualValue / totalValue) * 100 
+      : 0
+    
     return {
       totalRecords,
       plannedCount,
@@ -2588,8 +2607,11 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       totalActualQty,
       totalPlannedValue,
       totalActualValue,
+      totalValue,
       valueAchievementRate,
-      achievementRate
+      achievementRate,
+      achievementRateByValue,
+      actualToTotalValueRate
     }
   }, [filteredActivities, allKPIs])
 
@@ -2809,7 +2831,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
 
       {/* ✅ BOQ Statistics - Show if Activities are loaded */}
       {filteredActivities.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-8 gap-4">
           <Card className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900 dark:to-purple-800 border-purple-200 dark:border-purple-700">
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
@@ -2906,7 +2928,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
                 <div>
                   <p className="text-sm font-medium text-orange-600 dark:text-orange-300">Achievement Rate</p>
                   <p className="text-3xl font-bold text-orange-900 dark:text-orange-100">
-                    {boqSummaryStats.achievementRate.toFixed(1)}%
+                    {boqSummaryStats.achievementRateByValue.toFixed(1)}%
                   </p>
                   <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
                     {(() => {
@@ -2940,8 +2962,78 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
                       stroke="currentColor"
                       strokeWidth="3"
                       fill="transparent"
-                      strokeDasharray={`${boqSummaryStats.achievementRate} 100`}
+                      strokeDasharray={`${boqSummaryStats.achievementRateByValue} 100`}
                       className="text-orange-500"
+                    />
+                  </svg>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-cyan-50 to-cyan-100 dark:from-cyan-900 dark:to-cyan-800 border-cyan-200 dark:border-cyan-700">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-cyan-600 dark:text-cyan-300">Total Value</p>
+                  <p className="text-3xl font-bold text-cyan-900 dark:text-cyan-100">
+                    {(() => {
+                      // Get currency from first selected project or default
+                      const firstProject = selectedProjects.length > 0 
+                        ? projects.find(p => selectedProjects.includes(p.project_code))
+                        : projects[0]
+                      const currencyCode = firstProject?.currency || 'AED'
+                      return formatCurrencyByCodeSync(boqSummaryStats.totalValue, currencyCode)
+                    })()}
+                  </p>
+                  <p className="text-xs text-cyan-600 dark:text-cyan-400 mt-1">
+                    Across {boqSummaryStats.totalRecords.toLocaleString()} activities
+                  </p>
+                </div>
+                <Building2 className="h-10 w-10 text-cyan-500" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-teal-50 to-teal-100 dark:from-teal-900 dark:to-teal-800 border-teal-200 dark:border-teal-700">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-teal-600 dark:text-teal-300">Actual / Total Value</p>
+                  <p className="text-3xl font-bold text-teal-900 dark:text-teal-100">
+                    {boqSummaryStats.actualToTotalValueRate.toFixed(1)}%
+                  </p>
+                  <p className="text-xs text-teal-600 dark:text-teal-400 mt-1">
+                    {(() => {
+                      // Get currency from first selected project or default
+                      const firstProject = selectedProjects.length > 0 
+                        ? projects.find(p => selectedProjects.includes(p.project_code))
+                        : projects[0]
+                      const currencyCode = firstProject?.currency || 'AED'
+                      return `${formatCurrencyByCodeSync(boqSummaryStats.totalActualValue, currencyCode)} / ${formatCurrencyByCodeSync(boqSummaryStats.totalValue, currencyCode)}`
+                    })()}
+                  </p>
+                </div>
+                <div className="relative w-10 h-10">
+                  <svg className="transform -rotate-90 w-10 h-10">
+                    <circle
+                      cx="20"
+                      cy="20"
+                      r="16"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      fill="transparent"
+                      className="text-teal-200 dark:text-teal-950"
+                    />
+                    <circle
+                      cx="20"
+                      cy="20"
+                      r="16"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      fill="transparent"
+                      strokeDasharray={`${boqSummaryStats.actualToTotalValueRate} 100`}
+                      className="text-teal-500"
                     />
                   </svg>
                 </div>

@@ -855,7 +855,7 @@ export function KPITableWithCustomization({
           return zone.toLowerCase().trim()
         }
         
-        // Get Virtual Material Value from project
+        // Get Virtual Material Value from project (as PERCENTAGE, not direct value)
         const kpiProjectCodeVirtual = (kpi.project_code || rawKPIVirtual['Project Code'] || '').toString().trim().toUpperCase()
         const kpiProjectFullCodeVirtual = (kpi.project_full_code || rawKPIVirtual['Project Full Code'] || '').toString().trim().toUpperCase()
         
@@ -870,12 +870,32 @@ export function KPITableWithCustomization({
           )
         })
         
-        let virtualMaterialValue = 0
+        // ✅ Virtual Material Value is a PERCENTAGE (e.g., "15%" or "20%")
+        // Extract percentage from string (remove % sign and parse)
+        let virtualMaterialPercentage = 0
         if (projectForVirtual) {
-          virtualMaterialValue = parseFloat(String(projectForVirtual.virtual_material_value || '0').replace(/,/g, '')) || 0
+          const virtualMaterialValueStr = String(projectForVirtual.virtual_material_value || '0').trim()
+          // Remove % sign, spaces, and parse
+          // Handle formats like "15%", "15 %", "15", or "0.15" (as decimal)
+          let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
+          
+          // If value is between 0 and 1, treat as decimal (e.g., 0.15 = 15%)
+          const parsedValue = parseFloat(cleanedValue) || 0
+          if (parsedValue > 0 && parsedValue <= 1) {
+            virtualMaterialPercentage = parsedValue * 100
+          } else {
+            virtualMaterialPercentage = parsedValue
+          }
         }
-        if (virtualMaterialValue === 0) {
-          virtualMaterialValue = parseFloat(String(rawKPIVirtual['Virtual Material Value'] || '0').replace(/,/g, '')) || 0
+        if (virtualMaterialPercentage === 0) {
+          const virtualMaterialValueStr = String(rawKPIVirtual['Virtual Material Value'] || '0').trim()
+          let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
+          const parsedValue = parseFloat(cleanedValue) || 0
+          if (parsedValue > 0 && parsedValue <= 1) {
+            virtualMaterialPercentage = parsedValue * 100
+          } else {
+            virtualMaterialPercentage = parsedValue
+          }
         }
         
         // Get Quantity
@@ -891,6 +911,7 @@ export function KPITableWithCustomization({
         const kpiZoneNumVirtual = extractZoneNumberVirtual(kpiZoneVirtual)
         
         // Find matching Activity from BOQ (same logic as value column)
+        // ✅ CRITICAL: Only calculate Virtual Material if use_virtual_material = true in BOQ Activity
         let matchedActivityVirtual: any = null
         if (allActivities.length > 0 && kpiActivityNameVirtual) {
           matchedActivityVirtual = allActivities.find((activity: any) => {
@@ -931,6 +952,14 @@ export function KPITableWithCustomization({
           })
         }
         
+        // ✅ CRITICAL: Check if use_virtual_material is enabled for this activity
+        const useVirtualMaterialEnabled = matchedActivityVirtual?.use_virtual_material ?? false
+        
+        // ✅ If use_virtual_material is false, don't calculate Virtual Material (set percentage to 0)
+        if (!useVirtualMaterialEnabled) {
+          virtualMaterialPercentage = 0
+        }
+        
         // Calculate Rate from matched Activity
         let rateForVirtual = 0
         let totalValueFromActivityVirtual = 0
@@ -965,17 +994,38 @@ export function KPITableWithCustomization({
         // Calculate Base Value = Quantity × Rate
         let baseValue = quantityForVirtual * rateForVirtual
         
-        // Total Virtual Value = Virtual Material Value + Base Value
-        const totalVirtualValue = virtualMaterialValue + baseValue
+        // ✅ Virtual Material calculation (as PERCENTAGE):
+        // - Virtual Material Amount = Base Value × (Virtual Material Percentage / 100)
+        // - Total Virtual Value = Base Value + Virtual Material Amount = Base Value × (1 + Percentage / 100)
+        let virtualMaterialAmount = 0
+        let totalVirtualValue = baseValue
+        
+        if (useVirtualMaterialEnabled && virtualMaterialPercentage > 0) {
+          // Calculate Virtual Material Amount from percentage
+          virtualMaterialAmount = baseValue * (virtualMaterialPercentage / 100)
+          // Total = Base Value + Virtual Material Amount
+          totalVirtualValue = baseValue + virtualMaterialAmount
+        }
         
         // Get project currency
         const currencyCodeForVirtual = projectForVirtual?.currency || 'AED'
         
         return (
           <div className="space-y-1">
-            <div className="text-xs text-gray-600 dark:text-gray-400">Virtual Material: {formatCurrencyByCodeSync(virtualMaterialValue, currencyCodeForVirtual)}</div>
-            <div className="text-xs text-gray-600 dark:text-gray-400">Value: {formatCurrencyByCodeSync(baseValue, currencyCodeForVirtual)}</div>
-            <div className="text-sm text-gray-900 dark:text-white">Total: {formatCurrencyByCodeSync(totalVirtualValue, currencyCodeForVirtual)}</div>
+            {useVirtualMaterialEnabled && virtualMaterialPercentage > 0 ? (
+              <>
+                <div className="text-xs text-gray-600 dark:text-gray-400">
+                  Virtual Material ({virtualMaterialPercentage}%): {formatCurrencyByCodeSync(virtualMaterialAmount, currencyCodeForVirtual)}
+                </div>
+                <div className="text-xs text-gray-600 dark:text-gray-400">Value: {formatCurrencyByCodeSync(baseValue, currencyCodeForVirtual)}</div>
+                <div className="text-sm text-gray-900 dark:text-white">Total: {formatCurrencyByCodeSync(totalVirtualValue, currencyCodeForVirtual)}</div>
+              </>
+            ) : (
+              <>
+                <div className="text-xs text-gray-500 dark:text-gray-400">Virtual Material: N/A</div>
+                <div className="text-sm text-gray-900 dark:text-white">Total: {formatCurrencyByCodeSync(totalVirtualValue, currencyCodeForVirtual)}</div>
+              </>
+            )}
           </div>
         )
       

@@ -99,6 +99,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   const [activityTiming, setActivityTiming] = useState<'pre-commencement' | 'post-commencement' | 'post-completion'>(activity?.activity_timing || 'post-commencement')
   const [hasValue, setHasValue] = useState(activity?.has_value ?? true) // Default to true for existing activities
   const [affectsTimeline, setAffectsTimeline] = useState(activity?.affects_timeline ?? false) // Default to false
+  const [useVirtualMaterial, setUseVirtualMaterial] = useState(activity?.use_virtual_material ?? false) // ✅ Use Virtual Material checkbox
   const [activityDivision, setActivityDivision] = useState(activity?.activity_division || '') // ✅ Division field
   const [availableDivisions, setAvailableDivisions] = useState<DivisionType[]>([]) // ✅ Divisions from Divisions Management
   
@@ -615,7 +616,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       console.log('🔄 Activity selected or Activity Timing changed, auto-generating KPI preview...')
       generateKPIPreview()
     }
-  }, [activityName, startDate, endDate, plannedUnits, autoGenerateKPIs, activityTiming, hasValue, affectsTimeline])
+  }, [activityName, startDate, endDate, plannedUnits, autoGenerateKPIs, activityTiming, hasValue, affectsTimeline, useVirtualMaterial])
   
   // Load custom holidays from localStorage
   useEffect(() => {
@@ -714,7 +715,8 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         project_full_name: project?.project_name || '',
         activity_timing: activityTiming,
         has_value: hasValue,
-        affects_timeline: affectsTimeline
+        affects_timeline: affectsTimeline,
+        use_virtual_material: useVirtualMaterial
       }
       
       const kpis = await generateKPIsFromBOQ(tempActivity as any, workdaysConfig)
@@ -1035,6 +1037,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         activity_timing: activityTiming, // ✅ Ensure this is set from form state
         has_value: hasValue !== undefined ? hasValue : true, // ✅ Ensure default value
         affects_timeline: affectsTimeline !== undefined ? affectsTimeline : false, // ✅ Ensure default value
+        use_virtual_material: useVirtualMaterial !== undefined ? useVirtualMaterial : false, // ✅ Use Virtual Material
         project_full_name: project?.project_name || '',
         project_status: project?.project_status || 'upcoming',
         total_units: 0,
@@ -1048,6 +1051,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         activity_timing: activityData.activity_timing,
         has_value: activityData.has_value,
         affects_timeline: activityData.affects_timeline,
+        use_virtual_material: activityData.use_virtual_material,
         project_code: activityData.project_code,
         project_sub_code: activityData.project_sub_code,
         project_full_code: activityData.project_full_code,
@@ -1070,7 +1074,8 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         unit: activityData.unit,
         activity_timing: activityData.activity_timing,
         has_value: activityData.has_value,
-        affects_timeline: activityData.affects_timeline
+        affects_timeline: activityData.affects_timeline,
+        use_virtual_material: activityData.use_virtual_material
       })
       
       // Save custom activity if it's new
@@ -1165,12 +1170,16 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
           if (activityData.affects_timeline === undefined) {
             activityData.affects_timeline = affectsTimeline !== undefined ? affectsTimeline : false
           }
+          if (activityData.use_virtual_material === undefined) {
+            activityData.use_virtual_material = useVirtualMaterial !== undefined ? useVirtualMaterial : false
+          }
           
           console.log('📋 Activity data for KPI update:', {
             activity_name: activityData.activity_name,
             activity_timing: activityData.activity_timing,
             has_value: activityData.has_value,
-            affects_timeline: activityData.affects_timeline
+            affects_timeline: activityData.affects_timeline,
+            use_virtual_material: activityData.use_virtual_material
           })
           
           const { generateKPIsFromBOQ } = await import('@/lib/autoKPIGenerator')
@@ -1227,6 +1236,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
               activity_timing: activityData.activity_timing,
               has_value: activityData.has_value,
               affects_timeline: activityData.affects_timeline,
+              use_virtual_material: activityData.use_virtual_material,
               planned_units: activityData.planned_units,
               planned_activity_start_date: activityData.planned_activity_start_date,
               deadline: activityData.deadline,
@@ -1246,6 +1256,9 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
             }
             if (activityData.affects_timeline === undefined) {
               activityData.affects_timeline = affectsTimeline !== undefined ? affectsTimeline : false
+            }
+            if (activityData.use_virtual_material === undefined) {
+              activityData.use_virtual_material = useVirtualMaterial !== undefined ? useVirtualMaterial : false
             }
             
             // ✅ CRITICAL: Ensure all required fields are present
@@ -1270,6 +1283,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
               activity_timing: activityData.activity_timing,
               has_value: activityData.has_value,
               affects_timeline: activityData.affects_timeline,
+              use_virtual_material: activityData.use_virtual_material,
               planned_units: activityData.planned_units,
               planned_activity_start_date: activityData.planned_activity_start_date,
               deadline: activityData.deadline,
@@ -1300,6 +1314,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                 end_date: activityData.deadline,
                 has_value: activityData.has_value,
                 affects_timeline: activityData.affects_timeline,
+                use_virtual_material: activityData.use_virtual_material,
                 project_code: activityData.project_code,
                 project_full_code: activityData.project_full_code
               })
@@ -1966,6 +1981,33 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                   </div>
                 </div>
               )}
+
+              {/* ✅ Use Virtual Material - Available for ALL Activity Types */}
+              <div className="mt-3">
+                <ModernCard className="bg-gradient-to-br from-teal-50 to-cyan-50 dark:from-teal-900/20 dark:to-cyan-900/20 border-teal-200 dark:border-teal-800">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <input 
+                        type="checkbox" 
+                        id="use-virtual-material" 
+                        checked={useVirtualMaterial}
+                        onChange={(e) => setUseVirtualMaterial(e.target.checked)}
+                        className="w-4 h-4 text-teal-600 bg-gray-100 border-gray-300 rounded focus:ring-teal-500 dark:focus:ring-teal-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+                        disabled={loading}
+                      />
+                      <label htmlFor="use-virtual-material" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
+                        📦 Use Virtual Material
+                      </label>
+                    </div>
+                    <ModernBadge variant={useVirtualMaterial ? "success" : "info"} size="sm">
+                      {useVirtualMaterial ? "Enabled" : "Disabled"}
+                    </ModernBadge>
+                  </div>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mt-2 ml-7">
+                    Check to auto-generate KPIs and use Virtual Material Value from project in KPI calculations
+                  </p>
+                </ModernCard>
+              </div>
 
               {activityTiming === 'post-completion' && (
                 <div className="mt-3 space-y-3">

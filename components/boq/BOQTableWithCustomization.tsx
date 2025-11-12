@@ -34,8 +34,10 @@ const defaultBOQColumns: ColumnConfig[] = [
   { id: 'actual_dates', label: 'Actual Dates', visible: true, order: 8, width: '180px' },
   { id: 'progress_summary', label: 'Progress Summary', visible: true, order: 9, width: '180px' },
   { id: 'work_value_status', label: 'Work Value Status', visible: true, order: 10, width: '200px' },
-  { id: 'activity_status', label: 'Activity Status', visible: true, order: 11, width: '150px' },
-  { id: 'actions', label: 'Actions', visible: true, order: 12, fixed: true, width: '150px' }
+  { id: 'daily_productivity', label: 'Daily Productivity', visible: true, order: 11, width: '180px' },
+  { id: 'activity_status', label: 'Activity Status', visible: true, order: 12, width: '150px' },
+  { id: 'use_virtual_material', label: 'Use Virtual Material', visible: true, order: 13, width: '150px' },
+  { id: 'actions', label: 'Actions', visible: true, order: 14, fixed: true, width: '150px' }
 ]
 
 export function BOQTableWithCustomization({ 
@@ -3100,6 +3102,382 @@ export function BOQTableWithCustomization({
           </div>
         )
       
+      case 'use_virtual_material':
+        // ✅ Display Use Virtual Material checkbox status
+        const useVirtualMaterialValue = activity.use_virtual_material ?? false
+        
+        return (
+          <div className="flex items-center gap-2">
+            {useVirtualMaterialValue ? (
+              <div className="flex items-center gap-2">
+                <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
+                <span className="text-sm font-medium text-green-600 dark:text-green-400">Yes</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <X className="h-4 w-4 text-gray-400 dark:text-gray-500" />
+                <span className="text-sm text-gray-400 dark:text-gray-500">No</span>
+              </div>
+            )}
+          </div>
+        )
+      
+      case 'daily_productivity':
+        // ✅ Calculate Daily Productivity: Remaining Units / Remaining Days
+        // Logic: Daily Productivity = Remaining Units / Remaining Days (always >= calculated value)
+        // "أني أخلص بدري يوم أو يومين أفضل من أن الإنتاجية تقل وأخلص في المعاد"
+        // ✅ IMPORTANT: Use Remaining Units (Total - Actual) not Planned Units
+        const rawProductivity = (activity as any).raw || {}
+        
+        // ✅ Get Total Units (same logic as quantities column)
+        const totalUnitsProductivity = activity.total_units || 
+                                     parseFloat(String(rawProductivity['Total Units'] || '0').replace(/,/g, '')) || 
+                                     activity.planned_units ||
+                                     parseFloat(String(rawProductivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                                     0
+        
+        // ✅ Calculate Actual Units from KPIs (same logic as quantities column - EXACT COPY)
+        let actualUnitsProductivity = activity.actual_units || 
+                                     parseFloat(String(rawProductivity['Actual Units'] || '0').replace(/,/g, '')) || 
+                                     0
+        
+        // If actual_units is 0 or not set, calculate from Actual KPIs (EXACT SAME LOGIC AS QUANTITIES COLUMN)
+        if (actualUnitsProductivity === 0 && allKPIs.length > 0) {
+          // Helper: Normalize zone
+          const normalizeZoneProductivity = (zone: string, projectCode: string): string => {
+            if (!zone || !projectCode) return (zone || '').toLowerCase().trim()
+            let normalized = zone.trim()
+            const codeUpper = projectCode.toUpperCase()
+            normalized = normalized.replace(new RegExp(`^${codeUpper}\\s*-\\s*`, 'i'), '').trim()
+            normalized = normalized.replace(new RegExp(`^${codeUpper}\\s+`, 'i'), '').trim()
+            normalized = normalized.replace(new RegExp(`^${codeUpper}-`, 'i'), '').trim()
+            return normalized.toLowerCase()
+          }
+          
+          // Helper: Get Activity Zone
+          const getActivityZoneProductivity = (activity: BOQActivity): string => {
+            const rawActivity = (activity as any).raw || {}
+            let zoneValue = activity.zone_number || 
+                           activity.zone_ref || 
+                           rawActivity['Zone Number'] ||
+                           rawActivity['Zone Ref'] ||
+                           rawActivity['Zone #'] ||
+                           ''
+            
+            if (zoneValue && activity.project_code) {
+              const projectCodeUpper = activity.project_code.toUpperCase().trim()
+              let zoneStr = zoneValue.toString()
+              zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+              zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
+              zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
+              zoneStr = zoneStr.replace(/^\s*-\s*/, '').trim()
+              zoneStr = zoneStr.replace(/\s+/g, ' ').trim()
+              zoneValue = zoneStr || ''
+            }
+            
+            return (zoneValue || '').toString().toLowerCase().trim()
+          }
+          
+          // Helper: Get KPI Zone
+          const getKPIZoneProductivity = (kpi: any): string => {
+            const rawKPI = (kpi as any).raw || {}
+            const zoneRaw = (
+              kpi.zone || 
+              kpi.section || 
+              rawKPI['Zone'] || 
+              rawKPI['Zone Number'] || 
+              ''
+            ).toString().trim()
+            const projectCode = (kpi.project_code || kpi['Project Code'] || rawKPI['Project Code'] || '').toString().trim()
+            return normalizeZoneProductivity(zoneRaw, projectCode)
+          }
+          
+          // Helper: Extract zone number
+          const extractZoneNumberProductivity = (zone: string): string => {
+            if (!zone || zone.trim() === '') return ''
+            const numberMatch = zone.match(/\d+/)
+            if (numberMatch) return numberMatch[0]
+            return zone.toLowerCase().trim()
+          }
+          
+          // Filter Actual KPIs matching this activity (ULTRA STRICT Zone matching)
+          const activityZoneProductivity = getActivityZoneProductivity(activity)
+          const activityNameProductivity = (activity.activity_name || '').toLowerCase().trim()
+          
+          const matchedActualKPIsProductivity = allKPIs.filter((kpi: any) => {
+            const rawKPI = (kpi as any).raw || {}
+            
+            // 1. Project Code Matching
+            const kpiProjectCode = (kpi.project_code || kpi['Project Code'] || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+            const kpiProjectFullCode = (kpi.project_full_code || kpi['Project Full Code'] || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+            const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
+            const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+            
+            const projectMatch = (
+              (kpiProjectCode && activityProjectCode && kpiProjectCode === activityProjectCode) ||
+              (kpiProjectFullCode && activityProjectFullCode && kpiProjectFullCode === activityProjectFullCode) ||
+              (kpiProjectCode && activityProjectFullCode && kpiProjectCode === activityProjectFullCode) ||
+              (kpiProjectFullCode && activityProjectCode && kpiProjectFullCode === activityProjectCode)
+            )
+            if (!projectMatch) return false
+            
+            // 2. Activity Name Matching (required)
+            const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || rawKPI['Activity Name'] || '').toLowerCase().trim()
+            const activityMatch = kpiActivityName && activityNameProductivity && (
+              kpiActivityName === activityNameProductivity || 
+              kpiActivityName.includes(activityNameProductivity) || 
+              activityNameProductivity.includes(kpiActivityName)
+            )
+            if (!activityMatch) return false
+            
+            // 3. Input Type = Actual
+            const inputType = (kpi.input_type || rawKPI['Input Type'] || '').toString().toLowerCase().trim()
+            if (inputType !== 'actual') return false
+            
+            // 4. Zone Matching (ULTRA STRICT: If activity has zone, KPI MUST have EXACT matching zone)
+            if (activityZoneProductivity && activityZoneProductivity.trim() !== '') {
+              const kpiZone = getKPIZoneProductivity(kpi)
+              if (!kpiZone || kpiZone.trim() === '') {
+                return false // KPI has no zone but activity has zone
+              }
+              
+              const activityZoneNum = extractZoneNumberProductivity(activityZoneProductivity)
+              const kpiZoneNum = extractZoneNumberProductivity(kpiZone)
+              
+              if (activityZoneNum && kpiZoneNum && activityZoneNum !== kpiZoneNum) {
+                return false // Zone numbers don't match
+              }
+            }
+            
+            return true
+          })
+          
+          // Sum Actual KPIs quantities (until yesterday)
+          const yesterdayProductivity = new Date()
+          yesterdayProductivity.setDate(yesterdayProductivity.getDate() - 1)
+          yesterdayProductivity.setHours(23, 59, 59, 999)
+          
+          actualUnitsProductivity = matchedActualKPIsProductivity
+            .filter((kpi: any) => {
+              const rawKPI = (kpi as any).raw || {}
+              const kpiDateStr = rawKPI['Date'] ||
+                                kpi.date ||
+                                kpi.actual_date || 
+                                kpi.activity_date || 
+                                rawKPI['Actual Date'] || 
+                                rawKPI['Activity Date'] ||
+                                kpi.created_at ||
+                                ''
+              
+              if (!kpiDateStr) return true // Include if no date
+              
+              try {
+                const kpiDate = new Date(kpiDateStr)
+                if (isNaN(kpiDate.getTime())) return true
+                return kpiDate <= yesterdayProductivity
+              } catch {
+                return true
+              }
+            })
+            .reduce((sum: number, kpi: any) => {
+              const rawKPI = (kpi as any).raw || {}
+              const quantityStr = String(
+                kpi.quantity || 
+                kpi['Quantity'] || 
+                rawKPI['Quantity'] || 
+                '0'
+              ).replace(/,/g, '').trim()
+              return sum + (parseFloat(quantityStr) || 0)
+            }, 0)
+        }
+        
+        // ✅ CRITICAL: Cap Actual to not exceed Total (same as quantities column)
+        const cappedActualProductivity = totalUnitsProductivity > 0 ? Math.min(actualUnitsProductivity, totalUnitsProductivity) : actualUnitsProductivity
+        
+        // ✅ Calculate Remaining Units = Total Units - Capped Actual (EXACT SAME AS QUANTITIES COLUMN)
+        const remainingUnitsProductivity = Math.max(0, totalUnitsProductivity - cappedActualProductivity)
+        
+        // ✅ Get Remaining Days (from today until deadline)
+        const plannedEndProductivity = activity.deadline || 
+                                      activity.activity_planned_completion_date ||
+                                      getActivityField(activity, 'Deadline') ||
+                                      getActivityField(activity, 'Planned Completion Date') ||
+                                      rawProductivity['Deadline'] ||
+                                      rawProductivity['Planned Completion Date'] ||
+                                      ''
+        
+        const plannedStartProductivity = getPlannedStartDate(activity)
+        
+        let remainingDaysProductivity = 0
+        
+        // ✅ Priority 1: Calculate Remaining Days from today until deadline
+        if (plannedEndProductivity && plannedEndProductivity !== 'N/A') {
+          try {
+            const today = new Date()
+            today.setHours(0, 0, 0, 0)
+            const endDate = new Date(plannedEndProductivity)
+            endDate.setHours(23, 59, 59, 999)
+            if (!isNaN(endDate.getTime())) {
+              const diffTime = endDate.getTime() - today.getTime()
+              const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+              // ✅ If deadline is in the past, use 1 day minimum (to avoid division by zero)
+              remainingDaysProductivity = diffDays > 0 ? diffDays : 1
+            }
+          } catch {
+            // Keep remainingDays as 0, will use fallback
+          }
+        }
+        
+        // ✅ Priority 2: Calculate Planned Duration (from Start to End) if Remaining Days = 0 or deadline in past
+        if (remainingDaysProductivity === 0 || remainingDaysProductivity === 1) {
+          if (plannedStartProductivity && plannedEndProductivity && 
+              plannedStartProductivity !== 'N/A' && plannedEndProductivity !== 'N/A') {
+            try {
+              const startDate = new Date(plannedStartProductivity)
+              const endDate = new Date(plannedEndProductivity)
+              if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+                const diffTime = endDate.getTime() - startDate.getTime()
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+                // ✅ Use planned duration if remaining days is 0 or 1 (deadline in past)
+                if (remainingDaysProductivity <= 1 && diffDays > 0) {
+                  remainingDaysProductivity = Math.max(1, diffDays)
+                } else if (remainingDaysProductivity === 0) {
+                  remainingDaysProductivity = diffDays >= 0 ? Math.max(1, diffDays) : 0
+                }
+              }
+            } catch {
+              // Keep remainingDays as is
+            }
+          }
+        }
+        
+        // ✅ Priority 3: Use calendar_duration if still 0
+        if (remainingDaysProductivity === 0) {
+          remainingDaysProductivity = activity.calendar_duration || 
+                                     parseFloat(String(getActivityField(activity, 'Calendar Duration') || '0')) ||
+                                     parseFloat(String(rawProductivity['Calendar Duration'] || '0')) ||
+                                     0
+        }
+        
+        // ✅ Priority 4: Use default duration (30 days) if units > 0 but no duration found
+        if (remainingDaysProductivity === 0 && remainingUnitsProductivity > 0) {
+          remainingDaysProductivity = 30 // Default: 30 days
+        }
+        
+        // ✅ Calculate Total Duration (from Start to End) for Natural Daily Productivity
+        let totalDurationProductivity = 0
+        if (plannedStartProductivity && plannedEndProductivity && 
+            plannedStartProductivity !== 'N/A' && plannedEndProductivity !== 'N/A') {
+          try {
+            const startDate = new Date(plannedStartProductivity)
+            const endDate = new Date(plannedEndProductivity)
+            if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+              const diffTime = endDate.getTime() - startDate.getTime()
+              const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+              totalDurationProductivity = diffDays >= 0 ? Math.max(1, diffDays) : 0
+            }
+          } catch {
+            // Keep totalDuration as 0
+          }
+        }
+        
+        // ✅ Fallback: Use calendar_duration if total duration not calculated
+        if (totalDurationProductivity === 0) {
+          totalDurationProductivity = activity.calendar_duration || 
+                                     parseFloat(String(getActivityField(activity, 'Calendar Duration') || '0')) ||
+                                     parseFloat(String(rawProductivity['Calendar Duration'] || '0')) ||
+                                     0
+        }
+        
+        // ✅ Calculate Daily Productivity
+        // ✅ CRITICAL: Daily Productivity must be >= Natural Daily Productivity (Total Quantity / Duration)
+        // Natural Daily Productivity = Total Units / Total Duration
+        // Remaining Daily Productivity = Remaining Units / Remaining Days
+        // Final Daily Productivity = Math.ceil(Math.max(Natural, Remaining))
+        let dailyProductivity = 0
+        let showCalculation = false
+        
+        // ✅ Calculate Natural Daily Productivity (Total Quantity / Duration)
+        let naturalDailyProductivity = 0
+        if (totalUnitsProductivity > 0 && totalDurationProductivity > 0) {
+          naturalDailyProductivity = totalUnitsProductivity / totalDurationProductivity
+        }
+        
+        // ✅ Show calculation if we have remaining units (even if 0, for completed activities)
+        if (remainingUnitsProductivity >= 0 && remainingDaysProductivity > 0) {
+          if (remainingUnitsProductivity > 0) {
+            // ✅ Calculate Remaining Daily Productivity
+            const remainingDailyProductivity = remainingUnitsProductivity / remainingDaysProductivity
+            
+            // ✅ CRITICAL: Daily Productivity must be >= Natural Daily Productivity
+            // Use Math.max to ensure it's always >= natural productivity
+            const finalProductivity = Math.max(naturalDailyProductivity, remainingDailyProductivity)
+            
+            // ✅ ALWAYS round UP: Math.ceil ensures any decimal (e.g., 6.4, 10.1, 15.9) becomes next integer
+            dailyProductivity = Math.ceil(finalProductivity)
+            showCalculation = true
+          } else {
+            // ✅ If remaining units = 0 (completed), show 0/day
+            dailyProductivity = 0
+            showCalculation = true
+          }
+        } else if (remainingUnitsProductivity > 0 && remainingDaysProductivity === 0) {
+          // ✅ If we have remaining units but no remaining days, show estimated productivity (based on default 30 days)
+          const estimatedProductivity = remainingUnitsProductivity / 30
+          
+          // ✅ CRITICAL: Ensure it's >= Natural Daily Productivity
+          const finalProductivity = Math.max(naturalDailyProductivity, estimatedProductivity)
+          
+          // ✅ ALWAYS round UP: Math.ceil ensures any decimal becomes next integer
+          dailyProductivity = Math.ceil(finalProductivity)
+          showCalculation = true
+        } else if (totalUnitsProductivity > 0 && totalDurationProductivity > 0) {
+          // ✅ If no remaining units but we have total units and duration, show natural productivity
+          dailyProductivity = Math.ceil(naturalDailyProductivity)
+          showCalculation = true
+        }
+        
+        // Get unit
+        const unitProductivity = activity.unit || 
+                                rawProductivity['Unit'] || 
+                                ''
+        
+        // ✅ Check if quantities are completed (Remaining = 0)
+        const isCompleted = remainingUnitsProductivity === 0 && totalUnitsProductivity > 0
+        
+        return (
+          <div className="space-y-1">
+            {isCompleted ? (
+              // ✅ Show completion message when Remaining = 0
+              <div className="flex flex-col items-start gap-1">
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
+                  <span className="text-sm font-medium text-green-600 dark:text-green-400">
+                    Completed
+                  </span>
+                </div>
+                <div className="text-xs text-gray-500 dark:text-gray-400 ml-5">
+                  All quantities finished
+                </div>
+              </div>
+            ) : showCalculation ? (
+              <>
+                <div className="text-sm font-medium text-gray-900 dark:text-white">
+                  {dailyProductivity.toLocaleString()} {unitProductivity}/day
+                </div>
+                <div className="text-xs text-gray-600 dark:text-gray-400">
+                  {remainingUnitsProductivity.toLocaleString()} {unitProductivity} / {remainingDaysProductivity > 0 ? remainingDaysProductivity : '?'} days
+                  {remainingDaysProductivity === 0 && (
+                    <span className="text-orange-600 dark:text-orange-400 ml-1">(est.)</span>
+                  )}
+                </div>
+              </>
+            ) : (
+              <span className="text-sm text-gray-400 dark:text-gray-500">N/A</span>
+            )}
+          </div>
+        )
+      
       case 'actions':
         return (
           <div className="flex items-center gap-2">
@@ -3174,6 +3552,86 @@ export function BOQTableWithCustomization({
         return plannedWorkValue
       case 'activity_status':
         return (activity as any).activity_status || getField('Activity Status') || ''
+      case 'daily_productivity':
+        // ✅ Calculate Daily Productivity for sorting (same logic as renderCell - Remaining Units / Remaining Days)
+        const rawProductivitySort = (activity as any).raw || {}
+        
+        // Get Total Units
+        const totalUnitsSort = activity.total_units || 
+                              parseFloat(String(rawProductivitySort['Total Units'] || '0').replace(/,/g, '')) || 
+                              0
+        
+        // Get Actual Units (simplified for sorting - use activity.actual_units if available)
+        const actualUnitsSort = activity.actual_units || 
+                               parseFloat(String(rawProductivitySort['Actual Units'] || '0').replace(/,/g, '')) || 
+                               0
+        
+        // Calculate Remaining Units = Total Units - Actual Units
+        const remainingUnitsSort = Math.max(0, totalUnitsSort - actualUnitsSort)
+        
+        // Get Remaining Days (simplified for sorting - from deadline or calendar_duration)
+        const plannedEndSort = activity.deadline || 
+                             activity.activity_planned_completion_date ||
+                             getField('Deadline') ||
+                             getField('Planned Completion Date') ||
+                             rawProductivitySort['Deadline'] ||
+                             rawProductivitySort['Planned Completion Date'] ||
+                             ''
+        
+        let remainingDaysSort = 0
+        if (plannedEndSort && plannedEndSort !== 'N/A') {
+          try {
+            const today = new Date()
+            today.setHours(0, 0, 0, 0)
+            const endDate = new Date(plannedEndSort)
+            endDate.setHours(23, 59, 59, 999)
+            if (!isNaN(endDate.getTime())) {
+              const diffTime = endDate.getTime() - today.getTime()
+              const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+              remainingDaysSort = diffDays >= 0 ? Math.max(1, diffDays) : 0
+            }
+          } catch {
+            // Keep remainingDays as 0
+          }
+        }
+        
+        // Fallback: Use calendar_duration if no deadline
+        if (remainingDaysSort === 0) {
+          remainingDaysSort = activity.calendar_duration || 
+                             parseFloat(String(getField('Calendar Duration') || '0')) ||
+                             parseFloat(String(rawProductivitySort['Calendar Duration'] || '0')) ||
+                             0
+        }
+        
+        // Use default duration (30 days) if remaining units > 0 but no remaining days found
+        if (remainingDaysSort === 0 && remainingUnitsSort > 0) {
+          remainingDaysSort = 30 // Default: 30 days
+        }
+        
+        // ✅ Calculate Total Duration for Natural Daily Productivity
+        let totalDurationSort = activity.calendar_duration || 
+                               parseFloat(String(getField('Calendar Duration') || '0')) ||
+                               parseFloat(String(rawProductivitySort['Calendar Duration'] || '0')) ||
+                               0
+        
+        // ✅ Calculate Natural Daily Productivity (Total Quantity / Duration)
+        let naturalDailyProductivitySort = 0
+        if (totalUnitsSort > 0 && totalDurationSort > 0) {
+          naturalDailyProductivitySort = totalUnitsSort / totalDurationSort
+        }
+        
+        if (remainingDaysSort > 0 && remainingUnitsSort > 0) {
+          // ✅ Calculate Remaining Daily Productivity
+          const remainingDailyProductivitySort = remainingUnitsSort / remainingDaysSort
+          
+          // ✅ CRITICAL: Daily Productivity must be >= Natural Daily Productivity
+          const finalProductivity = Math.max(naturalDailyProductivitySort, remainingDailyProductivitySort)
+          return Math.ceil(finalProductivity)
+        } else if (totalUnitsSort > 0 && totalDurationSort > 0) {
+          // ✅ If no remaining units but we have total units and duration, return natural productivity
+          return Math.ceil(naturalDailyProductivitySort)
+        }
+        return 0
       default:
         return getField(columnId) || ''
     }

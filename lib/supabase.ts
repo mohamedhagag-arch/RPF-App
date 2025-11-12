@@ -112,6 +112,7 @@ export interface BOQActivity {
   activity_timing?: 'pre-commencement' | 'post-commencement' | 'post-completion'
   has_value?: boolean
   affects_timeline?: boolean
+  use_virtual_material?: boolean // ✅ If true, auto-generate KPIs and use Virtual Material in calculations
   remaining_lookahead_duration_for_activity_completion: number
   created_at: string
   updated_at: string

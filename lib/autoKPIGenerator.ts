@@ -50,17 +50,24 @@ export async function generateKPIsFromBOQ(
     const activityTiming = activity.activity_timing || 'post-commencement'
     const hasValue = activity.has_value !== undefined ? activity.has_value : true
     const affectsTimeline = activity.affects_timeline !== undefined ? activity.affects_timeline : false
+    const useVirtualMaterial = activity.use_virtual_material !== undefined ? activity.use_virtual_material : false
     
     console.log('⏰ Activity Timing check:', {
       activity_timing: activityTiming,
       has_value: hasValue,
       affects_timeline: affectsTimeline,
+      use_virtual_material: useVirtualMaterial,
       activity_name: activity.activity_name
     })
     
-    // ✅ Only skip for post-completion without value/timeline impact
+    // ✅ If use_virtual_material is true, ALWAYS generate KPIs (regardless of other conditions)
+    if (useVirtualMaterial) {
+      console.log('✅ Use Virtual Material is enabled - will generate KPIs')
+    }
+    
+    // ✅ Only skip for post-completion without value/timeline impact (unless use_virtual_material is true)
     // ✅ Pre-commencement and Post-commencement should ALWAYS generate KPIs
-    if (activityTiming === 'post-completion' && !hasValue && !affectsTimeline) {
+    if (!useVirtualMaterial && activityTiming === 'post-completion' && !hasValue && !affectsTimeline) {
       console.log('⚠️ Post-completion activity with no value and no timeline impact - skipping KPI generation')
       return []
     }

@@ -448,6 +448,7 @@ export function mapBOQFromDB(row: any): any {
     activity_timing: row['Activity Timing'] || row['activity_timing'] || 'post-commencement',
     has_value: row['Has Value'] === 'TRUE' || row['has_value'] === true || row['Has Value'] === true || true,
     affects_timeline: row['Affects Timeline'] === 'TRUE' || row['affects_timeline'] === true || row['Affects Timeline'] === true || false,
+    use_virtual_material: row['Use Virtual Material'] === 'TRUE' || row['use_virtual_material'] === true || row['Use Virtual Material'] === true || false,
     created_at: row.created_at || new Date().toISOString(),
     updated_at: row.updated_at || new Date().toISOString(),
     // ✅ CRITICAL: Preserve raw database row for direct column access (same as mapProjectFromDB)
@@ -496,7 +497,8 @@ export function mapBOQToDB(boq: any): any {
     // ✅ Activity Timing
     'Activity Timing': boq.activity_timing || 'post-commencement',
     'Has Value': boq.has_value !== undefined ? (boq.has_value ? 'TRUE' : 'FALSE') : 'TRUE',
-    'Affects Timeline': boq.affects_timeline !== undefined ? (boq.affects_timeline ? 'TRUE' : 'FALSE') : 'FALSE'
+    'Affects Timeline': boq.affects_timeline !== undefined ? (boq.affects_timeline ? 'TRUE' : 'FALSE') : 'FALSE',
+    'Use Virtual Material': boq.use_virtual_material !== undefined ? (boq.use_virtual_material ? 'TRUE' : 'FALSE') : 'FALSE'
   }
 }
 
