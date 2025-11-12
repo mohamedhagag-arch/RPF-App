@@ -2371,7 +2371,26 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       return normalized.toLowerCase()
     }
     
-    // Extract zone from activity
+    // Helper: Extract zone from description (e.g., "P5066-12 | Zone 2")
+    const extractZoneFromDescription = (description: string): string => {
+      if (!description || description.trim() === '') return ''
+      
+      // Try to match patterns like "P5066-12 | Zone 2" or "Zone 2" or "Zone-2"
+      const zonePatternMatch = description.match(/zone\s*[-_]?\s*(\d+)/i)
+      if (zonePatternMatch && zonePatternMatch[1]) {
+        return `zone ${zonePatternMatch[1]}`.toLowerCase().trim()
+      }
+      
+      // Try to match project code pattern with zone (e.g., "P5066-12")
+      const projectCodeZoneMatch = description.match(/([A-Z]\d+)-(\d+)/i)
+      if (projectCodeZoneMatch && projectCodeZoneMatch[2]) {
+        return projectCodeZoneMatch[2].toLowerCase().trim()
+      }
+      
+      return ''
+    }
+    
+    // Extract zone from activity (IMPROVED: Extract from description if zone field is empty)
     const getActivityZone = (activity: BOQActivity): string => {
       const rawActivity = (activity as any).raw || {}
       let zoneValue = activity.zone_number || 
@@ -2380,6 +2399,21 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
                      rawActivity['Zone Ref'] ||
                      rawActivity['Zone #'] ||
                      ''
+      
+      // ✅ NEW: If zone is empty, try to extract from activity description
+      if (!zoneValue || zoneValue.trim() === '') {
+        const activityDescription = activity.activity || 
+                                   activity.activity_name || 
+                                   rawActivity['Activity'] ||
+                                   rawActivity['Activity Name'] ||
+                                   ''
+        if (activityDescription) {
+          const extractedZone = extractZoneFromDescription(activityDescription)
+          if (extractedZone) {
+            zoneValue = extractedZone
+          }
+        }
+      }
       
       if (zoneValue && activity.project_code) {
         const projectCodeUpper = activity.project_code.toUpperCase().trim()
@@ -2395,26 +2429,60 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       return (zoneValue || '').toString().toLowerCase().trim()
     }
     
-    // Extract zone from KPI
+    // Extract zone from KPI (IMPROVED: Extract from description if zone field is empty)
     const getKPIZone = (kpi: any): string => {
       const rawKPI = (kpi as any).raw || {}
-      const zoneRaw = (
+      let zoneRaw = (
         kpi.zone || 
         kpi.section || 
         rawKPI['Zone'] || 
         rawKPI['Zone Number'] || 
         ''
       ).toString().trim()
+      
+      // ✅ NEW: If zone is empty, try to extract from KPI description/activity name
+      if (!zoneRaw || zoneRaw.trim() === '') {
+        const kpiDescription = kpi.activity_name || 
+                              kpi.activity || 
+                              rawKPI['Activity Name'] ||
+                              rawKPI['Activity'] ||
+                              ''
+        if (kpiDescription) {
+          const extractedZone = extractZoneFromDescription(kpiDescription)
+          if (extractedZone) {
+            zoneRaw = extractedZone
+          }
+        }
+      }
+      
       const projectCode = (kpi.project_code || kpi['Project Code'] || rawKPI['Project Code'] || '').toString().trim()
       return normalizeZone(zoneRaw, projectCode)
     }
     
-    // Extract zone number for exact matching
+    // Extract zone number for exact matching (IMPROVED: More accurate extraction)
     const extractZoneNumber = (zone: string): string => {
       if (!zone || zone.trim() === '') return ''
-      const numberMatch = zone.match(/\d+/)
+      
+      // Normalize zone text
+      const normalizedZone = zone.toLowerCase().trim()
+      
+      // Try to match "zone X" or "zone-X" pattern first (most common)
+      const zonePatternMatch = normalizedZone.match(/zone\s*[-_]?\s*(\d+)/i)
+      if (zonePatternMatch && zonePatternMatch[1]) {
+        return zonePatternMatch[1]
+      }
+      
+      // Try to match standalone number at the end (e.g., "Zone 2", "Area 2")
+      const endNumberMatch = normalizedZone.match(/(\d+)\s*$/)
+      if (endNumberMatch && endNumberMatch[1]) {
+        return endNumberMatch[1]
+      }
+      
+      // Fallback: extract first number (but prefer zone-specific patterns above)
+      const numberMatch = normalizedZone.match(/\d+/)
       if (numberMatch) return numberMatch[0]
-      return zone.toLowerCase().trim()
+      
+      return normalizedZone
     }
     
     // Get activity rate (from BOQ activity)
@@ -2438,45 +2506,140 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     }
     
     // Check if KPI matches activity (Project + Activity Name + Zone)
+    // ✅ IMPROVED: Ultra strict Project Full Code matching to prevent "P5066-12" matching "P5066-2"
     const kpiMatchesActivity = (kpi: any, activity: BOQActivity): boolean => {
       const rawKPI = (kpi as any).raw || {}
       
-      // 1. Project Code Matching (required)
-      const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
-      const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+      // 1. Project Code Matching (ULTRA STRICT)
+      const kpiProjectCode = (kpi.project_code || kpi['Project Code'] || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+      const kpiProjectFullCode = (kpi.project_full_code || kpi['Project Full Code'] || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
       const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
       const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
       
-      const projectMatch = (
-        (kpiProjectCode && activityProjectCode && kpiProjectCode === activityProjectCode) ||
-        (kpiProjectFullCode && activityProjectFullCode && kpiProjectFullCode === activityProjectFullCode) ||
-        (kpiProjectCode && activityProjectFullCode && kpiProjectCode === activityProjectFullCode) ||
-        (kpiProjectFullCode && activityProjectCode && kpiProjectFullCode === activityProjectCode)
-      )
+      // ✅ CRITICAL: If activity has Project Full Code with sub-code (e.g., "P5066-12"), 
+      // KPI MUST have EXACT Project Full Code match (not just Project Code)
+      // This prevents "P5066-12" from matching "P5066-2" or "P5066-11"
+      let projectMatch = false
+      
+      if (activityProjectFullCode && activityProjectFullCode.includes('-')) {
+        // Activity has sub-code (e.g., "P5066-12")
+        // KPI MUST have EXACT Project Full Code match
+        if (kpiProjectFullCode && kpiProjectFullCode === activityProjectFullCode) {
+          projectMatch = true
+        }
+        // Do NOT allow partial matches (e.g., "P5066" matching "P5066-12")
+        // This ensures strict matching
+      } else {
+        // Activity has no sub-code (e.g., "P5066")
+        // Match by Project Code or Project Full Code
+        projectMatch = (
+          (kpiProjectCode && activityProjectCode && kpiProjectCode === activityProjectCode) ||
+          (kpiProjectFullCode && activityProjectFullCode && kpiProjectFullCode === activityProjectFullCode) ||
+          (kpiProjectCode && activityProjectFullCode && kpiProjectCode === activityProjectFullCode) ||
+          (kpiProjectFullCode && activityProjectCode && kpiProjectFullCode === activityProjectCode)
+        )
+      }
+      
       if (!projectMatch) return false
       
       // 2. Activity Name Matching (required)
-      const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
-      const activityName = (activity.activity_name || '').toLowerCase().trim()
-      if (!kpiActivityName || !activityName) return false
-      if (kpiActivityName !== activityName && !kpiActivityName.includes(activityName) && !activityName.includes(kpiActivityName)) {
-        return false
-      }
+      const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPI['Activity Name'] || '').toLowerCase().trim()
+      const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+      const activityMatch = kpiActivityName && activityName && (
+        kpiActivityName === activityName || 
+        kpiActivityName.includes(activityName) || 
+        activityName.includes(kpiActivityName)
+      )
+      if (!activityMatch) return false
       
       // 3. Zone Matching (ULTRA STRICT: If activity has zone, KPI MUST have EXACT matching zone)
+      const kpiZone = getKPIZone(kpi)
       const activityZone = getActivityZone(activity)
+      
+      // ✅ ULTRA STRICT: If activity has zone, KPI MUST have zone and they MUST match EXACTLY
       if (activityZone && activityZone.trim() !== '') {
-        const kpiZone = getKPIZone(kpi)
-        if (!kpiZone || kpiZone.trim() === '') return false
+        // Activity has zone - KPI MUST have zone (no exceptions)
+        if (!kpiZone || kpiZone.trim() === '') {
+          return false // KPI has no zone, reject it immediately
+        }
         
         const activityZoneNum = extractZoneNumber(activityZone)
         const kpiZoneNum = extractZoneNumber(kpiZone)
+        
+        // ✅ CRITICAL: Zone numbers MUST match EXACTLY (primary check)
         if (activityZoneNum && kpiZoneNum && activityZoneNum !== kpiZoneNum) {
-          return false
+          return false // Zone numbers don't match, reject it
+        }
+        
+        // ✅ SECONDARY CHECK: If zone numbers match, verify full zone text is compatible
+        // This prevents "Zone 2" matching with "Zone 12" even if numbers partially match
+        const normalizedActivityZone = activityZone.toLowerCase().trim()
+        const normalizedKpiZone = kpiZone.toLowerCase().trim()
+        
+        if (activityZoneNum === kpiZoneNum) {
+          // Check if zone number is standalone (not part of larger number)
+          const activityZoneStandalone = normalizedActivityZone.match(new RegExp(`\\b${activityZoneNum}\\b`))
+          const kpiZoneStandalone = normalizedKpiZone.match(new RegExp(`\\b${kpiZoneNum}\\b`))
+          
+          // If both have standalone zone numbers, accept
+          // If one doesn't have standalone, be more careful
+          if (!activityZoneStandalone || !kpiZoneStandalone) {
+            // If zone numbers match but text is very different, reject
+            if (normalizedActivityZone !== normalizedKpiZone && 
+                !normalizedActivityZone.includes(normalizedKpiZone) && 
+                !normalizedKpiZone.includes(normalizedActivityZone)) {
+              return false
+            }
+          }
         }
       }
+      // If activity has no zone, accept KPI (with or without zone)
       
       return true
+    }
+    
+    // Helper: Check if KPI date is until yesterday
+    const isKPIUntilYesterday = (kpi: any, inputType: 'planned' | 'actual'): boolean => {
+      const yesterday = new Date()
+      yesterday.setDate(yesterday.getDate() - 1)
+      yesterday.setHours(23, 59, 59, 999)
+      
+      const raw = (kpi as any).raw || {}
+      let kpiDateStr = ''
+      
+      if (inputType === 'planned') {
+        // ✅ Priority: Date column > target_date > activity_date > created_at
+        kpiDateStr = raw['Date'] ||
+                    kpi.date ||
+                    kpi.target_date || 
+                    kpi.activity_date || 
+                    raw['Target Date'] || 
+                    raw['Activity Date'] ||
+                    kpi['Target Date'] || 
+                    kpi['Activity Date'] ||
+                    kpi.created_at ||
+                    ''
+      } else {
+        kpiDateStr = kpi.actual_date || 
+                    kpi.activity_date || 
+                    kpi['Actual Date'] || 
+                    kpi['Activity Date'] || 
+                    raw['Actual Date'] || 
+                    raw['Activity Date'] ||
+                    kpi.created_at ||
+                    ''
+      }
+      
+      // If no date, include it (treat as valid)
+      if (!kpiDateStr) return true
+      
+      try {
+        const kpiDate = new Date(kpiDateStr)
+        if (isNaN(kpiDate.getTime())) return true // Invalid date, include it
+        return kpiDate <= yesterday
+      } catch {
+        return true // Error, include it
+      }
     }
     
     // Calculate value from KPI (priority: k.value > rate * quantity > planned_value/actual_value)
@@ -2552,25 +2715,31 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       return sum + quantity
     }, 0)
     
-    // Planned Value: Sum of values from Planned KPIs (matching activities)
-    const totalPlannedValue = plannedKPIs.reduce((sum, kpi) => {
-      // Find matching activity for this KPI
-      const matchingActivity = filteredActivities.find(activity => kpiMatchesActivity(kpi, activity))
-      if (!matchingActivity) return sum
-      
-      const value = getKPIValue(kpi, matchingActivity)
-      return sum + value
-    }, 0)
+    // Planned Value: Sum of values from Planned KPIs until yesterday (matching activities)
+    // ✅ EXACT SAME LOGIC AS QUANTITIES COLUMN - Filter until yesterday and use strict matching
+    const totalPlannedValue = plannedKPIs
+      .filter((kpi: any) => isKPIUntilYesterday(kpi, 'planned'))
+      .reduce((sum, kpi) => {
+        // Find matching activity for this KPI
+        const matchingActivity = filteredActivities.find(activity => kpiMatchesActivity(kpi, activity))
+        if (!matchingActivity) return sum
+        
+        const value = getKPIValue(kpi, matchingActivity)
+        return sum + value
+      }, 0)
     
-    // Actual Value: Sum of values from Actual KPIs (matching activities)
-    const totalActualValue = actualKPIs.reduce((sum, kpi) => {
-      // Find matching activity for this KPI
-      const matchingActivity = filteredActivities.find(activity => kpiMatchesActivity(kpi, activity))
-      if (!matchingActivity) return sum
-      
-      const value = getKPIValue(kpi, matchingActivity)
-      return sum + value
-    }, 0)
+    // Actual Value: Sum of values from Actual KPIs until yesterday (matching activities)
+    // ✅ EXACT SAME LOGIC AS QUANTITIES COLUMN - Filter until yesterday and use strict matching
+    const totalActualValue = actualKPIs
+      .filter((kpi: any) => isKPIUntilYesterday(kpi, 'actual'))
+      .reduce((sum, kpi) => {
+        // Find matching activity for this KPI
+        const matchingActivity = filteredActivities.find(activity => kpiMatchesActivity(kpi, activity))
+        if (!matchingActivity) return sum
+        
+        const value = getKPIValue(kpi, matchingActivity)
+        return sum + value
+      }, 0)
     
     // Achievement Rate: (Actual Value / Planned Value) * 100
     const valueAchievementRate = totalPlannedValue > 0 

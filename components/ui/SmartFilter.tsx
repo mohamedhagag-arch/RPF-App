@@ -319,19 +319,28 @@ export function SmartFilter({
   ) : []
   
   // ✅ Helper function to normalize zone value (remove project code prefix)
+  // ✅ IMPROVED: Better handling of complex zone patterns like "12 - 1", "P5068 - 0", etc.
   const normalizeZone = (zone: string, projectCodes: string[]): string => {
     if (!zone || zone.trim() === '') return ''
     
     let normalized = zone.trim()
     
-    // Remove project code prefixes (e.g., "P5068 - 0" -> "0")
+    // Remove project code prefixes (e.g., "P5068 - 0" -> "0", "P5068 - 12 - 1" -> "12 - 1")
     for (const projectCode of projectCodes) {
       const codeUpper = projectCode.toUpperCase()
-      // Remove patterns like "P5068 - 0", "P5068-0", "P5068 0"
+      // Remove patterns like "P5068 - 0", "P5068-0", "P5068 0", "P5068 - 12 - 1"
       normalized = normalized.replace(new RegExp(`^${codeUpper}\\s*-\\s*`, 'i'), '').trim()
       normalized = normalized.replace(new RegExp(`^${codeUpper}\\s+`, 'i'), '').trim()
       normalized = normalized.replace(new RegExp(`^${codeUpper}-`, 'i'), '').trim()
+      // Also remove from middle: "12 - P5068 - 1" -> "12 - 1"
+      normalized = normalized.replace(new RegExp(`\\s+${codeUpper}\\s*-\\s*`, 'gi'), ' ').trim()
+      normalized = normalized.replace(new RegExp(`(\\s|-)+${codeUpper}(\\s|-)+`, 'gi'), ' ').trim()
     }
+    
+    // Clean up any remaining " - " or "- " at the start
+    normalized = normalized.replace(/^\s*-\s*/, '').trim()
+    // Clean up multiple spaces
+    normalized = normalized.replace(/\s+/g, ' ').trim()
     
     return normalized || zone.trim() // Return original if normalization results in empty
   }
@@ -363,6 +372,8 @@ export function SmartFilter({
   ] : []
   
   // Normalize zones and create a map to track both normalized and original forms
+  // ✅ FIX: Use Set to ensure no duplicates after normalization
+  const zoneSet = new Set<string>()
   const zoneMap = new Map<string, string>() // normalized -> original (prefer shorter)
   
   allZones.forEach(zone => {
@@ -375,9 +386,21 @@ export function SmartFilter({
     // Normalize zone
     const normalized = normalizeZone(zone, selectedProjectCodes)
     
-    // Use normalized as key, but prefer shorter original value
-    if (!zoneMap.has(normalized) || zone.length < zoneMap.get(normalized)!.length) {
-      zoneMap.set(normalized, normalized) // Use normalized value for display
+    // Skip if normalized is empty
+    if (!normalized || normalized.trim() === '') return
+    
+    // ✅ FIX: Use Set to track unique normalized values
+    // If we haven't seen this normalized value, add it
+    // If we have, prefer the shorter original value
+    if (!zoneSet.has(normalized)) {
+      zoneSet.add(normalized)
+      zoneMap.set(normalized, normalized)
+    } else {
+      // If we already have this normalized value, prefer shorter one
+      const existing = zoneMap.get(normalized) || ''
+      if (normalized.length < existing.length) {
+        zoneMap.set(normalized, normalized)
+      }
     }
   })
   
@@ -387,9 +410,20 @@ export function SmartFilter({
     ...activities.map(a => a.activity_division).filter(Boolean) as string[]
   ])).map(d => d.toLowerCase())
   
-  const uniqueZones = Array.from(zoneMap.values()).filter(zone => {
+  // ✅ FIX: Get unique zones from Set (ensures no duplicates)
+  const uniqueZones = Array.from(zoneSet).filter(zone => {
     const zoneLower = zone.toLowerCase()
-    return !allDivisions.includes(zoneLower)
+    return !allDivisions.includes(zoneLower) && zone.trim() !== ''
+  }).sort((a, b) => {
+    // Sort zones: numbers first (ascending), then text
+    const aNum = parseInt(a)
+    const bNum = parseInt(b)
+    if (!isNaN(aNum) && !isNaN(bNum)) {
+      return aNum - bNum
+    }
+    if (!isNaN(aNum)) return -1
+    if (!isNaN(bNum)) return 1
+    return a.localeCompare(b)
   })
   
   // Get unique units from KPIs (only for selected projects)

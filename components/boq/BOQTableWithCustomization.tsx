@@ -34,7 +34,7 @@ const defaultBOQColumns: ColumnConfig[] = [
   { id: 'actual_dates', label: 'Actual Dates', visible: true, order: 8, width: '180px' },
   { id: 'progress_summary', label: 'Progress Summary', visible: true, order: 9, width: '180px' },
   { id: 'work_value_status', label: 'Work Value Status', visible: true, order: 10, width: '200px' },
-  { id: 'daily_productivity', label: 'Daily Productivity', visible: true, order: 11, width: '180px' },
+  { id: 'daily_productivity', label: 'Daily Productivity', visible: true, order: 11, width: '240px' },
   { id: 'activity_status', label: 'Activity Status', visible: true, order: 12, width: '150px' },
   { id: 'use_virtual_material', label: 'Use Virtual Material', visible: true, order: 13, width: '150px' },
   { id: 'actions', label: 'Actions', visible: true, order: 14, fixed: true, width: '150px' }
@@ -528,11 +528,30 @@ export function BOQTableWithCustomization({
     }
     
     // Extract zone number for exact matching
+    // ✅ IMPROVED: Extract zone number more accurately (e.g., "Zone 2" → "2", not "12" → "2")
     const extractZoneNumber = (zone: string): string => {
       if (!zone || zone.trim() === '') return ''
-      const numberMatch = zone.match(/\d+/)
+      
+      // Normalize zone text
+      const normalizedZone = zone.toLowerCase().trim()
+      
+      // Try to match "zone X" or "zone-X" pattern first (most common)
+      const zonePatternMatch = normalizedZone.match(/zone\s*[-_]?\s*(\d+)/i)
+      if (zonePatternMatch && zonePatternMatch[1]) {
+        return zonePatternMatch[1]
+      }
+      
+      // Try to match standalone number at the end (e.g., "Zone 2", "Area 2")
+      const endNumberMatch = normalizedZone.match(/(\d+)\s*$/)
+      if (endNumberMatch && endNumberMatch[1]) {
+        return endNumberMatch[1]
+      }
+      
+      // Fallback: extract first number (but prefer zone-specific patterns above)
+      const numberMatch = normalizedZone.match(/\d+/)
       if (numberMatch) return numberMatch[0]
-      return zone.toLowerCase().trim()
+      
+      return normalizedZone
     }
     
     // Parse date string to YYYY-MM-DD format (without timezone conversion)
@@ -813,11 +832,30 @@ export function BOQTableWithCustomization({
       return normalizeZone(zoneRaw, projectCode)
     }
     
+    // ✅ IMPROVED: Extract zone number more accurately
     const extractZoneNumber = (zone: string): string => {
       if (!zone || zone.trim() === '') return ''
-      const numberMatch = zone.match(/\d+/)
+      
+      // Normalize zone text
+      const normalizedZone = zone.toLowerCase().trim()
+      
+      // Try to match "zone X" or "zone-X" pattern first (most common)
+      const zonePatternMatch = normalizedZone.match(/zone\s*[-_]?\s*(\d+)/i)
+      if (zonePatternMatch && zonePatternMatch[1]) {
+        return zonePatternMatch[1]
+      }
+      
+      // Try to match standalone number at the end (e.g., "Zone 2", "Area 2")
+      const endNumberMatch = normalizedZone.match(/(\d+)\s*$/)
+      if (endNumberMatch && endNumberMatch[1]) {
+        return endNumberMatch[1]
+      }
+      
+      // Fallback: extract first number (but prefer zone-specific patterns above)
+      const numberMatch = normalizedZone.match(/\d+/)
       if (numberMatch) return numberMatch[0]
-      return zone.toLowerCase().trim()
+      
+      return normalizedZone
     }
     
     const parseDateToYYYYMMDD = (dateStr: string): string | null => {
@@ -1027,11 +1065,30 @@ export function BOQTableWithCustomization({
       return normalizeZone(zoneRaw, projectCode)
     }
     
+    // ✅ IMPROVED: Extract zone number more accurately
     const extractZoneNumber = (zone: string): string => {
       if (!zone || zone.trim() === '') return ''
-      const numberMatch = zone.match(/\d+/)
+      
+      // Normalize zone text
+      const normalizedZone = zone.toLowerCase().trim()
+      
+      // Try to match "zone X" or "zone-X" pattern first (most common)
+      const zonePatternMatch = normalizedZone.match(/zone\s*[-_]?\s*(\d+)/i)
+      if (zonePatternMatch && zonePatternMatch[1]) {
+        return zonePatternMatch[1]
+      }
+      
+      // Try to match standalone number at the end (e.g., "Zone 2", "Area 2")
+      const endNumberMatch = normalizedZone.match(/(\d+)\s*$/)
+      if (endNumberMatch && endNumberMatch[1]) {
+        return endNumberMatch[1]
+      }
+      
+      // Fallback: extract first number (but prefer zone-specific patterns above)
+      const numberMatch = normalizedZone.match(/\d+/)
       if (numberMatch) return numberMatch[0]
-      return zone.toLowerCase().trim()
+      
+      return normalizedZone
     }
     
     const parseDateToYYYYMMDD = (dateStr: string): string | null => {
@@ -1196,6 +1253,370 @@ export function BOQTableWithCustomization({
     const project = getProjectByFullCode(activityFullCode) || projects.find(p => p.project_code === activity.project_code)
     const projectFullName = project?.project_name || getProjectName(activity.project_code) || activity.project_full_code || activity.project_code
     const currencyCode = project?.currency
+    
+    // ============================================
+    // ✅ SHARED HELPER FUNCTIONS (used by multiple columns)
+    // ============================================
+    
+    // Helper: Normalize zone value (remove project code prefix)
+    const normalizeZone = (zone: string, projectCode: string): string => {
+      if (!zone || !projectCode) return (zone || '').toLowerCase().trim()
+      let normalized = zone.trim()
+      const codeUpper = projectCode.toUpperCase()
+      normalized = normalized.replace(new RegExp(`^${codeUpper}\\s*-\\s*`, 'i'), '').trim()
+      normalized = normalized.replace(new RegExp(`^${codeUpper}\\s+`, 'i'), '').trim()
+      normalized = normalized.replace(new RegExp(`^${codeUpper}-`, 'i'), '').trim()
+      return normalized.toLowerCase()
+    }
+    
+    // Helper: Extract zone from description (e.g., "P5066-12 | Zone 2")
+    const extractZoneFromDescription = (description: string): string => {
+      if (!description || description.trim() === '') return ''
+      
+      // Try to match patterns like "P5066-12 | Zone 2" or "Zone 2" or "Zone-2"
+      const zonePatternMatch = description.match(/zone\s*[-_]?\s*(\d+)/i)
+      if (zonePatternMatch && zonePatternMatch[1]) {
+        return `zone ${zonePatternMatch[1]}`.toLowerCase().trim()
+      }
+      
+      // Try to match project code pattern with zone (e.g., "P5066-12")
+      const projectCodeZoneMatch = description.match(/([A-Z]\d+)-(\d+)/i)
+      if (projectCodeZoneMatch && projectCodeZoneMatch[2]) {
+        return projectCodeZoneMatch[2].toLowerCase().trim()
+      }
+      
+      return ''
+    }
+    
+    // Helper: Extract zone from activity (IMPROVED: Extract from description if zone field is empty)
+    const getActivityZone = (activity: BOQActivity): string => {
+      const raw = (activity as any).raw || {}
+      let zoneValue = activity.zone_number || 
+                     activity.zone_ref || 
+                     raw['Zone Number'] ||
+                     raw['Zone Ref'] ||
+                     raw['Zone #'] ||
+                     ''
+      
+      // ✅ NEW: If zone is empty, try to extract from activity description
+      if (!zoneValue || zoneValue.trim() === '') {
+        const activityDescription = activity.activity || 
+                                   activity.activity_name || 
+                                   raw['Activity'] ||
+                                   raw['Activity Name'] ||
+                                   ''
+        if (activityDescription) {
+          const extractedZone = extractZoneFromDescription(activityDescription)
+          if (extractedZone) {
+            zoneValue = extractedZone
+          }
+        }
+      }
+      
+      // ✅ IMPROVED: Remove project code from zone value (same logic as activity_details)
+      if (zoneValue && activity.project_code) {
+        const projectCodeUpper = activity.project_code.toUpperCase().trim()
+        let zoneStr = zoneValue.toString()
+        
+        // Remove project code patterns:
+        // 1. "P9999 - " or "P9999 -" at start
+        zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+        // 2. " P9999 - " or " P9999 -" in middle
+        zoneStr = zoneStr.replace(new RegExp(`\\s+${projectCodeUpper}\\s*-\\s*`, 'gi'), ' ').trim()
+        // 3. Just "P9999" at start followed by space or dash
+        zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}(\\s|-)+`, 'i'), '').trim()
+        // 4. Just "P9999" in middle with spaces/dashes around
+        zoneStr = zoneStr.replace(new RegExp(`(\\s|-)+${projectCodeUpper}(\\s|-)+`, 'gi'), ' ').trim()
+        // 5. Clean up any remaining " - " or "- " at the start
+        zoneStr = zoneStr.replace(/^\s*-\s*/, '').trim()
+        // 6. Clean up multiple spaces
+        zoneStr = zoneStr.replace(/\s+/g, ' ').trim()
+        
+        zoneValue = zoneStr || ''
+      }
+      
+      return (zoneValue || '').toString().toLowerCase().trim()
+    }
+    
+    // Helper: Extract zone from KPI (IMPROVED: Extract from description if zone field is empty)
+    const getKPIZone = (kpi: any): string => {
+      const raw = (kpi as any).raw || {}
+      let zoneRaw = (
+        kpi.zone || 
+        kpi.section || 
+        raw['Zone'] || 
+        raw['Zone Number'] || 
+        ''
+      ).toString().trim()
+      
+      // ✅ NEW: If zone is empty, try to extract from KPI description/activity name
+      if (!zoneRaw || zoneRaw.trim() === '') {
+        const kpiDescription = kpi.activity_name || 
+                              kpi.activity || 
+                              raw['Activity Name'] ||
+                              raw['Activity'] ||
+                              ''
+        if (kpiDescription) {
+          const extractedZone = extractZoneFromDescription(kpiDescription)
+          if (extractedZone) {
+            zoneRaw = extractedZone
+          }
+        }
+      }
+      
+      const projectCode = (kpi.project_code || kpi['Project Code'] || raw['Project Code'] || '').toString().trim()
+      return normalizeZone(zoneRaw, projectCode)
+    }
+    
+    // Helper: Check if KPI matches activity (Project, Activity Name, Zone)
+    // ✅ IMPROVED: Ultra strict Project Full Code matching to prevent "P5066-12" matching "P5066-2"
+    const kpiMatchesActivity = (kpi: any, activity: BOQActivity): boolean => {
+      const rawKPI = (kpi as any).raw || {}
+      
+      // 1. Project Code Matching (ULTRA STRICT)
+      const kpiProjectCode = (kpi.project_code || kpi['Project Code'] || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+      const kpiProjectFullCode = (kpi.project_full_code || kpi['Project Full Code'] || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+      const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
+      const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+      
+      // ✅ CRITICAL: If activity has Project Full Code with sub-code (e.g., "P5066-12"), 
+      // KPI MUST have EXACT Project Full Code match (not just Project Code)
+      // This prevents "P5066-12" from matching "P5066-2" or "P5066-11"
+      let projectMatch = false
+      
+      if (activityProjectFullCode && activityProjectFullCode.includes('-')) {
+        // Activity has sub-code (e.g., "P5066-12")
+        // KPI MUST have EXACT Project Full Code match
+        if (kpiProjectFullCode && kpiProjectFullCode === activityProjectFullCode) {
+          projectMatch = true
+        }
+        // Do NOT allow partial matches (e.g., "P5066" matching "P5066-12")
+        // This ensures strict matching
+      } else {
+        // Activity has no sub-code (e.g., "P5066")
+        // Match by Project Code or Project Full Code
+        projectMatch = (
+          (kpiProjectCode && activityProjectCode && kpiProjectCode === activityProjectCode) ||
+          (kpiProjectFullCode && activityProjectFullCode && kpiProjectFullCode === activityProjectFullCode) ||
+          (kpiProjectCode && activityProjectFullCode && kpiProjectCode === activityProjectFullCode) ||
+          (kpiProjectFullCode && activityProjectCode && kpiProjectFullCode === activityProjectCode)
+        )
+      }
+      
+      if (!projectMatch) {
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`🚫 [kpiMatchesActivity] Project mismatch:`, {
+            activityProjectCode,
+            activityProjectFullCode,
+            kpiProjectCode,
+            kpiProjectFullCode,
+            reason: activityProjectFullCode && activityProjectFullCode.includes('-') 
+              ? 'Activity has sub-code - requires exact Project Full Code match' 
+              : 'Standard matching'
+          })
+        }
+        return false
+      }
+      
+      // 2. Activity Name Matching (required)
+      const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPI['Activity Name'] || '').toLowerCase().trim()
+      const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+      const activityMatch = kpiActivityName && activityName && (
+        kpiActivityName === activityName || 
+        kpiActivityName.includes(activityName) || 
+        activityName.includes(kpiActivityName)
+      )
+      if (!activityMatch) return false
+      
+      // 3. Zone Matching (ULTRA STRICT: If activity has zone, KPI MUST have EXACT matching zone)
+      const kpiZone = getKPIZone(kpi)
+      const activityZone = getActivityZone(activity)
+      
+      // ✅ ULTRA STRICT: If activity has zone, KPI MUST have zone and they MUST match EXACTLY
+      if (activityZone && activityZone.trim() !== '') {
+        // Activity has zone - KPI MUST have zone (no exceptions)
+        if (!kpiZone || kpiZone.trim() === '') {
+          // Debug: KPI rejected because it has no zone but activity has zone
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`🚫 [Zone Match] KPI rejected: Activity has zone "${activityZone}" but KPI has no zone`, {
+              activityName: activity.activity_name,
+              kpiActivityName: kpi.activity_name || kpi['Activity Name'],
+              kpiProjectCode: kpi.project_code || kpi['Project Code']
+            })
+          }
+          return false // KPI has no zone, reject it immediately
+        }
+        
+        // ✅ ULTRA STRICT: Extract zone number from both and match EXACTLY
+        // ✅ IMPROVED: Extract zone number more accurately
+        const extractZoneNumber = (zone: string): string => {
+          if (!zone || zone.trim() === '') return ''
+          
+          // Normalize zone text
+          const normalizedZone = zone.toLowerCase().trim()
+          
+          // Try to match "zone X" or "zone-X" pattern first (most common)
+          const zonePatternMatch = normalizedZone.match(/zone\s*[-_]?\s*(\d+)/i)
+          if (zonePatternMatch && zonePatternMatch[1]) {
+            return zonePatternMatch[1]
+          }
+          
+          // Try to match standalone number at the end (e.g., "Zone 2", "Area 2")
+          const endNumberMatch = normalizedZone.match(/(\d+)\s*$/)
+          if (endNumberMatch && endNumberMatch[1]) {
+            return endNumberMatch[1]
+          }
+          
+          // Fallback: extract first number (but prefer zone-specific patterns above)
+          const numberMatch = normalizedZone.match(/\d+/)
+          if (numberMatch) return numberMatch[0]
+          
+          return normalizedZone
+        }
+        
+        const activityZoneNum = extractZoneNumber(activityZone)
+        const kpiZoneNum = extractZoneNumber(kpiZone)
+        
+        // ✅ CRITICAL: Zone numbers MUST match EXACTLY (primary check)
+        if (activityZoneNum && kpiZoneNum && activityZoneNum !== kpiZoneNum) {
+          // Debug: KPI rejected because zone numbers don't match
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`🚫 [Zone Match] KPI rejected: Zone numbers don't match`, {
+              activityName: activity.activity_name,
+              activityZone,
+              activityZoneNum,
+              kpiZone,
+              kpiZoneNum,
+              kpiActivityName: kpi.activity_name || kpi['Activity Name'],
+              kpiProjectCode: kpi.project_code || kpi['Project Code']
+            })
+          }
+          return false // Zone numbers don't match, reject it
+        }
+        
+        // ✅ SECONDARY CHECK: If zone numbers match, verify full zone text is compatible
+        // This prevents "Zone 2" matching with "Zone 12" even if numbers partially match
+        const normalizedActivityZone = activityZone.toLowerCase().trim()
+        const normalizedKpiZone = kpiZone.toLowerCase().trim()
+        
+        if (activityZoneNum === kpiZoneNum) {
+          // Check if zone number is standalone (not part of larger number)
+          // Example: "zone 2" should match "zone 2" but not "zone 12" or "zone 22"
+          const activityZoneStandalone = normalizedActivityZone.match(new RegExp(`\\b${activityZoneNum}\\b`))
+          const kpiZoneStandalone = normalizedKpiZone.match(new RegExp(`\\b${kpiZoneNum}\\b`))
+          
+          // If both have standalone zone numbers, accept
+          // If one doesn't have standalone, be more careful
+          if (!activityZoneStandalone || !kpiZoneStandalone) {
+            // If zone numbers match but text is very different, reject
+            // Example: "zone 2" vs "zone 12" - both extract "2" but shouldn't match
+            if (normalizedActivityZone !== normalizedKpiZone && 
+                !normalizedActivityZone.includes(normalizedKpiZone) && 
+                !normalizedKpiZone.includes(normalizedActivityZone)) {
+              if (process.env.NODE_ENV === 'development') {
+                console.log(`🚫 [Zone Match] KPI rejected: Zone text mismatch despite number match`, {
+                  activityName: activity.activity_name,
+                  activityZone: normalizedActivityZone,
+                  activityZoneNum,
+                  kpiZone: normalizedKpiZone,
+                  kpiZoneNum,
+                  kpiActivityName: kpi.activity_name || kpi['Activity Name'],
+                  kpiProjectCode: kpi.project_code || kpi['Project Code']
+                })
+              }
+              return false
+            }
+          }
+        }
+        
+        // ✅ ACCEPT: Zone numbers match and zone text is compatible
+        // Debug: KPI accepted because zones match
+        if (process.env.NODE_ENV === 'development') {
+          const rawKPI = (kpi as any).raw || {}
+          const quantityStr = String(
+            kpi.quantity || 
+            kpi['Quantity'] || 
+            rawKPI['Quantity'] || 
+            '0'
+          ).replace(/,/g, '').trim()
+          const kpiQuantity = parseFloat(quantityStr) || 0
+          console.log(`✅ [Zone Match] KPI accepted: Zones match`, {
+            activityName: activity.activity_name,
+            activityZone: normalizedActivityZone,
+            activityZoneNum,
+            kpiZone: normalizedKpiZone,
+            kpiZoneNum,
+            kpiActivityName: kpi.activity_name || kpi['Activity Name'],
+            kpiQuantity
+          })
+        }
+      }
+      // If activity has no zone, accept KPI (with or without zone)
+      
+      return true
+    }
+    
+    // Helper: Extract quantity from KPI
+    const getKPIQuantity = (kpi: any): number => {
+      const raw = (kpi as any).raw || {}
+      const quantityStr = String(
+        kpi.quantity || 
+        kpi['Quantity'] || 
+        kpi.Quantity ||
+        raw['Quantity'] || 
+        raw.Quantity ||
+        '0'
+      ).replace(/,/g, '').trim()
+      return parseFloat(quantityStr) || 0
+    }
+    
+    // Helper: Check if KPI date is until yesterday
+    const isKPIUntilYesterday = (kpi: any, inputType: 'planned' | 'actual'): boolean => {
+      const yesterday = new Date()
+      yesterday.setDate(yesterday.getDate() - 1)
+      yesterday.setHours(23, 59, 59, 999)
+      
+      const raw = (kpi as any).raw || {}
+      let kpiDateStr = ''
+      
+      if (inputType === 'planned') {
+        // ✅ Priority: Date column > target_date > activity_date > created_at
+        kpiDateStr = raw['Date'] ||
+                    kpi.date ||
+                    kpi.target_date || 
+                    kpi.activity_date || 
+                    raw['Target Date'] || 
+                    raw['Activity Date'] ||
+                    kpi['Target Date'] || 
+                    kpi['Activity Date'] ||
+                    kpi.created_at ||
+                    ''
+      } else {
+        kpiDateStr = kpi.actual_date || 
+                    kpi.activity_date || 
+                    kpi['Actual Date'] || 
+                    kpi['Activity Date'] || 
+                    raw['Actual Date'] || 
+                    raw['Activity Date'] ||
+                    kpi.created_at ||
+                    ''
+      }
+      
+      // If no date, include it (treat as valid)
+      if (!kpiDateStr) return true
+      
+      try {
+        const kpiDate = new Date(kpiDateStr)
+        if (isNaN(kpiDate.getTime())) return true // Invalid date, include it
+        return kpiDate <= yesterday
+      } catch {
+        return true // Error, include it
+      }
+    }
+    
+    // ============================================
+    // END OF SHARED HELPER FUNCTIONS
+    // ============================================
     
     switch (column.id) {
       case 'select':
@@ -1503,248 +1924,9 @@ export function BOQTableWithCustomization({
         // 3. Planned and Actual must not exceed Total
         // 4. Zone matching is required for precision
         // ============================================
-        
-        // Helper: Normalize zone value (remove project code prefix)
-        const normalizeZone = (zone: string, projectCode: string): string => {
-          if (!zone || !projectCode) return (zone || '').toLowerCase().trim()
-          let normalized = zone.trim()
-          const codeUpper = projectCode.toUpperCase()
-          normalized = normalized.replace(new RegExp(`^${codeUpper}\\s*-\\s*`, 'i'), '').trim()
-          normalized = normalized.replace(new RegExp(`^${codeUpper}\\s+`, 'i'), '').trim()
-          normalized = normalized.replace(new RegExp(`^${codeUpper}-`, 'i'), '').trim()
-          return normalized.toLowerCase()
-        }
-        
-        // Helper: Extract zone from activity (IMPROVED: Same logic as activity_details case)
-        const getActivityZone = (activity: BOQActivity): string => {
-          const raw = (activity as any).raw || {}
-          let zoneValue = activity.zone_number || 
-                         activity.zone_ref || 
-                         raw['Zone Number'] ||
-                         raw['Zone Ref'] ||
-                         raw['Zone #'] ||
-                         ''
-          
-          // ✅ IMPROVED: Remove project code from zone value (same logic as activity_details)
-          if (zoneValue && activity.project_code) {
-            const projectCodeUpper = activity.project_code.toUpperCase().trim()
-            let zoneStr = zoneValue.toString()
-            
-            // Remove project code patterns:
-            // 1. "P9999 - " or "P9999 -" at start
-            zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
-            // 2. " P9999 - " or " P9999 -" in middle
-            zoneStr = zoneStr.replace(new RegExp(`\\s+${projectCodeUpper}\\s*-\\s*`, 'gi'), ' ').trim()
-            // 3. Just "P9999" at start followed by space or dash
-            zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}(\\s|-)+`, 'i'), '').trim()
-            // 4. Just "P9999" in middle with spaces/dashes around
-            zoneStr = zoneStr.replace(new RegExp(`(\\s|-)+${projectCodeUpper}(\\s|-)+`, 'gi'), ' ').trim()
-            // 5. Clean up any remaining " - " or "- " at the start
-            zoneStr = zoneStr.replace(/^\s*-\s*/, '').trim()
-            // 6. Clean up multiple spaces
-            zoneStr = zoneStr.replace(/\s+/g, ' ').trim()
-            
-            zoneValue = zoneStr || ''
-          }
-          
-          return (zoneValue || '').toString().toLowerCase().trim()
-        }
-        
-        // Helper: Extract zone from KPI
-        const getKPIZone = (kpi: any): string => {
-          const raw = (kpi as any).raw || {}
-          const zoneRaw = (
-            kpi.zone || 
-            kpi.section || 
-            raw['Zone'] || 
-            raw['Zone Number'] || 
-            ''
-          ).toString().trim()
-          const projectCode = (kpi.project_code || kpi['Project Code'] || raw['Project Code'] || '').toString().trim()
-          return normalizeZone(zoneRaw, projectCode)
-        }
-        
-        // Helper: Check if KPI matches activity (Project, Activity Name, Zone)
-        const kpiMatchesActivity = (kpi: any, activity: BOQActivity): boolean => {
-          const rawKPI = (kpi as any).raw || {}
-          
-          // 1. Project Code Matching
-          const kpiProjectCode = (kpi.project_code || kpi['Project Code'] || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
-          const kpiProjectFullCode = (kpi.project_full_code || kpi['Project Full Code'] || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
-          const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
-          const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
-          
-          const projectMatch = (
-            (kpiProjectCode && activityProjectCode && kpiProjectCode === activityProjectCode) ||
-            (kpiProjectFullCode && activityProjectFullCode && kpiProjectFullCode === activityProjectFullCode) ||
-            (kpiProjectCode && activityProjectFullCode && kpiProjectCode === activityProjectFullCode) ||
-            (kpiProjectFullCode && activityProjectCode && kpiProjectFullCode === activityProjectCode) ||
-            (kpiProjectCode && activityProjectCode && (
-              kpiProjectCode.includes(activityProjectCode) || 
-              activityProjectCode.includes(kpiProjectCode)
-            ))
-          )
-          if (!projectMatch) return false
-          
-          // 2. Activity Name Matching (required)
-          const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPI['Activity Name'] || '').toLowerCase().trim()
-          const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
-          const activityMatch = kpiActivityName && activityName && (
-            kpiActivityName === activityName || 
-            kpiActivityName.includes(activityName) || 
-            activityName.includes(kpiActivityName)
-          )
-          if (!activityMatch) return false
-          
-          // 3. Zone Matching (ULTRA STRICT: If activity has zone, KPI MUST have EXACT matching zone)
-          const kpiZone = getKPIZone(kpi)
-          const activityZone = getActivityZone(activity)
-          
-          // ✅ ULTRA STRICT: If activity has zone, KPI MUST have zone and they MUST match EXACTLY
-          if (activityZone && activityZone.trim() !== '') {
-            // Activity has zone - KPI MUST have zone (no exceptions)
-            if (!kpiZone || kpiZone.trim() === '') {
-              // Debug: KPI rejected because it has no zone but activity has zone
-              if (process.env.NODE_ENV === 'development') {
-                console.log(`🚫 [Zone Match] KPI rejected: Activity has zone "${activityZone}" but KPI has no zone`, {
-                  activityName: activity.activity_name,
-                  kpiActivityName: kpi.activity_name || kpi['Activity Name'],
-                  kpiProjectCode: kpi.project_code || kpi['Project Code']
-                })
-              }
-              return false // KPI has no zone, reject it immediately
-            }
-            
-            // ✅ ULTRA STRICT: Extract zone number from both and match EXACTLY
-            const extractZoneNumber = (zone: string): string => {
-              if (!zone || zone.trim() === '') return ''
-              // Try to extract number from zone (e.g., "Zone 1" -> "1", "zone 2" -> "2", "1" -> "1")
-              const numberMatch = zone.match(/\d+/)
-              if (numberMatch) return numberMatch[0]
-              // If no number found, return normalized zone
-              return zone.toLowerCase().trim()
-            }
-            
-            const activityZoneNum = extractZoneNumber(activityZone)
-            const kpiZoneNum = extractZoneNumber(kpiZone)
-            
-            // ✅ CRITICAL: Zone numbers MUST match EXACTLY (primary check)
-            if (activityZoneNum && kpiZoneNum && activityZoneNum !== kpiZoneNum) {
-              // Debug: KPI rejected because zone numbers don't match
-              if (process.env.NODE_ENV === 'development') {
-                console.log(`🚫 [Zone Match] KPI rejected: Zone numbers don't match`, {
-                  activityName: activity.activity_name,
-                  activityZone,
-                  activityZoneNum,
-                  kpiZone,
-                  kpiZoneNum,
-                  kpiActivityName: kpi.activity_name || kpi['Activity Name'],
-                  kpiProjectCode: kpi.project_code || kpi['Project Code']
-                })
-              }
-              return false // Zone numbers don't match, reject it
-            }
-            
-            // ✅ SECONDARY CHECK: If zone numbers match, verify full zone text also matches (for extra safety)
-            const normalizedActivityZone = activityZone.toLowerCase().trim()
-            const normalizedKpiZone = kpiZone.toLowerCase().trim()
-            
-            // If zone numbers match but full text doesn't, still accept (zone number is primary)
-            // But log it for debugging
-            if (activityZoneNum === kpiZoneNum && normalizedActivityZone !== normalizedKpiZone) {
-              if (process.env.NODE_ENV === 'development') {
-                console.log(`⚠️ [Zone Match] Zone numbers match but text differs (accepting):`, {
-                  activityName: activity.activity_name,
-                  activityZone: normalizedActivityZone,
-                  kpiZone: normalizedKpiZone,
-                  zoneNumber: activityZoneNum
-                })
-              }
-            }
-            
-            // Debug: KPI accepted because zones match
-            if (process.env.NODE_ENV === 'development') {
-              const rawKPI = (kpi as any).raw || {}
-              const quantityStr = String(
-                kpi.quantity || 
-                kpi['Quantity'] || 
-                rawKPI['Quantity'] || 
-                '0'
-              ).replace(/,/g, '').trim()
-              const kpiQuantity = parseFloat(quantityStr) || 0
-              console.log(`✅ [Zone Match] KPI accepted: Zones match`, {
-                activityName: activity.activity_name,
-                activityZone: normalizedActivityZone,
-                activityZoneNum,
-                kpiZone: normalizedKpiZone,
-                kpiZoneNum,
-                kpiActivityName: kpi.activity_name || kpi['Activity Name'],
-                kpiQuantity
-              })
-            }
-          }
-          // If activity has no zone, accept KPI (with or without zone)
-          
-          return true
-        }
-        
-        // Helper: Extract quantity from KPI
-        const getKPIQuantity = (kpi: any): number => {
-          const raw = (kpi as any).raw || {}
-          const quantityStr = String(
-            kpi.quantity || 
-            kpi['Quantity'] || 
-            kpi.Quantity ||
-            raw['Quantity'] || 
-            raw.Quantity ||
-            '0'
-          ).replace(/,/g, '').trim()
-          return parseFloat(quantityStr) || 0
-        }
-        
-        // Helper: Check if KPI date is until yesterday
-        const isKPIUntilYesterday = (kpi: any, inputType: 'planned' | 'actual'): boolean => {
-          const yesterday = new Date()
-          yesterday.setDate(yesterday.getDate() - 1)
-          yesterday.setHours(23, 59, 59, 999)
-          
-          const raw = (kpi as any).raw || {}
-          let kpiDateStr = ''
-          
-          if (inputType === 'planned') {
-            // ✅ Priority: Date column > target_date > activity_date > created_at
-            kpiDateStr = raw['Date'] ||
-                        kpi.date ||
-                        kpi.target_date || 
-                        kpi.activity_date || 
-                        raw['Target Date'] || 
-                        raw['Activity Date'] ||
-                        kpi['Target Date'] || 
-                        kpi['Activity Date'] ||
-                        kpi.created_at ||
-                        ''
-          } else {
-            kpiDateStr = kpi.actual_date || 
-                        kpi.activity_date || 
-                        kpi['Actual Date'] || 
-                        kpi['Activity Date'] || 
-                        raw['Actual Date'] || 
-                        raw['Activity Date'] ||
-                        kpi.created_at ||
-                        ''
-          }
-          
-          // If no date, include it (treat as valid)
-          if (!kpiDateStr) return true
-          
-          try {
-            const kpiDate = new Date(kpiDateStr)
-            if (isNaN(kpiDate.getTime())) return true // Invalid date, include it
-            return kpiDate <= yesterday
-          } catch {
-            return true // Error, include it
-          }
-        }
+        // ✅ NOTE: Helper functions (normalizeZone, extractZoneFromDescription, getActivityZone, 
+        // getKPIZone, kpiMatchesActivity, getKPIQuantity, isKPIUntilYesterday) are defined 
+        // above before switch statement for reuse across multiple columns
         
         // Get Total Units
         const rawActivityQuantities = (activity as any).raw || {}
@@ -1779,154 +1961,25 @@ export function BOQTableWithCustomization({
         }
         
         // Calculate Actual: Sum of Actual KPIs until yesterday (with Zone matching)
-        let actualUnits = activity.actual_units || 
-                                  parseFloat(String(rawActivityQuantities['Actual Units'] || '0').replace(/,/g, '')) || 
-                                  0
+        // ✅ EXACT SAME LOGIC AS PLANNED - Always calculate from KPIs (ignore activity.actual_units)
+        let actualUnits = 0
         
-        // If actual_units is 0 or not set, calculate from Actual KPIs
-        if (actualUnits === 0 && allKPIs.length > 0) {
-          const activityZone = getActivityZone(activity)
-          
+        if (allKPIs.length > 0) {
           // Step 1: Filter Actual KPIs only
           const actualKPIs = allKPIs.filter((kpi: any) => {
             const inputType = (kpi.input_type || kpi['Input Type'] || (kpi as any).raw?.['Input Type'] || '').toLowerCase()
             return inputType === 'actual'
           })
           
-          // Step 2: Match Actual KPIs to this activity (Project, Activity Name, Zone) - ULTRA STRICT
-          // ✅ CRITICAL: Extract zone info BEFORE filtering to ensure correct matching
-          const extractZoneNumber = (zone: string): string => {
-            if (!zone || zone.trim() === '') return ''
-            const numberMatch = zone.match(/\d+/)
-            if (numberMatch) return numberMatch[0]
-            return zone.toLowerCase().trim()
-          }
-          
-          const activityZoneNum = activityZone ? extractZoneNumber(activityZone) : ''
-          
-          // ✅ DEBUG: Log activity zone info BEFORE filtering
-          if (process.env.NODE_ENV === 'development') {
-            console.log(`🔍 [Actual Filtering] Activity "${activity.activity_name}":`, {
-              activityZone: activityZone || 'N/A',
-              activityZoneNum: activityZoneNum || 'N/A',
-              activityZoneRef: activity.zone_ref || 'N/A',
-              activityZoneNumber: activity.zone_number || 'N/A',
-              rawZoneRef: (activity as any).raw?.['Zone Ref'] || 'N/A',
-              rawZoneNumber: (activity as any).raw?.['Zone Number'] || 'N/A',
-              totalActualKPIs: actualKPIs.length
-            })
-          }
-          
-          const matchedActualKPIs = actualKPIs.filter((kpi: any) => {
-            // ✅ FIRST: Check Project and Activity Name match
-            const rawKPI = (kpi as any).raw || {}
-            const kpiProjectCode = (kpi.project_code || kpi['Project Code'] || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
-            const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
-            const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPI['Activity Name'] || '').toLowerCase().trim()
-            const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
-            
-            // Project and Activity must match
-            if (kpiProjectCode !== activityProjectCode || !kpiActivityName || !activityName || 
-                (kpiActivityName !== activityName && !kpiActivityName.includes(activityName) && !activityName.includes(kpiActivityName))) {
-              return false
-            }
-            
-            // ✅ SECOND: STRICT Zone matching (if activity has zone)
-            if (activityZone && activityZone.trim() !== '') {
-              const kpiZone = getKPIZone(kpi)
-              
-              // KPI MUST have zone
-              if (!kpiZone || kpiZone.trim() === '') {
-                if (process.env.NODE_ENV === 'development') {
-                  console.log(`🚫 [Actual Filter] KPI rejected: No zone`, {
-                    kpiActivityName: kpi.activity_name || kpi['Activity Name'],
-                    kpiProjectCode,
-                    activityZone,
-                    activityZoneNum
-                  })
-                }
-                return false
-              }
-              
-              // Extract zone numbers
-              const kpiZoneNum = extractZoneNumber(kpiZone)
-              
-              // Zone numbers MUST match EXACTLY
-              if (activityZoneNum && kpiZoneNum && activityZoneNum !== kpiZoneNum) {
-                if (process.env.NODE_ENV === 'development') {
-                  console.log(`🚫 [Actual Filter] KPI rejected: Zone mismatch`, {
-                    kpiActivityName: kpi.activity_name || kpi['Activity Name'],
-                    kpiProjectCode,
-                    activityZone,
-                    activityZoneNum,
-                    kpiZone,
-                    kpiZoneNum
-                  })
-                }
-                return false
-              }
-              
-              // ✅ ACCEPT: Zone numbers match
-              if (process.env.NODE_ENV === 'development') {
-                console.log(`✅ [Actual Filter] KPI accepted: Zone match`, {
-                  kpiActivityName: kpi.activity_name || kpi['Activity Name'],
-                  kpiProjectCode,
-                  activityZone,
-                  activityZoneNum,
-                  kpiZone,
-                  kpiZoneNum,
-                  quantity: getKPIQuantity(kpi)
-                })
-              }
-            }
-            
-                  return true
-          })
-          
-          // ✅ DEBUG: Log matched KPIs with their zones
-          if (process.env.NODE_ENV === 'development') {
-            console.log(`🔍 [Actual KPIs] Activity "${activity.activity_name}" (Zone: ${activityZone || 'N/A'}):`, {
-              totalActualKPIs: actualKPIs.length,
-              matchedKPIs: matchedActualKPIs.length,
-              matchedKPIsDetails: matchedActualKPIs.map((kpi: any) => ({
-                kpiZone: getKPIZone(kpi),
-                kpiZoneNum: (() => {
-                  const zone = getKPIZone(kpi)
-                  const numMatch = zone.match(/\d+/)
-                  return numMatch ? numMatch[0] : zone
-                })(),
-                quantity: getKPIQuantity(kpi),
-                activityName: kpi.activity_name || kpi['Activity Name'],
-                projectCode: kpi.project_code || kpi['Project Code']
-              })),
-              activityZoneNum: (() => {
-                if (!activityZone) return 'N/A'
-                const numMatch = activityZone.match(/\d+/)
-                return numMatch ? numMatch[0] : activityZone
-              })()
-            })
-          }
+          // Step 2: Match Actual KPIs to this activity (Project, Activity Name, Zone)
+          // ✅ USE SAME FUNCTION AS PLANNED - kpiMatchesActivity
+          const matchedActualKPIs = actualKPIs.filter((kpi: any) => kpiMatchesActivity(kpi, activity))
           
           // Step 3: Filter until yesterday and sum quantities
           const actualKPIsUntilYesterday = matchedActualKPIs.filter((kpi: any) => isKPIUntilYesterday(kpi, 'actual'))
           actualUnits = actualKPIsUntilYesterday.reduce((sum: number, kpi: any) => {
             return sum + getKPIQuantity(kpi)
           }, 0)
-          
-          // ✅ DEBUG: Log final calculation
-          if (process.env.NODE_ENV === 'development') {
-            console.log(`📊 [Actual Calculation] Activity "${activity.activity_name}" (Zone: ${activityZone || 'N/A'}):`, {
-              matchedKPIs: matchedActualKPIs.length,
-              kpisUntilYesterday: actualKPIsUntilYesterday.length,
-              calculatedActual: actualUnits,
-              totalUnits,
-              willBeCapped: actualUnits > totalUnits,
-              sumBreakdown: actualKPIsUntilYesterday.map((kpi: any) => ({
-                kpiZone: getKPIZone(kpi),
-                quantity: getKPIQuantity(kpi)
-              }))
-            })
-          }
         }
         
         // ✅ CRITICAL: Cap Planned and Actual to not exceed Total (logical constraint)
@@ -2496,11 +2549,30 @@ export function BOQTableWithCustomization({
           return normalizeZoneWorkValue(zoneRaw, projectCode)
         }
         
+        // ✅ IMPROVED: Extract zone number more accurately
         const extractZoneNumberWorkValue = (zone: string): string => {
           if (!zone || zone.trim() === '') return ''
-          const numberMatch = zone.match(/\d+/)
+          
+          // Normalize zone text
+          const normalizedZone = zone.toLowerCase().trim()
+          
+          // Try to match "zone X" or "zone-X" pattern first (most common)
+          const zonePatternMatch = normalizedZone.match(/zone\s*[-_]?\s*(\d+)/i)
+          if (zonePatternMatch && zonePatternMatch[1]) {
+            return zonePatternMatch[1]
+          }
+          
+          // Try to match standalone number at the end (e.g., "Zone 2", "Area 2")
+          const endNumberMatch = normalizedZone.match(/(\d+)\s*$/)
+          if (endNumberMatch && endNumberMatch[1]) {
+            return endNumberMatch[1]
+          }
+          
+          // Fallback: extract first number (but prefer zone-specific patterns above)
+          const numberMatch = normalizedZone.match(/\d+/)
           if (numberMatch) return numberMatch[0]
-          return zone.toLowerCase().trim()
+          
+          return normalizedZone
         }
         
         // Helper: Check if KPI matches activity (Project, Activity Name, Zone) - ULTRA STRICT
@@ -2802,11 +2874,30 @@ export function BOQTableWithCustomization({
           return normalizeZoneStatus(zoneRaw, projectCode)
         }
         
+        // ✅ IMPROVED: Extract zone number more accurately
         const extractZoneNumberStatus = (zone: string): string => {
           if (!zone || zone.trim() === '') return ''
-          const numberMatch = zone.match(/\d+/)
+          
+          // Normalize zone text
+          const normalizedZone = zone.toLowerCase().trim()
+          
+          // Try to match "zone X" or "zone-X" pattern first (most common)
+          const zonePatternMatch = normalizedZone.match(/zone\s*[-_]?\s*(\d+)/i)
+          if (zonePatternMatch && zonePatternMatch[1]) {
+            return zonePatternMatch[1]
+          }
+          
+          // Try to match standalone number at the end (e.g., "Zone 2", "Area 2")
+          const endNumberMatch = normalizedZone.match(/(\d+)\s*$/)
+          if (endNumberMatch && endNumberMatch[1]) {
+            return endNumberMatch[1]
+          }
+          
+          // Fallback: extract first number (but prefer zone-specific patterns above)
+          const numberMatch = normalizedZone.match(/\d+/)
           if (numberMatch) return numberMatch[0]
-          return zone.toLowerCase().trim()
+          
+          return normalizedZone
         }
         
         // Helper: Check if KPI matches activity (Project, Activity Name, Zone) - ULTRA STRICT
@@ -3136,159 +3227,26 @@ export function BOQTableWithCustomization({
                                      parseFloat(String(rawProductivity['Planned Units'] || '0').replace(/,/g, '')) || 
                                      0
         
-        // ✅ Calculate Actual Units from KPIs (same logic as quantities column - EXACT COPY)
-        let actualUnitsProductivity = activity.actual_units || 
-                                     parseFloat(String(rawProductivity['Actual Units'] || '0').replace(/,/g, '')) || 
-                                     0
+        // ✅ Calculate Actual Units from KPIs (EXACT SAME LOGIC AS QUANTITIES COLUMN)
+        // ✅ Always calculate from KPIs (ignore activity.actual_units) - Use same kpiMatchesActivity function
+        let actualUnitsProductivity = 0
         
-        // If actual_units is 0 or not set, calculate from Actual KPIs (EXACT SAME LOGIC AS QUANTITIES COLUMN)
-        if (actualUnitsProductivity === 0 && allKPIs.length > 0) {
-          // Helper: Normalize zone
-          const normalizeZoneProductivity = (zone: string, projectCode: string): string => {
-            if (!zone || !projectCode) return (zone || '').toLowerCase().trim()
-            let normalized = zone.trim()
-            const codeUpper = projectCode.toUpperCase()
-            normalized = normalized.replace(new RegExp(`^${codeUpper}\\s*-\\s*`, 'i'), '').trim()
-            normalized = normalized.replace(new RegExp(`^${codeUpper}\\s+`, 'i'), '').trim()
-            normalized = normalized.replace(new RegExp(`^${codeUpper}-`, 'i'), '').trim()
-            return normalized.toLowerCase()
-          }
-          
-          // Helper: Get Activity Zone
-          const getActivityZoneProductivity = (activity: BOQActivity): string => {
-            const rawActivity = (activity as any).raw || {}
-            let zoneValue = activity.zone_number || 
-                           activity.zone_ref || 
-                           rawActivity['Zone Number'] ||
-                           rawActivity['Zone Ref'] ||
-                           rawActivity['Zone #'] ||
-                           ''
-            
-            if (zoneValue && activity.project_code) {
-              const projectCodeUpper = activity.project_code.toUpperCase().trim()
-              let zoneStr = zoneValue.toString()
-              zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
-              zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
-              zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
-              zoneStr = zoneStr.replace(/^\s*-\s*/, '').trim()
-              zoneStr = zoneStr.replace(/\s+/g, ' ').trim()
-              zoneValue = zoneStr || ''
-            }
-            
-            return (zoneValue || '').toString().toLowerCase().trim()
-          }
-          
-          // Helper: Get KPI Zone
-          const getKPIZoneProductivity = (kpi: any): string => {
-            const rawKPI = (kpi as any).raw || {}
-            const zoneRaw = (
-              kpi.zone || 
-              kpi.section || 
-              rawKPI['Zone'] || 
-              rawKPI['Zone Number'] || 
-              ''
-            ).toString().trim()
-            const projectCode = (kpi.project_code || kpi['Project Code'] || rawKPI['Project Code'] || '').toString().trim()
-            return normalizeZoneProductivity(zoneRaw, projectCode)
-          }
-          
-          // Helper: Extract zone number
-          const extractZoneNumberProductivity = (zone: string): string => {
-            if (!zone || zone.trim() === '') return ''
-            const numberMatch = zone.match(/\d+/)
-            if (numberMatch) return numberMatch[0]
-            return zone.toLowerCase().trim()
-          }
-          
-          // Filter Actual KPIs matching this activity (ULTRA STRICT Zone matching)
-          const activityZoneProductivity = getActivityZoneProductivity(activity)
-          const activityNameProductivity = (activity.activity_name || '').toLowerCase().trim()
-          
-          const matchedActualKPIsProductivity = allKPIs.filter((kpi: any) => {
-            const rawKPI = (kpi as any).raw || {}
-            
-            // 1. Project Code Matching
-            const kpiProjectCode = (kpi.project_code || kpi['Project Code'] || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
-            const kpiProjectFullCode = (kpi.project_full_code || kpi['Project Full Code'] || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
-            const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
-            const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
-            
-            const projectMatch = (
-              (kpiProjectCode && activityProjectCode && kpiProjectCode === activityProjectCode) ||
-              (kpiProjectFullCode && activityProjectFullCode && kpiProjectFullCode === activityProjectFullCode) ||
-              (kpiProjectCode && activityProjectFullCode && kpiProjectCode === activityProjectFullCode) ||
-              (kpiProjectFullCode && activityProjectCode && kpiProjectFullCode === activityProjectCode)
-            )
-            if (!projectMatch) return false
-            
-            // 2. Activity Name Matching (required)
-            const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || rawKPI['Activity Name'] || '').toLowerCase().trim()
-            const activityMatch = kpiActivityName && activityNameProductivity && (
-              kpiActivityName === activityNameProductivity || 
-              kpiActivityName.includes(activityNameProductivity) || 
-              activityNameProductivity.includes(kpiActivityName)
-            )
-            if (!activityMatch) return false
-            
-            // 3. Input Type = Actual
-            const inputType = (kpi.input_type || rawKPI['Input Type'] || '').toString().toLowerCase().trim()
-            if (inputType !== 'actual') return false
-            
-            // 4. Zone Matching (ULTRA STRICT: If activity has zone, KPI MUST have EXACT matching zone)
-            if (activityZoneProductivity && activityZoneProductivity.trim() !== '') {
-              const kpiZone = getKPIZoneProductivity(kpi)
-              if (!kpiZone || kpiZone.trim() === '') {
-                return false // KPI has no zone but activity has zone
-              }
-              
-              const activityZoneNum = extractZoneNumberProductivity(activityZoneProductivity)
-              const kpiZoneNum = extractZoneNumberProductivity(kpiZone)
-              
-              if (activityZoneNum && kpiZoneNum && activityZoneNum !== kpiZoneNum) {
-                return false // Zone numbers don't match
-              }
-            }
-            
-            return true
+        if (allKPIs.length > 0) {
+          // Step 1: Filter Actual KPIs only
+          const actualKPIs = allKPIs.filter((kpi: any) => {
+            const inputType = (kpi.input_type || kpi['Input Type'] || (kpi as any).raw?.['Input Type'] || '').toLowerCase()
+            return inputType === 'actual'
           })
           
-          // Sum Actual KPIs quantities (until yesterday)
-          const yesterdayProductivity = new Date()
-          yesterdayProductivity.setDate(yesterdayProductivity.getDate() - 1)
-          yesterdayProductivity.setHours(23, 59, 59, 999)
+          // Step 2: Match Actual KPIs to this activity (Project, Activity Name, Zone)
+          // ✅ USE SAME FUNCTION AS QUANTITIES COLUMN - kpiMatchesActivity
+          const matchedActualKPIsProductivity = actualKPIs.filter((kpi: any) => kpiMatchesActivity(kpi, activity))
           
-          actualUnitsProductivity = matchedActualKPIsProductivity
-            .filter((kpi: any) => {
-              const rawKPI = (kpi as any).raw || {}
-              const kpiDateStr = rawKPI['Date'] ||
-                                kpi.date ||
-                                kpi.actual_date || 
-                                kpi.activity_date || 
-                                rawKPI['Actual Date'] || 
-                                rawKPI['Activity Date'] ||
-                                kpi.created_at ||
-                                ''
-              
-              if (!kpiDateStr) return true // Include if no date
-              
-              try {
-                const kpiDate = new Date(kpiDateStr)
-                if (isNaN(kpiDate.getTime())) return true
-                return kpiDate <= yesterdayProductivity
-              } catch {
-                return true
-              }
-            })
-            .reduce((sum: number, kpi: any) => {
-              const rawKPI = (kpi as any).raw || {}
-              const quantityStr = String(
-                kpi.quantity || 
-                kpi['Quantity'] || 
-                rawKPI['Quantity'] || 
-                '0'
-              ).replace(/,/g, '').trim()
-              return sum + (parseFloat(quantityStr) || 0)
-            }, 0)
+          // Step 3: Filter until yesterday and sum quantities
+          const actualKPIsUntilYesterday = matchedActualKPIsProductivity.filter((kpi: any) => isKPIUntilYesterday(kpi, 'actual'))
+          actualUnitsProductivity = actualKPIsUntilYesterday.reduce((sum: number, kpi: any) => {
+            return sum + getKPIQuantity(kpi)
+          }, 0)
         }
         
         // ✅ CRITICAL: Cap Actual to not exceed Total (same as quantities column)
@@ -3391,27 +3349,28 @@ export function BOQTableWithCustomization({
         
         // ✅ Calculate Daily Productivity
         // ✅ CRITICAL: Daily Productivity must be >= Natural Daily Productivity (Total Quantity / Duration)
-        // Natural Daily Productivity = Total Units / Total Duration
-        // Remaining Daily Productivity = Remaining Units / Remaining Days
+        // Natural Daily Productivity (Planned) = Total Units / Total Duration
+        // Remaining Daily Productivity (Required) = Remaining Units / Remaining Days
         // Final Daily Productivity = Math.ceil(Math.max(Natural, Remaining))
         let dailyProductivity = 0
+        let plannedProductivity = 0 // Natural Daily Productivity
+        let requiredProductivity = 0 // Remaining Daily Productivity
         let showCalculation = false
         
-        // ✅ Calculate Natural Daily Productivity (Total Quantity / Duration)
-        let naturalDailyProductivity = 0
+        // ✅ Calculate Natural Daily Productivity (Planned) = Total Quantity / Duration
         if (totalUnitsProductivity > 0 && totalDurationProductivity > 0) {
-          naturalDailyProductivity = totalUnitsProductivity / totalDurationProductivity
+          plannedProductivity = totalUnitsProductivity / totalDurationProductivity
         }
         
         // ✅ Show calculation if we have remaining units (even if 0, for completed activities)
         if (remainingUnitsProductivity >= 0 && remainingDaysProductivity > 0) {
           if (remainingUnitsProductivity > 0) {
-            // ✅ Calculate Remaining Daily Productivity
-            const remainingDailyProductivity = remainingUnitsProductivity / remainingDaysProductivity
+            // ✅ Calculate Remaining Daily Productivity (Required)
+            requiredProductivity = remainingUnitsProductivity / remainingDaysProductivity
             
             // ✅ CRITICAL: Daily Productivity must be >= Natural Daily Productivity
             // Use Math.max to ensure it's always >= natural productivity
-            const finalProductivity = Math.max(naturalDailyProductivity, remainingDailyProductivity)
+            const finalProductivity = Math.max(plannedProductivity, requiredProductivity)
             
             // ✅ ALWAYS round UP: Math.ceil ensures any decimal (e.g., 6.4, 10.1, 15.9) becomes next integer
             dailyProductivity = Math.ceil(finalProductivity)
@@ -3419,21 +3378,23 @@ export function BOQTableWithCustomization({
           } else {
             // ✅ If remaining units = 0 (completed), show 0/day
             dailyProductivity = 0
+            requiredProductivity = 0
             showCalculation = true
           }
         } else if (remainingUnitsProductivity > 0 && remainingDaysProductivity === 0) {
           // ✅ If we have remaining units but no remaining days, show estimated productivity (based on default 30 days)
           const estimatedProductivity = remainingUnitsProductivity / 30
+          requiredProductivity = estimatedProductivity
           
           // ✅ CRITICAL: Ensure it's >= Natural Daily Productivity
-          const finalProductivity = Math.max(naturalDailyProductivity, estimatedProductivity)
+          const finalProductivity = Math.max(plannedProductivity, estimatedProductivity)
           
           // ✅ ALWAYS round UP: Math.ceil ensures any decimal becomes next integer
           dailyProductivity = Math.ceil(finalProductivity)
           showCalculation = true
         } else if (totalUnitsProductivity > 0 && totalDurationProductivity > 0) {
           // ✅ If no remaining units but we have total units and duration, show natural productivity
-          dailyProductivity = Math.ceil(naturalDailyProductivity)
+          dailyProductivity = Math.ceil(plannedProductivity)
           showCalculation = true
         }
         
@@ -3462,13 +3423,37 @@ export function BOQTableWithCustomization({
               </div>
             ) : showCalculation ? (
               <>
-                <div className="text-sm font-medium text-gray-900 dark:text-white">
+                <div className="text-sm font-bold text-gray-900 dark:text-white mb-2">
                   {dailyProductivity.toLocaleString()} {unitProductivity}/day
                 </div>
-                <div className="text-xs text-gray-600 dark:text-gray-400">
-                  {remainingUnitsProductivity.toLocaleString()} {unitProductivity} / {remainingDaysProductivity > 0 ? remainingDaysProductivity : '?'} days
-                  {remainingDaysProductivity === 0 && (
-                    <span className="text-orange-600 dark:text-orange-400 ml-1">(est.)</span>
+                <div className="space-y-1.5">
+                  {/* Planned (Natural Daily Productivity) */}
+                  {plannedProductivity > 0 && (
+                    <div className="text-xs">
+                      <span className="font-semibold text-blue-600 dark:text-blue-400">Planned:</span>{' '}
+                      <span className="font-medium text-blue-700 dark:text-blue-300">
+                        {Math.ceil(plannedProductivity).toLocaleString()} {unitProductivity}/day
+                      </span>
+                      <span className="text-gray-500 dark:text-gray-400 ml-1">
+                        ({totalUnitsProductivity.toLocaleString()} / {totalDurationProductivity} days)
+                      </span>
+                    </div>
+                  )}
+                  {/* Required (Remaining Daily Productivity) */}
+                  {remainingUnitsProductivity > 0 && (
+                    <div className="text-xs">
+                      <span className="font-semibold text-orange-600 dark:text-orange-400">Required:</span>{' '}
+                      <span className="font-medium text-orange-700 dark:text-orange-300">
+                        {Math.ceil(requiredProductivity).toLocaleString()} {unitProductivity}/day
+                      </span>
+                      <span className="text-gray-500 dark:text-gray-400 ml-1">
+                        ({remainingUnitsProductivity.toLocaleString()} / {remainingDaysProductivity > 0 ? remainingDaysProductivity : '?'} days
+                        {remainingDaysProductivity === 0 && (
+                          <span className="text-orange-600 dark:text-orange-400"> est.</span>
+                        )}
+                        )
+                      </span>
+                    </div>
                   )}
                 </div>
               </>

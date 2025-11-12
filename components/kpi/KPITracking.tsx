@@ -1985,7 +1985,11 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     
     plannedKPIs.forEach((k: ProcessedKPI) => {
       // ✅ PRIORITY 1: Use value directly from KPI if available (most accurate)
-      const kpiValue = k.value ?? 0
+      // ✅ FIX: Check both k.value and raw['Value'] to ensure we get the value
+      const rawKPI = (k as any).raw || {}
+      const kpiValue = (k.value ?? 
+                      parseFloat(String(rawKPI['Value'] || '0').replace(/,/g, ''))) || 
+                      0
       if (kpiValue > 0) {
         total += kpiValue
         fromValue++
@@ -1994,15 +1998,20 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       
       // ✅ PRIORITY 2: Calculate from Rate × Quantity
       const rate = getActivityRate(k)
-      if (rate > 0 && k.quantity > 0) {
-        const calculatedValue = rate * k.quantity
+      const quantity = (k.quantity ?? 
+                      parseFloat(String(rawKPI['Quantity'] || '0').replace(/,/g, ''))) || 
+                      0
+      if (rate > 0 && quantity > 0) {
+        const calculatedValue = rate * quantity
         total += calculatedValue
         fromRate++
         return
       }
       
-      // ✅ PRIORITY 3: Fallback to planned_value
-      const fallbackValue = k.planned_value ?? 0
+      // ✅ PRIORITY 3: Fallback to planned_value (check both k.planned_value and raw['Planned Value'])
+      const fallbackValue = (k.planned_value ?? 
+                           parseFloat(String(rawKPI['Planned Value'] || '0').replace(/,/g, ''))) || 
+                           0
       if (fallbackValue > 0) {
         total += fallbackValue
         fromFallback++
@@ -2012,8 +2021,14 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     // ✅ DEBUG: Log calculation summary for large projects
     if (process.env.NODE_ENV === 'development' && plannedKPIs.length > 100) {
       // Calculate sum of all values for comparison
-      const sumOfAllValues = plannedKPIs.reduce((sum, k) => sum + (k.value ?? 0), 0)
-      const sumOfAllPlannedValues = plannedKPIs.reduce((sum, k) => sum + (k.planned_value ?? 0), 0)
+      const sumOfAllValues = plannedKPIs.reduce((sum, k) => {
+        const rawKPI = (k as any).raw || {}
+        return sum + ((k.value ?? parseFloat(String(rawKPI['Value'] || '0').replace(/,/g, ''))) || 0)
+      }, 0)
+      const sumOfAllPlannedValues = plannedKPIs.reduce((sum, k) => {
+        const rawKPI = (k as any).raw || {}
+        return sum + ((k.planned_value ?? parseFloat(String(rawKPI['Planned Value'] || '0').replace(/,/g, ''))) || 0)
+      }, 0)
       
       console.log(`📊 [Planned Value] Calculated for ${plannedKPIs.length} KPIs:`, {
         total,
@@ -2040,7 +2055,11 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     
     actualKPIs.forEach((k: ProcessedKPI) => {
       // ✅ PRIORITY 1: Use value directly from KPI if available (most accurate)
-      const kpiValue = k.value ?? 0
+      // ✅ FIX: Check both k.value and raw['Value'] to ensure we get the value
+      const rawKPI = (k as any).raw || {}
+      const kpiValue = (k.value ?? 
+                      parseFloat(String(rawKPI['Value'] || '0').replace(/,/g, ''))) || 
+                      0
       if (kpiValue > 0) {
         total += kpiValue
         fromValue++
@@ -2049,15 +2068,20 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       
       // ✅ PRIORITY 2: Calculate from Rate × Quantity
       const rate = getActivityRate(k)
-      if (rate > 0 && k.quantity > 0) {
-        const calculatedValue = rate * k.quantity
+      const quantity = (k.quantity ?? 
+                      parseFloat(String(rawKPI['Quantity'] || '0').replace(/,/g, ''))) || 
+                      0
+      if (rate > 0 && quantity > 0) {
+        const calculatedValue = rate * quantity
         total += calculatedValue
         fromRate++
         return
       }
       
-      // ✅ PRIORITY 3: Fallback to actual_value
-      const fallbackValue = k.actual_value ?? 0
+      // ✅ PRIORITY 3: Fallback to actual_value (check both k.actual_value and raw['Actual Value'])
+      const fallbackValue = (k.actual_value ?? 
+                           parseFloat(String(rawKPI['Actual Value'] || '0').replace(/,/g, ''))) || 
+                           0
       if (fallbackValue > 0) {
         total += fallbackValue
         fromFallback++
