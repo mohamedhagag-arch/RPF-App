@@ -15,6 +15,7 @@ interface AuthContextType {
   loading: boolean
   signOut: () => Promise<void>
   refreshUserProfile: () => Promise<void>
+  checkSession: (forceCheck?: boolean) => Promise<void> // ✅ Add session check function
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -22,7 +23,8 @@ const AuthContext = createContext<AuthContextType>({
   appUser: null,
   loading: true,
   signOut: async () => {},
-  refreshUserProfile: async () => {}
+  refreshUserProfile: async () => {},
+  checkSession: async (_forceCheck?: boolean) => {} // ✅ Add session check function
 })
 
 export const useAuth = () => {
@@ -98,14 +100,36 @@ export function Providers({ children }: { children: React.ReactNode }) {
         return
       }
       
-      const { data: { session }, error } = await supabase.auth.getSession()
+      // ✅ IMPROVED: Try getSession first, then refreshSession if needed
+      let session = null
+      let { data: { session: currentSession }, error } = await supabase.auth.getSession()
       
-      if (error) {
-        console.log('⚠️ AuthProvider: Manual session check error:', error.message)
-        if (forceCheck && mounted.current) {
-          setLoading(false)
+      if (!error && currentSession?.user) {
+        session = currentSession
+      } else if (error) {
+        console.log('⚠️ AuthProvider: Manual session check error, trying refresh...', error.message)
+        
+        // ✅ If getSession fails, try refreshSession
+        try {
+          const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession()
+          
+          if (!refreshError && refreshedSession?.user) {
+            console.log('✅ AuthProvider: Session refreshed during manual check')
+            session = refreshedSession
+          } else if (refreshError) {
+            console.log('⚠️ AuthProvider: Session refresh also failed:', refreshError.message)
+            if (forceCheck && mounted.current) {
+              setLoading(false)
+            }
+            return
+          }
+        } catch (refreshErr) {
+          console.log('❌ AuthProvider: Error during refresh in manual check:', refreshErr)
+          if (forceCheck && mounted.current) {
+            setLoading(false)
+          }
+          return
         }
-        return
       }
       
       if (session?.user) {
@@ -330,15 +354,33 @@ export function Providers({ children }: { children: React.ReactNode }) {
         // ✅ CRITICAL FIX: Check session IMMEDIATELY (don't wait for events)
         // This ensures the page loads even if INITIAL_SESSION doesn't fire
         try {
-          const { data: { session }, error } = await supabase.auth.getSession()
+          // ✅ IMPROVED: Try getSession first, then refreshSession if needed
+          let session = null
+          let { data: { session: currentSession }, error } = await supabase.auth.getSession()
           
-          if (error) {
-            console.log('⚠️ AuthProvider: Session check error:', error.message)
-            if (mounted.current) {
-              setLoading(false)
-            }
-          } else if (session?.user) {
+          if (!error && currentSession?.user) {
+            session = currentSession
             console.log('✅ AuthProvider: Session found immediately:', session.user.email)
+          } else if (error) {
+            console.log('⚠️ AuthProvider: Session check error, trying refresh...', error.message)
+            
+            // ✅ If getSession fails, try refreshSession
+            try {
+              const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession()
+              
+              if (!refreshError && refreshedSession?.user) {
+                console.log('✅ AuthProvider: Session refreshed during initialization')
+                session = refreshedSession
+              } else if (refreshError) {
+                console.log('⚠️ AuthProvider: Session refresh also failed:', refreshError.message)
+              }
+            } catch (refreshErr) {
+              console.log('❌ AuthProvider: Error during refresh in initialization:', refreshErr)
+            }
+          }
+          
+          if (session?.user) {
+            console.log('✅ AuthProvider: Session found/refreshed:', session.user.email)
             setUser(session.user)
             setLoading(false) // ✅ CRITICAL: Set loading to false IMMEDIATELY
             
@@ -360,7 +402,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
               }
             })()
           } else {
-            console.log('ℹ️ AuthProvider: No session found')
+            console.log('ℹ️ AuthProvider: No session found after all attempts')
             if (mounted.current) {
               setUser(null)
               setAppUser(null)
@@ -393,6 +435,34 @@ export function Providers({ children }: { children: React.ReactNode }) {
       // Initialize session persistence manager
       sessionPersistenceManager.initialize()
       initialized.current = true
+      
+      // ✅ CRITICAL: Auto-retry session recovery if no user after delays
+      // This ensures the page loads even if initial check fails
+      // Use multiple retries to handle different scenarios
+      const autoRetryTimeout1 = setTimeout(() => {
+        if (mounted.current) {
+          // Check current state (not closure)
+          checkSessionManually(true)
+        }
+      }, 800) // First retry after 0.8 seconds
+      
+      const autoRetryTimeout2 = setTimeout(() => {
+        if (mounted.current) {
+          checkSessionManually(true)
+        }
+      }, 2000) // Second retry after 2 seconds
+      
+      const autoRetryTimeout3 = setTimeout(() => {
+        if (mounted.current) {
+          checkSessionManually(true)
+        }
+      }, 4000) // Third retry after 4 seconds
+      
+      return () => {
+        clearTimeout(autoRetryTimeout1)
+        clearTimeout(autoRetryTimeout2)
+        clearTimeout(autoRetryTimeout3)
+      }
     }
 
     // ✅ FIXED: Listen for visibility changes (tab focus/blur)
@@ -449,7 +519,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, appUser, loading, signOut, refreshUserProfile }}>
+    <AuthContext.Provider value={{ user, appUser, loading, signOut, refreshUserProfile, checkSession: checkSessionManually }}>
       <SessionManager />
       {children}
     </AuthContext.Provider>

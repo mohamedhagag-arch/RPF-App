@@ -20,7 +20,7 @@ export default function AuthenticatedLayout({
 }: {
   children: React.ReactNode
 }) {
-  const { user, appUser, loading } = useAuth()
+  const { user, appUser, loading, checkSession } = useAuth()
   const router = useRouter()
   const pathname = usePathname()
   const [mounted, setMounted] = useState(false)
@@ -41,20 +41,91 @@ export default function AuthenticatedLayout({
   }, [])
 
   useEffect(() => {
-    // ✅ FIXED: Faster timeout - 5 seconds max wait
+    // ✅ IMPROVED: Better session recovery with retry mechanism
     if (mounted && !loading && !user) {
-      console.log('🔄 Layout: No user found, waiting 5 seconds for session recovery...')
+      console.log('🔄 Layout: No user found, attempting session recovery...')
       
+      let retryCount = 0
+      const maxRetries = 8 // 8 attempts over 20 seconds
+      let isCancelled = false
+      
+      const attemptSessionRecovery = async () => {
+        if (isCancelled) return
+        
+        try {
+          // ✅ Use checkSession from AuthProvider (more reliable)
+          await checkSession(true) // Force check
+          
+          // Small delay to let AuthProvider update
+          await new Promise(resolve => setTimeout(resolve, 300))
+          
+          // If no user yet, try direct session check
+          const { data: { session }, error } = await supabase.auth.getSession()
+          
+          if (session?.user) {
+            console.log('✅ Layout: Session recovered directly:', session.user.email)
+            // Session will be picked up by AuthProvider via checkSession
+            await checkSession(true) // Update AuthProvider
+            return
+          }
+          
+          // If no session, try to refresh
+          if (retryCount < maxRetries && !isCancelled) {
+            retryCount++
+            console.log(`🔄 Layout: Attempting session refresh (${retryCount}/${maxRetries})...`)
+            
+            try {
+              const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession()
+              
+              if (refreshedSession?.user) {
+                console.log('✅ Layout: Session refreshed successfully:', refreshedSession.user.email)
+                // Trigger checkSession again to update AuthProvider
+                await checkSession(true)
+                return
+              } else if (refreshError) {
+                console.log('⚠️ Layout: Session refresh error:', refreshError.message)
+              }
+            } catch (refreshErr) {
+              console.log('⚠️ Layout: Error during refresh:', refreshErr)
+            }
+            
+            // Retry after delay (shorter delay for faster recovery)
+            if (retryCount < maxRetries && !isCancelled) {
+              setTimeout(attemptSessionRecovery, 2000) // 2 seconds between retries
+            }
+          } else if (retryCount >= maxRetries && !isCancelled) {
+            // All retries exhausted - redirect to login
+            console.log('⚠️ Layout: All session recovery attempts failed, redirecting to login')
+            router.push('/')
+          }
+        } catch (error) {
+          console.log('❌ Layout: Error during session recovery:', error)
+          if (retryCount < maxRetries && !isCancelled) {
+            retryCount++
+            setTimeout(attemptSessionRecovery, 2000)
+          } else if (!isCancelled) {
+            router.push('/')
+          }
+        }
+      }
+      
+      // ✅ Start recovery immediately (no delay)
+      attemptSessionRecovery()
+      
+      // Fallback timeout - redirect after 25 seconds if still no user
       const timeoutId = setTimeout(() => {
-        if (!user) {
-          console.log('⚠️ Layout: No session found after 5 seconds, redirecting to login')
+        if (!isCancelled) {
+          console.log('⚠️ Layout: Timeout reached, redirecting to login')
           router.push('/')
         }
-      }, 5000) // ✅ FIXED: Reduced from 45s/20s to 5 seconds
+      }, 25000) // 25 seconds total timeout
       
-      return () => clearTimeout(timeoutId)
+      return () => {
+        isCancelled = true
+        clearTimeout(timeoutId)
+      }
     }
-  }, [user, loading, mounted, router])
+  }, [user, loading, mounted, router, supabase, checkSession])
 
   const getCurrentTab = () => {
     if (pathname === '/dashboard') return 'dashboard'
