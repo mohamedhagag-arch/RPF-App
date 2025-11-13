@@ -4,7 +4,7 @@ import { useAuth } from '@/app/providers'
 import { useRouter, usePathname } from 'next/navigation'
 import { ModernSidebar } from '@/components/dashboard/ModernSidebar'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { UserDropdown } from '@/components/ui/UserDropdown'
 import { LogOut, User, Users } from 'lucide-react'
@@ -210,9 +210,24 @@ export default function AuthenticatedLayout({
     router.push('/directory')
   }
 
-  // ✅ CRITICAL FIX: Always show loading instead of null
-  // This prevents blank white screen while session is being restored
-  if (!mounted || loading) {
+  // ✅ CRITICAL: All hooks must be called before any conditional returns
+  // Handle redirect if no user after loading is false
+  useEffect(() => {
+    if (!user && !loading && mounted) {
+      const redirectTimeout = setTimeout(() => {
+        if (!user) {
+          console.log('⚠️ Layout: No user after loading complete, redirecting to login')
+          router.push('/')
+        }
+      }, 2000) // 2 seconds delay to allow recovery
+      
+      return () => clearTimeout(redirectTimeout)
+    }
+  }, [user, loading, mounted, router])
+
+  // ✅ CRITICAL FIX: Simplified loading logic - don't block the UI
+  // Show loading only for initial mount, then allow page to render
+  if (!mounted) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <LoadingSpinner size="lg" />
@@ -220,15 +235,28 @@ export default function AuthenticatedLayout({
     )
   }
 
-  // ✅ CRITICAL FIX: Don't return null - show loading to allow session recovery
-  // Returning null causes blank white screen before session can be restored
-  if (!user) {
-    // Give client-side time to recover session (especially important on Vercel)
+  // ✅ SIMPLIFIED: After mount, show "Restoring session" only briefly
+  // Then allow page to render even if user is not yet loaded
+  // This prevents the blank white screen
+  if (!user && loading) {
+    // Show "Restoring session" for max 3 seconds, then allow render
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <div className="text-center">
           <LoadingSpinner size="lg" />
           <p className="mt-4 text-gray-600 dark:text-gray-400">Restoring session...</p>
+        </div>
+      </div>
+    )
+  }
+  
+  // If we're redirecting, show message
+  if (!user && !loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="text-center">
+          <LoadingSpinner size="lg" />
+          <p className="mt-4 text-gray-600 dark:text-gray-400">Redirecting to login...</p>
         </div>
       </div>
     )
@@ -299,5 +327,6 @@ export default function AuthenticatedLayout({
     </div>
   )
 }
+
 
 

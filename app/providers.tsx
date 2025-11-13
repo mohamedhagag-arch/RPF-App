@@ -464,7 +464,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
             if (mounted.current) {
               setUser(null)
               setAppUser(null)
-              setLoading(false) // ✅ CRITICAL: Set loading to false even if no session
+              // ✅ CRITICAL: Always set loading to false - don't block the UI
+              setLoading(false)
             }
           }
         } catch (error) {
@@ -494,6 +495,15 @@ export function Providers({ children }: { children: React.ReactNode }) {
       sessionPersistenceManager.initialize()
       initialized.current = true
       
+      // ✅ CRITICAL: Force loading to false after max 2 seconds
+      // This prevents infinite loading state and allows page to render
+      const forceLoadingFalseTimeout = setTimeout(() => {
+        if (mounted.current) {
+          console.log('⚠️ AuthProvider: Force setting loading to false after timeout')
+          setLoading(false)
+        }
+      }, 2000) // Force loading false after 2 seconds max
+      
       // ✅ CRITICAL: Auto-retry session recovery if no user after delays
       // This ensures the page loads even if initial check fails
       // Use multiple retries to handle different scenarios
@@ -502,21 +512,22 @@ export function Providers({ children }: { children: React.ReactNode }) {
           // Check current state (not closure)
           checkSessionManually(true)
         }
-      }, 800) // First retry after 0.8 seconds
+      }, 500) // First retry after 0.5 seconds
       
       const autoRetryTimeout2 = setTimeout(() => {
         if (mounted.current) {
           checkSessionManually(true)
         }
-      }, 2000) // Second retry after 2 seconds
+      }, 1500) // Second retry after 1.5 seconds
       
       const autoRetryTimeout3 = setTimeout(() => {
         if (mounted.current) {
           checkSessionManually(true)
         }
-      }, 4000) // Third retry after 4 seconds
+      }, 3000) // Third retry after 3 seconds
       
       return () => {
+        clearTimeout(forceLoadingFalseTimeout)
         clearTimeout(autoRetryTimeout1)
         clearTimeout(autoRetryTimeout2)
         clearTimeout(autoRetryTimeout3)
