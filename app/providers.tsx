@@ -101,17 +101,46 @@ export function Providers({ children }: { children: React.ReactNode }) {
       }
       
       // ✅ IMPROVED: Try getSession first, then refreshSession if needed
+      // ✅ Add timeout to prevent hanging
       let session = null
-      let { data: { session: currentSession }, error } = await supabase.auth.getSession()
+      let error: any = null
       
-      if (!error && currentSession?.user) {
-        session = currentSession
-      } else if (error) {
+      try {
+        // ✅ Add timeout wrapper for getSession
+        const sessionPromise = supabase.auth.getSession()
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Session check timeout')), 5000)
+        )
+        
+        const { data: { session: currentSession }, error: sessionError } = await Promise.race([
+          sessionPromise,
+          timeoutPromise
+        ]) as any
+        
+        if (!sessionError && currentSession?.user) {
+          session = currentSession
+        } else {
+          error = sessionError
+        }
+      } catch (timeoutError: any) {
+        console.log('⚠️ AuthProvider: Session check timeout, trying refresh...', timeoutError.message)
+        error = timeoutError
+      }
+      
+      if (!session && error) {
         console.log('⚠️ AuthProvider: Manual session check error, trying refresh...', error.message)
         
-        // ✅ If getSession fails, try refreshSession
+        // ✅ If getSession fails, try refreshSession with timeout
         try {
-          const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession()
+          const refreshPromise = supabase.auth.refreshSession()
+          const refreshTimeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Refresh timeout')), 5000)
+          )
+          
+          const { data: { session: refreshedSession }, error: refreshError } = await Promise.race([
+            refreshPromise,
+            refreshTimeoutPromise
+          ]) as any
           
           if (!refreshError && refreshedSession?.user) {
             console.log('✅ AuthProvider: Session refreshed during manual check')
@@ -123,8 +152,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
             }
             return
           }
-        } catch (refreshErr) {
-          console.log('❌ AuthProvider: Error during refresh in manual check:', refreshErr)
+        } catch (refreshErr: any) {
+          console.log('❌ AuthProvider: Error during refresh in manual check:', refreshErr.message || refreshErr)
           if (forceCheck && mounted.current) {
             setLoading(false)
           }
@@ -355,18 +384,47 @@ export function Providers({ children }: { children: React.ReactNode }) {
         // This ensures the page loads even if INITIAL_SESSION doesn't fire
         try {
           // ✅ IMPROVED: Try getSession first, then refreshSession if needed
+          // ✅ Add timeout to prevent hanging in slow browsers
           let session = null
-          let { data: { session: currentSession }, error } = await supabase.auth.getSession()
+          let error: any = null
           
-          if (!error && currentSession?.user) {
-            session = currentSession
-            console.log('✅ AuthProvider: Session found immediately:', session.user.email)
-          } else if (error) {
+          try {
+            // ✅ Add timeout wrapper for getSession (5 seconds max)
+            const sessionPromise = supabase.auth.getSession()
+            const timeoutPromise = new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Session check timeout')), 5000)
+            )
+            
+            const { data: { session: currentSession }, error: sessionError } = await Promise.race([
+              sessionPromise,
+              timeoutPromise
+            ]) as any
+            
+            if (!sessionError && currentSession?.user) {
+              session = currentSession
+              console.log('✅ AuthProvider: Session found immediately:', session.user.email)
+            } else {
+              error = sessionError
+            }
+          } catch (timeoutError: any) {
+            console.log('⚠️ AuthProvider: Session check timeout, trying refresh...', timeoutError.message)
+            error = timeoutError
+          }
+          
+          if (!session && error) {
             console.log('⚠️ AuthProvider: Session check error, trying refresh...', error.message)
             
-            // ✅ If getSession fails, try refreshSession
+            // ✅ If getSession fails, try refreshSession with timeout
             try {
-              const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession()
+              const refreshPromise = supabase.auth.refreshSession()
+              const refreshTimeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Refresh timeout')), 5000)
+              )
+              
+              const { data: { session: refreshedSession }, error: refreshError } = await Promise.race([
+                refreshPromise,
+                refreshTimeoutPromise
+              ]) as any
               
               if (!refreshError && refreshedSession?.user) {
                 console.log('✅ AuthProvider: Session refreshed during initialization')
@@ -374,8 +432,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
               } else if (refreshError) {
                 console.log('⚠️ AuthProvider: Session refresh also failed:', refreshError.message)
               }
-            } catch (refreshErr) {
-              console.log('❌ AuthProvider: Error during refresh in initialization:', refreshErr)
+            } catch (refreshErr: any) {
+              console.log('❌ AuthProvider: Error during refresh in initialization:', refreshErr.message || refreshErr)
             }
           }
           

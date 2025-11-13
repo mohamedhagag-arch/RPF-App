@@ -53,20 +53,47 @@ export default function AuthenticatedLayout({
         if (isCancelled) return
         
         try {
-          // ✅ Use checkSession from AuthProvider (more reliable)
-          await checkSession(true) // Force check
+          // ✅ Use checkSession from AuthProvider (more reliable) with timeout
+          try {
+            const checkPromise = checkSession(true) // Force check
+            const checkTimeoutPromise = new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Check timeout')), 4000)
+            )
+            await Promise.race([checkPromise, checkTimeoutPromise])
+          } catch (checkErr) {
+            console.log('⚠️ Layout: checkSession timeout, continuing...')
+          }
           
           // Small delay to let AuthProvider update
           await new Promise(resolve => setTimeout(resolve, 300))
           
-          // If no user yet, try direct session check
-          const { data: { session }, error } = await supabase.auth.getSession()
-          
-          if (session?.user) {
-            console.log('✅ Layout: Session recovered directly:', session.user.email)
-            // Session will be picked up by AuthProvider via checkSession
-            await checkSession(true) // Update AuthProvider
-            return
+          // If no user yet, try direct session check with timeout
+          try {
+            const sessionPromise = supabase.auth.getSession()
+            const sessionTimeoutPromise = new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Session check timeout')), 4000)
+            )
+            
+            const { data: { session }, error } = await Promise.race([
+              sessionPromise,
+              sessionTimeoutPromise
+            ]) as any
+            
+            if (session?.user) {
+              console.log('✅ Layout: Session recovered directly:', session.user.email)
+              // Session will be picked up by AuthProvider via checkSession
+              try {
+                await Promise.race([
+                  checkSession(true),
+                  new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000))
+                ])
+              } catch (err) {
+                console.log('⚠️ Layout: checkSession timeout after recovery')
+              }
+              return
+            }
+          } catch (sessionErr: any) {
+            console.log('⚠️ Layout: Direct session check failed:', sessionErr.message || sessionErr)
           }
           
           // If no session, try to refresh
@@ -75,18 +102,33 @@ export default function AuthenticatedLayout({
             console.log(`🔄 Layout: Attempting session refresh (${retryCount}/${maxRetries})...`)
             
             try {
-              const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession()
+              const refreshPromise = supabase.auth.refreshSession()
+              const refreshTimeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Refresh timeout')), 4000)
+              )
+              
+              const { data: { session: refreshedSession }, error: refreshError } = await Promise.race([
+                refreshPromise,
+                refreshTimeoutPromise
+              ]) as any
               
               if (refreshedSession?.user) {
                 console.log('✅ Layout: Session refreshed successfully:', refreshedSession.user.email)
                 // Trigger checkSession again to update AuthProvider
-                await checkSession(true)
+                try {
+                  await Promise.race([
+                    checkSession(true),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000))
+                  ])
+                } catch (err) {
+                  console.log('⚠️ Layout: checkSession timeout after refresh')
+                }
                 return
               } else if (refreshError) {
                 console.log('⚠️ Layout: Session refresh error:', refreshError.message)
               }
-            } catch (refreshErr) {
-              console.log('⚠️ Layout: Error during refresh:', refreshErr)
+            } catch (refreshErr: any) {
+              console.log('⚠️ Layout: Error during refresh:', refreshErr.message || refreshErr)
             }
             
             // Retry after delay (shorter delay for faster recovery)
@@ -98,8 +140,8 @@ export default function AuthenticatedLayout({
             console.log('⚠️ Layout: All session recovery attempts failed, redirecting to login')
             router.push('/')
           }
-        } catch (error) {
-          console.log('❌ Layout: Error during session recovery:', error)
+        } catch (error: any) {
+          console.log('❌ Layout: Error during session recovery:', error.message || error)
           if (retryCount < maxRetries && !isCancelled) {
             retryCount++
             setTimeout(attemptSessionRecovery, 2000)
