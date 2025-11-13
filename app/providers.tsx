@@ -495,14 +495,14 @@ export function Providers({ children }: { children: React.ReactNode }) {
       sessionPersistenceManager.initialize()
       initialized.current = true
       
-      // ✅ CRITICAL: Force loading to false after max 2 seconds
-      // This prevents infinite loading state and allows page to render
+      // ✅ CRITICAL: Force loading to false after max 1.5 seconds
+      // This prevents infinite loading state and allows page to render faster
       const forceLoadingFalseTimeout = setTimeout(() => {
         if (mounted.current) {
           console.log('⚠️ AuthProvider: Force setting loading to false after timeout')
           setLoading(false)
         }
-      }, 2000) // Force loading false after 2 seconds max
+      }, 1500) // Force loading false after 1.5 seconds max
       
       // ✅ CRITICAL: Auto-retry session recovery if no user after delays
       // This ensures the page loads even if initial check fails

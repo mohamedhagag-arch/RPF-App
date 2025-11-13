@@ -47,6 +47,20 @@ export default function Home() {
     console.log('✅ Home component: Confirmed on home route')
   }, [pathname])
   
+  // ✅ Handle redirect if user exists (must be before any conditional returns)
+  useEffect(() => {
+    if (user && shouldRender) {
+      // Check if we have a saved redirect path
+      const savedRedirect = sessionStorage.getItem('redirectAfterLogin')
+      sessionStorage.removeItem('redirectAfterLogin')
+      
+      // Redirect to saved path or dashboard
+      const redirectPath = savedRedirect && savedRedirect !== '/' ? savedRedirect : '/dashboard'
+      console.log('✅ Home: User authenticated, redirecting to:', redirectPath)
+      router.push(redirectPath)
+    }
+  }, [user, router, shouldRender])
+  
   // ✅ CRITICAL: Don't render anything on server
   if (typeof window === 'undefined') {
     return null
@@ -79,8 +93,7 @@ export default function Home() {
     )
   }
 
-  // ✅ CRITICAL: If user exists, middleware should have already redirected
-  // But just in case, show loading (middleware will handle redirect)
+  // ✅ CRITICAL: If user exists, show redirecting message
   if (user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">

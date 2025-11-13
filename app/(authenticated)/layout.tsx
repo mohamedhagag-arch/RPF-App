@@ -4,171 +4,72 @@ import { useAuth } from '@/app/providers'
 import { useRouter, usePathname } from 'next/navigation'
 import { ModernSidebar } from '@/components/dashboard/ModernSidebar'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { UserDropdown } from '@/components/ui/UserDropdown'
-import { LogOut, User, Users } from 'lucide-react'
+import { Users } from 'lucide-react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { ConnectionMonitor } from '@/components/common/ConnectionMonitor'
 import { ProfileCompletionWrapper } from '@/components/auth/ProfileCompletionWrapper'
-// Simple connection management - no complex systems needed
-// Import simple connection test for development
 import '@/lib/simpleConnectionTest'
 
+/**
+ * Authenticated Layout Component
+ * 
+ * Handles:
+ * - Session validation and redirects
+ * - Sidebar and top bar UI
+ * - Loading states
+ * 
+ * Logic:
+ * 1. Wait for component to mount
+ * 2. If loading → show loading spinner
+ * 3. If no user and not loading → redirect to login
+ * 4. If user exists → show authenticated layout
+ */
 export default function AuthenticatedLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const { user, appUser, loading, checkSession } = useAuth()
+  const { user, appUser, loading } = useAuth()
   const router = useRouter()
   const pathname = usePathname()
   const [mounted, setMounted] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const supabase = createClientComponentClient()
 
+  // Mark component as mounted
   useEffect(() => {
     setMounted(true)
-    
-    // Set reload flag if this is a page reload
-    if (typeof window !== 'undefined') {
-      const isReload = window.performance?.navigation?.type === 1
-      if (isReload) {
-        sessionStorage.setItem('auth_reload_check', 'true')
-        console.log('🔄 Layout: Page reload detected, setting reload flag')
-      }
-    }
   }, [])
 
+  // Handle redirect if no user after loading completes
+  // Only redirect if we're on a protected route and session recovery failed
   useEffect(() => {
-    // ✅ IMPROVED: Better session recovery with retry mechanism
     if (mounted && !loading && !user) {
-      console.log('🔄 Layout: No user found, attempting session recovery...')
-      
-      let retryCount = 0
-      const maxRetries = 8 // 8 attempts over 20 seconds
-      let isCancelled = false
-      
-      const attemptSessionRecovery = async () => {
-        if (isCancelled) return
-        
-        try {
-          // ✅ Use checkSession from AuthProvider (more reliable) with timeout
-          try {
-            const checkPromise = checkSession(true) // Force check
-            const checkTimeoutPromise = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Check timeout')), 4000)
-            )
-            await Promise.race([checkPromise, checkTimeoutPromise])
-          } catch (checkErr) {
-            console.log('⚠️ Layout: checkSession timeout, continuing...')
-          }
+      // Give more time for session recovery (providers.tsx has retries)
+      const redirectTimer = setTimeout(() => {
+        if (typeof window !== 'undefined' && !user) {
+          const currentPath = window.location.pathname
+          const protectedRoutes = ['/dashboard', '/projects', '/boq', '/kpi', '/reports', '/settings', '/profile', '/directory']
+          const isOnProtectedRoute = protectedRoutes.some(route => currentPath.startsWith(route))
           
-          // Small delay to let AuthProvider update
-          await new Promise(resolve => setTimeout(resolve, 300))
-          
-          // If no user yet, try direct session check with timeout
-          try {
-            const sessionPromise = supabase.auth.getSession()
-            const sessionTimeoutPromise = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Session check timeout')), 4000)
-            )
-            
-            const { data: { session }, error } = await Promise.race([
-              sessionPromise,
-              sessionTimeoutPromise
-            ]) as any
-            
-            if (session?.user) {
-              console.log('✅ Layout: Session recovered directly:', session.user.email)
-              // Session will be picked up by AuthProvider via checkSession
-              try {
-                await Promise.race([
-                  checkSession(true),
-                  new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000))
-                ])
-              } catch (err) {
-                console.log('⚠️ Layout: checkSession timeout after recovery')
-              }
-              return
-            }
-          } catch (sessionErr: any) {
-            console.log('⚠️ Layout: Direct session check failed:', sessionErr.message || sessionErr)
-          }
-          
-          // If no session, try to refresh
-          if (retryCount < maxRetries && !isCancelled) {
-            retryCount++
-            console.log(`🔄 Layout: Attempting session refresh (${retryCount}/${maxRetries})...`)
-            
-            try {
-              const refreshPromise = supabase.auth.refreshSession()
-              const refreshTimeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Refresh timeout')), 4000)
-              )
-              
-              const { data: { session: refreshedSession }, error: refreshError } = await Promise.race([
-                refreshPromise,
-                refreshTimeoutPromise
-              ]) as any
-              
-              if (refreshedSession?.user) {
-                console.log('✅ Layout: Session refreshed successfully:', refreshedSession.user.email)
-                // Trigger checkSession again to update AuthProvider
-                try {
-                  await Promise.race([
-                    checkSession(true),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000))
-                  ])
-                } catch (err) {
-                  console.log('⚠️ Layout: checkSession timeout after refresh')
-                }
-                return
-              } else if (refreshError) {
-                console.log('⚠️ Layout: Session refresh error:', refreshError.message)
-              }
-            } catch (refreshErr: any) {
-              console.log('⚠️ Layout: Error during refresh:', refreshErr.message || refreshErr)
-            }
-            
-            // Retry after delay (shorter delay for faster recovery)
-            if (retryCount < maxRetries && !isCancelled) {
-              setTimeout(attemptSessionRecovery, 2000) // 2 seconds between retries
-            }
-          } else if (retryCount >= maxRetries && !isCancelled) {
-            // All retries exhausted - redirect to login
-            console.log('⚠️ Layout: All session recovery attempts failed, redirecting to login')
-            router.push('/')
-          }
-        } catch (error: any) {
-          console.log('❌ Layout: Error during session recovery:', error.message || error)
-          if (retryCount < maxRetries && !isCancelled) {
-            retryCount++
-            setTimeout(attemptSessionRecovery, 2000)
-          } else if (!isCancelled) {
-            router.push('/')
+          // Only redirect if we're on a protected route and still no user
+          if (isOnProtectedRoute) {
+            console.log('⚠️ Layout: No user found after recovery attempts, redirecting to login')
+            // Store the current path to return to after login
+            sessionStorage.setItem('redirectAfterLogin', currentPath)
+            window.location.href = '/'
           }
         }
-      }
+      }, 3000) // Give 3 seconds for session recovery (providers has retries at 0.5s, 1.5s, 3s)
       
-      // ✅ Start recovery immediately (no delay)
-      attemptSessionRecovery()
-      
-      // Fallback timeout - redirect after 25 seconds if still no user
-      const timeoutId = setTimeout(() => {
-        if (!isCancelled) {
-          console.log('⚠️ Layout: Timeout reached, redirecting to login')
-          router.push('/')
-        }
-      }, 25000) // 25 seconds total timeout
-      
-      return () => {
-        isCancelled = true
-        clearTimeout(timeoutId)
-      }
+      return () => clearTimeout(redirectTimer)
     }
-  }, [user, loading, mounted, router, supabase, checkSession])
+  }, [mounted, loading, user])
 
+  // Helper: Get current tab from pathname
   const getCurrentTab = () => {
     if (pathname === '/dashboard') return 'dashboard'
     if (pathname === '/projects') return 'projects'
@@ -176,13 +77,12 @@ export default function AuthenticatedLayout({
     if (pathname === '/kpi') return 'kpi'
     if (pathname === '/settings') return 'settings'
     if (pathname === '/reports') return 'reports'
-    if (pathname === '/profile') return 'profile'
-    if (pathname.startsWith('/profile/')) return 'profile'
+    if (pathname === '/profile' || pathname.startsWith('/profile/')) return 'profile'
     if (pathname === '/directory') return 'directory'
     return 'dashboard'
   }
 
-
+  // Navigation handlers
   const handleTabChange = (tab: string) => {
     if (tab === 'users') {
       router.push('/settings?tab=users')
@@ -210,24 +110,8 @@ export default function AuthenticatedLayout({
     router.push('/directory')
   }
 
-  // ✅ CRITICAL: All hooks must be called before any conditional returns
-  // Handle redirect if no user after loading is false
-  useEffect(() => {
-    if (!user && !loading && mounted) {
-      const redirectTimeout = setTimeout(() => {
-        if (!user) {
-          console.log('⚠️ Layout: No user after loading complete, redirecting to login')
-          router.push('/')
-        }
-      }, 2000) // 2 seconds delay to allow recovery
-      
-      return () => clearTimeout(redirectTimeout)
-    }
-  }, [user, loading, mounted, router])
-
-  // ✅ CRITICAL FIX: Simplified loading logic - don't block the UI
-  // Show loading only for initial mount, then allow page to render
-  if (!mounted) {
+  // Loading state: Show spinner while mounting or loading
+  if (!mounted || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <LoadingSpinner size="lg" />
@@ -235,11 +119,8 @@ export default function AuthenticatedLayout({
     )
   }
 
-  // ✅ SIMPLIFIED: After mount, show "Restoring session" only briefly
-  // Then allow page to render even if user is not yet loaded
-  // This prevents the blank white screen
-  if (!user && loading) {
-    // Show "Restoring session" for max 3 seconds, then allow render
+  // No user state: Show "Restoring session" message
+  if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <div className="text-center">
@@ -249,19 +130,8 @@ export default function AuthenticatedLayout({
       </div>
     )
   }
-  
-  // If we're redirecting, show message
-  if (!user && !loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <div className="text-center">
-          <LoadingSpinner size="lg" />
-          <p className="mt-4 text-gray-600 dark:text-gray-400">Redirecting to login...</p>
-        </div>
-      </div>
-    )
-  }
 
+  // Authenticated state: Show full layout
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* Sidebar */}
@@ -322,11 +192,8 @@ export default function AuthenticatedLayout({
         </main>
       </div>
       
-      {/* ✅ Connection Monitor - prevents "Syncing..." issues */}
+      {/* Connection Monitor */}
       <ConnectionMonitor />
     </div>
   )
 }
-
-
-
