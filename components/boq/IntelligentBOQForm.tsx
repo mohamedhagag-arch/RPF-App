@@ -44,7 +44,7 @@ import {
   updateExistingKPIs
 } from '@/lib/autoKPIGenerator'
 import { getAllDivisions, Division as DivisionType } from '@/lib/divisionsManager'
-import { Clock, CheckCircle2, Info, Sparkles, X, Calendar, TrendingUp, AlertCircle } from 'lucide-react'
+import { Clock, CheckCircle2, Info, Sparkles, X, Calendar, TrendingUp, AlertCircle, Search, ChevronDown } from 'lucide-react'
 
 interface IntelligentBOQFormProps {
   activity?: any
@@ -60,6 +60,10 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   const [success, setSuccess] = useState('')
   const [projectLoading, setProjectLoading] = useState(false)
   const [allProjects, setAllProjects] = useState<Project[]>(projects)
+  
+  // ✅ Project Search & Dropdown
+  const [showProjectDropdown, setShowProjectDropdown] = useState(false)
+  const [projectSearch, setProjectSearch] = useState('')
   
   // Form Fields
   const [projectCode, setProjectCode] = useState(activity?.project_code || '')
@@ -111,6 +115,25 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   
   const supabase = getSupabaseClient()
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('boq-form')
+
+  // ✅ Close project dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showProjectDropdown) {
+        const target = event.target as HTMLElement
+        if (!target.closest('.project-dropdown-container')) {
+          setShowProjectDropdown(false)
+        }
+      }
+    }
+
+    if (showProjectDropdown) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside)
+      }
+    }
+  }, [showProjectDropdown])
 
   // Close dropdowns when clicking outside or pressing Escape
   useEffect(() => {
@@ -281,19 +304,13 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
     loadActivitiesByProjectScopes()
   }, [project?.project_type, project?.project_code, selectedScopeFilter])
 
-  // ✅ Load zones from project_zones table when project is selected
+  // ✅ Load zones from project_zones table when project is selected (ONLY from database, no fallback)
   useEffect(() => {
     const loadProjectZones = async () => {
       if (!projectCode || !project) {
-        // If no project selected, use fallback zones
-        const commonZones = [
-          'Zone A', 'Zone B', 'Zone C', 'Zone D', 'Zone E',
-          'Area 1', 'Area 2', 'Area 3', 'Area 4', 'Area 5',
-          'Section A', 'Section B', 'Section C', 'Section D',
-          'Block 1', 'Block 2', 'Block 3', 'Block 4'
-        ]
-        setAvailableZones(commonZones)
-        setZoneSuggestions(commonZones)
+        // If no project selected, clear zones
+        setAvailableZones([])
+        setZoneSuggestions([])
         return
       }
 
@@ -326,28 +343,16 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
           setZoneSuggestions(zonesList)
           console.log(`✅ Loaded ${zonesList.length} zones from project:`, zonesList)
         } else {
-          // No zones defined for this project, use fallback
-          console.log('⚠️ No zones defined for project, using fallback zones')
-          const commonZones = [
-            'Zone A', 'Zone B', 'Zone C', 'Zone D', 'Zone E',
-            'Area 1', 'Area 2', 'Area 3', 'Area 4', 'Area 5',
-            'Section A', 'Section B', 'Section C', 'Section D',
-            'Block 1', 'Block 2', 'Block 3', 'Block 4'
-          ]
-          setAvailableZones(commonZones)
-          setZoneSuggestions(commonZones)
+          // No zones defined for this project - clear zones (no fallback)
+          console.log('⚠️ No zones defined for project:', projectCode)
+          setAvailableZones([])
+          setZoneSuggestions([])
         }
       } catch (error) {
         console.error('❌ Error loading project zones:', error)
-        // Fallback to common zone patterns
-        const commonZones = [
-          'Zone A', 'Zone B', 'Zone C', 'Zone D', 'Zone E',
-          'Area 1', 'Area 2', 'Area 3', 'Area 4', 'Area 5',
-          'Section A', 'Section B', 'Section C', 'Section D',
-          'Block 1', 'Block 2', 'Block 3', 'Block 4'
-        ]
-        setAvailableZones(commonZones)
-        setZoneSuggestions(commonZones)
+        // On error, clear zones (no fallback)
+        setAvailableZones([])
+        setZoneSuggestions([])
       }
     }
     
@@ -355,6 +360,18 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   }, [projectCode, project])
   
   // ✅ Handle project selection and load project details
+  const handleProjectSelect = (selectedProject: Project) => {
+    console.log('🎯 Project selected:', selectedProject.project_code)
+    
+    setProjectCode(selectedProject.project_code)
+    setProject(selectedProject)
+    setShowProjectDropdown(false)
+    setProjectSearch('')
+    console.log('✅ Project loaded:', selectedProject.project_name)
+    
+    // Activities will be loaded automatically by useEffect that watches project.project_type
+  }
+
   const handleProjectChange = async (projectCodeValue: string) => {
     console.log('🎯 Project selected:', projectCodeValue)
     
@@ -370,6 +387,37 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       }
     }
   }
+  
+  // ✅ Filter projects based on search
+  const filteredProjects = allProjects.filter((proj) => {
+    if (!projectSearch.trim()) return true
+    
+    const searchLower = projectSearch.toLowerCase().trim()
+    const projectCode = (proj.project_code || '').toLowerCase()
+    const projectSubCode = (proj.project_sub_code || '').toLowerCase()
+    const projectName = (proj.project_name || '').toLowerCase()
+    
+    // Build full project code for search
+    let projectFullCode = projectCode
+    if (projectSubCode) {
+      if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+        projectFullCode = projectSubCode
+      } else {
+        if (projectSubCode.startsWith('-')) {
+          projectFullCode = `${projectCode}${projectSubCode}`
+        } else {
+          projectFullCode = `${projectCode}-${projectSubCode}`
+        }
+      }
+    }
+    
+    return (
+      projectCode.includes(searchLower) ||
+      projectSubCode.includes(searchLower) ||
+      projectFullCode.toLowerCase().includes(searchLower) ||
+      projectName.includes(searchLower)
+    )
+  })
 
   // Auto-load project data when project code changes
   useEffect(() => {
@@ -1440,26 +1488,114 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-6 mt-6">
             {/* Project Selection */}
-            <div>
+            <div className="relative project-dropdown-container">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Project <span className="text-red-500">*</span>
               </label>
-              <select 
-                value={projectCode} 
-                onChange={(e) => handleProjectChange(e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                required
+              <button
+                type="button"
+                onClick={() => setShowProjectDropdown(!showProjectDropdown)}
                 disabled={loading || projectLoading}
+                className={`w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all flex items-center justify-between ${
+                  loading || projectLoading ? 'opacity-50 cursor-not-allowed' : 'hover:border-blue-400'
+                }`}
               >
-                <option value="">
-                  {projectLoading ? 'Loading projects...' : 'Select a project...'}
-                </option>
-                {allProjects.map((proj) => (
-                  <option key={proj.id} value={proj.project_code}>
-                    {proj.project_code} - {proj.project_name}
-                  </option>
-                ))}
-              </select>
+                <span className={project ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}>
+                  {projectLoading ? 'Loading projects...' : project ? (() => {
+                    const projectCode = (project.project_code || '').trim()
+                    const projectSubCode = (project.project_sub_code || '').trim()
+                    let projectFullCode = projectCode
+                    if (projectSubCode) {
+                      if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+                        projectFullCode = projectSubCode
+                      } else {
+                        if (projectSubCode.startsWith('-')) {
+                          projectFullCode = `${projectCode}${projectSubCode}`
+                        } else {
+                          projectFullCode = `${projectCode}-${projectSubCode}`
+                        }
+                      }
+                    }
+                    return `${projectFullCode} - ${project.project_name}`
+                  })() : 'Select a project...'}
+                </span>
+                <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${showProjectDropdown ? 'rotate-180' : ''}`} />
+              </button>
+              
+              {showProjectDropdown && (
+                <div 
+                  className="absolute w-full z-50 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-80 overflow-hidden"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="p-3 border-b border-gray-200 dark:border-gray-700">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <input
+                        type="text"
+                        placeholder="Search projects..."
+                        value={projectSearch}
+                        onChange={(e) => setProjectSearch(e.target.value)}
+                        className="w-full pl-10 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        autoFocus
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    {filteredProjects.length > 0 ? (
+                      filteredProjects.map((proj) => {
+                        // ✅ Build full project code (e.g., P5066-R1 instead of just P5066)
+                        const projectCode = (proj.project_code || '').trim()
+                        const projectSubCode = (proj.project_sub_code || '').trim()
+                        let projectFullCode = projectCode
+                        if (projectSubCode) {
+                          // Check if sub_code already starts with project_code (case-insensitive)
+                          if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+                            // project_sub_code already contains project_code (e.g., "P5066-R1")
+                            projectFullCode = projectSubCode
+                          } else {
+                            // project_sub_code is just the suffix (e.g., "R1" or "-R1")
+                            if (projectSubCode.startsWith('-')) {
+                              projectFullCode = `${projectCode}${projectSubCode}`
+                            } else {
+                              projectFullCode = `${projectCode}-${projectSubCode}`
+                            }
+                          }
+                        }
+                        
+                        return (
+                          <button
+                            key={proj.id}
+                            type="button"
+                            onClick={() => handleProjectSelect(proj)}
+                            className={`w-full text-left px-4 py-2 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors ${
+                              projectCode === proj.project_code ? 'bg-blue-100 dark:bg-blue-900/30 font-medium' : ''
+                            }`}
+                          >
+                            <div className="font-medium text-gray-900 dark:text-white">
+                              {projectFullCode}
+                            </div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                              {proj.project_name}
+                            </div>
+                          </button>
+                        )
+                      })
+                    ) : (
+                      <div className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                        No projects found
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              
+              {/* Hidden input for form validation */}
+              <input
+                type="hidden"
+                value={projectCode}
+                required
+              />
               
               {/* ✅ Project Info Card - Show immediately after project selection */}
               {project && (
@@ -1771,59 +1907,62 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                     Zone Number <span className="text-red-500">*</span>
                   </span>
                 </label>
-                {projectCode && availableZones.length > 0 ? (
-                  <div className="relative">
-                    <select
-                      value={zoneNumber}
-                      onChange={(e) => {
-                        const selectedZone = e.target.value
-                        if (selectedZone) {
-                          setZoneNumber(selectedZone)
-                          // ✅ Zone Reference = project_code + " - " + zone_number (auto-generated)
-                          const fullZoneRef = `${projectCode} - ${selectedZone}`
-                          setZoneRef(fullZoneRef)
-                        } else {
-                          setZoneNumber('')
-                          setZoneRef('')
-                        }
-                      }}
-                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      required
-                      disabled={loading}
-                    >
-                      <option value="">Select Zone...</option>
-                      {availableZones.map((zone) => (
-                        <option key={zone} value={zone}>
-                          {zone}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="text-xs text-gray-500 mt-1">
-                      💡 Available zones from project: <strong>{projectCode}</strong>
-                    </p>
-                  </div>
-                ) : (
-                  <div>
-                    <Input 
-                      value={zoneNumber}
-                      onChange={(e) => {
-                        setZoneNumber(e.target.value)
-                        // If project code exists, auto-generate Zone Reference
-                        if (projectCode && e.target.value) {
-                          setZoneRef(`${projectCode} - ${e.target.value}`)
-                        }
-                      }}
-                      placeholder="Enter zone number manually..."
-                      required
-                      disabled={loading}
-                    />
-                    {projectCode && (
+                {projectCode ? (
+                  availableZones.length > 0 ? (
+                    <div className="relative">
+                      <select
+                        value={zoneNumber}
+                        onChange={(e) => {
+                          const selectedZone = e.target.value
+                          if (selectedZone) {
+                            setZoneNumber(selectedZone)
+                            // ✅ Zone Reference = project_code + " - " + zone_number (auto-generated)
+                            const fullZoneRef = `${projectCode} - ${selectedZone}`
+                            setZoneRef(fullZoneRef)
+                          } else {
+                            setZoneNumber('')
+                            setZoneRef('')
+                          }
+                        }}
+                        className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        required
+                        disabled={loading}
+                      >
+                        <option value="">Select Zone...</option>
+                        {availableZones.map((zone) => (
+                          <option key={zone} value={zone}>
+                            {zone}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Zones from Project Zones Management
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+                      <div className="flex items-center gap-2 text-yellow-800 dark:text-yellow-300">
+                        <AlertCircle className="h-5 w-5" />
+                        <span className="font-medium">No Zones Available</span>
+                      </div>
+                      <p className="text-xs text-yellow-700 dark:text-yellow-400 mt-2">
+                        No zones defined for this project.
+                      </p>
                       <PermissionGuard permission="projects.zones">
-                        <p className="text-xs text-orange-500 mt-1">
-                          ⚠️ No zones defined for this project. <a href="/projects/zones" className="underline">Manage Zones</a>
-                        </p>
+                        <a 
+                          href="/projects/zones" 
+                          className="text-xs text-blue-600 dark:text-blue-400 hover:underline mt-2 inline-block"
+                        >
+                          Manage Zones →
+                        </a>
                       </PermissionGuard>
-                    )}
+                    </div>
+                  )
+                ) : (
+                  <div className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      Select a project to view zones
+                    </p>
                   </div>
                 )}
               </div>

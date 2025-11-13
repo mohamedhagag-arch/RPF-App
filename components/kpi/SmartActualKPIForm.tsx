@@ -131,7 +131,26 @@ export function SmartActualKPIForm({
       }
       
       setActualDate(formatDateForInput(actualDateValue))
-      setZone(kpi['Zone'] || kpi.zone || '')
+      
+      // Normalize zone: remove project code prefix (e.g., "P9997-1" -> "1")
+      const rawZone = (kpi['Zone'] || kpi.zone || '').toString().trim()
+      const projectCode = (kpi['Project Code'] || kpi.project_code || '').toString().trim()
+      let normalizedZone = rawZone
+      
+      if (normalizedZone && projectCode) {
+        const projectCodeUpper = projectCode.toUpperCase()
+        // Remove patterns like "P9997-1", "P9997 - 1", "Zone P9997-1", etc.
+        normalizedZone = normalizedZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+        normalizedZone = normalizedZone.replace(new RegExp(`^Zone\\s+${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+        normalizedZone = normalizedZone.replace(new RegExp(`^${projectCodeUpper}(\\s|-)+`, 'i'), '').trim()
+        normalizedZone = normalizedZone.replace(/^\s*-\s*/, '').trim()
+        // If zone starts with "Zone ", keep it but remove project code
+        if (normalizedZone.toLowerCase().startsWith('zone ')) {
+          normalizedZone = normalizedZone.replace(new RegExp(`^Zone\\s+${projectCodeUpper}\\s*-\\s*`, 'i'), 'Zone ').trim()
+        }
+      }
+      
+      setZone(normalizedZone || rawZone)
       setDay(kpi['Day'] || kpi.day || '')
       setDrilledMeters(kpi['Drilled Meters']?.toString() || kpi.drilled_meters?.toString() || '')
       

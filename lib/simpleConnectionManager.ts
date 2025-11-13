@@ -54,7 +54,10 @@ function setupSessionRefresh() {
       }
       
       if (!session) {
-        console.warn('⚠️ No session to refresh')
+        // ✅ Only log in development mode to reduce console noise
+        if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
+          console.warn('⚠️ No session to refresh')
+        }
         return
       }
       

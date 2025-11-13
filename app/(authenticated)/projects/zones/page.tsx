@@ -22,7 +22,10 @@ import {
   MapPin,
   Check,
   Filter,
-  Tag
+  Tag,
+  Download,
+  Upload,
+  FileText
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { TABLES } from '@/lib/supabase'
@@ -37,6 +40,8 @@ interface ProjectZone {
 
 interface Project {
   project_code: string
+  project_sub_code?: string
+  project_full_code: string
   project_name: string
 }
 
@@ -53,6 +58,9 @@ export default function ProjectZonesPage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [selectedProject, setSelectedProject] = useState<string>('')
+  const [importing, setImporting] = useState(false)
+  const [importProgress, setImportProgress] = useState(0)
+  const [importStatus, setImportStatus] = useState('')
   
   // Search and Filter
   const [searchTerm, setSearchTerm] = useState('')
@@ -72,22 +80,38 @@ export default function ProjectZonesPage() {
       
       const supabase = getSupabaseClient()
 
-      // Load all projects
+      // Load all projects - use Project Sub-Code as Full Code
       const { data: projectsData, error: projectsError } = await executeQuery(async () =>
         supabase
           .from(TABLES.PROJECTS)
-          .select('"Project Code", "Project Name"')
+          .select('"Project Code", "Project Sub-Code", "Project Name"')
           .order('"Project Code"')
       )
 
       if (projectsError) throw projectsError
 
-      const projectsList: Project[] = (projectsData || []).map((p: any) => ({
-        project_code: p['Project Code'] || p.project_code || '',
-        project_name: p['Project Name'] || p.project_name || ''
-      }))
+      // ✅ Use Project Sub-Code as Full Code (if exists), otherwise use Project Code
+      const projectsList: Project[] = (projectsData || []).map((p: any) => {
+        const projectCode = p['Project Code'] || p.project_code || ''
+        const projectSubCode = p['Project Sub-Code'] || p.project_sub_code || ''
+        
+        // Use Project Sub-Code as Full Code (it already contains the full code like "P5008-SI")
+        const projectFullCode = projectSubCode || projectCode
+        
+        return {
+          project_code: projectCode,
+          project_sub_code: projectSubCode,
+          project_full_code: projectFullCode,
+          project_name: p['Project Name'] || p.project_name || ''
+        }
+      })
 
-      setProjects(projectsList)
+      // ✅ Remove duplicates based on project_full_code
+      const uniqueProjects = projectsList.filter((project, index, self) =>
+        index === self.findIndex((p) => p.project_full_code === project.project_full_code)
+      )
+
+      setProjects(uniqueProjects)
 
       // Load all project zones
       const { data: zonesData, error: zonesError } = await executeQuery(async () =>
@@ -129,11 +153,12 @@ export default function ProjectZonesPage() {
     
     // Filter by dropdown selection (highest priority)
     if (selectedProjectFromDropdown) {
-      filtered = filtered.filter(p => p.project_code === selectedProjectFromDropdown)
+      filtered = filtered.filter(p => p.project_full_code === selectedProjectFromDropdown)
     } else if (searchTerm.trim()) {
       // Search filter - must match search term
       filtered = filtered.filter((project) => {
         const matchesSearch = 
+          project.project_full_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
           project.project_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
           project.project_name.toLowerCase().includes(searchTerm.toLowerCase())
         return matchesSearch
@@ -142,6 +167,7 @@ export default function ProjectZonesPage() {
 
     // Filter type
     return filtered.filter((project) => {
+      // Check zones using project_code (as stored in database)
       const hasZones = !!projectZones[project.project_code]
       if (filterType === 'with-zones') return hasZones
       if (filterType === 'without-zones') return !hasZones
@@ -158,6 +184,7 @@ export default function ProjectZonesPage() {
       // Check if there are any matching projects
       const hasMatches = projects.some((project) => {
         const matchesSearch = 
+          project.project_full_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
           project.project_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
           project.project_name.toLowerCase().includes(searchTerm.toLowerCase())
         return matchesSearch
@@ -329,7 +356,7 @@ export default function ProjectZonesPage() {
 
   const handleDelete = async (projectCode: string) => {
     const project = projects.find(p => p.project_code === projectCode)
-    const projectName = project ? `${project.project_code} - ${project.project_name}` : projectCode
+    const projectName = project ? `${project.project_full_code} - ${project.project_name}` : projectCode
     
     if (!confirm(`Are you sure you want to delete all zones for project "${projectName}"?`)) return
 
@@ -365,7 +392,303 @@ export default function ProjectZonesPage() {
     return zones.split(',').map(z => z.trim()).filter(z => z.length > 0)
   }
 
-  const selectedProjectData = projects.find(p => p.project_code === selectedProject)
+  // ✅ Download Template CSV
+  const handleDownloadTemplate = () => {
+    try {
+      // Prepare CSV template with header and example rows
+      const csvRows: string[] = []
+      
+      // Header
+      csvRows.push('Project Code,Project Name,Zones')
+      
+      // Example rows
+      csvRows.push('"P5066","Example Project 1","Zone A; Zone B; Zone C"')
+      csvRows.push('"P5067","Example Project 2","Zone 1; Zone 2; Zone 3"')
+      csvRows.push('"P5068","Example Project 3","Zone X"')
+      
+      // Create CSV content
+      const csvContent = csvRows.join('\n')
+      
+      // Add BOM for UTF-8 (for Excel compatibility)
+      const BOM = '\uFEFF'
+      const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'project-zones-template.csv'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+      
+      setSuccess('Template downloaded successfully!')
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err: any) {
+      console.error('❌ Error downloading template:', err)
+      setError(err.message || 'Failed to download template')
+    }
+  }
+
+  // ✅ Export to CSV
+  const handleExportCSV = () => {
+    try {
+      // Prepare CSV data
+      const csvRows: string[] = []
+      
+      // Header
+      csvRows.push('Project Code,Project Name,Zones')
+      
+      // Data rows
+      projects.forEach((project) => {
+        const zones = projectZones[project.project_code]
+        const zonesList = zones ? getZonesArray(zones.zones) : []
+        const zonesString = zonesList.length > 0 ? zonesList.join('; ') : ''
+        
+        // Escape commas and quotes in project name
+        const projectName = (project.project_name || '').replace(/"/g, '""')
+        const zonesEscaped = zonesString.replace(/"/g, '""')
+        
+        csvRows.push(`"${project.project_full_code}","${projectName}","${zonesEscaped}"`)
+      })
+      
+      // Create CSV content
+      const csvContent = csvRows.join('\n')
+      
+      // Add BOM for UTF-8 (for Excel compatibility)
+      const BOM = '\uFEFF'
+      const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `project-zones-${new Date().toISOString().split('T')[0]}.csv`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+      
+      setSuccess('Data exported successfully!')
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err: any) {
+      console.error('❌ Error exporting CSV:', err)
+      setError(err.message || 'Failed to export data')
+    }
+  }
+
+  // ✅ Import from CSV
+  const handleImportCSV = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    if (!file.name.endsWith('.csv')) {
+      setError('Please select a CSV file')
+      setTimeout(() => setError(''), 3000)
+      return
+    }
+
+    try {
+      setImporting(true)
+      setError('')
+      setSuccess('')
+
+      const text = await file.text()
+      const lines = text.split('\n').filter(line => line.trim())
+      
+      if (lines.length < 2) {
+        throw new Error('CSV file must contain at least a header and one data row')
+      }
+
+      // Parse CSV (handle quoted values)
+      const parseCSVLine = (line: string): string[] => {
+        const result: string[] = []
+        let current = ''
+        let inQuotes = false
+        
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i]
+          
+          if (char === '"') {
+            if (inQuotes && line[i + 1] === '"') {
+              // Escaped quote
+              current += '"'
+              i++
+            } else {
+              // Toggle quote state
+              inQuotes = !inQuotes
+            }
+          } else if (char === ',' && !inQuotes) {
+            // End of field
+            result.push(current.trim())
+            current = ''
+          } else {
+            current += char
+          }
+        }
+        result.push(current.trim()) // Add last field
+        return result
+      }
+
+      // Skip header (first line)
+      const dataLines = lines.slice(1).filter(line => line.trim()) // Filter empty lines
+      const totalRows = dataLines.length
+      let importedCount = 0
+      let updatedCount = 0
+      let createdCount = 0
+      const errors: string[] = []
+
+      const supabase = getSupabaseClient()
+      const { data: { user } } = await supabase.auth.getUser()
+
+      // Reset progress
+      setImportProgress(0)
+      setImportStatus(`Processing ${totalRows} row(s)...`)
+
+      for (let i = 0; i < dataLines.length; i++) {
+        const line = dataLines[i].trim()
+        if (!line) {
+          // Update progress even for empty lines
+          const progress = ((i + 1) / totalRows) * 100
+          setImportProgress(progress)
+          continue
+        }
+
+        // Update progress
+        const progress = ((i + 1) / totalRows) * 100
+        setImportProgress(progress)
+        setImportStatus(`Processing row ${i + 1} of ${totalRows}...`)
+
+        try {
+          const [projectCode, projectName, zonesString] = parseCSVLine(line)
+          
+          if (!projectCode) {
+            errors.push(`Row ${i + 2}: Missing project code`)
+            continue
+          }
+
+          // Normalize zones
+          const zonesArray = zonesString 
+            ? zonesString.split(';').map(z => z.trim()).filter(z => z.length > 0)
+            : []
+          const normalizedZones = zonesArray.length > 0 ? zonesArray.join(', ') : ''
+
+          // Check if project exists (by full code or code)
+          const project = projects.find(p => p.project_full_code === projectCode || p.project_code === projectCode)
+          if (!project) {
+            errors.push(`Row ${i + 2}: Project "${projectCode}" not found`)
+            continue
+          }
+
+          // Use project_code for database operations (as stored in project_zones table)
+          const dbProjectCode = project.project_code
+
+          // Check if zone record exists
+          const existingZone = projectZones[dbProjectCode]
+
+          const zoneData = {
+            project_code: dbProjectCode,
+            zones: normalizedZones,
+            updated_at: new Date().toISOString()
+          }
+
+          if (existingZone) {
+            // Update existing
+            const { error: updateError } = await executeQuery(async () =>
+              (supabase as any)
+                .from('project_zones')
+                .update(zoneData)
+                .eq('id', existingZone.id)
+            )
+
+            if (updateError) {
+              errors.push(`Row ${i + 2}: ${updateError.message}`)
+              continue
+            }
+
+            setProjectZones({
+              ...projectZones,
+              [dbProjectCode]: {
+                ...existingZone,
+                ...zoneData
+              }
+            })
+            updatedCount++
+          } else {
+            // Create new
+            const { data: newZone, error: insertError } = await executeQuery(async () =>
+              (supabase as any)
+                .from('project_zones')
+                .insert({
+                  ...zoneData,
+                  created_by: user?.id || null
+                } as any)
+                .select()
+                .single()
+            )
+
+            if (insertError) {
+              errors.push(`Row ${i + 2}: ${insertError.message}`)
+              continue
+            }
+
+            if (newZone) {
+              const zoneRecord = newZone as any
+              setProjectZones({
+                ...projectZones,
+                [dbProjectCode]: {
+                  id: zoneRecord.id,
+                  project_code: dbProjectCode,
+                  zones: normalizedZones,
+                  created_at: zoneRecord.created_at,
+                  updated_at: zoneRecord.updated_at
+                }
+              })
+              createdCount++
+            }
+          }
+
+          importedCount++
+        } catch (lineError: any) {
+          errors.push(`Row ${i + 2}: ${lineError.message || 'Invalid format'}`)
+        }
+      }
+
+      // Complete progress
+      setImportProgress(100)
+      setImportStatus('Finalizing...')
+
+      // Show results
+      if (errors.length > 0) {
+        setError(`Import completed with ${errors.length} error(s). ${importedCount} row(s) imported successfully.`)
+        console.error('Import errors:', errors)
+        setImportStatus(`Completed with ${errors.length} error(s)`)
+      } else {
+        setSuccess(`Successfully imported ${importedCount} row(s) (${createdCount} created, ${updatedCount} updated)!`)
+        setImportStatus(`Successfully imported ${importedCount} row(s)`)
+      }
+
+      // Reload data to ensure consistency
+      await loadData()
+
+      // Clear file input
+      if (event.target) {
+        event.target.value = ''
+      }
+
+      // Reset progress after a delay
+      setTimeout(() => {
+        setImportProgress(0)
+        setImportStatus('')
+      }, 3000)
+    } catch (err: any) {
+      console.error('❌ Error importing CSV:', err)
+      setError(err.message || 'Failed to import data')
+      setImportProgress(0)
+      setImportStatus('')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const selectedProjectData = projects.find(p => p.project_code === selectedProject || p.project_full_code === selectedProject)
   const zonesList = editingProjectCode ? getZonesArray(zonesInput) : []
   const projectsWithZones = Object.keys(projectZones).length
   const totalZones = Object.values(projectZones).reduce((sum, pz) => 
@@ -394,27 +717,93 @@ export default function ProjectZonesPage() {
       <div className="container mx-auto px-4 py-6 max-w-7xl">
       {/* Header */}
       <div className="mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-4">
-            <Button
-              variant="secondary"
-              onClick={() => router.back()}
-              className="flex items-center gap-2"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Back
-            </Button>
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                <MapPin className="h-8 w-8 text-blue-600" />
-                Project Zones Management
-              </h1>
-              <p className="text-gray-600 dark:text-gray-400 mt-1">
-                Manage zones for each project. Zones will be available when creating BOQ activities.
-              </p>
-            </div>
+        <div className="flex items-center gap-4 mb-4">
+          <Button
+            variant="secondary"
+            onClick={() => router.back()}
+            className="flex items-center gap-2"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </Button>
+          <div className="flex-1">
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <MapPin className="h-8 w-8 text-blue-600" />
+              Project Zones Management
+            </h1>
+            <p className="text-gray-600 dark:text-gray-400 mt-1">
+              Manage zones for each project. Zones will be available when creating BOQ activities.
+            </p>
           </div>
         </div>
+
+        {/* ✅ Export/Import Actions Card */}
+        {guard.hasAccess('projects.zones') && (
+          <Card className="mb-6 border-2 border-blue-200 dark:border-blue-800">
+            <CardContent className="pt-6">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
+                    CSV Data Management
+                  </h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Download template, export current data, or import new zones from CSV file
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    variant="outline"
+                    onClick={handleDownloadTemplate}
+                    className="flex items-center gap-2 border-blue-300 dark:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                  >
+                    <FileText className="h-4 w-4" />
+                    Download Template
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={handleExportCSV}
+                    disabled={loading || projects.length === 0}
+                    className="flex items-center gap-2"
+                  >
+                    <Download className="h-4 w-4" />
+                    Export CSV
+                  </Button>
+                  <label className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md">
+                    <Upload className="h-4 w-4" />
+                    {importing ? 'Importing...' : 'Import CSV'}
+                    <input
+                      type="file"
+                      accept=".csv"
+                      onChange={handleImportCSV}
+                      disabled={importing || loading}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* ✅ Progress Bar */}
+              {importing && importProgress > 0 && (
+                <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {importStatus || 'Importing...'}
+                    </span>
+                    <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">
+                      {Math.round(importProgress)}%
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
+                    <div
+                      className="bg-gradient-to-r from-blue-500 to-blue-600 h-3 rounded-full transition-all duration-300 ease-out shadow-sm"
+                      style={{ width: `${Math.min(importProgress, 100)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -492,7 +881,7 @@ export default function ProjectZonesPage() {
                 {projectZones[selectedProject] ? 'Edit' : 'Add'} Zones for Project
                 {selectedProjectData && (
                   <Badge variant="default" className="ml-2">
-                    {selectedProjectData.project_code}
+                    {selectedProjectData.project_full_code}
                   </Badge>
                 )}
               </span>
@@ -519,9 +908,9 @@ export default function ProjectZonesPage() {
                   disabled={!!projectZones[selectedProject] && editingProjectCode === selectedProject}
                 >
                   <option value="">Select Project...</option>
-                  {projects.map((project) => (
-                    <option key={project.project_code} value={project.project_code}>
-                      {project.project_code} - {project.project_name}
+                  {projects.map((project, index) => (
+                    <option key={`project-select-${project.project_full_code}-${index}`} value={project.project_code}>
+                      {project.project_full_code} - {project.project_name}
                     </option>
                   ))}
                 </select>
@@ -680,9 +1069,9 @@ export default function ProjectZonesPage() {
                 className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[200px]"
               >
                 <option value="">Select Project...</option>
-                {projects.map((project) => (
-                  <option key={project.project_code} value={project.project_code}>
-                    {project.project_code} - {project.project_name.length > 40 
+                {projects.map((project, index) => (
+                  <option key={`project-dropdown-${project.project_full_code}-${index}`} value={project.project_full_code}>
+                    {project.project_full_code} - {project.project_name.length > 40 
                       ? `${project.project_name.substring(0, 40)}...` 
                       : project.project_name}
                   </option>
@@ -798,13 +1187,13 @@ export default function ProjectZonesPage() {
               </div>
             ) : (
             <div className="space-y-4">
-              {filteredProjects.map((project) => {
+              {filteredProjects.map((project, index) => {
                 const zones = projectZones[project.project_code]
                 const zonesList = zones ? getZonesArray(zones.zones) : []
 
                 return (
                   <Card 
-                    key={project.project_code}
+                    key={`project-card-${project.project_code}-${index}`}
                     className={`transition-all hover:shadow-lg ${
                       zones ? 'border-l-4 border-l-blue-500' : 'border-l-4 border-l-gray-300'
                     }`}
@@ -814,7 +1203,7 @@ export default function ProjectZonesPage() {
                         <div className="flex-1">
                           <div className="flex items-center gap-3 mb-2">
                             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                              {project.project_code}
+                              {project.project_full_code}
                             </h3>
                             {zones && (
                               <Badge variant="default" className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">

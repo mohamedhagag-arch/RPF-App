@@ -115,6 +115,10 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage] = useState(50) // 50 items per page for better performance
   
+  // ✅ Server-side sorting state
+  const [sortColumn, setSortColumn] = useState<string | null>(null)
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
+  
   const supabase = getSupabaseClient()
   const isMountedRef = useRef(true) // ✅ Track if component is mounted
   const isLoadingRef = useRef(false) // ✅ Prevent multiple simultaneous loads
@@ -654,8 +658,35 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     return Array.from(divisionSet).sort()
   }
 
+  // ✅ Handle server-side sorting
+  const handleSort = useCallback((columnId: string, direction: 'asc' | 'desc') => {
+    setSortColumn(columnId)
+    setSortDirection(direction)
+    setCurrentPage(1) // Reset to first page when sorting changes
+  }, [])
+  
+  // ✅ Map column ID to database column name for sorting
+  const getSortColumnName = (columnId: string): string | null => {
+    const columnMap: Record<string, string> = {
+      'activity_details': 'Activity Name',
+      'scope': 'Activity Scope',
+      'division': 'Activity Division',
+      'activity_timing': 'Activity Timing',
+      'quantities': 'Total Units',
+      'activity_value': 'Total Value',
+      'planned_dates': 'Activity Planned Start Date',
+      'actual_dates': 'Activity Actual Start Date',
+      'progress_summary': 'Activity Progress %',
+      'work_value_status': 'Earned Value',
+      'daily_productivity': 'Productivity Daily Rate',
+      'activity_status': 'Activity Status',
+      'use_virtual_material': 'Use Virtual Material'
+    }
+    return columnMap[columnId] || null
+  }
+
   // ✅ PERFORMANCE: Fetch BOQ page with pagination (only visible activities)
-  const fetchBOQPage = useCallback(async (page: number = 1, filterProjects: string[] = [], search: string = '') => {
+  const fetchBOQPage = useCallback(async (page: number = 1, filterProjects: string[] = [], search: string = '', sortCol: string | null = null, sortDir: 'asc' | 'desc' = 'asc') => {
     // ✅ Prevent multiple simultaneous loads
     if (isLoadingRef.current) {
       console.log('⏸️ BOQ fetch already in progress, skipping...')
@@ -711,6 +742,9 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         const chunkSize = 1000
         let hasMore = true
         
+        // ✅ Get sort column name for database
+        const dbSortColumn = sortCol ? getSortColumnName(sortCol) : null
+        
         while (hasMore) {
           let query = supabase
             .from(table)
@@ -721,7 +755,14 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
             query = query.or(filter)
           }
           
-          if (table === TABLES.KPI) {
+          // ✅ Apply sorting if specified
+          if (table === TABLES.BOQ_ACTIVITIES) {
+            if (dbSortColumn) {
+              query = query.order(dbSortColumn, { ascending: sortDir === 'asc' })
+            } else {
+              query = query.order('created_at', { ascending: false })
+            }
+          } else if (table === TABLES.KPI) {
             query = query.order('created_at', { ascending: false })
           }
           
@@ -1007,7 +1048,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         stopSmartLoading(setLoading)
       }
     }
-  }, [supabase, startSmartLoading, stopSmartLoading, itemsPerPage])
+  }, [supabase, startSmartLoading, stopSmartLoading, itemsPerPage, sortColumn, sortDirection])
   
   // ✅ LEGACY: Keep fetchData for backward compatibility (wraps fetchBOQPage)
   const fetchData = useCallback(async (filterProjects: string[] = []) => {
@@ -1740,7 +1781,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     // Use setTimeout to run after component is fully rendered
     const projectsTimeout = setTimeout(() => {
       if (isMountedRef.current) {
-        fetchProjects()
+    fetchProjects()
       }
     }, 50) // Small delay to allow UI to render first
     
@@ -1763,10 +1804,10 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     if (isLoadingRef.current) return
     
     if (selectedProjects.length > 0) {
-      fetchBOQPage(currentPage, selectedProjects, searchTerm)
+      fetchBOQPage(currentPage, selectedProjects, searchTerm, sortColumn, sortDirection)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, searchTerm, selectedProjects.join(',')])
+  }, [currentPage, searchTerm, selectedProjects.join(','), sortColumn, sortDirection])
 
   // ✅ Removed auto-apply filters - now filters are applied at database level
   
@@ -3296,6 +3337,9 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
                 onDelete={handleDeleteActivity}
                 onBulkDelete={handleBulkDeleteActivity}
                 allKPIs={allKPIs}
+                onSort={handleSort} // ✅ Server-side sorting
+                currentSortColumn={sortColumn} // ✅ Current sort column
+                currentSortDirection={sortDirection} // ✅ Current sort direction
               />
             ) : (
               <BOQTable

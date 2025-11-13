@@ -8,15 +8,18 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Alert } from '@/components/ui/Alert'
 import { Target, TrendingUp, Save, X, Sparkles } from 'lucide-react'
+import { EnhancedQuantitySummary } from '@/components/kpi/EnhancedQuantitySummary'
+import { BOQActivity, Project } from '@/lib/supabase'
 
 interface SmartKPIFormProps {
   kpi: ProcessedKPI | null
-  projects: Array<{ project_code: string; project_name: string }>
+  projects: Array<{ project_code: string; project_name: string; project_full_code?: string }>
+  activities?: BOQActivity[]
   onSubmit: (data: any) => void
   onCancel: () => void
 }
 
-export function SmartKPIForm({ kpi, projects, onSubmit, onCancel }: SmartKPIFormProps) {
+export function SmartKPIForm({ kpi, projects, activities = [], onSubmit, onCancel }: SmartKPIFormProps) {
   const guard = usePermissionGuard()
   const [formData, setFormData] = useState({
     project_full_code: '',
@@ -29,6 +32,34 @@ export function SmartKPIForm({ kpi, projects, onSubmit, onCancel }: SmartKPIForm
   })
   const [error, setError] = useState('')
   const [isEditing, setIsEditing] = useState(false)
+  
+  // ✅ Find selected project using Project Full Code matching
+  const selectedProject = projects.find(p => {
+    const pCode = (p.project_code || '').toString().trim().toUpperCase()
+    const pFullCode = (p.project_full_code || p.project_code || '').toString().trim().toUpperCase()
+    const formCode = (formData.project_full_code || '').toString().trim().toUpperCase()
+    
+    // Match by project_full_code first, then project_code
+    return pFullCode === formCode || pCode === formCode
+  }) as Project | undefined
+  
+  // ✅ Get actual project full code for Quantity Summary
+  const actualProjectFullCode = selectedProject?.project_full_code || selectedProject?.project_code || formData.project_full_code
+  
+  // ✅ Find selected activity using Project Full Code matching
+  const selectedActivity = activities.find(a => {
+    const activityName = (a.activity_name || '').toLowerCase().trim()
+    const formActivityName = (formData.activity_name || '').toLowerCase().trim()
+    
+    if (activityName !== formActivityName) return false
+    
+    const aProjectCode = (a.project_code || '').toString().trim().toUpperCase()
+    const aProjectFullCode = (a.project_full_code || a.project_code || '').toString().trim().toUpperCase()
+    const formCode = (formData.project_full_code || '').toString().trim().toUpperCase()
+    
+    // Match by project_full_code first, then project_code
+    return aProjectFullCode === formCode || aProjectCode === formCode
+  })
   
   // Auto-load data when editing
   useEffect(() => {
@@ -225,11 +256,16 @@ export function SmartKPIForm({ kpi, projects, onSubmit, onCancel }: SmartKPIForm
                 required
               >
                 <option value="">Select Project...</option>
-                {projects.map((project) => (
-                  <option key={project.project_code} value={project.project_code}>
-                    {project.project_code} - {project.project_name}
-                  </option>
-                ))}
+                {projects.map((project) => {
+                  // ✅ Use Project Full Code if available, otherwise use Project Code
+                  const projectCodeToUse = project.project_full_code || project.project_code
+                  const displayCode = project.project_full_code || project.project_code
+                  return (
+                    <option key={projectCodeToUse} value={projectCodeToUse}>
+                      {displayCode} - {project.project_name}
+                    </option>
+                  )
+                })}
               </select>
             </div>
 
@@ -288,6 +324,21 @@ export function SmartKPIForm({ kpi, projects, onSubmit, onCancel }: SmartKPIForm
                   placeholder="0"
                   required
                 />
+                
+                {/* Quantity Summary */}
+                {selectedActivity && selectedProject && formData.activity_name && formData.project_full_code && (
+                  <div className="mt-3">
+                    <EnhancedQuantitySummary
+                      selectedActivity={selectedActivity}
+                      selectedProject={selectedProject}
+                      newQuantity={formData.input_type === 'Actual' ? formData.quantity : 0}
+                      unit={selectedActivity.unit || ''}
+                      showDebug={false}
+                      zone={formData.zone || undefined} // ✅ Pass Zone filter
+                      projectFullCode={actualProjectFullCode} // ✅ Pass Project Full Code
+                    />
+                  </div>
+                )}
               </div>
 
               <div>

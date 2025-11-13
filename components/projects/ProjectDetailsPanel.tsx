@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/Button'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Badge } from '@/components/ui/Badge'
 import { IntelligentBOQForm } from '@/components/boq/IntelligentBOQForm'
+import { EnhancedQuantitySummary } from '@/components/kpi/EnhancedQuantitySummary'
 import { 
   X, 
   Activity, 
@@ -48,6 +49,8 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
   const [showBOQModal, setShowBOQModal] = useState(false)
   const [activityActuals, setActivityActuals] = useState<{[key: string]: number}>({})
   const [activityPlanneds, setActivityPlanneds] = useState<{[key: string]: number}>({})
+  // ✅ Store Quantity Summary totals for each activity (from EnhancedQuantitySummary)
+  const [quantitySummaryTotals, setQuantitySummaryTotals] = useState<{[key: string]: {totalPlanned: number, totalActual: number, remaining: number, progress: number}}>({})
   // ✅ Load project types and activity-project type mappings
   const [projectTypesMap, setProjectTypesMap] = useState<Map<string, { name: string; description?: string }>>(new Map())
   const [activityProjectTypesMap, setActivityProjectTypesMap] = useState<Map<string, string>>(new Map())
@@ -154,37 +157,87 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
       
       for (const activity of analytics.activities) {
         try {
-          // Get activity zone
-          const activityZone = (activity.zone_ref || activity.zone_number || activity.activity_division || '').toString().trim()
-          
-          // Build project_full_code for matching
-          const projectCode = (activity.project_code || '').trim()
-          const projectSubCode = (activity.project_sub_code || '').trim()
-          let projectFullCode = projectCode
-          if (projectSubCode) {
-            if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
-              projectFullCode = projectSubCode
-            } else {
-              if (projectSubCode.startsWith('-')) {
-                projectFullCode = `${projectCode}${projectSubCode}`
-              } else {
-                projectFullCode = `${projectCode}-${projectSubCode}`
+          // ✅ Helper: Normalize zone (remove project code prefix)
+          // IMPORTANT: P5066-I2 means:
+          // - P5066 = Project Code
+          // - I2 = Sub Code (NOT Zone 2!)
+          // - So Project Full Code = "P5066-I2"
+          // - Zone = "1" (the part after Project Full Code)
+          const normalizeZone = (zoneStr: string, projectFullCode: string, projectCode: string): string => {
+            if (!zoneStr) return ''
+            
+            let normalized = zoneStr.trim()
+            if (!normalized) return ''
+            
+            // ✅ FIRST: Try to remove Project Full Code (e.g., "P5066-I2 - 1" -> "1")
+            if (projectFullCode) {
+              const fullCodeUpper = projectFullCode.toUpperCase()
+              const normalizedUpper = normalized.toUpperCase()
+              
+              // If zone starts with Project Full Code, remove it
+              if (normalizedUpper.startsWith(fullCodeUpper)) {
+                const afterFullCode = normalized.substring(projectFullCode.length).trim()
+                // Remove leading dashes or spaces
+                normalized = afterFullCode.replace(/^[\s-]+/, '').trim()
+                if (normalized) {
+                  return normalized.toLowerCase()
+                }
               }
             }
+            
+            // ✅ SECOND: If Project Full Code didn't match, try Project Code only
+            if (projectCode) {
+              const codeUpper = projectCode.toUpperCase()
+              
+              // Remove project code prefix in various formats
+              normalized = normalized.replace(new RegExp(`^${codeUpper}\\s*-\\s*`, 'i'), '').trim()
+              normalized = normalized.replace(new RegExp(`^${codeUpper}\\s+`, 'i'), '').trim()
+              normalized = normalized.replace(new RegExp(`^${codeUpper}-`, 'i'), '').trim()
+            }
+            
+            // Clean up any remaining " - " or "- " at the start
+            normalized = normalized.replace(/^\s*-\s*/, '').trim()
+            
+            return normalized.toLowerCase()
           }
           
-          // ✅ Filter KPIs by activity name AND zone
+          // ✅ Helper: Extract zone number (get ALL numbers, not just first)
+          const extractZoneNumber = (zoneStr: string): string => {
+            if (!zoneStr || zoneStr.trim() === '') return ''
+            // Extract all numbers and join them (e.g., "12 - 1" -> "121", "12 - 2" -> "122")
+            const numbers = zoneStr.match(/\d+/g)
+            if (numbers && numbers.length > 0) {
+              return numbers.join('') // Join all numbers to create unique identifier
+            }
+            return zoneStr.toLowerCase().trim()
+          }
+          
+          // Get activity zone
+          const activityZoneRaw = (activity.zone_ref || activity.zone_number || activity.activity_division || '').toString().trim()
+          const projectCode = (activity.project_code || '').trim()
+          
+          // ✅ Use Project Full Code from activity (most accurate)
+          const projectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim()
+          
+          // Normalize activity zone (using Project Full Code first!)
+          const activityZone = normalizeZone(activityZoneRaw, projectFullCode, projectCode)
+          const activityZoneNum = extractZoneNumber(activityZone)
+          
+          // ✅ Filter KPIs by activity name AND zone using Project Full Code
           const activityKPIs = analytics.kpis.filter((kpi: any) => {
-            const kpiProjectCode = kpi.project_code || (kpi as any).raw?.['Project Code'] || ''
-            const kpiProjectFullCode = kpi.project_full_code || (kpi as any).raw?.['Project Full Code'] || ''
+            const kpiProjectCode = (kpi.project_code || (kpi as any).raw?.['Project Code'] || '').toString().trim().toUpperCase()
+            const kpiProjectFullCode = (kpi.project_full_code || (kpi as any).raw?.['Project Full Code'] || '').toString().trim().toUpperCase()
             const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || (kpi as any).raw?.['Activity Name'] || '').toLowerCase().trim()
-            const kpiZone = (kpi.zone || kpi['Zone'] || kpi.section || (kpi as any).raw?.['Zone'] || '').toString().trim()
+            const kpiZoneRaw = (kpi.zone || kpi['Zone'] || kpi.section || (kpi as any).raw?.['Zone'] || (kpi as any).raw?.['Zone Number'] || '').toString().trim()
             const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
             
-            // Match project code
-            const projectMatch = (kpiProjectCode === projectCode) || 
-                               (kpiProjectFullCode === projectFullCode) ||
-                               (kpiProjectFullCode?.startsWith(projectCode))
+            // ✅ Match project by Project Full Code (priority) or Project Code
+            const projectMatch = (
+              (projectFullCode && kpiProjectFullCode && projectFullCode === kpiProjectFullCode) ||
+              (projectCode && kpiProjectCode && projectCode.toUpperCase() === kpiProjectCode) ||
+              (projectFullCode && kpiProjectCode && projectFullCode === kpiProjectCode) ||
+              (projectCode && kpiProjectFullCode && projectCode.toUpperCase() === kpiProjectFullCode)
+            )
             
             if (!projectMatch) return false
             
@@ -195,11 +248,25 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
             
             if (!activityMatch) return false
             
-            // ✅ Match zone (if activity has zone)
-            if (activityZone && activityZone !== 'N/A') {
-              const zoneMatch = kpiZone === activityZone ||
-                               kpiZone.includes(activityZone) ||
-                               activityZone.includes(kpiZone)
+            // ✅ Match zone using normalized zone and zone number (if activity has zone)
+            // IMPORTANT: Use Project Full Code for zone normalization (not just Project Code)
+            if (activityZone && activityZone.trim() !== '' && activityZone !== 'n/a') {
+              // ✅ Use Project Full Code for KPI zone normalization (important for correct matching)
+              const kpiZone = normalizeZone(kpiZoneRaw, kpiProjectFullCode || kpiProjectCode, kpiProjectCode)
+              const kpiZoneNum = extractZoneNumber(kpiZone)
+              
+              // Match by zone number or normalized zone (multiple strategies)
+              const zoneMatch = 
+                // Strategy 1: Exact match (case-insensitive)
+                (activityZoneRaw && kpiZoneRaw && activityZoneRaw.toLowerCase() === kpiZoneRaw.toLowerCase()) ||
+                // Strategy 2: Normalized zone match
+                (activityZone && kpiZone && activityZone === kpiZone) ||
+                // Strategy 3: Zone number match
+                (activityZoneNum && kpiZoneNum && activityZoneNum === kpiZoneNum) ||
+                // Strategy 4: Original zone number match (before normalization)
+                (extractZoneNumber(activityZoneRaw) && extractZoneNumber(kpiZoneRaw) && 
+                 extractZoneNumber(activityZoneRaw) === extractZoneNumber(kpiZoneRaw))
+              
               return zoneMatch
             }
             
@@ -250,38 +317,88 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
   const getActivityKPIsByZone = (activity: any) => {
     if (!analytics?.kpis) return []
     
-    // Get activity zone
-    const activityZone = (activity.zone_ref || activity.zone_number || activity.activity_division || '').toString().trim()
-    
-    // Build project_full_code for matching
-    const projectCode = (activity.project_code || '').trim()
-    const projectSubCode = (activity.project_sub_code || '').trim()
-    let projectFullCode = projectCode
-    if (projectSubCode) {
-      if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
-        projectFullCode = projectSubCode
-      } else {
-        if (projectSubCode.startsWith('-')) {
-          projectFullCode = `${projectCode}${projectSubCode}`
-        } else {
-          projectFullCode = `${projectCode}-${projectSubCode}`
+    // ✅ Helper: Normalize zone (remove project code prefix)
+    // IMPORTANT: P5066-I2 means:
+    // - P5066 = Project Code
+    // - I2 = Sub Code (NOT Zone 2!)
+    // - So Project Full Code = "P5066-I2"
+    // - Zone = "1" (the part after Project Full Code)
+    const normalizeZone = (zoneStr: string, projectFullCode: string, projectCode: string): string => {
+      if (!zoneStr) return ''
+      
+      let normalized = zoneStr.trim()
+      if (!normalized) return ''
+      
+      // ✅ FIRST: Try to remove Project Full Code (e.g., "P5066-I2 - 1" -> "1")
+      if (projectFullCode) {
+        const fullCodeUpper = projectFullCode.toUpperCase()
+        const normalizedUpper = normalized.toUpperCase()
+        
+        // If zone starts with Project Full Code, remove it
+        if (normalizedUpper.startsWith(fullCodeUpper)) {
+          const afterFullCode = normalized.substring(projectFullCode.length).trim()
+          // Remove leading dashes or spaces
+          normalized = afterFullCode.replace(/^[\s-]+/, '').trim()
+          if (normalized) {
+            return normalized.toLowerCase()
+          }
         }
       }
+      
+      // ✅ SECOND: If Project Full Code didn't match, try Project Code only
+      if (projectCode) {
+        const codeUpper = projectCode.toUpperCase()
+        
+        // Remove project code prefix in various formats
+        normalized = normalized.replace(new RegExp(`^${codeUpper}\\s*-\\s*`, 'i'), '').trim()
+        normalized = normalized.replace(new RegExp(`^${codeUpper}\\s+`, 'i'), '').trim()
+        normalized = normalized.replace(new RegExp(`^${codeUpper}-`, 'i'), '').trim()
+      }
+      
+      // Clean up any remaining " - " or "- " at the start
+      normalized = normalized.replace(/^\s*-\s*/, '').trim()
+      
+      return normalized.toLowerCase()
     }
+    
+    // ✅ Helper: Extract zone number (get ALL numbers, not just first)
+    const extractZoneNumber = (zoneStr: string): string => {
+      if (!zoneStr || zoneStr.trim() === '') return ''
+      // Extract all numbers and join them (e.g., "12 - 1" -> "121", "12 - 2" -> "122")
+      const numbers = zoneStr.match(/\d+/g)
+      if (numbers && numbers.length > 0) {
+        return numbers.join('') // Join all numbers to create unique identifier
+      }
+      return zoneStr.toLowerCase().trim()
+    }
+    
+    // Get activity zone
+    const activityZoneRaw = (activity.zone_ref || activity.zone_number || activity.activity_division || '').toString().trim()
+    const projectCode = (activity.project_code || '').trim()
+    
+    // ✅ Use Project Full Code from activity (most accurate)
+    const projectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim()
+    
+    // Normalize activity zone (using Project Full Code first!)
+    const activityZone = normalizeZone(activityZoneRaw, projectFullCode, projectCode)
+    const activityZoneNum = extractZoneNumber(activityZone)
     
     const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
     
-    // Filter KPIs by activity name AND zone
+    // ✅ Filter KPIs by activity name AND zone using Project Full Code
     return analytics.kpis.filter((kpi: any) => {
-      const kpiProjectCode = kpi.project_code || (kpi as any).raw?.['Project Code'] || ''
-      const kpiProjectFullCode = kpi.project_full_code || (kpi as any).raw?.['Project Full Code'] || ''
+      const kpiProjectCode = (kpi.project_code || (kpi as any).raw?.['Project Code'] || '').toString().trim().toUpperCase()
+      const kpiProjectFullCode = (kpi.project_full_code || (kpi as any).raw?.['Project Full Code'] || '').toString().trim().toUpperCase()
       const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || (kpi as any).raw?.['Activity Name'] || '').toLowerCase().trim()
-      const kpiZone = (kpi.zone || kpi['Zone'] || kpi.section || (kpi as any).raw?.['Zone'] || '').toString().trim()
+      const kpiZoneRaw = (kpi.zone || kpi['Zone'] || kpi.section || (kpi as any).raw?.['Zone'] || (kpi as any).raw?.['Zone Number'] || '').toString().trim()
       
-      // Match project code
-      const projectMatch = (kpiProjectCode === projectCode) || 
-                         (kpiProjectFullCode === projectFullCode) ||
-                         (kpiProjectFullCode?.startsWith(projectCode))
+      // ✅ Match project by Project Full Code (priority) or Project Code
+      const projectMatch = (
+        (projectFullCode && kpiProjectFullCode && projectFullCode === kpiProjectFullCode) ||
+        (projectCode && kpiProjectCode && projectCode.toUpperCase() === kpiProjectCode) ||
+        (projectFullCode && kpiProjectCode && projectFullCode === kpiProjectCode) ||
+        (projectCode && kpiProjectFullCode && projectCode.toUpperCase() === kpiProjectFullCode)
+      )
       
       if (!projectMatch) return false
       
@@ -292,11 +409,25 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
       
       if (!activityMatch) return false
       
-      // ✅ Match zone (if activity has zone)
-      if (activityZone && activityZone !== 'N/A') {
-        const zoneMatch = kpiZone === activityZone ||
-                         kpiZone.includes(activityZone) ||
-                         activityZone.includes(kpiZone)
+      // ✅ Match zone using normalized zone and zone number (if activity has zone)
+      // IMPORTANT: Use Project Full Code for zone normalization (not just Project Code)
+      if (activityZone && activityZone.trim() !== '' && activityZone !== 'n/a') {
+        // ✅ Use Project Full Code for KPI zone normalization (important for correct matching)
+        const kpiZone = normalizeZone(kpiZoneRaw, kpiProjectFullCode || kpiProjectCode, kpiProjectCode)
+        const kpiZoneNum = extractZoneNumber(kpiZone)
+        
+        // Match by zone number or normalized zone (multiple strategies)
+        const zoneMatch = 
+          // Strategy 1: Exact match (case-insensitive)
+          (activityZoneRaw && kpiZoneRaw && activityZoneRaw.toLowerCase() === kpiZoneRaw.toLowerCase()) ||
+          // Strategy 2: Normalized zone match
+          (activityZone && kpiZone && activityZone === kpiZone) ||
+          // Strategy 3: Zone number match
+          (activityZoneNum && kpiZoneNum && activityZoneNum === kpiZoneNum) ||
+          // Strategy 4: Original zone number match (before normalization)
+          (extractZoneNumber(activityZoneRaw) && extractZoneNumber(kpiZoneRaw) && 
+           extractZoneNumber(activityZoneRaw) === extractZoneNumber(kpiZoneRaw))
+        
         return zoneMatch
       }
       
@@ -2300,18 +2431,26 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                           <div>
                             <p className="text-gray-500 dark:text-gray-400">Planned / Actual</p>
                             <p className="font-medium text-gray-900 dark:text-white">
-                              {activityPlanneds[activity.id] !== undefined 
-                                ? activityPlanneds[activity.id] 
-                                : activity.planned_units} / {activityActuals[activity.id] !== undefined 
-                                ? activityActuals[activity.id] 
-                                : activity.actual_units} {activity.unit}
+                              {(() => {
+                                // ✅ Use Quantity Summary totals (from EnhancedQuantitySummary) - most accurate!
+                                const summaryTotals = quantitySummaryTotals[activity.id]
+                                if (summaryTotals) {
+                                  return `${summaryTotals.totalPlanned.toLocaleString()} / ${summaryTotals.totalActual.toLocaleString()} ${activity.unit || ''}`
+                                }
+                                
+                                // Fallback to activityPlanneds if Quantity Summary not loaded yet
+                                const plannedUnits = activityPlanneds[activity.id] !== undefined 
+                                  ? activityPlanneds[activity.id] 
+                                  : activity.planned_units || 0
+                                const actualUnits = activityActuals[activity.id] !== undefined 
+                                  ? activityActuals[activity.id] 
+                                  : activity.actual_units || 0
+                                return `${plannedUnits.toLocaleString()} / ${actualUnits.toLocaleString()} ${activity.unit || ''}`
+                              })()}
                             </p>
-                            {(activityPlanneds[activity.id] !== undefined || activityActuals[activity.id] !== undefined) && 
-                             (activityPlanneds[activity.id] !== activity.planned_units || activityActuals[activity.id] !== activity.actual_units) && (
-                              <p className="text-xs text-blue-600 dark:text-blue-400">
-                                ✅ Updated from KPI
-                              </p>
-                            )}
+                            <p className="text-xs text-blue-600 dark:text-blue-400">
+                              (from KPIs - see Quantity Summary below)
+                            </p>
                           </div>
                           <div>
                             <p className="text-gray-500 dark:text-gray-400">Value</p>
@@ -2494,8 +2633,13 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                           <div>
                             <p className="text-xs text-gray-500 dark:text-gray-400">Zone</p>
                             <p className="text-sm font-medium text-gray-900 dark:text-white">
-                              {activity.zone_ref || 'N/A'}
+                              {activity.zone_ref || activity.zone_number || 'N/A'}
                             </p>
+                            {activity.zone_number && (
+                              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                Zone #: {activity.zone_number}
+                              </p>
+                            )}
                           </div>
                           <div>
                             <p className="text-xs text-gray-500 dark:text-gray-400">Zone Value</p>
@@ -2521,6 +2665,26 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                               Rate × Planned Units (Zone)
                             </p>
                           </div>
+                        </div>
+                        
+                        {/* ✅ Quantity Summary using EnhancedQuantitySummary */}
+                        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                          <EnhancedQuantitySummary
+                            selectedActivity={activity}
+                            selectedProject={project}
+                            newQuantity={0}
+                            unit={activity.unit || ''}
+                            showDebug={false}
+                            zone={activity.zone_ref || activity.zone_number || undefined}
+                            projectFullCode={activity.project_full_code || project.project_full_code || project.project_code || undefined}
+                            onTotalsChange={(totals) => {
+                              // ✅ Store totals for this activity to use in Planned display
+                              setQuantitySummaryTotals(prev => ({
+                                ...prev,
+                                [activity.id]: totals
+                              }))
+                            }}
+                          />
                         </div>
                           </>
                         )}

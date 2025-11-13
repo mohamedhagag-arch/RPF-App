@@ -177,8 +177,38 @@ export function IntelligentKPIForm({
         console.log('🔄 Using found actual date:', foundActualDate)
         setActualDate(formatDateForInput(foundActualDate))
       }
-      setZone(kpi['Zone'] || kpi.zone || '')
-      setZoneNumber(kpi['Zone Number'] || kpi.zone_number || '')
+      // Normalize zone: remove project code prefix (e.g., "P9997-1" -> "1")
+      const rawZone = (kpi['Zone'] || kpi.zone || '').toString().trim()
+      const projectCode = (kpi['Project Code'] || kpi.project_code || '').toString().trim()
+      let normalizedZone = rawZone
+      
+      if (normalizedZone && projectCode) {
+        const projectCodeUpper = projectCode.toUpperCase()
+        // Remove patterns like "P9997-1", "P9997 - 1", "Zone P9997-1", etc.
+        normalizedZone = normalizedZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+        normalizedZone = normalizedZone.replace(new RegExp(`^Zone\\s+${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+        normalizedZone = normalizedZone.replace(new RegExp(`^${projectCodeUpper}(\\s|-)+`, 'i'), '').trim()
+        normalizedZone = normalizedZone.replace(/^\s*-\s*/, '').trim()
+        // If zone starts with "Zone ", keep it but remove project code
+        if (normalizedZone.toLowerCase().startsWith('zone ')) {
+          normalizedZone = normalizedZone.replace(new RegExp(`^Zone\\s+${projectCodeUpper}\\s*-\\s*`, 'i'), 'Zone ').trim()
+        }
+      }
+      
+      setZone(normalizedZone || rawZone)
+      
+      // Normalize zone number similarly
+      const rawZoneNumber = (kpi['Zone Number'] || kpi.zone_number || '').toString().trim()
+      let normalizedZoneNumber = rawZoneNumber
+      
+      if (normalizedZoneNumber && projectCode) {
+        const projectCodeUpper = projectCode.toUpperCase()
+        normalizedZoneNumber = normalizedZoneNumber.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+        normalizedZoneNumber = normalizedZoneNumber.replace(new RegExp(`^${projectCodeUpper}(\\s|-)+`, 'i'), '').trim()
+        normalizedZoneNumber = normalizedZoneNumber.replace(/^\s*-\s*/, '').trim()
+      }
+      
+      setZoneNumber(normalizedZoneNumber || rawZoneNumber)
       setDay(kpi['Day'] || kpi.day || '')
       setDrilledMeters(kpi['Drilled Meters']?.toString() || kpi.drilled_meters?.toString() || '')
       

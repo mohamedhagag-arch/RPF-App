@@ -52,3 +52,5 @@ SELECT '✅ "KPI Added" column added successfully!' as status;
 -- Values: 'Yes' (if project has KPI Planned) or 'No' (if not)
 -- ============================================================
 
+
+

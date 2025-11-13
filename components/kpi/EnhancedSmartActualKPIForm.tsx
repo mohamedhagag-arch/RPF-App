@@ -86,6 +86,9 @@ export function EnhancedSmartActualKPIForm({
   const [dailyRate, setDailyRate] = useState<number>(0)
   const [isAutoCalculated, setIsAutoCalculated] = useState(false)
   
+  // ✅ Store calculated planned units from KPIs (filtered by Zone and Project Full Code)
+  const [calculatedPlannedUnits, setCalculatedPlannedUnits] = useState<Map<string, number>>(new Map())
+  
   // Temporary storage for reported activities
   const [completedActivitiesData, setCompletedActivitiesData] = useState<Map<string, any>>(new Map())
   const [showPreview, setShowPreview] = useState(false)
@@ -453,6 +456,117 @@ export function EnhancedSmartActualKPIForm({
     
     loadProjectActivities()
   }, [selectedProject])
+  
+  // ✅ Calculate Planned Units from KPIs (filtered by Zone and Project Full Code)
+  useEffect(() => {
+    const calculatePlannedUnits = async () => {
+      if (!selectedProject || projectActivities.length === 0) return
+      
+      const plannedUnitsMap = new Map<string, number>()
+      
+      // ✅ Helper: Normalize zone (remove project code prefix)
+      const normalizeZone = (zoneStr: string, projectCode: string): string => {
+        if (!zoneStr || !projectCode) return (zoneStr || '').toLowerCase().trim()
+        let normalized = zoneStr.trim()
+        const codeUpper = projectCode.toUpperCase()
+        normalized = normalized.replace(new RegExp(`^${codeUpper}\\s*-\\s*`, 'i'), '').trim()
+        normalized = normalized.replace(new RegExp(`^${codeUpper}\\s+`, 'i'), '').trim()
+        normalized = normalized.replace(new RegExp(`^${codeUpper}-`, 'i'), '').trim()
+        return normalized.toLowerCase()
+      }
+      
+      // ✅ Helper: Extract zone number
+      const extractZoneNumber = (zoneStr: string): string => {
+        if (!zoneStr || zoneStr.trim() === '') return ''
+        const numberMatch = zoneStr.match(/\d+/)
+        if (numberMatch) return numberMatch[0]
+        return zoneStr.toLowerCase().trim()
+      }
+      
+      const projectFullCode = (selectedProject.project_full_code || selectedProject.project_code || '').toString().trim().toUpperCase()
+      const projectCode = (selectedProject.project_code || '').toString().trim().toUpperCase()
+      
+      try {
+        const { getSupabaseClient, executeQuery } = await import('@/lib/simpleConnectionManager')
+        const { TABLES } = await import('@/lib/supabase')
+        const supabase = getSupabaseClient()
+        
+        for (const activity of projectActivities) {
+          // ✅ Use activity_name from activity (case-insensitive matching)
+          const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+          const activityZoneRaw = (activity.zone_ref || activity.zone_number || '').toString().trim()
+          const normalizedZone = normalizeZone(activityZoneRaw, projectCode)
+          const zoneNumber = extractZoneNumber(normalizedZone)
+          
+          // ✅ Fetch Planned KPIs for this activity - fetch all for this project and activity, then filter
+          let query = supabase
+            .from(TABLES.KPI)
+            .select('id, "Quantity", "Input Type", "Zone", "Zone Number", "Activity Name"')
+            .eq('Project Full Code', projectFullCode)
+            .eq('Input Type', 'Planned')
+          
+          const result = await executeQuery(async () => query)
+          let plannedKPIs = result.data || []
+          
+          // ✅ Filter by Activity Name (case-insensitive, flexible matching)
+          plannedKPIs = plannedKPIs.filter((kpi: any) => {
+            const kpiActivityName = (kpi['Activity Name'] || '').toLowerCase().trim()
+            // Match by exact name or if one contains the other
+            const nameMatch = kpiActivityName === activityName ||
+                            kpiActivityName.includes(activityName) ||
+                            activityName.includes(kpiActivityName)
+            
+            if (!nameMatch) return false
+            
+            // ✅ Filter by Zone if activity has zone
+            if (activityZoneRaw && normalizedZone && zoneNumber) {
+              const kpiZoneRaw = (kpi['Zone'] || kpi['Zone Number'] || '').toString().trim()
+              if (!kpiZoneRaw) return false // Exclude KPIs without zone if activity has zone
+              
+              const kpiZone = normalizeZone(kpiZoneRaw, projectCode)
+              const kpiZoneNum = extractZoneNumber(kpiZone)
+              
+              // Match by zone number or normalized zone
+              return kpiZoneNum === zoneNumber || kpiZone === normalizedZone
+            }
+            
+            // If activity has no zone, include all KPIs for this activity
+            return true
+          })
+          
+          // Calculate total planned quantity
+          const totalPlanned = plannedKPIs.reduce((sum: number, kpi: any) => {
+            const qty = parseFloat(String(kpi['Quantity'] || '0').replace(/,/g, '')) || 0
+            return sum + qty
+          }, 0)
+          
+          plannedUnitsMap.set(activity.id, totalPlanned)
+          
+          // ✅ Debug logging
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`📊 [Planned Units] Activity: "${activity.activity_name}" (ID: ${activity.id})`, {
+              projectFullCode,
+              activityZoneRaw: activityZoneRaw || 'N/A',
+              normalizedZone: normalizedZone || 'N/A',
+              zoneNumber: zoneNumber || 'N/A',
+              plannedKPIsCount: plannedKPIs.length,
+              totalPlanned,
+              plannedKPIs: plannedKPIs.slice(0, 3).map((kpi: any) => ({
+                quantity: kpi['Quantity'],
+                zone: kpi['Zone'] || kpi['Zone Number'] || 'N/A'
+              }))
+            })
+          }
+        }
+        
+        setCalculatedPlannedUnits(plannedUnitsMap)
+      } catch (err: any) {
+        console.error('❌ Error calculating planned units:', err)
+      }
+    }
+    
+    calculatePlannedUnits()
+  }, [selectedProject, projectActivities])
   
   // Load actual quantities from BOQ activities
   useEffect(() => {
@@ -2181,14 +2295,36 @@ export function EnhancedSmartActualKPIForm({
                     <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
                       Active
                     </span>
-                    {currentActivity.planned_units && (
-                      <div className="text-right">
-                        <span className="text-xs text-gray-500 dark:text-gray-400">Planned:</span>
-                        <span className="text-sm font-semibold text-gray-900 dark:text-white ml-1">
-                          {currentActivity.planned_units} {currentActivity.unit}
-                        </span>
-                      </div>
-                    )}
+                    {(() => {
+                      // ✅ Use Quantity Summary totals (from EnhancedQuantitySummary) - most accurate!
+                      // EnhancedQuantitySummary will calculate and pass totals via onTotalsChange callback
+                      // For now, use calculatedPlannedUnits as fallback (which uses same logic)
+                      const activityId = currentActivity?.id
+                      if (!activityId) return null
+                      
+                      // Note: EnhancedQuantitySummary below will calculate and display the correct Planned value
+                      // This header display will be updated when EnhancedQuantitySummary calls onTotalsChange
+                      const calculatedPlanned = calculatedPlannedUnits.get(activityId)
+                      const activityPlannedUnits = currentActivity?.planned_units || 0
+                      const plannedToShow = calculatedPlanned !== undefined && calculatedPlanned > 0 
+                        ? calculatedPlanned 
+                        : activityPlannedUnits
+                      
+                      if (plannedToShow > 0) {
+                        return (
+                          <div className="text-right">
+                            <span className="text-xs text-gray-500 dark:text-gray-400">Planned:</span>
+                            <span className="text-sm font-semibold text-gray-900 dark:text-white ml-1">
+                              {plannedToShow.toLocaleString()} {currentActivity.unit || ''}
+                            </span>
+                            <span className="text-[10px] text-blue-600 dark:text-blue-400 block mt-0.5">
+                              (from KPIs - see Quantity Summary below)
+                            </span>
+                          </div>
+                        )
+                      }
+                      return null
+                    })()}
                   </div>
                 </div>
               </div>
@@ -2337,6 +2473,18 @@ export function EnhancedSmartActualKPIForm({
                         newQuantity={parseFloat(quantity) || 0}
                         unit={unit || selectedActivity.unit || ''}
                         showDebug={false}
+                        zone={selectedActivity?.zone_ref || selectedActivity?.zone_number || undefined} // ✅ Pass Zone from activity
+                        projectFullCode={selectedProject?.project_full_code || selectedProject?.project_code || undefined} // ✅ Pass Project Full Code
+                        onTotalsChange={(totals) => {
+                          // ✅ Update calculatedPlannedUnits with accurate values from EnhancedQuantitySummary
+                          if (selectedActivity?.id) {
+                            setCalculatedPlannedUnits(prev => {
+                              const updated = new Map(prev)
+                              updated.set(selectedActivity.id, totals.totalPlanned)
+                              return updated
+                            })
+                          }
+                        }}
                       />
                     </div>
                   )}

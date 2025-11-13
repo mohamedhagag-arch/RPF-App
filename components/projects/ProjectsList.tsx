@@ -504,7 +504,7 @@ export function ProjectsList({
     // ✅ Prevent multiple simultaneous loads
     if (isLoadingRef.current) {
       if (process.env.NODE_ENV === 'development') {
-        console.log('⏸️ Data fetch already in progress, skipping...')
+      console.log('⏸️ Data fetch already in progress, skipping...')
       }
       return
     }
@@ -519,15 +519,15 @@ export function ProjectsList({
       }
       
       // Build query with filters
-      let query = supabase
+          let query = supabase
         .from(TABLES.PROJECTS)
         .select('*', { count: 'exact' })
       
       // Apply search filter - use correct column names from database
       if (search && search.trim()) {
         query = query.or(`"Project Name".ilike.%${search.trim()}%,"Project Code".ilike.%${search.trim()}%`)
-      }
-      
+          }
+          
       // Apply status filter (only if single status selected - multi-select handled client-side)
       // Use correct column name from database
       if (filters.status && filters.status.trim()) {
@@ -547,8 +547,8 @@ export function ProjectsList({
       }
       if (filters.dateRange?.to) {
         query = query.lte('"Start Date"', filters.dateRange.to)
-      }
-      
+        }
+        
       // ✅ Apply sorting from state (database-level sorting for all data)
       // Map column IDs to database column names
       const getDatabaseColumnName = (columnId: string): string => {
@@ -599,7 +599,7 @@ export function ProjectsList({
           projects: mappedProjects.length,
             totalCount: count || 0,
             page
-          })
+        })
         }
         
         // ✅ Load analytics data for visible projects only

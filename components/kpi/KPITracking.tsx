@@ -138,7 +138,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     
     // ✅ Defer loading to avoid blocking navigation
     const scopeTimeout = setTimeout(() => {
-      loadActivityScopes()
+    loadActivityScopes()
     }, 50) // Small delay to allow UI to render first
     
     return () => clearTimeout(scopeTimeout)
@@ -184,6 +184,10 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   const [totalKPICount, setTotalKPICount] = useState(0)
   const [pendingKPICount, setPendingKPICount] = useState(0) // Count of KPIs pending approval
   const itemsPerPage = 50 // Show 50 KPIs per page
+  
+  // ✅ Server-side sorting state
+  const [sortColumn, setSortColumn] = useState<string | null>(null)
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   
   const supabase = getSupabaseClient()
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('kpi') // ✅ Smart loading
@@ -278,8 +282,34 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     }
   }
 
+  // ✅ Handle server-side sorting
+  const handleSort = useCallback((columnId: string, direction: 'asc' | 'desc') => {
+    setSortColumn(columnId)
+    setSortDirection(direction)
+    setCurrentPage(1) // Reset to first page when sorting changes
+  }, [])
+  
+  // ✅ Map column ID to database column name for sorting
+  const getSortColumnName = (columnId: string): string | null => {
+    const columnMap: Record<string, string> = {
+      'activity_details': 'Activity Name',
+      'date': 'Activity Date',
+      'input_type': 'Input Type',
+      'quantities': 'Quantity',
+      'value': 'Value',
+      'virtual_value': 'Virtual Material Value',
+      'activity_commencement_relation': 'Activity Timing',
+      'activity_division': 'Activity Division',
+      'activity_scope': 'Activity Scope',
+      'key_dates': 'Key Date',
+      'cumulative_quantity': 'Quantity', // Use Quantity for cumulative
+      'cumulative_value': 'Value' // Use Value for cumulative
+    }
+    return columnMap[columnId] || null
+  }
+
   // ✅ PERFORMANCE: Fetch KPI page with pagination (only visible KPIs)
-  const fetchKPIPage = useCallback(async (page: number = 1, filterProjects: string[] = [], search: string = '') => {
+  const fetchKPIPage = useCallback(async (page: number = 1, filterProjects: string[] = [], search: string = '', sortCol: string | null = null, sortDir: 'asc' | 'desc' = 'asc') => {
     // ✅ Prevent multiple simultaneous loads
     if (isLoadingRef.current) {
       console.log('⏸️ KPI fetch already in progress, skipping...')
@@ -345,6 +375,9 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       const fetchAllRecords = async (table: string, filterCodes: string[], filterField: string) => {
         let allData: any[] = []
         
+        // ✅ Get sort column name for database
+        const dbSortColumn = sortCol ? getSortColumnName(sortCol) : null
+        
         // ✅ Fetch each project code separately to avoid .or() pagination issues
         for (const code of filterCodes) {
         let offset = 0
@@ -358,8 +391,13 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
               .eq(filterField, code)
             .range(offset, offset + chunkSize - 1)
           
+          // ✅ Apply sorting if specified
           if (table === TABLES.KPI) {
-            query = query.order('created_at', { ascending: false })
+            if (dbSortColumn) {
+              query = query.order(dbSortColumn, { ascending: sortDir === 'asc' })
+            } else {
+              query = query.order('created_at', { ascending: false })
+            }
           }
           
           const { data, error } = await query
@@ -662,7 +700,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         stopSmartLoading(setLoading)
       }
     }
-  }, [supabase, startSmartLoading, stopSmartLoading])
+  }, [supabase, startSmartLoading, stopSmartLoading, sortColumn, sortDirection])
 
   // ✅ Fetch projects only on mount (lightweight)
   const fetchProjects = useCallback(async () => {
@@ -723,11 +761,11 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     // Use setTimeout to run after component is fully rendered
     const dataTimeout = setTimeout(() => {
       if (isMountedRef.current) {
-        fetchProjects()
+    fetchProjects()
         // ✅ Defer fetchPendingKPICount (heavy operation) even more
         setTimeout(() => {
           if (isMountedRef.current) {
-            fetchPendingKPICount()
+    fetchPendingKPICount()
           }
         }, 200) // Additional delay for heavy operation
       }
@@ -752,10 +790,10 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     if (isLoadingRef.current) return
     
     if (selectedProjects.length > 0) {
-      fetchKPIPage(currentPage, selectedProjects, '')
+      fetchKPIPage(currentPage, selectedProjects, '', sortColumn, sortDirection)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, selectedProjects.join(',')])
+  }, [currentPage, selectedProjects.join(','), sortColumn, sortDirection])
   
   // ✅ LEGACY: Keep fetchData for backward compatibility (wraps fetchKPIPage)
   const fetchData = useCallback(async (filterProjects: string[] = []) => {
@@ -2104,30 +2142,46 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   }, [plannedKPIs, getActivityRate])
   
   // ✅ IMPROVED: Calculate Actual Value with priority: 1) KPI.value, 2) Rate × Quantity, 3) actual_value
+  // ✅ IMPORTANT: Always calculate VALUE, never use quantity directly
   const totalActualValue = useMemo(() => {
     let total = 0
     let fromValue = 0
     let fromRate = 0
-    let fromFallback = 0
+    let fromActualValue = 0
+    let skipped = 0
     
     actualKPIs.forEach((k: ProcessedKPI) => {
-      // ✅ PRIORITY 1: Use value directly from KPI if available (most accurate)
-      // ✅ FIX: Check both k.value and raw['Value'] to ensure we get the value
       const rawKPI = (k as any).raw || {}
-      const kpiValue = (k.value ?? 
-                      parseFloat(String(rawKPI['Value'] || '0').replace(/,/g, ''))) || 
-                      0
+      
+      // ✅ PRIORITY 1: Use value directly from KPI if available (most accurate)
+      // Check multiple sources: k.value, raw['Value'], k.actual_value, raw['Actual Value']
+      let kpiValue = (k.value ?? 
+                     parseFloat(String(rawKPI['Value'] || '0').replace(/,/g, ''))) || 
+                     0
+      
+      // If value is 0, try actual_value
+      if (kpiValue === 0) {
+        kpiValue = (k.actual_value ?? 
+                   parseFloat(String(rawKPI['Actual Value'] || '0').replace(/,/g, ''))) || 
+                   0
+      }
+      
       if (kpiValue > 0) {
         total += kpiValue
-        fromValue++
+        if (k.value || rawKPI['Value']) {
+          fromValue++
+        } else {
+          fromActualValue++
+        }
         return
       }
       
-      // ✅ PRIORITY 2: Calculate from Rate × Quantity
+      // ✅ PRIORITY 2: Calculate from Rate × Quantity (VALUE = Rate × Quantity)
       const rate = getActivityRate(k)
       const quantity = (k.quantity ?? 
                       parseFloat(String(rawKPI['Quantity'] || '0').replace(/,/g, ''))) || 
                       0
+      
       if (rate > 0 && quantity > 0) {
         const calculatedValue = rate * quantity
         total += calculatedValue
@@ -2135,32 +2189,21 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         return
       }
       
-      // ✅ PRIORITY 3: Fallback to actual_value (check both k.actual_value and raw['Actual Value'])
-      const fallbackValue = (k.actual_value ?? 
-                           parseFloat(String(rawKPI['Actual Value'] || '0').replace(/,/g, ''))) || 
-                           0
-      if (fallbackValue > 0) {
-        total += fallbackValue
-        fromFallback++
-      }
+      // ✅ If no value found and no rate, skip (don't add quantity!)
+      skipped++
     })
     
-    // ✅ DEBUG: Log calculation summary for large projects
-    if (process.env.NODE_ENV === 'development' && actualKPIs.length > 100) {
-      // Calculate sum of all values for comparison
-      const sumOfAllValues = actualKPIs.reduce((sum, k) => sum + (k.value ?? 0), 0)
-      const sumOfAllActualValues = actualKPIs.reduce((sum, k) => sum + (k.actual_value ?? 0), 0)
-      
-      console.log(`📊 [Actual Value] Calculated for ${actualKPIs.length} KPIs:`, {
+    // ✅ DEBUG: Log calculation summary
+    if (process.env.NODE_ENV === 'development' && actualKPIs.length > 0) {
+      console.log(`📊 [Actual Value] Calculated for ${actualKPIs.length} Actual KPIs:`, {
         total,
         fromValue,
         fromRate,
-        fromFallback,
-        percentageFromValue: ((fromValue / actualKPIs.length) * 100).toFixed(1) + '%',
-        percentageFromRate: ((fromRate / actualKPIs.length) * 100).toFixed(1) + '%',
-        sumOfAllValues,
-        sumOfAllActualValues,
-        difference: total - sumOfAllValues
+        fromActualValue,
+        skipped,
+        percentageFromValue: actualKPIs.length > 0 ? ((fromValue / actualKPIs.length) * 100).toFixed(1) + '%' : '0%',
+        percentageFromRate: actualKPIs.length > 0 ? ((fromRate / actualKPIs.length) * 100).toFixed(1) + '%' : '0%',
+        note: 'Total is VALUE (not quantity)'
       })
     }
     
@@ -2613,9 +2656,25 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-green-600 dark:text-green-300">✓ Actual Achieved</p>
-                <p className="text-3xl font-bold text-green-900 dark:text-green-100">{actualCount}</p>
+                <p className="text-3xl font-bold text-green-900 dark:text-green-100">
+                  {(() => {
+                    // Get currency from first selected project or default
+                    const firstProject = selectedProjects.length > 0 
+                      ? projects.find(p => selectedProjects.includes(p.project_code))
+                      : projects[0]
+                    const currencyCode = firstProject?.currency || 'AED'
+                    return formatCurrencyByCodeSync(totalActualValue, currencyCode)
+                  })()}
+                </p>
                 <p className="text-xs text-green-600 dark:text-green-400 mt-1">
-                  {totalActualQty.toLocaleString()} total qty
+                  {(() => {
+                    // Get currency from first selected project or default
+                    const firstProject = selectedProjects.length > 0 
+                      ? projects.find(p => selectedProjects.includes(p.project_code))
+                      : projects[0]
+                    const currencyCode = firstProject?.currency || 'AED'
+                    return `${formatCurrencyByCodeSync(totalPlannedValue, currencyCode)} total value`
+                  })()}
                 </p>
               </div>
               <CheckCircle className="h-10 w-10 text-green-500" />
@@ -2786,6 +2845,9 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
                   setSelectedKPIsForBulkEdit(selectedKPIs as unknown as ProcessedKPI[])
                   setShowBulkEditModal(true)
                 }}
+                onSort={handleSort} // ✅ Server-side sorting
+                currentSortColumn={sortColumn} // ✅ Current sort column
+                currentSortDirection={sortDirection} // ✅ Current sort direction
               />
             ) : guard.hasAccess('kpi.view') ? (
               <OptimizedKPITable

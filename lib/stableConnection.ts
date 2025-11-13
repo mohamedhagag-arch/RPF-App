@@ -120,7 +120,10 @@ function setupSessionMonitoring() {
       }
 
       if (!session) {
-        console.warn('⚠️ [StableConnection] No active session')
+        // ✅ Only log in development mode to reduce console noise
+        if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
+          console.warn('⚠️ [StableConnection] No active session')
+        }
         return
       }
 
@@ -262,7 +265,10 @@ export async function checkStableConnection(): Promise<boolean> {
     }
 
     if (!session) {
-      console.warn('⚠️ [StableConnection] No active session')
+      // ✅ Only log in development mode to reduce console noise
+      if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
+        console.warn('⚠️ [StableConnection] No active session')
+      }
       return false
     }
 

@@ -19,6 +19,9 @@ interface KPITableWithCustomizationProps {
   onBulkDelete?: (ids: string[]) => void
   onBulkEdit?: (selectedKPIs: KPIRecord[]) => void
   allActivities?: any[] // ✅ Add activities to get Rate from BOQ
+  onSort?: (columnId: string, direction: 'asc' | 'desc') => void // ✅ Server-side sorting callback
+  currentSortColumn?: string | null // ✅ Current sort column from parent
+  currentSortDirection?: 'asc' | 'desc' // ✅ Current sort direction from parent
 }
 
 // Default column configuration for KPI
@@ -46,7 +49,10 @@ export function KPITableWithCustomization({
   onDelete, 
   onBulkDelete,
   onBulkEdit,
-  allActivities = [] // ✅ Add activities prop
+  allActivities = [], // ✅ Add activities prop
+  onSort, // ✅ Server-side sorting callback
+  currentSortColumn, // ✅ Current sort column from parent
+  currentSortDirection // ✅ Current sort direction from parent
 }: KPITableWithCustomizationProps) {
   const guard = usePermissionGuard()
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -95,9 +101,13 @@ export function KPITableWithCustomization({
     return foundScope
   }
   
-  // Sorting state
-  const [sortColumn, setSortColumn] = useState<string | null>(null)
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
+  // ✅ Local sorting state (fallback if onSort not provided)
+  const [localSortColumn, setLocalSortColumn] = useState<string | null>(null)
+  const [localSortDirection, setLocalSortDirection] = useState<'asc' | 'desc'>('asc')
+  
+  // ✅ Use parent sort state if available, otherwise use local state
+  const sortColumn = currentSortColumn !== undefined ? currentSortColumn : localSortColumn
+  const sortDirection = currentSortDirection !== undefined ? currentSortDirection : localSortDirection
   
   const { 
     columns, 
@@ -792,8 +802,39 @@ export function KPITableWithCustomization({
           }
         }
         
-        // Calculate Total Value = Quantity × Rate
+        // ✅ PRIORITY: Calculate Total Value = Quantity × Rate
         let totalValue = quantityForValue * rateForValue
+        
+        // ✅ FALLBACK: If calculated value is 0, try to use Value directly from KPI
+        if (totalValue === 0) {
+          // Priority 1: Use Value directly from KPI if available
+          const valueFromKPI = kpi.value || parseFloat(String(rawKPIValue['Value'] || '0').replace(/,/g, '')) || 0
+          if (valueFromKPI > 0) {
+            totalValue = valueFromKPI
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`✅ [KPI Value] Using Value directly from KPI for "${kpi.activity_name}": ${valueFromKPI}`)
+            }
+          } else {
+            // Priority 2: Try Planned Value or Actual Value based on Input Type
+            if (kpi.input_type === 'Planned') {
+              const plannedValue = kpi.planned_value || parseFloat(String(rawKPIValue['Planned Value'] || '0').replace(/,/g, '')) || 0
+              if (plannedValue > 0) {
+                totalValue = plannedValue
+                if (process.env.NODE_ENV === 'development') {
+                  console.log(`✅ [KPI Value] Using Planned Value from KPI for "${kpi.activity_name}": ${plannedValue}`)
+                }
+              }
+            } else if (kpi.input_type === 'Actual') {
+              const actualValue = kpi.actual_value || parseFloat(String(rawKPIValue['Actual Value'] || '0').replace(/,/g, '')) || 0
+              if (actualValue > 0) {
+                totalValue = actualValue
+                if (process.env.NODE_ENV === 'development') {
+                  console.log(`✅ [KPI Value] Using Actual Value from KPI for "${kpi.activity_name}": ${actualValue}`)
+                }
+              }
+            }
+          }
+        }
         
         // Get project currency
         const projectForValue = projects.find(p => {
@@ -991,8 +1032,39 @@ export function KPITableWithCustomization({
           rateForVirtual = parseFloat(String(rawKPIVirtual['Rate'] || '0').replace(/,/g, '')) || 0
         }
         
-        // Calculate Base Value = Quantity × Rate
+        // ✅ PRIORITY: Calculate Base Value = Quantity × Rate
         let baseValue = quantityForVirtual * rateForVirtual
+        
+        // ✅ FALLBACK: If calculated base value is 0, try to use Value directly from KPI
+        if (baseValue === 0) {
+          // Priority 1: Use Value directly from KPI if available
+          const valueFromKPI = kpi.value || parseFloat(String(rawKPIVirtual['Value'] || '0').replace(/,/g, '')) || 0
+          if (valueFromKPI > 0) {
+            baseValue = valueFromKPI
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`✅ [KPI Virtual Value] Using Value directly from KPI for "${kpi.activity_name}": ${valueFromKPI}`)
+            }
+          } else {
+            // Priority 2: Try Planned Value or Actual Value based on Input Type
+            if (kpi.input_type === 'Planned') {
+              const plannedValue = kpi.planned_value || parseFloat(String(rawKPIVirtual['Planned Value'] || '0').replace(/,/g, '')) || 0
+              if (plannedValue > 0) {
+                baseValue = plannedValue
+                if (process.env.NODE_ENV === 'development') {
+                  console.log(`✅ [KPI Virtual Value] Using Planned Value from KPI for "${kpi.activity_name}": ${plannedValue}`)
+                }
+              }
+            } else if (kpi.input_type === 'Actual') {
+              const actualValue = kpi.actual_value || parseFloat(String(rawKPIVirtual['Actual Value'] || '0').replace(/,/g, '')) || 0
+              if (actualValue > 0) {
+                baseValue = actualValue
+                if (process.env.NODE_ENV === 'development') {
+                  console.log(`✅ [KPI Virtual Value] Using Actual Value from KPI for "${kpi.activity_name}": ${actualValue}`)
+                }
+              }
+            }
+          }
+        }
         
         // ✅ Virtual Material calculation (as PERCENTAGE):
         // - Virtual Material Amount = Base Value × (Virtual Material Percentage / 100)
@@ -1615,14 +1687,29 @@ export function KPITableWithCustomization({
   const visibleColumns = columns.filter(col => col.visible).sort((a, b) => a.order - b.order)
 
   // Sorting handler
+  // Sorting handler - use server-side sorting if callback provided
   const handleSort = (columnId: string) => {
+    // Don't sort select or actions columns
     if (columnId === 'select' || columnId === 'actions') return
     
-    if (sortColumn === columnId) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
+    // ✅ If onSort callback provided, use server-side sorting
+    if (onSort) {
+      // Use current sort state from parent if available, otherwise default to 'asc'
+      const currentCol = currentSortColumn !== undefined ? currentSortColumn : localSortColumn
+      const currentDir = currentSortDirection !== undefined ? currentSortDirection : localSortDirection
+      const newDirection = currentCol === columnId && currentDir === 'asc' ? 'desc' : 'asc'
+      onSort(columnId, newDirection)
+      return
+    }
+    
+    // Otherwise, use client-side sorting (fallback)
+    if (localSortColumn === columnId) {
+      // Toggle direction if same column
+      setLocalSortDirection(localSortDirection === 'asc' ? 'desc' : 'asc')
     } else {
-      setSortColumn(columnId)
-      setSortDirection('asc')
+      // New column, default to ascending
+      setLocalSortColumn(columnId)
+      setLocalSortDirection('asc')
     }
   }
 
@@ -1707,8 +1794,13 @@ export function KPITableWithCustomization({
     }
   }
 
-  // Sort KPIs
+  // Sort KPIs - skip client-side sorting if server-side sorting is enabled
   const sortedKPIs = useMemo(() => {
+    // ✅ If server-side sorting is enabled, don't sort client-side
+    if (onSort) {
+      return kpis // Data is already sorted from server
+    }
+    
     if (!sortColumn) return kpis
     
     // Create getSortValue with access to kpis array

@@ -13,3 +13,5 @@ COMMENT ON COLUMN public."Planning Database - ProjectsList"."Advance Payment Per
 CREATE INDEX IF NOT EXISTS idx_projects_advance_payment_percentage 
   ON public."Planning Database - ProjectsList"("Advance Payment Percentage");
 
+
+
