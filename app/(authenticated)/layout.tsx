@@ -75,10 +75,11 @@ export default function AuthenticatedLayout({
     if (pathname === '/projects') return 'projects'
     if (pathname === '/boq') return 'boq'
     if (pathname === '/kpi') return 'kpi'
-    if (pathname === '/settings') return 'settings'
     if (pathname === '/reports') return 'reports'
+    if (pathname === '/settings') return 'settings'
     if (pathname === '/profile' || pathname.startsWith('/profile/')) return 'profile'
     if (pathname === '/directory') return 'directory'
+    if (pathname === '/planning') return 'planning'
     return 'dashboard'
   }
 

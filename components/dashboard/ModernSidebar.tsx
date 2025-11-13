@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { cn } from '@/lib/utils'
 import { getCachedCompanySettings, type CompanySettings } from '@/lib/companySettings'
@@ -17,23 +19,46 @@ import {
   ChevronLeft,
   ChevronRight,
   Menu,
-  User
+  User,
+  Sparkles,
+  Zap,
+  TrendingUp,
+  FileText,
+  ChevronDown,
+  ChevronUp,
+  type LucideIcon
 } from 'lucide-react'
 
-interface SidebarItem {
-  icon: any
+interface SidebarSubItem {
   label: string
   tab: string
-  badge?: number
+  icon: LucideIcon
+  badgeIcon?: LucideIcon
   badgeColor?: string
+}
+
+interface SidebarItem {
+  icon: LucideIcon
+  label: string
+  tab: string
+  badgeIcon?: LucideIcon
+  badgeColor?: string
+  subItems?: SidebarSubItem[]
 }
 
 const sidebarItems: SidebarItem[] = [
   { icon: LayoutDashboard, label: 'Dashboard', tab: 'dashboard' },
-  { icon: FolderKanban, label: 'Projects', tab: 'projects', badge: 5, badgeColor: 'bg-blue-500' },
-  { icon: ClipboardList, label: 'BOQ', tab: 'boq', badge: 12, badgeColor: 'bg-green-500' },
-  { icon: Target, label: 'KPI', tab: 'kpi', badge: 8, badgeColor: 'bg-purple-500' },
-  { icon: BarChart3, label: 'Reports', tab: 'reports' },
+  { icon: FolderKanban, label: 'Projects', tab: 'projects', badgeIcon: Sparkles, badgeColor: 'bg-gradient-to-br from-blue-500 to-cyan-500' },
+  { 
+    icon: FileText, 
+    label: 'Planning', 
+    tab: 'planning',
+    subItems: [
+      { icon: ClipboardList, label: 'BOQ', tab: 'boq', badgeIcon: Zap, badgeColor: 'bg-gradient-to-br from-green-500 to-emerald-500' },
+      { icon: Target, label: 'KPI', tab: 'kpi', badgeIcon: TrendingUp, badgeColor: 'bg-gradient-to-br from-purple-500 to-pink-500' },
+      { icon: BarChart3, label: 'Reports', tab: 'reports' },
+    ]
+  },
   { icon: Settings, label: 'Settings', tab: 'settings' },
 ]
 
@@ -48,11 +73,53 @@ interface ModernSidebarProps {
 
 export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userRole = 'Admin', onProfileClick, onCollapseChange }: ModernSidebarProps) {
   const guard = usePermissionGuard()
+  const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
   const [companyName, setCompanyName] = useState('AlRabat RPF')
   const [companySlogan, setCompanySlogan] = useState('Masters of Foundation Construction')
   const [logoUrl, setLogoUrl] = useState('')
+
+  // Helper function to get the URL for a tab
+  const getTabUrl = (tab: string): string => {
+    if (tab === 'users') return '/settings?tab=users'
+    if (tab === 'directory') return '/directory'
+    if (tab === 'search') return '/dashboard?search=true'
+    if (tab === 'planning') return '/boq' // Default to BOQ when clicking Planning
+    return `/${tab}`
+  }
+
+  // Check if a tab is active (including sub-items)
+  const isTabActive = (item: SidebarItem): boolean => {
+    if (item.tab === activeTab) return true
+    if (item.subItems) {
+      return item.subItems.some(subItem => subItem.tab === activeTab)
+    }
+    return false
+  }
+
+  // Toggle submenu expansion
+  const toggleSubmenu = (e: React.MouseEvent, tab: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setExpandedItems(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(tab)) {
+        newSet.delete(tab)
+      } else {
+        newSet.add(tab)
+      }
+      return newSet
+    })
+  }
+
+  // Auto-expand planning if any sub-item is active
+  useEffect(() => {
+    if (activeTab === 'boq' || activeTab === 'kpi' || activeTab === 'reports') {
+      setExpandedItems(prev => new Set(prev).add('planning'))
+    }
+  }, [activeTab])
 
   // تحميل إعدادات الشركة من قاعدة البيانات
   useEffect(() => {
@@ -85,17 +152,48 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
         return guard.hasAccess('dashboard.view')
       case 'projects':
         return guard.hasAccess('projects.view')
-      case 'boq':
-        return guard.hasAccess('boq.view')
-      case 'kpi':
-        return guard.hasAccess('kpi.view')
-      case 'reports':
-        return guard.hasAccess('reports.view')
+      case 'planning':
+        // Show planning if user has access to any sub-item
+        if (item.subItems) {
+          return item.subItems.some(subItem => {
+            switch (subItem.tab) {
+              case 'boq':
+                return guard.hasAccess('boq.view')
+              case 'kpi':
+                return guard.hasAccess('kpi.view')
+              case 'reports':
+                return guard.hasAccess('reports.view')
+              default:
+                return false
+            }
+          })
+        }
+        return true
       case 'settings':
         return guard.hasAccess('settings.view')
       default:
         return true
     }
+  }).map(item => {
+    // Filter sub-items based on permissions
+    if (item.subItems) {
+      return {
+        ...item,
+        subItems: item.subItems.filter(subItem => {
+          switch (subItem.tab) {
+            case 'boq':
+              return guard.hasAccess('boq.view')
+            case 'kpi':
+              return guard.hasAccess('kpi.view')
+            case 'reports':
+              return guard.hasAccess('reports.view')
+            default:
+              return true
+          }
+        })
+      }
+    }
+    return item
   })
 
   // Hide sidebar completely if user has no permissions
@@ -214,20 +312,124 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
         <nav className="flex-1 overflow-y-auto p-4 space-y-2">
           {visibleItems.map((item) => {
             const Icon = item.icon
-            const isActive = activeTab === item.tab
+            const hasSubItems = item.subItems && item.subItems.length > 0
+            const isExpanded = expandedItems.has(item.tab)
+            const isActive = isTabActive(item)
 
+            if (hasSubItems && !collapsed) {
+              // Item with submenu
+              return (
+                <div key={item.tab} className="space-y-1">
+                  <button
+                    onClick={(e) => toggleSubmenu(e, item.tab)}
+                    className={cn(
+                      'nav-item w-full transition-all duration-200',
+                      isActive ? 'active' : '',
+                      'hover:bg-opacity-90'
+                    )}
+                    title={item.label}
+                  >
+                    <Icon className={cn(
+                      'h-4 w-4 flex-shrink-0',
+                      isActive ? 'text-white' : 'text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-300'
+                    )} />
+                    <span className="flex-1 text-left font-medium text-sm">
+                      {item.label}
+                    </span>
+                    <span className={cn(
+                      "transition-transform duration-200",
+                      isExpanded ? "rotate-0" : "rotate-180"
+                    )}>
+                      {isExpanded ? (
+                        <ChevronUp className="h-4 w-4 flex-shrink-0" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 flex-shrink-0" />
+                      )}
+                    </span>
+                  </button>
+                  
+                  {/* Submenu */}
+                  <div 
+                    className={cn(
+                      "ml-4 space-y-1 border-l-2 border-gray-200 dark:border-gray-700 pl-2 overflow-hidden transition-all duration-300 ease-in-out",
+                      isExpanded ? "max-h-96 opacity-100" : "max-h-0 opacity-0"
+                    )}
+                    style={{
+                      animation: isExpanded ? 'slideDown 0.3s ease-out' : 'slideUp 0.3s ease-in'
+                    }}
+                  >
+                    {isExpanded && item.subItems && item.subItems.map((subItem, index) => {
+                      const SubIcon = subItem.icon
+                      const isSubActive = activeTab === subItem.tab
+                      const subUrl = getTabUrl(subItem.tab)
+
+                      return (
+                        <Link
+                          key={subItem.tab}
+                          href={subUrl}
+                          onClick={(e) => {
+                            if (e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+                              onTabChange(subItem.tab)
+                              setMobileOpen(false)
+                            }
+                          }}
+                          className={cn(
+                            'nav-item text-sm py-2 transition-all duration-200 transform',
+                            isSubActive ? 'active scale-[1.02]' : 'opacity-80 hover:opacity-100 hover:scale-[1.01]',
+                            'hover:translate-x-1'
+                          )}
+                          title={subItem.label}
+                          style={{
+                            animationDelay: `${index * 50}ms`,
+                            animation: isExpanded ? 'fadeInSlide 0.3s ease-out forwards' : 'none'
+                          }}
+                        >
+                          <SubIcon className={cn(
+                            'h-3.5 w-3.5 flex-shrink-0',
+                            isSubActive ? 'text-white' : 'text-gray-500 dark:text-gray-400'
+                          )} />
+                          <span className="flex-1 text-left font-medium text-xs">
+                            {subItem.label}
+                          </span>
+                          {subItem.badgeIcon && (
+                            <span className={cn(
+                              'flex items-center justify-center w-5 h-5 rounded-full shadow-sm transition-all duration-200',
+                              isSubActive 
+                                ? 'bg-white/20 text-white'
+                                : `${subItem.badgeColor} text-white`
+                            )}>
+                              {(() => {
+                                const BadgeIcon = subItem.badgeIcon!
+                                return <BadgeIcon className="h-3 w-3" />
+                              })()}
+                            </span>
+                          )}
+                        </Link>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            }
+
+            // Regular item without submenu
+            const tabUrl = getTabUrl(item.tab)
             return (
-              <button
+              <Link
                 key={item.tab}
-                onClick={() => {
-                  onTabChange(item.tab)
-                  setMobileOpen(false)
+                href={tabUrl}
+                onClick={(e) => {
+                  if (e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+                    onTabChange(item.tab)
+                    setMobileOpen(false)
+                  }
                 }}
                 className={cn(
                   'nav-item',
                   isActive ? 'active' : '',
                   collapsed && 'justify-center px-3'
                 )}
+                title={item.label}
               >
                 <Icon className={cn(
                   'h-4 w-4 flex-shrink-0',
@@ -239,19 +441,22 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
                     <span className="flex-1 text-left font-medium text-sm">
                       {item.label}
                     </span>
-                    {item.badge && (
+                    {item.badgeIcon && (
                       <span className={cn(
-                        'px-2 py-0.5 text-xs font-semibold rounded-full',
+                        'flex items-center justify-center w-6 h-6 rounded-full shadow-sm transition-all duration-200',
                         isActive 
                           ? 'bg-white/20 text-white'
                           : `${item.badgeColor} text-white`
                       )}>
-                        {item.badge}
+                        {(() => {
+                          const BadgeIcon = item.badgeIcon!
+                          return <BadgeIcon className="h-3.5 w-3.5" />
+                        })()}
                       </span>
                     )}
                   </>
                 )}
-              </button>
+              </Link>
             )
           })}
         </nav>
@@ -261,16 +466,22 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
         {/* Search */}
         {!collapsed && guard.hasAccess('system.search') && (
           <div className="p-4">
-            <button
-              onClick={() => onTabChange('search')}
+            <Link
+              href="/dashboard?search=true"
+              onClick={(e) => {
+                if (e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+                  onTabChange('search')
+                }
+              }}
               className="nav-item w-full"
+              title="Search"
             >
               <Search className="h-4 w-4" />
               <span className="font-medium text-sm">Search</span>
               <kbd className="ml-auto px-2 py-1 text-xs bg-white border border-gray-300 rounded">
                 ⌘K
               </kbd>
-            </button>
+            </Link>
           </div>
         )}
 
