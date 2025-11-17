@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
+import { useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -12,6 +13,7 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { 
   Settings, 
   User, 
+  Users,
   Bell, 
   Shield, 
   Database, 
@@ -42,6 +44,7 @@ import { DepartmentsJobTitlesManager } from './DepartmentsJobTitlesManager'
 import { ProjectTypeActivitiesManager } from './ProjectTypeActivitiesManager'
 import { UnifiedProjectTypesManager } from './UnifiedProjectTypesManager'
 import { UnitsManager } from './UnitsManager'
+import { ActiveUsersManager } from './ActiveUsersManager'
 
 interface SettingsPageProps {
   userRole?: string
@@ -49,6 +52,7 @@ interface SettingsPageProps {
 
 export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
   const guard = usePermissionGuard()
+  const searchParams = useSearchParams()
   const [activeTab, setActiveTab] = useState('profile')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -56,6 +60,14 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
   
   // ✅ Smart loading for settings
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('settings')
+  
+  // Handle query parameter for active-users tab
+  useEffect(() => {
+    const tab = searchParams?.get('tab')
+    if (tab === 'active-users') {
+      setActiveTab('active-users')
+    }
+  }, [searchParams])
   
   // Profile settings
   const [profileData, setProfileData] = useState({
@@ -269,6 +281,7 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
     { id: 'notifications', label: 'Notifications', icon: Bell, roles: ['admin', 'manager', 'engineer', 'viewer'], permission: 'users.view' },
     { id: 'kpi-notifications', label: 'KPI Notifications', icon: Target, roles: ['admin', 'manager', 'planner'], permission: 'settings.manage' },
     { id: 'appearance', label: 'Appearance', icon: Palette, roles: ['admin', 'manager', 'engineer', 'viewer'], permission: 'users.view' },
+    { id: 'active-users', label: 'Active Users', icon: Users, roles: ['admin', 'manager'], permission: 'users.view' },
     { id: 'system', label: 'System Settings', icon: Shield, roles: ['admin'], permission: 'settings.manage' },
     { id: 'departments-titles', label: 'Departments & Titles', icon: Building2, roles: ['admin', 'manager'], permission: 'settings.divisions' },
     { id: 'divisions', label: 'Divisions', icon: Building2, roles: ['admin', 'manager'], permission: 'settings.divisions' },
@@ -306,6 +319,18 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
 
       case 'preferences':
         return <UserPreferencesManager />
+
+      case 'active-users':
+        if (!guard.hasAccess('users.view') && !['admin', 'manager'].includes(userRole || '')) {
+          return (
+            <div className="text-center py-12">
+              <Shield className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Access Denied</h3>
+              <p className="text-gray-500 dark:text-gray-400">You don't have permission to view active users.</p>
+            </div>
+          )
+        }
+        return <ActiveUsersManager />
 
       case 'system':
         if (!guard.hasAccess('settings.manage')) {

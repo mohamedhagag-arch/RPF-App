@@ -22,7 +22,14 @@ import {
   Activity,
   Shield,
   Clock,
-  HardDrive
+  HardDrive,
+  Cloud,
+  Settings,
+  Calendar,
+  Edit,
+  X,
+  Check,
+  MapPin
 } from 'lucide-react'
 import { TableManager } from './TableManager'
 import { 
@@ -42,7 +49,7 @@ import {
   BackupData
 } from '@/lib/backupManager'
 
-type ViewMode = 'overview' | 'tables' | 'backup' | 'restore'
+type ViewMode = 'overview' | 'tables' | 'backup' | 'restore' | 'auto-backup'
 
 export function DatabaseManagement() {
   const guard = usePermissionGuard()
@@ -57,6 +64,23 @@ export function DatabaseManagement() {
   const [selectedTables, setSelectedTables] = useState<string[]>([])
   const [restoreMode, setRestoreMode] = useState<'append' | 'replace'>('append')
   const [showConfirmRestore, setShowConfirmRestore] = useState(false)
+  
+  // Backup Settings State
+  const [backupSettings, setBackupSettings] = useState<{
+    configured: boolean
+    frequency?: string
+    retentionDays?: number
+    lastBackupAt?: string | null
+    nextBackupAt?: string | null
+    isActive?: boolean
+    folderId?: string
+  } | null>(null)
+  const [backupSettingsLoading, setBackupSettingsLoading] = useState(false)
+  const [editingSettings, setEditingSettings] = useState(false)
+  const [tempFrequency, setTempFrequency] = useState('daily')
+  const [tempRetentionDays, setTempRetentionDays] = useState(30)
+  const [tempFolderId, setTempFolderId] = useState('')
+  const [tempIsActive, setTempIsActive] = useState(true)
 
   // التحقق من الصلاحيات
   useEffect(() => {
@@ -67,8 +91,106 @@ export function DatabaseManagement() {
   useEffect(() => {
     if (hasPermission) {
       loadData()
+      loadBackupSettings()
     }
   }, [hasPermission])
+
+  // Load backup settings
+  const loadBackupSettings = async () => {
+    setBackupSettingsLoading(true)
+    try {
+      const response = await fetch('/api/backup/settings', {
+        cache: 'no-store', // Force fresh data
+        headers: {
+          'Cache-Control': 'no-cache'
+        }
+      })
+      const data = await response.json()
+      console.log('📥 Loaded backup settings:', data)
+      if (data.configured && data.settings) {
+        const settings = {
+          configured: true,
+          frequency: data.settings.frequency || 'daily',
+          retentionDays: data.settings.retentionDays || 30,
+          folderId: data.settings.folderId || '',
+          isActive: data.settings.isActive !== false,
+          lastBackupAt: data.settings.lastBackupAt || null,
+          nextBackupAt: data.settings.nextBackupAt || null
+        }
+        console.log('✅ Setting backup settings state:', settings)
+        setBackupSettings(settings)
+        setTempFrequency(settings.frequency)
+        setTempRetentionDays(settings.retentionDays)
+        setTempFolderId(settings.folderId)
+        setTempIsActive(settings.isActive)
+      } else {
+        setBackupSettings({ configured: false })
+      }
+    } catch (error: any) {
+      console.error('❌ Error loading backup settings:', error)
+      setBackupSettings({ configured: false })
+    } finally {
+      setBackupSettingsLoading(false)
+    }
+  }
+
+  // حفظ إعدادات Backup
+  const saveBackupSettings = async () => {
+    setBackupSettingsLoading(true)
+    try {
+      const response = await fetch('/api/backup/settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          frequency: tempFrequency,
+          retentionDays: tempRetentionDays,
+          folderId: tempFolderId || undefined,
+          isActive: tempIsActive
+        })
+      })
+      const result = await response.json()
+      
+      if (!response.ok) {
+        console.error('❌ API Error:', result)
+        const errorMessage = result.message || result.error || `Server error: ${response.status}`
+        const errorDetails = result.details ? ` (${result.details})` : ''
+        showMessage('error', `❌ ${errorMessage}${errorDetails}`)
+        return
+      }
+      
+      if (result.success) {
+        showMessage('success', '✅ Backup settings updated successfully')
+        setEditingSettings(false)
+        
+        // Update state immediately from saved values
+        const updatedSettings = {
+          configured: true,
+          frequency: tempFrequency,
+          retentionDays: tempRetentionDays,
+          folderId: tempFolderId,
+          isActive: tempIsActive,
+          lastBackupAt: backupSettings?.lastBackupAt || null,
+          nextBackupAt: backupSettings?.nextBackupAt || null
+        }
+        setBackupSettings(updatedSettings)
+        console.log('✅ Updated backup settings state immediately:', updatedSettings)
+        
+        // Also reload from server to get any server-side updates (like timestamps)
+        setTimeout(async () => {
+          await loadBackupSettings()
+        }, 500) // Small delay to ensure server has processed the update
+      } else {
+        showMessage('error', `❌ ${result.message || result.error}`)
+      }
+    } catch (error: any) {
+      console.error('❌ Network Error:', error)
+      showMessage('error', `❌ Error: ${error.message || 'Network error occurred'}`)
+    } finally {
+      setBackupSettingsLoading(false)
+    }
+  }
 
   const checkPermissions = async () => {
     const canManage = await canManageDatabase()
@@ -254,6 +376,8 @@ export function DatabaseManagement() {
             </h2>
             <p className="text-indigo-100">
               Professional database operations: backup, restore, and manage tables
+              <br />
+              <span className="text-xs opacity-90">✅ Updated: Enhanced with Project Full Code support and improved relationship validation</span>
             </p>
           </div>
           <button
@@ -299,7 +423,8 @@ export function DatabaseManagement() {
           { id: 'overview', label: 'Overview', icon: Database },
           { id: 'tables', label: 'Manage Tables', icon: HardDrive },
           { id: 'backup', label: 'Create Backup', icon: Save },
-          { id: 'restore', label: 'Restore', icon: Upload }
+          { id: 'restore', label: 'Restore', icon: Upload },
+          { id: 'auto-backup', label: 'Auto Backup', icon: Cloud }
         ].map((item) => (
           <button
             key={item.id}
@@ -474,6 +599,8 @@ export function DatabaseManagement() {
                 <li>• Total {totalStats.totalRows.toLocaleString()} rows</li>
                 <li>• Metadata and version info</li>
                 <li>• JSON format for easy restore</li>
+                <li>• ✅ Updated with Project Full Code support</li>
+                <li>• ✅ Enhanced relationship validation (BOQ ↔ Projects ↔ KPI)</li>
               </ul>
             </div>
 
@@ -642,6 +769,466 @@ export function DatabaseManagement() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Auto Backup Settings */}
+      {viewMode === 'auto-backup' && (
+        <div className="space-y-6">
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-3 bg-blue-100 dark:bg-blue-900/20 rounded-lg">
+                <Cloud className="w-6 h-6 text-blue-600" />
+              </div>
+              <div>
+                <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
+                  Automated Google Drive Backup
+                </h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  Configure automatic daily backups to Google Drive
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              {/* Info Box */}
+              <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                <h4 className="font-medium text-blue-900 dark:text-blue-200 mb-2 flex items-center gap-2">
+                  <Info className="w-5 h-5" />
+                  How it works:
+                </h4>
+                <ul className="space-y-1 text-sm text-blue-800 dark:text-blue-300">
+                  <li>• ✅ Automatic backups based on configured frequency (via Vercel Cron)</li>
+                  <li>• 📁 Backups are uploaded directly to your Google Drive</li>
+                  <li>• 🗑️ Old backups are automatically deleted based on retention policy</li>
+                  <li>• 🔒 Secure authentication using OAuth 2.0</li>
+                  <li>• 📊 Backup status is tracked in the database</li>
+                  <li>• ⚙️ Configure frequency, retention, and storage location below</li>
+                </ul>
+              </div>
+
+
+              {/* Current Status & Controls */}
+              {backupSettingsLoading ? (
+                <div className="p-4 bg-gray-50 dark:bg-gray-900/20 rounded-lg border border-gray-200 dark:border-gray-800 flex items-center justify-center">
+                  <RefreshCw className="w-5 h-5 animate-spin text-gray-600" />
+                  <span className="ml-2 text-sm text-gray-600 dark:text-gray-400">Loading backup settings...</span>
+                </div>
+              ) : backupSettings?.configured ? (
+                <div className="space-y-4">
+                  {/* Current Status Display */}
+                  {!editingSettings ? (
+                    <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="font-medium text-green-900 dark:text-green-200 flex items-center gap-2">
+                          <Calendar className="w-5 h-5" />
+                          Backup Status & Schedule
+                        </h4>
+                        <button
+                          onClick={() => setEditingSettings(true)}
+                          className="p-2 hover:bg-green-100 dark:hover:bg-green-900/30 rounded-lg transition-colors"
+                          title="Edit Settings"
+                        >
+                          <Edit className="w-4 h-4 text-green-700 dark:text-green-300" />
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <p className="text-green-800 dark:text-green-300 font-medium mb-1">📍 Storage Location:</p>
+                          <p className="text-green-700 dark:text-green-400 flex items-center gap-2">
+                            <MapPin className="w-4 h-4" />
+                            Google Drive
+                            {backupSettings.folderId && (
+                              <span className="text-xs opacity-75">(Folder ID: {backupSettings.folderId.substring(0, 20)}...)</span>
+                            )}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-green-800 dark:text-green-300 font-medium mb-1">⏰ Frequency:</p>
+                          <p className="text-green-700 dark:text-green-400">
+                            {backupSettings.frequency === 'hourly' ? 'Hourly (Every hour)' :
+                             backupSettings.frequency === 'every-6-hours' ? 'Every 6 Hours' :
+                             backupSettings.frequency === 'every-12-hours' ? 'Every 12 Hours' :
+                             backupSettings.frequency === 'twice-daily' ? 'Twice Daily (12:00 AM & 12:00 PM UTC)' :
+                             backupSettings.frequency === 'daily' ? 'Daily at 2:00 AM (UTC)' :
+                             backupSettings.frequency === 'weekly' ? 'Weekly (Sunday 2:00 AM UTC)' :
+                             backupSettings.frequency === 'monthly' ? 'Monthly (1st day, 2:00 AM UTC)' :
+                             'Manual'}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-green-800 dark:text-green-300 font-medium mb-1">🗑️ Retention Policy:</p>
+                          <p className="text-green-700 dark:text-green-400">
+                            Keep backups for {backupSettings.retentionDays || 30} days
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-green-800 dark:text-green-300 font-medium mb-1">✅ Status:</p>
+                          <p className={`font-semibold ${backupSettings.isActive ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                            {backupSettings.isActive ? 'Active' : 'Inactive'}
+                          </p>
+                        </div>
+                        {backupSettings.lastBackupAt && (
+                          <div>
+                            <p className="text-green-800 dark:text-green-300 font-medium mb-1">📅 Last Backup:</p>
+                            <p className="text-green-700 dark:text-green-400">
+                              {new Date(backupSettings.lastBackupAt).toLocaleString('en-US', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </p>
+                          </div>
+                        )}
+                        {backupSettings.nextBackupAt && (
+                          <div>
+                            <p className="text-green-800 dark:text-green-300 font-medium mb-1">⏭️ Next Backup:</p>
+                            <p className="text-green-700 dark:text-green-400">
+                              {new Date(backupSettings.nextBackupAt).toLocaleString('en-US', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="font-medium text-blue-900 dark:text-blue-200 flex items-center gap-2">
+                          <Settings className="w-5 h-5" />
+                          Edit Backup Settings
+                        </h4>
+                        <button
+                          onClick={() => {
+                            setEditingSettings(false)
+                            loadBackupSettings() // Reset to original values
+                          }}
+                          className="p-2 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
+                          title="Cancel"
+                        >
+                          <X className="w-4 h-4 text-blue-700 dark:text-blue-300" />
+                        </button>
+                      </div>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-blue-900 dark:text-blue-200 mb-2">
+                            Frequency:
+                          </label>
+                          <select
+                            value={tempFrequency}
+                            onChange={(e) => setTempFrequency(e.target.value)}
+                            className="w-full px-4 py-2 border border-blue-300 dark:border-blue-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                          >
+                            <option value="hourly">Hourly (Every hour)</option>
+                            <option value="every-6-hours">Every 6 Hours</option>
+                            <option value="every-12-hours">Every 12 Hours</option>
+                            <option value="twice-daily">Twice Daily (12:00 AM & 12:00 PM UTC)</option>
+                            <option value="daily">Daily (2:00 AM UTC)</option>
+                            <option value="weekly">Weekly (Sunday 2:00 AM UTC)</option>
+                            <option value="monthly">Monthly (1st day, 2:00 AM UTC)</option>
+                            <option value="manual">Manual Only</option>
+                          </select>
+                          <p className="text-xs text-blue-700 dark:text-blue-400 mt-1">
+                            Note: Cron job schedule is configured in vercel.json. Changing this updates the database record.
+                          </p>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-blue-900 dark:text-blue-200 mb-2">
+                            Retention Days:
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            max="365"
+                            value={tempRetentionDays}
+                            onChange={(e) => setTempRetentionDays(parseInt(e.target.value) || 30)}
+                            className="w-full px-4 py-2 border border-blue-300 dark:border-blue-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                          />
+                          <p className="text-xs text-blue-700 dark:text-blue-400 mt-1">
+                            Backups older than this will be automatically deleted
+                          </p>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-blue-900 dark:text-blue-200 mb-2 flex items-center gap-2">
+                            <MapPin className="w-4 h-4" />
+                            Google Drive Folder ID (Optional):
+                          </label>
+                          <div className="space-y-2">
+                            <input
+                              type="text"
+                              value={tempFolderId}
+                              onChange={(e) => setTempFolderId(e.target.value)}
+                              placeholder="مثال: 1ABC123xyz456DEF789ghi012JKL345MNO"
+                              className="w-full px-4 py-2 border-2 border-blue-300 dark:border-blue-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:border-blue-500 dark:focus:border-blue-400 focus:ring-2 focus:ring-blue-200 dark:focus:ring-blue-800"
+                            />
+                            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                              <p className="text-xs text-blue-800 dark:text-blue-300 font-medium mb-1">
+                                📍 كيفية الحصول على Folder ID:
+                              </p>
+                              <ol className="text-xs text-blue-700 dark:text-blue-400 space-y-1 list-decimal list-inside ml-2">
+                                <li>افتح Google Drive في المتصفح</li>
+                                <li>افتح المجلد المطلوب (أو أنشئ مجلد جديد)</li>
+                                <li>انسخ الرابط من شريط العنوان</li>
+                                <li>الرابط يبدو هكذا: <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">https://drive.google.com/drive/folders/1ABC123xyz456...</code></li>
+                                <li>انسخ الجزء بعد <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">/folders/</code> والصقه هنا</li>
+                              </ol>
+                            </div>
+                            <p className="text-xs text-blue-700 dark:text-blue-400">
+                              💡 <strong>ملاحظة:</strong> اتركه فارغاً لحفظ النسخ الاحتياطية في المجلد الجذر (My Drive)
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="checkbox"
+                            id="isActive"
+                            checked={tempIsActive}
+                            onChange={(e) => setTempIsActive(e.target.checked)}
+                            className="w-5 h-5 rounded border-blue-300 dark:border-blue-700 text-blue-600 focus:ring-blue-500"
+                          />
+                          <label htmlFor="isActive" className="text-sm font-medium text-blue-900 dark:text-blue-200">
+                            Enable Automatic Backups
+                          </label>
+                        </div>
+                        <div className="flex gap-3">
+                          <button
+                            onClick={saveBackupSettings}
+                            disabled={backupSettingsLoading}
+                            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                          >
+                            <Check className="w-4 h-4" />
+                            <span>Save Settings</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingSettings(false)
+                              loadBackupSettings()
+                            }}
+                            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                          >
+                            <X className="w-4 h-4" />
+                            <span>Cancel</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {!editingSettings ? (
+                    <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="font-medium text-yellow-900 dark:text-yellow-200 flex items-center gap-2">
+                          <AlertTriangle className="w-5 h-5" />
+                          Backup Not Configured
+                        </h4>
+                        <button
+                          onClick={() => setEditingSettings(true)}
+                          className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors flex items-center gap-2"
+                        >
+                          <Settings className="w-4 h-4" />
+                          <span>Configure Settings</span>
+                        </button>
+                      </div>
+                      <p className="text-sm text-yellow-800 dark:text-yellow-300">
+                        ⚠️ Automated backup is not configured. Please configure it in the settings below.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="font-medium text-blue-900 dark:text-blue-200 flex items-center gap-2">
+                          <Settings className="w-5 h-5" />
+                          Configure Backup Settings
+                        </h4>
+                        <button
+                          onClick={() => {
+                            setEditingSettings(false)
+                            loadBackupSettings() // Reset to original values
+                          }}
+                          className="p-2 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
+                          title="Cancel"
+                        >
+                          <X className="w-4 h-4 text-blue-700 dark:text-blue-300" />
+                        </button>
+                      </div>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-blue-900 dark:text-blue-200 mb-2">
+                            Frequency:
+                          </label>
+                          <select
+                            value={tempFrequency}
+                            onChange={(e) => setTempFrequency(e.target.value)}
+                            className="w-full px-4 py-2 border border-blue-300 dark:border-blue-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                          >
+                            <option value="hourly">Hourly (Every hour)</option>
+                            <option value="every-6-hours">Every 6 Hours</option>
+                            <option value="every-12-hours">Every 12 Hours</option>
+                            <option value="twice-daily">Twice Daily (12:00 AM & 12:00 PM UTC)</option>
+                            <option value="daily">Daily (2:00 AM UTC)</option>
+                            <option value="weekly">Weekly (Sunday 2:00 AM UTC)</option>
+                            <option value="monthly">Monthly (1st day, 2:00 AM UTC)</option>
+                            <option value="manual">Manual Only</option>
+                          </select>
+                          <p className="text-xs text-blue-700 dark:text-blue-400 mt-1">
+                            Note: Cron job schedule is configured in vercel.json. Changing this updates the database record.
+                          </p>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-blue-900 dark:text-blue-200 mb-2">
+                            Retention Days:
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            max="365"
+                            value={tempRetentionDays}
+                            onChange={(e) => setTempRetentionDays(parseInt(e.target.value) || 30)}
+                            className="w-full px-4 py-2 border border-blue-300 dark:border-blue-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                          />
+                          <p className="text-xs text-blue-700 dark:text-blue-400 mt-1">
+                            Backups older than this will be automatically deleted
+                          </p>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-blue-900 dark:text-blue-200 mb-2 flex items-center gap-2">
+                            <MapPin className="w-4 h-4" />
+                            Google Drive Folder ID (Optional):
+                          </label>
+                          <div className="space-y-2">
+                            <input
+                              type="text"
+                              value={tempFolderId}
+                              onChange={(e) => setTempFolderId(e.target.value)}
+                              placeholder="مثال: 1ABC123xyz456DEF789ghi012JKL345MNO"
+                              className="w-full px-4 py-2 border-2 border-blue-300 dark:border-blue-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:border-blue-500 dark:focus:border-blue-400 focus:ring-2 focus:ring-blue-200 dark:focus:ring-blue-800"
+                            />
+                            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                              <p className="text-xs text-blue-800 dark:text-blue-300 font-medium mb-1">
+                                📍 كيفية الحصول على Folder ID:
+                              </p>
+                              <ol className="text-xs text-blue-700 dark:text-blue-400 space-y-1 list-decimal list-inside ml-2">
+                                <li>افتح Google Drive في المتصفح</li>
+                                <li>افتح المجلد المطلوب (أو أنشئ مجلد جديد)</li>
+                                <li>انسخ الرابط من شريط العنوان</li>
+                                <li>الرابط يبدو هكذا: <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">https://drive.google.com/drive/folders/1ABC123xyz456...</code></li>
+                                <li>انسخ الجزء بعد <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">/folders/</code> والصقه هنا</li>
+                              </ol>
+                            </div>
+                            <p className="text-xs text-blue-700 dark:text-blue-400">
+                              💡 <strong>ملاحظة:</strong> اتركه فارغاً لحفظ النسخ الاحتياطية في المجلد الجذر (My Drive)
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="checkbox"
+                            id="isActiveNew"
+                            checked={tempIsActive}
+                            onChange={(e) => setTempIsActive(e.target.checked)}
+                            className="w-5 h-5 rounded border-blue-300 dark:border-blue-700 text-blue-600 focus:ring-blue-500"
+                          />
+                          <label htmlFor="isActiveNew" className="text-sm font-medium text-blue-900 dark:text-blue-200">
+                            Enable Automatic Backups
+                          </label>
+                        </div>
+                        <div className="flex gap-3">
+                          <button
+                            onClick={saveBackupSettings}
+                            disabled={backupSettingsLoading}
+                            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                          >
+                            <Check className="w-4 h-4" />
+                            <span>Save Settings</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingSettings(false)
+                              loadBackupSettings()
+                            }}
+                            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                          >
+                            <X className="w-4 h-4" />
+                            <span>Cancel</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Manual Trigger Button */}
+              <button
+                onClick={async () => {
+                  setLoading(true)
+                  try {
+                    showMessage('info', '🔄 Triggering manual backup to Google Drive...')
+                    const response = await fetch('/api/backup/google-drive', {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json'
+                      }
+                    })
+                    const result = await response.json()
+                    if (result.success) {
+                      const fileUrl = result.googleDrive?.fileUrl
+                      const folderUrl = result.googleDrive?.folderUrl
+                      const folderLocation = result.googleDrive?.folderId === 'root' 
+                        ? 'root folder (My Drive)' 
+                        : `folder ID: ${result.googleDrive?.folderId}`
+                      
+                      let successMessage = `✅ ${result.message}\n`
+                      successMessage += `📁 Location: ${folderLocation}\n`
+                      if (fileUrl) {
+                        successMessage += `🔗 File: ${fileUrl}`
+                      }
+                      
+                      showMessage('success', successMessage)
+                      
+                      // Open file in new tab if available
+                      if (fileUrl) {
+                        setTimeout(() => {
+                          window.open(fileUrl, '_blank')
+                        }, 1000)
+                      }
+                      
+                      await loadBackupSettings() // Refresh settings after backup
+                    } else {
+                      showMessage('error', `❌ ${result.message || result.error}`)
+                    }
+                  } catch (error: any) {
+                    showMessage('error', `❌ Error: ${error.message}`)
+                  } finally {
+                    setLoading(false)
+                  }
+                }}
+                disabled={loading}
+                className="w-full flex items-center justify-center gap-2 px-6 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-lg font-semibold"
+              >
+                {loading ? (
+                  <>
+                    <RefreshCw className="w-5 h-5 animate-spin" />
+                    <span>Backing up...</span>
+                  </>
+                ) : (
+                  <>
+                    <Cloud className="w-5 h-5" />
+                    <span>Trigger Manual Backup to Google Drive</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

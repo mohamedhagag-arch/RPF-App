@@ -58,7 +58,7 @@ function calculateSmartStatus(quantity: number, inputType: string): {
 /**
  * Process KPI record for display
  */
-export function processKPIRecord(kpi: any): ProcessedKPI {
+export function processKPIRecord(kpi: any): ProcessedKPI & { raw?: any } {
   const quantity = kpi.quantity || 0
   const inputType = kpi.input_type || 'Planned'
   const rawValue = typeof kpi.value === 'number' ? kpi.value : parseFloat(kpi.value || '0') || 0
@@ -97,8 +97,10 @@ export function processKPIRecord(kpi: any): ProcessedKPI {
     updated_at: kpi.updated_at,
     // ✅ Preserve project_code and project_sub_code for filtering
     project_code: (kpi as any).project_code || '',
-    project_sub_code: (kpi as any).project_sub_code || ''
-  } as ProcessedKPI & { project_code?: string; project_sub_code?: string }
+    project_sub_code: (kpi as any).project_sub_code || '',
+    // ✅ CRITICAL: Preserve raw data for value calculation
+    raw: kpi
+  } as ProcessedKPI & { project_code?: string; project_sub_code?: string; raw?: any }
 }
 
 /**

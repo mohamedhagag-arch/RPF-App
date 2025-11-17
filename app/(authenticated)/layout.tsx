@@ -7,6 +7,7 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { useEffect, useState } from 'react'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { UserDropdown } from '@/components/ui/UserDropdown'
+import { ActiveUsersIndicator } from '@/components/ui/ActiveUsersIndicator'
 import { Users } from 'lucide-react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { ConnectionMonitor } from '@/components/common/ConnectionMonitor'
@@ -43,6 +44,71 @@ export default function AuthenticatedLayout({
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  // ✅ Send heartbeat to keep user online (from every page)
+  useEffect(() => {
+    if (!user) return
+
+    const sendHeartbeat = async () => {
+      try {
+        const sessionId = sessionStorage.getItem('session_id') || 
+          `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        sessionStorage.setItem('session_id', sessionId)
+
+        await fetch('/api/users/activity', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            is_online: true,
+            session_id: sessionId,
+            user_agent: navigator.userAgent
+          })
+        })
+      } catch (error) {
+        console.error('Error sending heartbeat from layout:', error)
+      }
+    }
+
+    // Send heartbeat immediately when user is available
+    sendHeartbeat()
+
+    // Send heartbeat every 30 seconds (real-time)
+    const heartbeatInterval = setInterval(sendHeartbeat, 30000) // 30 seconds
+    
+    // Also send heartbeat when page becomes visible (user switched back to tab)
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        sendHeartbeat()
+      }
+    }
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    
+    // Send heartbeat when window gains focus
+    const handleFocus = () => {
+      sendHeartbeat()
+    }
+    
+    window.addEventListener('focus', handleFocus)
+
+    // Mark as offline when page unloads
+    const handleBeforeUnload = () => {
+      navigator.sendBeacon('/api/users/activity', JSON.stringify({
+        is_online: false
+      }))
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+
+    return () => {
+      clearInterval(heartbeatInterval)
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('focus', handleFocus)
+    }
+  }, [user])
 
   // Handle redirect if no user after loading completes
   // Only redirect if we're on a protected route and session recovery failed
@@ -160,6 +226,9 @@ export default function AuthenticatedLayout({
 
             <div className="flex items-center gap-3">
               <ThemeToggle />
+              
+              {/* Active Users Indicator */}
+              <ActiveUsersIndicator />
               
               {/* Directory Button */}
               <button

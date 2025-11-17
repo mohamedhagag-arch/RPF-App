@@ -889,6 +889,198 @@ export function ProjectsTableWithCustomization({
     }
   }, [allActivities, allKPIs, matchesProject])
 
+  // ✅ IMPROVED: Get Actual Dates from BOQ Activities and KPIs with better matching
+  // تاريخ البداية: من BOQ Activities أو أول KPI Actual
+  // تاريخ النهاية: آخر KPI Actual
+  const getActualDatesForProject = useCallback((project: Project): { start: string | null, completion: string | null } => {
+    if (!project.project_code) {
+      return { start: null, completion: null }
+    }
+
+    try {
+      let actualStart: string | null = null
+      let actualCompletion: string | null = null
+
+      // ✅ STEP 1: Get actual start date from BOQ Activities
+      if (allActivities.length > 0) {
+        const projectActivities = allActivities.filter((activity: any) => matchesProject(activity, project))
+        
+        if (projectActivities.length > 0) {
+          const activitiesWithStartDates = projectActivities
+            .map((activity: any) => {
+              const rawActivity = (activity as any).raw || {}
+              
+              // Get actual start date from activity (check all possible fields)
+              let startDate = activity.activity_actual_start_date || 
+                             activity.actual_start_date ||
+                             rawActivity['Activity Actual Start Date'] ||
+                             rawActivity['Actual Start Date'] ||
+                             activity['Activity Actual Start Date'] ||
+                             activity['Actual Start Date'] ||
+                             ''
+              
+              if (!startDate || startDate === '' || startDate === 'N/A' || startDate === 'null') {
+                return null
+              }
+              
+              const parsed = parseDateString(startDate)
+              return parsed ? { date: parsed, dateStr: startDate } : null
+            })
+            .filter((item): item is { date: Date, dateStr: string } => item !== null)
+            .sort((a, b) => a.date.getTime() - b.date.getTime())
+          
+          if (activitiesWithStartDates.length > 0) {
+            actualStart = activitiesWithStartDates[0].date.toISOString()
+          }
+        }
+      }
+
+      // ✅ STEP 2: Get actual dates from KPIs (IMPROVED: More flexible filtering)
+      if (allKPIs.length > 0) {
+        // Get all Actual KPIs for this project
+        const actualKPIs = allKPIs.filter((kpi: any) => {
+          // Check if it's Actual (check all possible sources)
+          const inputType = String(
+            kpi.input_type || 
+            kpi['Input Type'] || 
+            (kpi as any).raw?.['Input Type'] || 
+            (kpi as any).raw?.['input_type'] ||
+            ''
+          ).trim().toLowerCase()
+          
+          if (inputType !== 'actual') {
+            return false
+          }
+          
+          // Check if matches project (CRITICAL: Must match correctly)
+          const matches = matchesProject(kpi, project)
+          if (!matches) {
+            return false
+          }
+          
+          // ✅ IMPROVED: Check Activity Timing - be more flexible
+          const rawKPI = (kpi as any).raw || {}
+          const activityTiming = String(
+            kpi.activity_timing ||
+            (kpi as any)['Activity Timing'] ||
+            rawKPI['Activity Timing'] ||
+            rawKPI['activity_timing'] ||
+            ''
+          ).trim().toLowerCase()
+          
+          // ✅ FLEXIBLE: Include Post-Commencement, empty, or N/A (exclude only Pre-Commencement)
+          // This ensures we don't miss KPIs that don't have Activity Timing set
+          const isPreCommencement = activityTiming === 'pre-commencement' || 
+                                   activityTiming === 'pre commencement' ||
+                                   activityTiming === 'precommencement'
+          
+          // Exclude only Pre-Commencement, include everything else
+          return !isPreCommencement
+        })
+        
+        // ✅ DEBUG: Log filtering results
+        if (process.env.NODE_ENV === 'development' && actualKPIs.length === 0 && allKPIs.length > 0) {
+          const projectKPIs = allKPIs.filter((kpi: any) => matchesProject(kpi, project))
+          const actualProjectKPIs = projectKPIs.filter((kpi: any) => {
+            const inputType = String(
+              kpi.input_type || 
+              kpi['Input Type'] || 
+              (kpi as any).raw?.['Input Type'] || 
+              (kpi as any).raw?.['input_type'] ||
+              ''
+            ).trim().toLowerCase()
+            return inputType === 'actual'
+          })
+          console.log(`🔍 [Actual Dates] Project ${project.project_code}:`, {
+            totalKPIs: allKPIs.length,
+            projectKPIs: projectKPIs.length,
+            actualProjectKPIs: actualProjectKPIs.length,
+            filteredActualKPIs: actualKPIs.length,
+            note: actualKPIs.length === 0 ? 'No Actual KPIs found after filtering' : 'OK'
+          })
+        }
+
+        if (actualKPIs.length > 0) {
+          // ✅ IMPROVED: Extract dates with comprehensive field search (same as getActualDatesFromKPIs)
+          const datesWithKPIs = actualKPIs
+            .map((kpi: any) => {
+              const rawKpi = (kpi as any).raw || {}
+              
+              // ✅ PRIORITY 1: Actual Date - جميع الاختلافات
+              let dateStr = rawKpi['Actual Date'] ||
+                           rawKpi.actual_date ||
+                           rawKpi['actual_date'] ||
+                           rawKpi['ActualDate'] ||
+                           rawKpi.ActualDate ||
+                           ''
+              
+              // ✅ PRIORITY 2: من المابيد object (Actual Date)
+              if (!dateStr || dateStr === '' || dateStr === 'N/A' || dateStr === 'null') {
+                dateStr = kpi.actual_date ||
+                         kpi['Actual Date'] ||
+                         kpi['actual_date'] ||
+                         kpi['ActualDate'] ||
+                         kpi.ActualDate ||
+                         ''
+              }
+              
+              // ✅ PRIORITY 3: Activity Date - جميع الاختلافات
+              if (!dateStr || dateStr === '' || dateStr === 'N/A' || dateStr === 'null') {
+                dateStr = rawKpi['Activity Date'] ||
+                         rawKpi.activity_date ||
+                         rawKpi['activity_date'] ||
+                         rawKpi['ActivityDate'] ||
+                         rawKpi.ActivityDate ||
+                         kpi.activity_date ||
+                         kpi['Activity Date'] ||
+                         kpi['activity_date'] ||
+                         kpi['ActivityDate'] ||
+                         kpi.ActivityDate ||
+                         ''
+              }
+              
+              // ✅ PRIORITY 4: Day column - جميع الاختلافات
+              if (!dateStr || dateStr === '' || dateStr === 'N/A' || dateStr === 'null') {
+                dateStr = rawKpi['Day'] || 
+                         rawKpi.day ||
+                         rawKpi['day'] ||
+                         rawKpi.Day ||
+                         kpi.day || 
+                         kpi['Day'] ||
+                         kpi['day'] ||
+                         kpi.Day ||
+                         ''
+              }
+              
+              if (!dateStr || dateStr === '' || dateStr === 'N/A' || dateStr === 'null') {
+                return null
+              }
+              
+              const parsed = parseDateString(dateStr)
+              return parsed ? { date: parsed, kpi, dateStr } : null
+            })
+            .filter((item): item is { date: Date, kpi: any, dateStr: string } => item !== null)
+            .sort((a, b) => a.date.getTime() - b.date.getTime())
+
+          if (datesWithKPIs.length > 0) {
+            // ✅ Start date: First Actual KPI or from BOQ if not found
+            if (!actualStart) {
+              actualStart = datesWithKPIs[0].date.toISOString()
+            }
+            
+            // ✅ Completion date: Last Actual KPI
+            actualCompletion = datesWithKPIs[datesWithKPIs.length - 1].date.toISOString()
+          }
+        }
+      }
+
+      return { start: actualStart, completion: actualCompletion }
+    } catch (error) {
+      console.error(`❌ Error getting actual dates for ${project.project_code}:`, error)
+      return { start: null, completion: null }
+    }
+  }, [allActivities, allKPIs, matchesProject])
+
   // ✅ EXPANDED Helper: Get actual dates from KPIs - OPTIMIZED with useCallback
   const getActualDatesFromKPIs = useCallback((project: Project): { start: string | null, completion: string | null } => {
     if (!project.project_code) {
@@ -2871,125 +3063,74 @@ export function ProjectsTableWithCustomization({
           )
         
         case 'project_status':
-          // ✅ إعادة بناء كاملة: Project Status يعتمد على KPIs من صفحة KPI + Project Full Code
-          // المصدر: allKPIs (من صفحة KPI) مع مراعاة Project Full Code بدقة
+          // ✅ UPDATED: Project Status based on business rules
+          // Rules:
+          // 1. upcoming: Default status when project is created (no Actual KPIs)
+          // 2. site-preparation: At least one activity started + at least one Actual KPI + activity is pre-commencement
+          // 3. on-going: At least one post-commencement activity started + at least one Actual KPI
+          // 4. completed-duration: Project completion date = today but project not completed yet
+          // 5. contract-completed: Actual Quantity = Planned Quantity
+          // 6. on-hold & cancelled: Manual (set from form)
           let calculatedStatus: string = project.project_status || 'upcoming'
           
           try {
-            // ✅ STEP 1: التحقق من الحالات اليدوية أولاً (on-hold, cancelled)
-            // هذه الحالات يتم وضعها يدوياً من الفورم ولا تتغير تلقائياً
+            // ✅ STEP 1: Check manual statuses first (on-hold, cancelled)
+            // These are set manually from form and don't change automatically
             const currentStatusFromDB = project.project_status || 'upcoming'
             if (currentStatusFromDB === 'on-hold' || currentStatusFromDB === 'cancelled') {
               calculatedStatus = currentStatusFromDB
             } else {
-              // ✅ STEP 2: بناء Project Full Code بدقة (مراعاة Sub Code)
-              const projectFullCode = buildProjectFullCode(project)
-              const projectCode = String(project.project_code || '').trim()
-              const projectSubCode = String(project.project_sub_code || '').trim()
-              const projectFullCodeUpper = projectFullCode.toUpperCase()
-              const projectCodeUpper = projectCode.toUpperCase()
+              // ✅ STEP 2: Get all KPIs for this project
+              const projectKPIs = allKPIs.filter((kpi: any) => matchesProject(kpi, project))
               
-              // ✅ STEP 3: جلب KPIs للمشروع من allKPIs (صفحة KPI) مع مراعاة Project Full Code
-              // Helper: Extract project code from KPI
-              const extractKPIProjectCode = (kpi: any): string[] => {
-                const codes: string[] = []
-                const raw = (kpi as any).raw || {}
-                
-                // ✅ PRIORITY 1: Project Full Code (الأكثر دقة)
-                const kpiProjectFullCode = (kpi.project_full_code || 
-                                           (kpi as any)['Project Full Code'] || 
-                                           raw['Project Full Code'] || 
-                                           '').toString().trim()
-                
-                if (kpiProjectFullCode) {
-                  codes.push(kpiProjectFullCode.toUpperCase())
-                }
-                
-                // ✅ PRIORITY 2: Build from Project Code + Sub Code
-                const kpiProjectCode = (kpi.project_code || 
-                                       (kpi as any)['Project Code'] || 
-                                       raw['Project Code'] || 
-                                       '').toString().trim()
-                const kpiProjectSubCode = (kpi.project_sub_code || 
-                                          (kpi as any)['Project Sub Code'] || 
-                                          raw['Project Sub Code'] || 
-                                          '').toString().trim()
-                
-                if (kpiProjectCode && kpiProjectSubCode) {
-                  let builtFullCode = kpiProjectCode
-                  if (kpiProjectSubCode.toUpperCase().startsWith(kpiProjectCode.toUpperCase())) {
-                    builtFullCode = kpiProjectSubCode
-                  } else if (kpiProjectSubCode.startsWith('-')) {
-                    builtFullCode = `${kpiProjectCode}${kpiProjectSubCode}`
-                  } else {
-                    builtFullCode = `${kpiProjectCode}-${kpiProjectSubCode}`
-                  }
-                  codes.push(builtFullCode.toUpperCase())
-                } else if (kpiProjectCode && !projectSubCode) {
-                  // Only match by project_code if project has no sub_code
-                  codes.push(kpiProjectCode.toUpperCase())
-                }
-                
-                return Array.from(new Set(codes))
-              }
-              
-              // ✅ Helper: Check if KPI matches project
-              const kpiMatchesProject = (kpi: any): boolean => {
-                const kpiCodes = extractKPIProjectCode(kpi)
-                if (kpiCodes.length === 0) return false
-                
-                // ✅ PRIORITY 1: Exact match on Project Full Code
-                if (projectFullCodeUpper && kpiCodes.includes(projectFullCodeUpper)) {
-                  return true
-                }
-                
-                // ✅ PRIORITY 2: Match by Project Code only (if no sub_code)
-                if (!projectSubCode && projectCodeUpper && kpiCodes.includes(projectCodeUpper)) {
-                  return true
-                }
-                
-                return false
-              }
-              
-              // ✅ Filter KPIs for this project
-              const projectKPIs = allKPIs.filter((k: any) => kpiMatchesProject(k))
-              
-              // ✅ STEP 4: فصل KPIs حسب Input Type
+              // ✅ STEP 3: Separate Planned and Actual KPIs
               const plannedKPIs = projectKPIs.filter((k: any) => {
-                const inputType = (k.input_type || (k as any).raw?.['Input Type'] || '').toString().trim().toLowerCase()
+                const inputType = String(
+                  k.input_type || 
+                  (k as any)['Input Type'] || 
+                  (k as any).raw?.['Input Type'] || 
+                  ''
+                ).trim().toLowerCase()
                 return inputType === 'planned'
               })
               
               const actualKPIs = projectKPIs.filter((k: any) => {
-                const inputType = (k.input_type || (k as any).raw?.['Input Type'] || '').toString().trim().toLowerCase()
+                const inputType = String(
+                  k.input_type || 
+                  (k as any)['Input Type'] || 
+                  (k as any).raw?.['Input Type'] || 
+                  ''
+                ).trim().toLowerCase()
                 return inputType === 'actual'
               })
               
-              // ✅ STEP 5: الحصول على Activity Timing من KPIs (Activity Commencement Relation)
+              // ✅ STEP 4: Helper function to get Activity Timing from KPI
               const getActivityTiming = (kpi: any): 'pre-commencement' | 'post-commencement' | 'post-completion' | null => {
                 const raw = (kpi as any).raw || {}
-                let activityTiming = (kpi as any).activity_timing || 
-                                   raw['Activity Timing'] ||
-                                   raw['activity_timing'] ||
-                                   ''
+                let activityTiming = String(
+                  kpi.activity_timing || 
+                  (kpi as any)['Activity Timing'] ||
+                  raw['Activity Timing'] ||
+                  raw['activity_timing'] ||
+                  ''
+                ).trim().toLowerCase()
                 
-                if (!activityTiming || activityTiming === 'N/A' || activityTiming === '') {
+                if (!activityTiming || activityTiming === 'n/a' || activityTiming === '') {
                   return null
                 }
                 
-                const normalized = activityTiming.toString().trim().toLowerCase()
-                if (normalized.includes('pre-commencement') || normalized.includes('pre commencement')) {
+                if (activityTiming.includes('pre-commencement') || activityTiming.includes('pre commencement')) {
                   return 'pre-commencement'
-                } else if (normalized.includes('post-completion') || normalized.includes('post completion')) {
+                } else if (activityTiming.includes('post-completion') || activityTiming.includes('post completion')) {
                   return 'post-completion'
-                } else if (normalized.includes('post-commencement') || normalized.includes('post commencement')) {
+                } else if (activityTiming.includes('post-commencement') || activityTiming.includes('post commencement')) {
                   return 'post-commencement'
                 }
                 
                 return null
               }
               
-              // ✅ STEP 6: فصل Actual KPIs حسب Activity Commencement Relation
+              // ✅ STEP 5: Separate Actual KPIs by Activity Timing
               const preCommencementActualKPIs = actualKPIs.filter((k: any) => {
                 const timing = getActivityTiming(k)
                 return timing === 'pre-commencement'
@@ -3000,101 +3141,60 @@ export function ProjectsTableWithCustomization({
                 return timing === 'post-commencement'
               })
               
-              // ✅ STEP 7: حساب الكميات الإجمالية (Planned vs Actual)
-              const today = new Date()
-              today.setHours(0, 0, 0, 0)
-              
-              // ✅ Total Planned Quantity (كل Planned KPIs)
+              // ✅ STEP 6: Calculate quantities
               const totalPlannedQuantity = plannedKPIs.reduce((sum: number, k: any) => {
                 const qty = parseFloat(String(k.quantity || '0').replace(/,/g, '')) || 0
                 return sum + qty
               }, 0)
               
-              // ✅ Planned Quantity حتى اليوم (Planned KPIs التي target_date <= today)
-              const plannedQuantityUntilToday = plannedKPIs.reduce((sum: number, k: any) => {
-                const raw = (k as any).raw || {}
-                const targetDate = k.target_date || 
-                                  k.activity_date || 
-                                  raw['Target Date'] || 
-                                  raw['Activity Date'] || 
-                                  ''
-                
-                if (!targetDate) {
-                  // إذا لم يكن هناك تاريخ، نعتبره ضمن المخطط حتى اليوم
-                  const qty = parseFloat(String(k.quantity || '0').replace(/,/g, '')) || 0
-                  return sum + qty
-                }
-                
-                try {
-                  const kpiDate = new Date(targetDate)
-                  kpiDate.setHours(0, 0, 0, 0)
-                  
-                  // ✅ Planned KPI حتى اليوم = target_date <= today
-                  if (kpiDate <= today) {
-                    const qty = parseFloat(String(k.quantity || '0').replace(/,/g, '')) || 0
-                    return sum + qty
-                  }
-                } catch (e) {
-                  // في حالة خطأ في التاريخ، نعتبره ضمن المخطط حتى اليوم
-                  const qty = parseFloat(String(k.quantity || '0').replace(/,/g, '')) || 0
-                  return sum + qty
-                }
-                
-                return sum
-              }, 0)
-              
-              // ✅ Total Actual Quantity (كل Actual KPIs)
               const totalActualQuantity = actualKPIs.reduce((sum: number, k: any) => {
                 const qty = parseFloat(String(k.quantity || '0').replace(/,/g, '')) || 0
                 return sum + qty
               }, 0)
               
-              // ✅ STEP 8: التحقق من تاريخ انتهاء المشروع (Project Completion Date)
+              // ✅ STEP 7: Check project completion date
               const projectCompletionDate = project.project_completion_date || 
                                           getProjectField(project, 'Project Completion Date') || 
                                           getProjectField(project, 'Completion Date') ||
                                           getProjectField(project, 'End Date') ||
                                           null
               
-              let projectDurationEnded = false
+              const today = new Date()
+              today.setHours(0, 0, 0, 0)
+              
               let todayIsCompletionDate = false
               if (projectCompletionDate) {
                 const completionDate = new Date(projectCompletionDate)
                 completionDate.setHours(0, 0, 0, 0)
-                // ✅ المشروع انتهى اليوم = تاريخ الانتهاء <= اليوم
-                projectDurationEnded = completionDate <= today
-                // ✅ تاريخ اليوم = تاريخ انتهاء المشروع
                 todayIsCompletionDate = completionDate.getTime() === today.getTime()
               }
               
-              // ✅ STEP 9: تحديد الحالة حسب المواصفات
+              // ✅ STEP 8: Determine status based on business rules (priority order)
               
-              // 1. Contract Completed: قيمة المشروع Actual = الكمية Total (Actual Quantity = Total Planned Quantity)
+              // Rule 5: contract-completed: Actual Quantity = Planned Quantity
               if (totalPlannedQuantity > 0 && totalActualQuantity >= totalPlannedQuantity) {
                 calculatedStatus = 'contract-completed'
               }
-              // 2. Completed Duration: 
-              //    - تاريخ اليوم = تاريخ انتهاء المشروع
-              //    - أو كمية Planned اليوم = الكمية Total (plannedQuantityUntilToday = totalPlannedQuantity)
-              else if (todayIsCompletionDate || (totalPlannedQuantity > 0 && plannedQuantityUntilToday >= totalPlannedQuantity)) {
+              // Rule 4: completed-duration: Project completion date = today but project not completed yet
+              else if (todayIsCompletionDate && totalPlannedQuantity > 0 && totalActualQuantity < totalPlannedQuantity) {
                 calculatedStatus = 'completed-duration'
               }
-              // 3. On-going: بدأ نشاط post-commencement + KPI Actual واحد على الأقل
+              // Rule 3: on-going: At least one post-commencement activity started + at least one Actual KPI
               else if (postCommencementActualKPIs.length > 0) {
                 calculatedStatus = 'on-going'
               }
-              // 4. Site preparation: بدأ نشاط واحد على الأقل + KPI Actual واحد على الأقل + النشاط pre-commencement
+              // Rule 2: site-preparation: At least one activity started + at least one Actual KPI + activity is pre-commencement
               else if (preCommencementActualKPIs.length > 0) {
                 calculatedStatus = 'site-preparation'
               }
-              // 5. Upcoming: الحالة الافتراضية - لا توجد Actual KPIs
+              // Rule 1: upcoming: Default status (no Actual KPIs)
               else {
                 calculatedStatus = 'upcoming'
               }
               
-              // ✅ STEP 10: حفظ الحالة في قاعدة البيانات
+              // ✅ Update status in database if changed
               if (calculatedStatus !== currentStatusFromDB) {
-                const reason = `Auto-calculated: Total Planned=${totalPlannedQuantity.toLocaleString()}, Planned Until Today=${plannedQuantityUntilToday.toLocaleString()}, Actual=${totalActualQuantity.toLocaleString()}, Pre-Comm KPIs=${preCommencementActualKPIs.length}, Post-Comm KPIs=${postCommencementActualKPIs.length}, Today=Completion Date=${todayIsCompletionDate}, Duration Ended=${projectDurationEnded}`
+                const reason = `Auto-calculated: Planned Qty=${totalPlannedQuantity.toLocaleString()}, Actual Qty=${totalActualQuantity.toLocaleString()}, Pre-Comm KPIs=${preCommencementActualKPIs.length}, Post-Comm KPIs=${postCommencementActualKPIs.length}, Today=Completion Date=${todayIsCompletionDate}`
                 updateProjectStatusInDB(project.id, calculatedStatus, 100, reason).catch((err) => {
                   if (process.env.NODE_ENV === 'development') {
                     console.error(`❌ [Status Update] Failed to update ${project.project_code}:`, err)
@@ -3104,20 +3204,16 @@ export function ProjectsTableWithCustomization({
               
               // ✅ DEBUG: Log status calculation in development mode
               if (process.env.NODE_ENV === 'development' && Math.random() < 0.01) {
-                console.log(`📊 [Project Status] ${project.project_code} (${projectFullCode}):`, {
+                console.log(`📊 [Project Status] ${project.project_code}:`, {
                   status: calculatedStatus,
                   oldStatus: currentStatusFromDB,
                   changed: calculatedStatus !== currentStatusFromDB,
                   totalPlannedQuantity,
-                  plannedQuantityUntilToday,
                   totalActualQuantity,
                   preCommencementActualKPIs: preCommencementActualKPIs.length,
                   postCommencementActualKPIs: postCommencementActualKPIs.length,
-                  projectCompletionDate,
-                  todayIsCompletionDate,
-                  projectDurationEnded,
-                  allKPIsCount: allKPIs.length,
-                  projectKPIsCount: projectKPIs.length
+                  projectCompletionDate: projectCompletionDate ? formatDate(projectCompletionDate) : 'N/A',
+                  todayIsCompletionDate
                 })
               }
             }
@@ -3127,7 +3223,7 @@ export function ProjectsTableWithCustomization({
             calculatedStatus = project.project_status || 'upcoming'
           }
           
-          // ✅ STEP 11: عرض الحالة
+          // ✅ Display status with icon and color
           const statusText = getProjectStatusText(calculatedStatus)
           const projectStatusColor = getProjectStatusColor(calculatedStatus)
           const statusInfo = getStatusDisplayInfo(calculatedStatus as any)
@@ -3248,141 +3344,90 @@ export function ProjectsTableWithCustomization({
           )
         
         case 'actual_dates':
-          // ✅ USE BOQ ACTIVITIES FIRST (SAME AS CARDS), THEN KPIs
-          // Cards (ProjectDetailsPanel) prioritize: activity dates, then KPIs
-          // Table now uses: BOQ Activities actual dates FIRST, then KPIs, then project fields
-          // Calculation logic (SAME AS CARDS):
-          // 1. Get actual dates from BOQ Activities (activity_actual_start_date, activity_actual_completion_date)
-          // 2. Fallback to KPIs (Actual KPIs from analytics.kpis)
-          // 3. Fallback to project fields
+          // ✅ IMPROVED: Display Actual Dates with smart status messages
+          // تاريخ البداية: من BOQ Activities أو أول KPI Actual
+          // تاريخ النهاية: آخر KPI Actual
+          const actualDates = getActualDatesForProject(project)
+          const actualStartDate = actualDates.start
+          const actualCompletionDate = actualDates.completion
           
-          let actualStartDate = ''
-          let actualCompletionDate = ''
-          let actualDatesSource = 'none'
+          // ✅ Get actual progress to determine if project is completed
+          const projectActualProgress = analytics?.actualProgress ?? analytics?.overallProgress ?? 0
+          const isProjectCompleted = projectActualProgress >= 97
           
-          // ✅ METHOD 1: From BOQ Activities (Primary Source - SAME AS CARDS)
-          if (allActivities.length > 0) {
-            const projectActivities = allActivities.filter((activity: any) => matchesProject(activity, project))
-            
-            if (projectActivities.length > 0) {
-              const activitiesWithActualDates = projectActivities
-                .map((activity: any) => {
-              const rawActivity = (activity as any).raw || {}
-              
-                  const activityActualStart = activity.activity_actual_start_date ||
-                                           activity['Activity Actual Start Date'] ||
-                                           rawActivity['Activity Actual Start Date'] ||
-                                           activity.actual_start_date ||
-                                         activity['Actual Start Date'] ||
-                                         rawActivity['Actual Start Date'] ||
-                                         ''
-              
-                  const activityActualEnd = activity.activity_actual_completion_date ||
-                                           activity['Activity Actual Completion Date'] ||
-                                           rawActivity['Activity Actual Completion Date'] ||
-                                           activity.actual_completion_date ||
-                                       activity['Actual Completion Date'] ||
-                                       rawActivity['Actual Completion Date'] ||
-                                       activity.completion_date ||
-                                       ''
-              
-                  return { start: activityActualStart, end: activityActualEnd }
-                })
-                .filter(item => item.start || item.end)
-              
-              if (activitiesWithActualDates.length > 0) {
-                const validStarts = activitiesWithActualDates
-                  .map(a => parseDateString(a.start))
-                  .filter((d): d is Date => d !== null && !isNaN(d.getTime()))
-                
-                const validEnds = activitiesWithActualDates
-                  .map(a => parseDateString(a.end))
-                  .filter((d): d is Date => d !== null && !isNaN(d.getTime()))
-                
-                if (validStarts.length > 0) {
-                  actualStartDate = new Date(Math.min(...validStarts.map(d => d.getTime()))).toISOString()
-                  actualDatesSource = 'activities'
-                }
-                
-                if (validEnds.length > 0) {
-                  actualCompletionDate = new Date(Math.max(...validEnds.map(d => d.getTime()))).toISOString()
-                  actualDatesSource = 'activities'
-                }
-              }
-            }
-          }
+          // ✅ SMART STATUS: Determine project status based on dates and progress
+          const today = new Date()
+          today.setHours(0, 0, 0, 0)
           
-          // ✅ METHOD 2: Fallback to KPIs (if Activities don't have actual dates)
-          if ((!actualStartDate || !actualCompletionDate) && allKPIs.length > 0) {
-            const actualDatesFromKPIs = getActualDatesFromKPIs(project)
-            
-            if (!actualStartDate && actualDatesFromKPIs.start) {
-              actualStartDate = actualDatesFromKPIs.start
-              actualDatesSource = actualDatesSource === 'none' ? 'kpis' : 'activities_kpis'
-            }
-            
-            if (!actualCompletionDate && actualDatesFromKPIs.completion) {
-              actualCompletionDate = actualDatesFromKPIs.completion
-              actualDatesSource = actualDatesSource === 'none' ? 'kpis' : 'activities_kpis'
-            }
-          }
-          
-          // ✅ METHOD 3: Fallback to Project Fields
+          // Case 1: Project hasn't started yet (no start date)
           if (!actualStartDate) {
-            actualStartDate = getProjectField(project, 'Actual Start Date') || 
-                             getProjectField(project, 'Actual Start') ||
-                             getProjectField(project, 'Project Actual Start Date') ||
-                             getProjectField(project, 'Start Date (Actual)') ||
-                             ''
-            if (actualStartDate) {
-              actualDatesSource = actualDatesSource === 'none' ? 'project_fields' : actualDatesSource
-            }
+            return (
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-gray-400" />
+                <div className="text-sm font-medium text-gray-500 dark:text-gray-400 italic">
+                  Project Not Started
+                </div>
+              </div>
+            )
           }
           
-          if (!actualCompletionDate) {
-            actualCompletionDate = getProjectField(project, 'Actual Completion Date') || 
-                                getProjectField(project, 'Actual Completion') ||
-                                getProjectField(project, 'Project Actual End Date') ||
-                                getProjectField(project, 'Completion Date (Actual)') ||
-                                ''
-            if (actualCompletionDate) {
-              actualDatesSource = actualDatesSource === 'none' ? 'project_fields' : actualDatesSource
-            }
+          // Case 2: Project started but not completed
+          // Either no completion date OR progress < 97%
+          if (actualStartDate && (!actualCompletionDate || !isProjectCompleted)) {
+            const startDateObj = new Date(actualStartDate)
+            startDateObj.setHours(0, 0, 0, 0)
+            
+            // Calculate days since start
+            const daysSinceStart = Math.ceil((today.getTime() - startDateObj.getTime()) / (1000 * 60 * 60 * 24))
+            
+            return (
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-blue-500" />
+                  <div className="text-xs font-medium text-blue-600 dark:text-blue-400">
+                    In Progress
+                  </div>
+                </div>
+                <div className="text-xs text-gray-600 dark:text-gray-400">
+                  Started: {formatDate(actualStartDate)}
+                </div>
+                {daysSinceStart >= 0 && (
+                  <div className="text-xs text-gray-500 dark:text-gray-500">
+                    {daysSinceStart} {daysSinceStart === 1 ? 'day' : 'days'} ongoing
+                  </div>
+                )}
+                {!isProjectCompleted && projectActualProgress > 0 && (
+                  <div className="text-xs text-orange-600 dark:text-orange-400 font-medium">
+                    {projectActualProgress.toFixed(1)}% complete
+                  </div>
+                )}
+                {!isProjectCompleted && (
+                  <div className="flex items-center gap-1 mt-1">
+                    <AlertCircle className="h-3 w-3 text-orange-500" />
+                    <div className="text-xs text-orange-600 dark:text-orange-400 italic">
+                      Project Not Completed
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
           }
           
-          // ✅ Calculate actual duration
+          // Case 3: Project completed (has both start and completion dates AND progress >= 97%)
+          // Calculate duration if both dates are available
           let actualDatesDuration = 0
           if (actualStartDate && actualCompletionDate) {
-            const startDateObj = new Date(actualStartDate)
-            const endDateObj = new Date(actualCompletionDate)
-            if (!isNaN(startDateObj.getTime()) && !isNaN(endDateObj.getTime())) {
-              actualDatesDuration = Math.ceil((endDateObj.getTime() - startDateObj.getTime()) / (1000 * 60 * 60 * 24))
+            const startDate = new Date(actualStartDate)
+            const endDate = new Date(actualCompletionDate)
+            if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+              actualDatesDuration = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1 // Include both start and end days
             }
           }
           
           // ✅ Compare with planned dates if available (use same source as planned_dates column)
-          const plannedDatesCompare = getPlannedDatesFromActivities(project)
+          const plannedDatesCompare = getPlannedDatesForProject(project)
           let plannedStartCompare = plannedDatesCompare.start || null
           let plannedCompletionCompare = plannedDatesCompare.completion || null
-          
-          // Fallback to KPIs if Activities don't have planned dates
-          if ((!plannedStartCompare || !plannedCompletionCompare) && allKPIs.length > 0) {
-            const plannedDatesFromKPIs = getPlannedDatesFromKPIs(project)
-            if (!plannedStartCompare && plannedDatesFromKPIs.start) {
-              plannedStartCompare = plannedDatesFromKPIs.start
-            }
-            if (!plannedCompletionCompare && plannedDatesFromKPIs.completion) {
-              plannedCompletionCompare = plannedDatesFromKPIs.completion
-            }
-          }
-          
-          // Final fallback to project fields
-          if (!plannedStartCompare) {
-            plannedStartCompare = getProjectField(project, 'Planned Start Date') || ''
-          }
-          if (!plannedCompletionCompare) {
-            plannedCompletionCompare = getProjectField(project, 'Planned Completion Date') || ''
-          }
           
           let varianceInfo: { start?: number, completion?: number } | null = null
           if (actualStartDate && plannedStartCompare) {
@@ -3406,8 +3451,14 @@ export function ProjectsTableWithCustomization({
           
           return (
             <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="h-4 w-4 text-green-500" />
+                <div className="text-xs font-medium text-green-600 dark:text-green-400">
+                  Completed
+                </div>
+              </div>
               <div className="text-xs text-gray-600 dark:text-gray-400">
-                Start: {actualStartDate ? formatDate(actualStartDate) : 'N/A'}
+                Start: {formatDate(actualStartDate)}
                 {varianceInfo?.start !== undefined && (
                   <span className={`ml-2 ${varianceInfo.start > 0 ? 'text-red-600 dark:text-red-400' : varianceInfo.start < 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-600 dark:text-gray-400'}`}>
                     ({varianceInfo.start > 0 ? '+' : ''}{varianceInfo.start} days)
@@ -3415,7 +3466,7 @@ export function ProjectsTableWithCustomization({
                 )}
               </div>
               <div className="text-xs text-gray-600 dark:text-gray-400">
-                Completion: {actualCompletionDate ? formatDate(actualCompletionDate) : 'N/A'}
+                Completion: {formatDate(actualCompletionDate)}
                 {varianceInfo?.completion !== undefined && (
                   <span className={`ml-2 ${varianceInfo.completion > 0 ? 'text-red-600 dark:text-red-400' : varianceInfo.completion < 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-600 dark:text-gray-400'}`}>
                     ({varianceInfo.completion > 0 ? '+' : ''}{varianceInfo.completion} days)
@@ -3424,7 +3475,7 @@ export function ProjectsTableWithCustomization({
               </div>
               {actualDatesDuration > 0 && (
                 <div className="text-sm font-medium text-gray-900 dark:text-white">
-                  Duration: {actualDatesDuration} days
+                  Duration: {actualDatesDuration} {actualDatesDuration === 1 ? 'day' : 'days'}
                 </div>
               )}
             </div>
@@ -4059,7 +4110,7 @@ export function ProjectsTableWithCustomization({
         </span>
       )
     }
-  }, [projectsAnalytics, allActivities, allKPIs, matchesProject, getProjectField, getPlannedDatesFromActivities, getActualDatesFromKPIs, copiedPlotNumber, expandedScopes, expandedDivisions])
+  }, [projectsAnalytics, allActivities, allKPIs, matchesProject, getProjectField, getPlannedDatesFromActivities, getActualDatesFromKPIs, getPlannedDatesForProject, getActualDatesForProject, copiedPlotNumber, expandedScopes, expandedDivisions])
 
   // ✅ PERFORMANCE: Memoize visible columns to prevent unnecessary recalculations
   const visibleColumns = useMemo(() => {

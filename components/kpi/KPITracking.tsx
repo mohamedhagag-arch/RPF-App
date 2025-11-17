@@ -2071,71 +2071,118 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     return 0
   }, [activityIndexMap])
   
-  // ✅ IMPROVED: Calculate Planned Value with priority: 1) KPI.value, 2) Rate × Quantity, 3) planned_value
+  // ✅ FIXED: Calculate Planned Value using EXACT SAME LOGIC as table Value column
+  // Priority: 1) Calculate from Rate × Quantity (same as table), 2) Use Value directly from KPI
   const totalPlannedValue = useMemo(() => {
+    if (plannedKPIs.length === 0) {
+      return 0
+    }
+
     let total = 0
+    let fromCalculated = 0
     let fromValue = 0
-    let fromRate = 0
-    let fromFallback = 0
+    let skipped = 0
     
-    plannedKPIs.forEach((k: ProcessedKPI) => {
-      // ✅ PRIORITY 1: Use value directly from KPI if available (most accurate)
-      // ✅ FIX: Check both k.value and raw['Value'] to ensure we get the value
-      const rawKPI = (k as any).raw || {}
-      const kpiValue = (k.value ?? 
-                      parseFloat(String(rawKPI['Value'] || '0').replace(/,/g, ''))) || 
-                      0
+    plannedKPIs.forEach((kpi: ProcessedKPI) => {
+      const rawKPI = (kpi as any).raw || {}
+      
+      // Get Quantity
+      const quantity = (kpi.quantity ?? 
+                       parseFloat(String(rawKPI['Quantity'] || '0').replace(/,/g, ''))) || 
+                       0
+      
+      // ✅ PRIORITY 1: Calculate from Rate × Quantity (SAME AS TABLE COLUMN)
+      // This is how Value is calculated in the table: Quantity × Rate
+      const rate = getActivityRate(kpi)
+      if (rate > 0 && quantity > 0) {
+        const calculatedValue = rate * quantity
+        total += calculatedValue
+        fromCalculated++
+        return
+      }
+      
+      // ✅ PRIORITY 2: Use Value directly from KPI (fallback if no rate)
+      // Check raw['Value'] first (from database), then k.value
+      let kpiValue = 0
+      
+      // Try raw['Value'] (from database with capital V) - MOST RELIABLE
+      if (rawKPI['Value'] !== undefined && rawKPI['Value'] !== null) {
+        const val = rawKPI['Value']
+        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+      }
+      
+      // Try raw.value (from database with lowercase v)
+      if (kpiValue === 0 && rawKPI.value !== undefined && rawKPI.value !== null) {
+        const val = rawKPI.value
+        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+      }
+      
+      // Try k.value (direct property from ProcessedKPI) - LAST RESORT
+      if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
+        const val = kpi.value
+        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+      }
+      
+      // If we found a value, use it
       if (kpiValue > 0) {
         total += kpiValue
         fromValue++
         return
       }
       
-      // ✅ PRIORITY 2: Calculate from Rate × Quantity
-      const rate = getActivityRate(k)
-      const quantity = (k.quantity ?? 
-                      parseFloat(String(rawKPI['Quantity'] || '0').replace(/,/g, ''))) || 
-                      0
-      if (rate > 0 && quantity > 0) {
-        const calculatedValue = rate * quantity
-        total += calculatedValue
-        fromRate++
-        return
-      }
-      
-      // ✅ PRIORITY 3: Fallback to planned_value (check both k.planned_value and raw['Planned Value'])
-      const fallbackValue = (k.planned_value ?? 
-                           parseFloat(String(rawKPI['Planned Value'] || '0').replace(/,/g, ''))) || 
-                           0
-      if (fallbackValue > 0) {
-        total += fallbackValue
-        fromFallback++
-      }
+      // ✅ CRITICAL: If no value found and no rate, skip (NEVER use quantity as value!)
+      skipped++
     })
     
-    // ✅ DEBUG: Log calculation summary for large projects
-    if (process.env.NODE_ENV === 'development' && plannedKPIs.length > 100) {
-      // Calculate sum of all values for comparison
-      const sumOfAllValues = plannedKPIs.reduce((sum, k) => {
+    // Calculate total quantity for comparison
+    const totalPlannedQty = plannedKPIs.reduce((sum: number, k: ProcessedKPI) => {
+      const rawKPI = (k as any).raw || {}
+      return sum + ((k.quantity ?? parseFloat(String(rawKPI['Quantity'] || '0').replace(/,/g, ''))) || 0)
+    }, 0)
+    
+    // ✅ ALWAYS LOG: To help debug the issue
+    const seemsWrong = total === totalPlannedQty && total > 0
+    console.log(`📊 [Planned Value] Calculated for ${plannedKPIs.length} Planned KPIs:`, {
+      total,
+      totalPlannedQty,
+      fromCalculated,
+      fromValue,
+      skipped,
+      percentages: {
+        fromCalculated: plannedKPIs.length > 0 ? ((fromCalculated / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%',
+        fromValue: plannedKPIs.length > 0 ? ((fromValue / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%',
+        skipped: plannedKPIs.length > 0 ? ((skipped / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%'
+      },
+      warning: seemsWrong ? '⚠️ Total equals quantity - values may not be calculated correctly!' : 
+              (total === 0 ? '⚠️ Total is 0 - no values found!' : null),
+      note: 'Total is VALUE (not quantity) - using Rate × Quantity (same as table)'
+    })
+    
+    // Log sample KPIs for debugging
+    if (plannedKPIs.length > 0) {
+      console.log('🔍 Sample Planned KPIs (first 5):', plannedKPIs.slice(0, 5).map((k: ProcessedKPI) => {
         const rawKPI = (k as any).raw || {}
-        return sum + ((k.value ?? parseFloat(String(rawKPI['Value'] || '0').replace(/,/g, ''))) || 0)
-      }, 0)
-      const sumOfAllPlannedValues = plannedKPIs.reduce((sum, k) => {
-        const rawKPI = (k as any).raw || {}
-        return sum + ((k.planned_value ?? parseFloat(String(rawKPI['Planned Value'] || '0').replace(/,/g, ''))) || 0)
-      }, 0)
-      
-      console.log(`📊 [Planned Value] Calculated for ${plannedKPIs.length} KPIs:`, {
-        total,
-        fromValue,
-        fromRate,
-        fromFallback,
-        percentageFromValue: ((fromValue / plannedKPIs.length) * 100).toFixed(1) + '%',
-        percentageFromRate: ((fromRate / plannedKPIs.length) * 100).toFixed(1) + '%',
-        sumOfAllValues,
-        sumOfAllPlannedValues,
-        difference: total - sumOfAllValues
-      })
+        const qty = (k.quantity ?? parseFloat(String(rawKPI['Quantity'] || '0').replace(/,/g, ''))) || 0
+        const r = getActivityRate(k)
+        return {
+          id: k.id,
+          activity_name: k.activity_name,
+          quantity: qty,
+          value_direct: k.value,
+          value_raw: rawKPI['Value'],
+          value_raw_lowercase: rawKPI.value,
+          rate: r,
+          calculated_from_rate: r > 0 ? (r * qty) : 0
+        }
+      }))
+    }
+    
+    if (total === 0 && totalPlannedQty > 0) {
+      console.warn('⚠️ [Planned Value] Total is 0 but quantity is', totalPlannedQty, '- values may not be calculated correctly!')
+    }
+    
+    if (seemsWrong) {
+      console.error('❌ [Planned Value] CRITICAL ERROR: Total equals quantity! This means values are not being calculated correctly.')
     }
     
     return total
@@ -2209,8 +2256,11 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     
     return total
   }, [actualKPIs, getActivityRate])
+  // Calculate achievement rates
   const valueAchievementRate = totalPlannedValue > 0 ? (totalActualValue / totalPlannedValue) * 100 : 0
-  const achievementRate = totalPlannedValue > 0 ? valueAchievementRate : 0
+  const quantityAchievementRate = totalPlannedQty > 0 ? (totalActualQty / totalPlannedQty) * 100 : 0
+  // Use value-based achievement rate as primary (more accurate for financial tracking)
+  const achievementRate = totalPlannedValue > 0 ? valueAchievementRate : (totalPlannedQty > 0 ? quantityAchievementRate : 0)
   
   // Quality statistics
   const excellentKPIs = filteredKPIs.filter(k => k.status === 'excellent').length
@@ -2622,164 +2672,152 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       
 
       {/* KPI Statistics - Show if KPIs are loaded */}
-      {kpis.length > 0 && (
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-4">
-        <Card className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900 dark:to-purple-800 border-purple-200 dark:border-purple-700">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-purple-600 dark:text-purple-300">Total Records</p>
-                <p className="text-3xl font-bold text-purple-900 dark:text-purple-100">{totalKPIs}</p>
-              </div>
-              <BarChart3 className="h-10 w-10 text-purple-500" />
-            </div>
-          </CardContent>
-        </Card>
+      {/* ✅ REDESIGNED: KPI Statistics Cards with Clear Logic */}
+      {kpis.length > 0 && (() => {
+        // Get currency once for all cards
+        const firstProject = selectedProjects.length > 0 
+          ? projects.find(p => selectedProjects.includes(p.project_code))
+          : projects[0]
+        const currencyCode = firstProject?.currency || 'AED'
+        
+        return (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-4 mb-6">
+            {/* Card 1: Total Records - Shows total count of all KPIs */}
+            <Card className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900 dark:to-purple-800 border-purple-200 dark:border-purple-700">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-purple-600 dark:text-purple-300 mb-1">Total Records</p>
+                    <p className="text-3xl font-bold text-purple-900 dark:text-purple-100">{totalKPIs.toLocaleString()}</p>
+                    <p className="text-xs text-purple-500 dark:text-purple-400 mt-1">
+                      {plannedCount} Planned • {actualCount} Actual
+                    </p>
+                  </div>
+                  <BarChart3 className="h-10 w-10 text-purple-500 flex-shrink-0 ml-2" />
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900 dark:to-blue-800 border-blue-200 dark:border-blue-700">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-blue-600 dark:text-blue-300">🎯 Planned Targets</p>
-                <p className="text-3xl font-bold text-blue-900 dark:text-blue-100">{plannedCount}</p>
-                <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-                  {totalPlannedQty.toLocaleString()} total qty
-                </p>
-              </div>
-              <Target className="h-10 w-10 text-blue-500" />
-            </div>
-          </CardContent>
-        </Card>
+            {/* Card 2: Planned Targets - Shows count of planned KPIs + total planned quantity */}
+            <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900 dark:to-blue-800 border-blue-200 dark:border-blue-700">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-blue-600 dark:text-blue-300 mb-1">🎯 Planned Targets</p>
+                    <p className="text-3xl font-bold text-blue-900 dark:text-blue-100">{plannedCount.toLocaleString()}</p>
+                    <p className="text-xs text-blue-500 dark:text-blue-400 mt-1">
+                      {totalPlannedQty.toLocaleString()} units
+                    </p>
+                  </div>
+                  <Target className="h-10 w-10 text-blue-500 flex-shrink-0 ml-2" />
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900 dark:to-green-800 border-green-200 dark:border-green-700">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-green-600 dark:text-green-300">✓ Actual Achieved</p>
-                <p className="text-3xl font-bold text-green-900 dark:text-green-100">
-                  {(() => {
-                    // Get currency from first selected project or default
-                    const firstProject = selectedProjects.length > 0 
-                      ? projects.find(p => selectedProjects.includes(p.project_code))
-                      : projects[0]
-                    const currencyCode = firstProject?.currency || 'AED'
-                    return formatCurrencyByCodeSync(totalActualValue, currencyCode)
-                  })()}
-                </p>
-                <p className="text-xs text-green-600 dark:text-green-400 mt-1">
-                  {(() => {
-                    // Get currency from first selected project or default
-                    const firstProject = selectedProjects.length > 0 
-                      ? projects.find(p => selectedProjects.includes(p.project_code))
-                      : projects[0]
-                    const currencyCode = firstProject?.currency || 'AED'
-                    return `${formatCurrencyByCodeSync(totalPlannedValue, currencyCode)} total value`
-                  })()}
-                </p>
-              </div>
-              <CheckCircle className="h-10 w-10 text-green-500" />
-            </div>
-          </CardContent>
-        </Card>
+            {/* Card 3: Actual Achieved - Shows actual quantity + actual value */}
+            <Card className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900 dark:to-green-800 border-green-200 dark:border-green-700">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-green-600 dark:text-green-300 mb-1">✓ Actual Achieved</p>
+                    <p className="text-3xl font-bold text-green-900 dark:text-green-100">
+                      {totalActualQty.toLocaleString()}
+                    </p>
+                    <p className="text-xs text-green-500 dark:text-green-400 mt-1">
+                      {formatCurrencyByCodeSync(totalActualValue, currencyCode)}
+                    </p>
+                  </div>
+                  <CheckCircle className="h-10 w-10 text-green-500 flex-shrink-0 ml-2" />
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card className="bg-gradient-to-br from-indigo-50 to-indigo-100 dark:from-indigo-900 dark:to-indigo-800 border-indigo-200 dark:border-indigo-700">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-indigo-600 dark:text-indigo-300">Planned Value</p>
-                <p className="text-3xl font-bold text-indigo-900 dark:text-indigo-100">
-                  {(() => {
-                    // Get currency from first selected project or default
-                    const firstProject = selectedProjects.length > 0 
-                      ? projects.find(p => selectedProjects.includes(p.project_code))
-                      : projects[0]
-                    const currencyCode = firstProject?.currency || 'AED'
-                    return formatCurrencyByCodeSync(totalPlannedValue, currencyCode)
-                  })()}
-                </p>
-                <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-1">
-                  Across {plannedCount.toLocaleString()} planned KPIs
-                </p>
-              </div>
-              <Coins className="h-10 w-10 text-indigo-500" />
-            </div>
-          </CardContent>
-        </Card>
+            {/* Card 4: Planned Value - Shows total planned financial value */}
+            <Card className="bg-gradient-to-br from-indigo-50 to-indigo-100 dark:from-indigo-900 dark:to-indigo-800 border-indigo-200 dark:border-indigo-700">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-indigo-600 dark:text-indigo-300 mb-1">💰 Planned Value</p>
+                    <p className="text-3xl font-bold text-indigo-900 dark:text-indigo-100">
+                      {formatCurrencyByCodeSync(totalPlannedValue, currencyCode)}
+                    </p>
+                    <p className="text-xs text-indigo-500 dark:text-indigo-400 mt-1">
+                      From {plannedCount} KPIs
+                    </p>
+                  </div>
+                  <Coins className="h-10 w-10 text-indigo-500 flex-shrink-0 ml-2" />
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-emerald-900 dark:to-emerald-800 border-emerald-200 dark:border-emerald-700">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-emerald-600 dark:text-emerald-300">Actual Value</p>
-                <p className="text-3xl font-bold text-emerald-900 dark:text-emerald-100">
-                  {(() => {
-                    // Get currency from first selected project or default
-                    const firstProject = selectedProjects.length > 0 
-                      ? projects.find(p => selectedProjects.includes(p.project_code))
-                      : projects[0]
-                    const currencyCode = firstProject?.currency || 'AED'
-                    return formatCurrencyByCodeSync(totalActualValue, currencyCode)
-                  })()}
-                </p>
-                <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1">
-                  {valueAchievementRate.toFixed(1)}% of planned value
-                </p>
-              </div>
-              <DollarSign className="h-10 w-10 text-emerald-500" />
-            </div>
-          </CardContent>
-        </Card>
+            {/* Card 5: Actual Value - Shows total actual financial value */}
+            <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-emerald-900 dark:to-emerald-800 border-emerald-200 dark:border-emerald-700">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-emerald-600 dark:text-emerald-300 mb-1">💵 Actual Value</p>
+                    <p className="text-3xl font-bold text-emerald-900 dark:text-emerald-100">
+                      {formatCurrencyByCodeSync(totalActualValue, currencyCode)}
+                    </p>
+                    <p className="text-xs text-emerald-500 dark:text-emerald-400 mt-1">
+                      {totalPlannedValue > 0 
+                        ? `${valueAchievementRate.toFixed(1)}% of planned`
+                        : 'No planned value'}
+                    </p>
+                  </div>
+                  <DollarSign className="h-10 w-10 text-emerald-500 flex-shrink-0 ml-2" />
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900 dark:to-orange-800 border-orange-200 dark:border-orange-700">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-orange-600 dark:text-orange-300">Achievement Rate</p>
-                <p className="text-3xl font-bold text-orange-900 dark:text-orange-100">
-                  {achievementRate.toFixed(1)}%
-                </p>
-                <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
-                  {(() => {
-                    // Get currency from first selected project or default
-                    const firstProject = selectedProjects.length > 0 
-                      ? projects.find(p => selectedProjects.includes(p.project_code))
-                      : projects[0]
-                    const currencyCode = firstProject?.currency || 'AED'
-                    return `${formatCurrencyByCodeSync(totalActualValue, currencyCode)} / ${formatCurrencyByCodeSync(totalPlannedValue, currencyCode)}`
-                  })()}
-                </p>
-                <p className="text-[11px] text-orange-500 dark:text-orange-300">
-                  {actualCount.toLocaleString()} / {plannedCount.toLocaleString()} KPIs
-                </p>
-              </div>
-              <div className="relative w-10 h-10">
-                <svg className="transform -rotate-90 w-10 h-10">
-                  <circle
-                    cx="20"
-                    cy="20"
-                    r="16"
-                    stroke="currentColor"
-                    strokeWidth="3"
-                    fill="transparent"
-                    className="text-orange-200 dark:text-orange-950"
-                  />
-                  <circle
-                    cx="20"
-                    cy="20"
-                    r="16"
-                    stroke="currentColor"
-                    strokeWidth="3"
-                    fill="transparent"
-                    strokeDasharray={`${achievementRate} 100`}
-                    className="text-orange-500"
-                  />
-                </svg>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-      )}
+            {/* Card 6: Achievement Rate - Shows performance percentage */}
+            <Card className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900 dark:to-orange-800 border-orange-200 dark:border-orange-700">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-orange-600 dark:text-orange-300 mb-1">📊 Achievement Rate</p>
+                    <p className="text-3xl font-bold text-orange-900 dark:text-orange-100">
+                      {Math.min(achievementRate, 999).toFixed(1)}%
+                    </p>
+                    <div className="mt-1 space-y-0.5">
+                      <p className="text-xs text-orange-500 dark:text-orange-400 truncate">
+                        {formatCurrencyByCodeSync(totalActualValue, currencyCode)} / {formatCurrencyByCodeSync(totalPlannedValue, currencyCode)}
+                      </p>
+                      <p className="text-[11px] text-orange-400 dark:text-orange-300">
+                        {actualCount} / {plannedCount} KPIs
+                      </p>
+                    </div>
+                  </div>
+                  <div className="relative w-12 h-12 flex-shrink-0 ml-2">
+                    <svg className="transform -rotate-90 w-12 h-12">
+                      <circle
+                        cx="24"
+                        cy="24"
+                        r="20"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        fill="transparent"
+                        className="text-orange-200 dark:text-orange-950"
+                      />
+                      <circle
+                        cx="24"
+                        cy="24"
+                        r="20"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        fill="transparent"
+                        strokeDasharray={`${Math.min(achievementRate, 100)} 100`}
+                        className="text-orange-500"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )
+      })()}
 
       {/* Empty State - Show when no data loaded */}
       {kpis.length === 0 && !loading && (

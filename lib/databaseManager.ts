@@ -256,23 +256,56 @@ export async function clearTableData(tableName: string): Promise<OperationResult
 export async function exportTableData(tableName: string): Promise<OperationResult> {
   try {
     const supabase = getSupabaseClient()
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     
     console.log(`📤 Exporting data from table: ${tableName}`)
+    if (supabaseUrl && !supabaseUrl.includes('localhost') && !supabaseUrl.includes('127.0.0.1')) {
+      console.log(`   ✅ Source: Production database (${supabaseUrl.substring(0, 30)}...)`)
+    }
     
     // جلب كل البيانات باستخدام pagination
     let allData: any[] = []
     let from = 0
     const limit = 1000 // Supabase max limit per request
     
+    // Try to get first row to check table structure
+    const { data: sampleData, error: sampleError } = await supabase
+      .from(tableName)
+      .select('*')
+      .limit(1)
+    
+    if (sampleError) {
+      console.error(`❌ Error accessing table ${tableName}:`, sampleError)
+      return {
+        success: false,
+        message: `Failed to access table: ${sampleError.message}`,
+        error: sampleError.message
+      }
+    }
+    
+    // Check if table has created_at column
+    const hasCreatedAt = sampleData && sampleData.length > 0 && (sampleData[0] as any)?.created_at !== undefined
+    const hasId = sampleData && sampleData.length > 0 && (sampleData[0] as any)?.id !== undefined
+    
+    console.log(`📤 Table structure: ${hasCreatedAt ? 'has created_at' : hasId ? 'has id' : 'no ordering column'}`)
+    
     while (true) {
       const currentBatch = Math.floor(from / limit) + 1
       console.log(`📤 Fetching batch ${currentBatch} (rows ${from + 1} to ${from + limit})...`)
       
-      const { data, error } = await supabase
+      let query = supabase
         .from(tableName)
         .select('*')
-        .order('created_at', { ascending: false })
         .range(from, from + limit - 1)
+      
+      // Only add order if column exists
+      if (hasCreatedAt) {
+        query = query.order('created_at', { ascending: false })
+      } else if (hasId) {
+        query = query.order('id', { ascending: false })
+      }
+      
+      const { data, error } = await query
       
       if (error) {
         console.error(`❌ Error exporting ${tableName}:`, error)
@@ -338,50 +371,62 @@ async function validateDataRelationships(tableName: string, data: any[]): Promis
   try {
     console.log(`🔍 Validating relationships for ${tableName}...`)
     
-    // ✅ التحقق من BOQ Activities → يجب أن يكون Project Code موجود
+    // ✅ التحقق من BOQ Activities → يجب أن يكون Project Full Code موجود
     if (tableName === TABLES.BOQ_ACTIVITIES) {
-      const projectCodesSet = new Set(data.map(row => row['Project Code'] || row['project_code']).filter(Boolean))
-      const projectCodes = Array.from(projectCodesSet) as string[]
+      // ✅ Priority: Check Project Full Code first (most accurate)
+      const projectFullCodesSet = new Set(data.map(row => 
+        row['Project Full Code'] || row['project_full_code'] || 
+        (row['Project Code'] && row['Project Sub Code'] ? `${row['Project Code']}-${row['Project Sub Code']}` : null) ||
+        (row['project_code'] && row['project_sub_code'] ? `${row['project_code']}-${row['project_sub_code']}` : null)
+      ).filter(Boolean))
+      const projectFullCodes = Array.from(projectFullCodesSet) as string[]
       
-      if (projectCodes.length > 0) {
+      if (projectFullCodes.length > 0) {
         const { data: existingProjects } = await supabase
           .from(TABLES.PROJECTS)
-          .select('"Project Code"')
-          .in('"Project Code"', projectCodes)
+          .select('"Project Full Code", "Project Code", "Project Sub-Code"')
+          .or(projectFullCodes.map(code => `"Project Full Code".eq.${code}`).join(','))
         
-        const existingCodes = new Set((existingProjects || []).map((p: any) => p['Project Code']))
-        const missingCodes = projectCodes.filter((code: string) => !existingCodes.has(code))
+        const existingFullCodes = new Set((existingProjects || []).map((p: any) => 
+          p['Project Full Code'] || (p['Project Code'] && p['Project Sub-Code'] ? `${p['Project Code']}-${p['Project Sub-Code']}` : null)
+        ).filter(Boolean))
+        const missingCodes = projectFullCodes.filter((code: string) => !existingFullCodes.has(code))
         
         if (missingCodes.length > 0) {
-          warnings.push(`⚠️ Warning: ${missingCodes.length} BOQ activities reference non-existent projects: ${missingCodes.slice(0, 3).join(', ')}${missingCodes.length > 3 ? '...' : ''}`)
-          console.warn(`⚠️ Missing project codes:`, missingCodes)
+          warnings.push(`⚠️ Warning: ${missingCodes.length} BOQ activities reference non-existent projects (by Project Full Code): ${missingCodes.slice(0, 3).join(', ')}${missingCodes.length > 3 ? '...' : ''}`)
+          console.warn(`⚠️ Missing project full codes:`, missingCodes)
         } else {
-          console.log(`✅ All ${projectCodes.length} project codes exist`)
+          console.log(`✅ All ${projectFullCodes.length} project full codes exist`)
         }
       }
     }
     
-    // ✅ التحقق من KPI → يجب أن يكون Project Code و Activity Name موجودين
+    // ✅ التحقق من KPI → يجب أن يكون Project Full Code و Activity Name موجودين
     if (tableName === TABLES.KPI) {
-      const projectCodesSet = new Set(data.map(row => 
-        row['Project Full Code'] || row['Project Code'] || row['project_code']
+      // ✅ Priority: Use Project Full Code (most accurate matching)
+      const projectFullCodesSet = new Set(data.map(row => 
+        row['Project Full Code'] || row['project_full_code'] ||
+        (row['Project Code'] && row['Project Sub Code'] ? `${row['Project Code']}-${row['Project Sub Code']}` : null) ||
+        (row['project_code'] && row['project_sub_code'] ? `${row['project_code']}-${row['project_sub_code']}` : null)
       ).filter(Boolean))
-      const projectCodes = Array.from(projectCodesSet) as string[]
+      const projectFullCodes = Array.from(projectFullCodesSet) as string[]
       
-      if (projectCodes.length > 0) {
+      if (projectFullCodes.length > 0) {
         const { data: existingProjects } = await supabase
           .from(TABLES.PROJECTS)
-          .select('"Project Code"')
-          .in('"Project Code"', projectCodes)
+          .select('"Project Full Code", "Project Code", "Project Sub-Code"')
+          .or(projectFullCodes.map(code => `"Project Full Code".eq.${code}`).join(','))
         
-        const existingCodes = new Set((existingProjects || []).map((p: any) => p['Project Code']))
-        const missingCodes = projectCodes.filter((code: string) => !existingCodes.has(code))
+        const existingFullCodes = new Set((existingProjects || []).map((p: any) => 
+          p['Project Full Code'] || (p['Project Code'] && p['Project Sub-Code'] ? `${p['Project Code']}-${p['Project Sub-Code']}` : null)
+        ).filter(Boolean))
+        const missingCodes = projectFullCodes.filter((code: string) => !existingFullCodes.has(code))
         
         if (missingCodes.length > 0) {
-          warnings.push(`⚠️ Warning: ${missingCodes.length} KPI records reference non-existent projects`)
-          console.warn(`⚠️ Missing project codes in KPI:`, missingCodes)
+          warnings.push(`⚠️ Warning: ${missingCodes.length} KPI records reference non-existent projects (by Project Full Code)`)
+          console.warn(`⚠️ Missing project full codes in KPI:`, missingCodes.slice(0, 5))
         } else {
-          console.log(`✅ All ${projectCodes.length} project codes exist`)
+          console.log(`✅ All ${projectFullCodes.length} project full codes exist`)
         }
       }
       
@@ -446,7 +491,8 @@ function getCorrectColumnNames(tableName: string): string[] {
   const columnMappings: Record<string, string[]> = {
     [TABLES.PROJECTS]: [
       'Project Code',
-      'Project Sub-Code', 
+      'Project Sub-Code',
+      'Project Full Code', // ✅ Added: Important for matching with BOQ and KPI
       'Project Name',
       'Project Type',
       'Responsible Division',
@@ -1045,13 +1091,16 @@ export async function importTableData(
       Object.keys(row).forEach(key => {
         let value = row[key]
         
-        // ⚠️ لا نحذف Project Code أو Activity Name حتى لو كانت فارغة
+        // ⚠️ لا نحذف Project Code, Project Full Code, Project Sub Code, أو Activity Name حتى لو كانت فارغة
         // هذه حقول مهمة للترابط
         const isImportantField = 
           key === 'Project Code' || 
+          key === 'Project Sub Code' ||
+          key === 'Project Sub-Code' ||
           key === 'Project Full Code' ||
           key === 'Activity Name' ||
-          key === 'Activity'
+          key === 'Activity' ||
+          key === 'Input Type' // Important for KPI table
         
         if (!isImportantField && (value === '' || value === 'null' || value === 'NULL' || value === null || value === undefined)) {
           cleanedRow[key] = null
@@ -1240,37 +1289,55 @@ function getEnhancedTemplate(tableName: string): any | null {
     
     // Projects Template
     'Planning Database - ProjectsList': {
-      project_code: 'PROJ001',
-      project_sub_code: 'SUB001',
-      project_name: 'Project Name',
-      project_type: 'Construction',
-      responsible_division: 'Enabling Division',
-      plot_number: 'PLOT-001',
-      contract_amount: 1000000,
-      project_status: 'active'
+      'Project Code': 'P5066',
+      'Project Sub-Code': 'I2',
+      'Project Full Code': 'P5066-I2', // ✅ Added: Important for matching
+      'Project Name': 'Sample Project Name',
+      'Project Type': 'Construction',
+      'Responsible Division': 'Enabling Division',
+      'Plot Number': 'PLOT-001',
+      'Contract Amount': '1000000',
+      'Project Status': 'on-going',
+      'KPI Completed': 'No',
+      'Contract Status': 'Active',
+      'Project Start Date': '2024-01-01',
+      'Project Completion Date': '2024-12-31'
     },
     
     // BOQ Activities Template
     'Planning Database - BOQ Rates': {
-      project_id: 'project-uuid',
-      project_code: 'PROJ001',
-      project_sub_code: 'SUB001',
-      activity: 'Activity Name',
-      activity_division: 'Division Name',
-      unit: 'Unit',
-      total_units: 100,
-      planned_units: 80,
-      rate: 50.0
+      'Project Code': 'P5066',
+      'Project Sub Code': 'I2',
+      'Project Full Code': 'P5066-I2', // ✅ Added: Important for matching
+      'Activity': 'Mobilization',
+      'Activity Name': 'Mobilization',
+      'Activity Division': 'Enabling Division',
+      'Unit': 'Lump Sum',
+      'Zone Ref': 'Zone 1',
+      'Zone Number': '1',
+      'Total Units': '1',
+      'Planned Units': '1',
+      'Rate': '50000',
+      'Total Value': '50000',
+      'Planned Activity Start Date': '2024-01-01',
+      'Deadline': '2024-01-15',
+      'Calendar Duration': '15'
     },
     
     // KPI Template
     'Planning Database - KPI': {
-      project_full_code: 'PROJ001-SUB001',
-      activity_name: 'Activity Name',
-      quantity: 100,
-      input_type: 'Planned',
-      section: 'Section Name',
-      unit: 'Unit'
+      'Project Full Code': 'P5066-I2', // ✅ Priority: Use Project Full Code
+      'Project Code': 'P5066',
+      'Project Sub Code': 'I2',
+      'Activity Name': 'Mobilization',
+      'Activity': 'Mobilization',
+      'Input Type': 'Planned', // Required: 'Planned' or 'Actual'
+      'Quantity': '1',
+      'Unit': 'Lump Sum',
+      'Section': 'General',
+      'Zone': 'Zone 1',
+      'Target Date': '2024-01-01',
+      'Activity Date': '2024-01-01'
     },
     
     // Company Settings Template
@@ -1713,68 +1780,102 @@ function getTemplateExamples(filename: string): any[] {
     
     'Planning Database - ProjectsList': [
       {
-        project_code: 'PROJ001',
-        project_sub_code: 'SUB001',
-        project_name: 'Sample Project 1',
-        project_type: 'Construction',
-        responsible_division: 'Enabling Division',
-        plot_number: 'PLOT-001',
-        contract_amount: 1000000,
-        project_status: 'active'
+        'Project Code': 'P5066',
+        'Project Sub-Code': 'I2',
+        'Project Full Code': 'P5066-I2', // ✅ Added: Important for matching
+        'Project Name': 'Sample Project 1',
+        'Project Type': 'Construction',
+        'Responsible Division': 'Enabling Division',
+        'Plot Number': 'PLOT-001',
+        'Contract Amount': '1000000',
+        'Project Status': 'on-going',
+        'KPI Completed': 'No',
+        'Project Start Date': '2024-01-01',
+        'Project Completion Date': '2024-12-31'
       },
       {
-        project_code: 'PROJ002',
-        project_sub_code: 'SUB002',
-        project_name: 'Sample Project 2',
-        project_type: 'Infrastructure',
-        responsible_division: 'Infrastructure Division',
-        plot_number: 'PLOT-002',
-        contract_amount: 2500000,
-        project_status: 'active'
+        'Project Code': 'P5067',
+        'Project Sub-Code': 'I1',
+        'Project Full Code': 'P5067-I1', // ✅ Added: Important for matching
+        'Project Name': 'Sample Project 2',
+        'Project Type': 'Infrastructure',
+        'Responsible Division': 'Infrastructure Division',
+        'Plot Number': 'PLOT-002',
+        'Contract Amount': '2500000',
+        'Project Status': 'on-going',
+        'KPI Completed': 'No',
+        'Project Start Date': '2024-02-01',
+        'Project Completion Date': '2025-01-31'
       }
     ],
     
     'Planning Database - BOQ Rates': [
       {
-        project_id: 'project-uuid-1',
-        project_code: 'PROJ001',
-        project_sub_code: 'SUB001',
-        activity: 'Mobilization',
-        activity_division: 'Enabling Division',
-        unit: 'Lump Sum',
-        total_units: 1,
-        planned_units: 1,
-        rate: 50000
+        'Project Code': 'P5066',
+        'Project Sub Code': 'I2',
+        'Project Full Code': 'P5066-I2', // ✅ Added: Important for matching
+        'Activity': 'Mobilization',
+        'Activity Name': 'Mobilization',
+        'Activity Division': 'Enabling Division',
+        'Unit': 'Lump Sum',
+        'Zone Ref': 'Zone 1',
+        'Zone Number': '1',
+        'Total Units': '1',
+        'Planned Units': '1',
+        'Rate': '50000',
+        'Total Value': '50000',
+        'Planned Activity Start Date': '2024-01-01',
+        'Deadline': '2024-01-15',
+        'Calendar Duration': '15'
       },
       {
-        project_id: 'project-uuid-2',
-        project_code: 'PROJ001',
-        project_sub_code: 'SUB001',
-        activity: 'Vibro Compaction',
-        activity_division: 'Enabling Division',
-        unit: 'No.',
-        total_units: 100,
-        planned_units: 80,
-        rate: 250
+        'Project Code': 'P5066',
+        'Project Sub Code': 'I2',
+        'Project Full Code': 'P5066-I2', // ✅ Same project, different activity
+        'Activity': 'Vibro Compaction',
+        'Activity Name': 'Vibro Compaction',
+        'Activity Division': 'Enabling Division',
+        'Unit': 'No.',
+        'Zone Ref': 'Zone 1',
+        'Zone Number': '1',
+        'Total Units': '100',
+        'Planned Units': '80',
+        'Rate': '250',
+        'Total Value': '20000',
+        'Planned Activity Start Date': '2024-01-16',
+        'Deadline': '2024-02-15',
+        'Calendar Duration': '30'
       }
     ],
     
     'Planning Database - KPI': [
       {
-        project_full_code: 'PROJ001-SUB001',
-        activity_name: 'Mobilization',
-        quantity: 1,
-        input_type: 'Planned',
-        section: 'General',
-        unit: 'Lump Sum'
+        'Project Full Code': 'P5066-I2', // ✅ Priority: Use Project Full Code
+        'Project Code': 'P5066',
+        'Project Sub Code': 'I2',
+        'Activity Name': 'Mobilization',
+        'Activity': 'Mobilization',
+        'Input Type': 'Planned', // Required: 'Planned' or 'Actual'
+        'Quantity': '1',
+        'Unit': 'Lump Sum',
+        'Section': 'General',
+        'Zone': 'Zone 1',
+        'Target Date': '2024-01-01',
+        'Activity Date': '2024-01-01'
       },
       {
-        project_full_code: 'PROJ001-SUB001',
-        activity_name: 'Vibro Compaction',
-        quantity: 100,
-        input_type: 'Actual',
-        section: 'Soil Improvement',
-        unit: 'No.'
+        'Project Full Code': 'P5066-I2', // ✅ Same project and activity, different input type
+        'Project Code': 'P5066',
+        'Project Sub Code': 'I2',
+        'Activity Name': 'Vibro Compaction',
+        'Activity': 'Vibro Compaction',
+        'Input Type': 'Actual', // Required: 'Planned' or 'Actual'
+        'Quantity': '100',
+        'Unit': 'No.',
+        'Section': 'Soil Improvement',
+        'Zone': 'Zone 1',
+        'Actual Date': '2024-01-20',
+        'Activity Date': '2024-01-20'
       }
     ],
     

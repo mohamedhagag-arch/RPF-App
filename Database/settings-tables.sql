@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS backup_settings (
     compression BOOLEAN DEFAULT true,
     encryption BOOLEAN DEFAULT false,
     storage_location TEXT DEFAULT 'local', -- local, cloud, external
+    folder_id TEXT, -- Google Drive folder ID (optional)
     last_backup_at TIMESTAMP WITH TIME ZONE,
     next_backup_at TIMESTAMP WITH TIME ZONE,
     is_active BOOLEAN DEFAULT true,
