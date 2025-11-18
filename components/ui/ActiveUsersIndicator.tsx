@@ -189,7 +189,7 @@ export function ActiveUsersIndicator() {
       {/* Dropdown with user list */}
       {isOpen && hasUsers && (
         <div 
-          className="absolute top-full right-0 mt-2 w-80 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-50 max-h-96 overflow-y-auto"
+          className="absolute top-full right-0 mt-2 w-80 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-[100] max-h-96 overflow-y-auto"
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={() => {
             setIsHovered(false)
@@ -253,7 +253,7 @@ export function ActiveUsersIndicator() {
 
       {/* Enhanced Tooltip (when dropdown is closed) */}
       {isHovered && !isOpen && (
-        <div className="absolute top-full right-0 mt-3 px-3 py-2 bg-gray-900 dark:bg-gray-800 text-white text-xs font-medium rounded-lg shadow-xl opacity-100 transition-all duration-200 pointer-events-none whitespace-nowrap z-50 border border-gray-700 dark:border-gray-600">
+        <div className="absolute top-full right-0 mt-3 px-3 py-2 bg-gray-900 dark:bg-gray-800 text-white text-xs font-medium rounded-lg shadow-xl opacity-100 transition-all duration-200 pointer-events-none whitespace-nowrap z-[100] border border-gray-700 dark:border-gray-600">
           <div className="flex items-center gap-2">
             {hasUsers ? (
               <>
