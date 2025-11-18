@@ -30,7 +30,6 @@ import {
   Briefcase,
   DollarSign,
   Target,
-  Ruler
 } from 'lucide-react'
 import { DivisionsManager } from './DivisionsManager'
 import { ProjectTypesManager } from './ProjectTypesManager'
@@ -43,7 +42,6 @@ import { ProfileManager } from './ProfileManager'
 import { DepartmentsJobTitlesManager } from './DepartmentsJobTitlesManager'
 import { ProjectTypeActivitiesManager } from './ProjectTypeActivitiesManager'
 import { UnifiedProjectTypesManager } from './UnifiedProjectTypesManager'
-import { UnitsManager } from './UnitsManager'
 import { ActiveUsersManager } from './ActiveUsersManager'
 
 interface SettingsPageProps {
@@ -286,7 +284,6 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
     { id: 'departments-titles', label: 'Departments & Titles', icon: Building2, roles: ['admin', 'manager'], permission: 'settings.divisions' },
     { id: 'divisions', label: 'Divisions', icon: Building2, roles: ['admin', 'manager'], permission: 'settings.divisions' },
     { id: 'unified-project-types', label: 'Project Scope & Activities', icon: Briefcase, roles: ['admin', 'manager'], permission: 'settings.project_types' },
-    { id: 'units', label: 'Units', icon: Ruler, roles: ['admin', 'manager'], permission: 'settings.manage' },
     { id: 'currencies', label: 'Currencies', icon: DollarSign, roles: ['admin', 'manager'], permission: 'settings.currencies' },
     { id: 'data', label: 'Data Management', icon: Database, roles: ['admin', 'manager'], permission: 'system.export' },
     { id: 'security', label: 'Security', icon: Shield, roles: ['admin', 'manager'], permission: 'users.manage' }
@@ -303,11 +300,6 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
     if (tab.id === 'kpi-notifications') {
       return guard.hasAccess('settings.manage') || 
              ['admin', 'manager', 'planner'].includes(userRole || '')
-    }
-    // Units tab: يظهر للمستخدمين الذين لديهم settings.manage أو admin/manager role
-    if (tab.id === 'units') {
-      return guard.hasAccess('settings.manage') || 
-             ['admin', 'manager'].includes(userRole || '')
     }
     return guard.hasAccess(tab.permission)
   })
@@ -448,22 +440,6 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
           )
         }
         return <ProjectTypeActivitiesManager />
-
-      case 'units':
-        // Allow access for admin, manager, or users with settings.manage permission
-        const canAccessUnits = guard.hasAccess('settings.manage') || 
-                               ['admin', 'manager'].includes(userRole || '') ||
-                               guard.isAdmin()
-        if (!canAccessUnits) {
-          return (
-            <div className="text-center py-12">
-              <Shield className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Access Denied</h3>
-              <p className="text-gray-600 dark:text-gray-400">You don't have permission to manage units.</p>
-            </div>
-          )
-        }
-        return <UnitsManager />
 
       case 'currencies':
         if (!guard.hasAccess('settings.currencies')) {
