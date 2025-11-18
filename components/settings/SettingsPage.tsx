@@ -16,10 +16,6 @@ import {
   Users,
   Bell, 
   Shield, 
-  Database, 
-  Download, 
-  Upload,
-  Trash2,
   Save,
   Eye,
   EyeOff,
@@ -159,119 +155,6 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
     }
   }
 
-  const handleExportData = async () => {
-    try {
-      startSmartLoading(setLoading)
-      setError('')
-      
-      // Export projects
-      const { data: projects } = await supabase
-        .from('Planning Database - ProjectsList')
-        .select('*')
-
-      // Export BOQ activities
-      const { data: activities } = await supabase
-        .from('Planning Database - BOQ Rates')
-        .select('*')
-
-      // Export KPIs
-      const { data: kpis } = await supabase
-        .from('Planning Database - KPI')
-        .select('*')
-
-      const exportData = {
-        projects: projects || [],
-        activities: activities || [],
-        kpis: kpis || [],
-        exported_at: new Date().toISOString(),
-        exported_by: profileData.email
-      }
-
-      const dataStr = JSON.stringify(exportData, null, 2)
-      const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr)
-      
-      const exportFileDefaultName = `rabat-mvp-backup-${new Date().toISOString().split('T')[0]}.json`
-      
-      const linkElement = document.createElement('a')
-      linkElement.setAttribute('href', dataUri)
-      linkElement.setAttribute('download', exportFileDefaultName)
-      linkElement.click()
-
-      setSuccess('Data exported successfully')
-      setTimeout(() => setSuccess(''), 3000)
-    } catch (error: any) {
-      setError('Failed to export data')
-    } finally {
-      stopSmartLoading(setLoading)
-    }
-  }
-
-  const handleImportData = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
-
-    try {
-      startSmartLoading(setLoading)
-      setError('')
-      
-      const text = await file.text()
-      const data = JSON.parse(text)
-
-      if (!data.projects || !data.activities || !data.kpis) {
-        throw new Error('Invalid backup file format')
-      }
-
-      // Import projects
-      if (data.projects.length > 0) {
-        const { error: projectsError } = await supabase
-          .from('Planning Database - ProjectsList')
-          .upsert(data.projects, { onConflict: 'id' })
-
-        if (projectsError) throw projectsError
-      }
-
-      // Import activities
-      if (data.activities.length > 0) {
-        const { error: activitiesError } = await supabase
-          .from('Planning Database - BOQ Rates')
-          .upsert(data.activities, { onConflict: 'id' })
-
-        if (activitiesError) throw activitiesError
-      }
-
-      // Import KPIs
-      if (data.kpis.length > 0) {
-        const { error: kpisError } = await supabase
-          .from('Planning Database - KPI')
-          .upsert(data.kpis, { onConflict: 'id' })
-
-        if (kpisError) throw kpisError
-      }
-
-      setSuccess('Data imported successfully')
-      setTimeout(() => setSuccess(''), 3000)
-    } catch (error: any) {
-      setError('Failed to import data: ' + error.message)
-    } finally {
-      stopSmartLoading(setLoading)
-    }
-  }
-
-  const handleClearCache = async () => {
-    try {
-      startSmartLoading(setLoading)
-      // Clear browser cache and localStorage
-      localStorage.clear()
-      sessionStorage.clear()
-      
-      setSuccess('Cache cleared successfully')
-      setTimeout(() => setSuccess(''), 3000)
-    } catch (error: any) {
-      setError('Failed to clear cache')
-    } finally {
-      stopSmartLoading(setLoading)
-    }
-  }
 
   const tabs = [
     { id: 'profile', label: 'Profile', icon: User, roles: ['admin', 'manager', 'engineer', 'viewer'], permission: 'users.view' },
@@ -285,7 +168,6 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
     { id: 'divisions', label: 'Divisions', icon: Building2, roles: ['admin', 'manager'], permission: 'settings.divisions' },
     { id: 'unified-project-types', label: 'Project Scope & Activities', icon: Briefcase, roles: ['admin', 'manager'], permission: 'settings.project_types' },
     { id: 'currencies', label: 'Currencies', icon: DollarSign, roles: ['admin', 'manager'], permission: 'settings.currencies' },
-    { id: 'data', label: 'Data Management', icon: Database, roles: ['admin', 'manager'], permission: 'system.export' },
     { id: 'security', label: 'Security', icon: Shield, roles: ['admin', 'manager'], permission: 'users.manage' }
   ]
 
@@ -452,96 +334,6 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
           )
         }
         return <CurrenciesManager />
-
-      case 'data':
-        if (!guard.hasAccess('system.export') && !guard.hasAccess('system.import') && !guard.hasAccess('system.backup')) {
-          return (
-            <div className="text-center py-12">
-              <Shield className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Access Denied</h3>
-              <p className="text-gray-600 dark:text-gray-400">You don't have permission to access data management.</p>
-            </div>
-          )
-        }
-        return (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center space-x-2">
-                    <Download className="h-5 w-5" />
-                    <span>Export Data</span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-gray-600 mb-4">
-                    Download a complete backup of all your data including projects, activities, and KPIs.
-                  </p>
-                  {guard.hasAccess('system.export') && (
-                    <Button onClick={handleExportData} disabled={loading} className="w-full">
-                      <Download className="h-4 w-4 mr-2" />
-                      Export All Data
-                    </Button>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center space-x-2">
-                    <Upload className="h-5 w-5" />
-                    <span>Import Data</span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-gray-600 mb-4">
-                    Upload a backup file to restore your data.
-                  </p>
-                  <input
-                    type="file"
-                    accept=".json"
-                    onChange={handleImportData}
-                    className="hidden"
-                    id="import-file"
-                  />
-                  {guard.hasAccess('system.import') && (
-                    <label htmlFor="import-file">
-                      <Button type="button" className="w-full">
-                        <Upload className="h-4 w-4 mr-2" />
-                        Choose File to Import
-                      </Button>
-                    </label>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2 text-red-600">
-                  <Trash2 className="h-5 w-5" />
-                  <span>Clear Cache</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-gray-600 mb-4">
-                  Clear browser cache and temporary data to resolve performance issues.
-                </p>
-                {guard.hasAccess('system.backup') && (
-                  <Button 
-                    variant="outline" 
-                    onClick={handleClearCache} 
-                    disabled={loading}
-                    className="border-red-200 text-red-600 hover:bg-red-50"
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Clear Cache
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        )
 
       case 'security':
         if (!guard.hasAccess('users.manage')) {
