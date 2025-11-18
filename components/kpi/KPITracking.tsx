@@ -1083,6 +1083,24 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         throw new Error('Update failed: No data returned')
       }
       
+      // ✅ IMMEDIATE UPDATE: Update the KPI in the local state immediately
+      // This ensures the table shows the updated data right away
+      try {
+        const mappedKPI = mapKPIFromDB(data)
+        const processedKPI = processKPIRecord(mappedKPI)
+        
+        setKpis(prevKPIs => {
+          const updatedKPIs = prevKPIs.map(k => 
+            k.id === id ? processedKPI : k
+          )
+          console.log('✅ Updated KPI in local state immediately')
+          return updatedKPIs
+        })
+      } catch (stateUpdateError) {
+        console.warn('⚠️ Could not update local state immediately:', stateUpdateError)
+        // Continue with normal refresh
+      }
+      
       console.log('🔍 Verifying update in database...')
       const { data: verifyData, error: verifyError } = await (supabase as any)
         .from(TABLES.KPI)
@@ -1134,9 +1152,26 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       
       // Close form and refresh (editingKPI is now handled by EnhancedKPITable)
       
-      // Refresh data to ensure consistency
-      if (selectedProjects.length > 0) {
-        await fetchData(selectedProjects)
+      // Refresh data to ensure consistency - Always refresh, not just when selectedProjects.length > 0
+      console.log('🔄 Refreshing KPI data after update...')
+      try {
+        // Use current filters or all projects
+        const projectsToFetch = selectedProjects.length > 0 ? selectedProjects : projects.map(p => p.project_code)
+        if (projectsToFetch.length > 0) {
+          await fetchData(projectsToFetch)
+        } else {
+          // If no projects selected, fetch all
+          await fetchData(projects.map(p => p.project_code))
+        }
+        console.log('✅ KPI data refreshed successfully')
+      } catch (refreshError) {
+        console.error('❌ Error refreshing KPI data:', refreshError)
+        // Still try to refresh with all projects as fallback
+        try {
+          await fetchData(projects.map(p => p.project_code))
+        } catch (fallbackError) {
+          console.error('❌ Fallback refresh also failed:', fallbackError)
+        }
       }
       
       // ✅ Auto-save calculations after KPI update

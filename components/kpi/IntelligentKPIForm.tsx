@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { Project, BOQActivity } from '@/lib/supabase'
 import { ModernCard } from '@/components/ui/ModernCard'
@@ -28,6 +28,8 @@ export function IntelligentKPIForm({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [autoSaving, setAutoSaving] = useState(false)
+  const [lastSaved, setLastSaved] = useState<Date | null>(null)
   
   // Form fields
   const [projectCode, setProjectCode] = useState('')
@@ -41,6 +43,9 @@ export function IntelligentKPIForm({
   const [zoneNumber, setZoneNumber] = useState('')
   const [day, setDay] = useState('')
   const [drilledMeters, setDrilledMeters] = useState('')
+  
+  // Track if form has been initialized from KPI data
+  const [isInitialized, setIsInitialized] = useState(false)
   
   // Zone Management
   const [availableZones, setAvailableZones] = useState<string[]>([])
@@ -257,6 +262,13 @@ export function IntelligentKPIForm({
           }
         }
       }
+      
+      // Mark as initialized after a short delay to prevent immediate auto-save
+      setTimeout(() => {
+        setIsInitialized(true)
+      }, 500)
+    } else {
+      setIsInitialized(true)
     }
   }, [kpi, projects, activities])
   
@@ -426,6 +438,65 @@ export function IntelligentKPIForm({
     }
   }
   
+  // Auto-save function with useCallback
+  const autoSave = useCallback(async () => {
+    // Only auto-save if form is initialized and KPI exists (editing mode)
+    if (!isInitialized || !kpi) return
+    
+    // Basic validation for auto-save
+    if (!projectCode || !activityName || !quantity || !unit) return
+    if (inputType === 'Planned' && !targetDate) return
+    if (inputType === 'Actual' && !actualDate) return
+    
+    try {
+      const quantityValue = parseFloat(quantity)
+      if (isNaN(quantityValue) || quantityValue <= 0) return
+      
+      setAutoSaving(true)
+      
+      const finalProjectCode = projectCode || project?.project_code || ''
+      
+      const kpiData = {
+        'Project Full Code': finalProjectCode,
+        'Project Code': finalProjectCode,
+        'Project Sub Code': project?.project_sub_code || '',
+        'Activity Name': activityName,
+        'Quantity': Math.round(quantityValue * 100) / 100,
+        'Unit': unit,
+        'Input Type': inputType || 'Planned',
+        'Target Date': targetDate || '',
+        'Actual Date': actualDate || '',
+        'Zone': zone || '',
+        'Zone Number': zoneNumber || '',
+        'Day': day || '',
+        'Drilled Meters': parseFloat(drilledMeters) || 0
+      }
+      
+      console.log('💾 Auto-saving KPI:', kpiData)
+      
+      await onSubmit(kpiData)
+      
+      setLastSaved(new Date())
+      console.log('✅ Auto-saved successfully')
+    } catch (err: any) {
+      console.error('❌ Error auto-saving KPI:', err)
+      // Don't show error for auto-save, just log it
+    } finally {
+      setAutoSaving(false)
+    }
+  }, [isInitialized, kpi, projectCode, activityName, quantity, unit, inputType, targetDate, actualDate, zone, zoneNumber, day, drilledMeters, project, onSubmit])
+  
+  // Auto-save effect with debounce
+  useEffect(() => {
+    if (!isInitialized || !kpi) return
+    
+    const timeoutId = setTimeout(() => {
+      autoSave()
+    }, 1000) // Debounce: save 1 second after last change
+    
+    return () => clearTimeout(timeoutId)
+  }, [autoSave, isInitialized, kpi])
+  
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
@@ -513,11 +584,16 @@ export function IntelligentKPIForm({
       console.log('✅ onSubmit completed successfully')
       
       setSuccess(`✅ KPI ${kpi ? 'updated' : 'created'} successfully!`)
+      setLastSaved(new Date())
       
-      // Close form after short delay
-      setTimeout(() => {
-        onCancel()
-      }, 1500)
+      // Only close form if it's a new KPI (not editing)
+      // For editing, keep the form open so user can continue editing
+      if (!kpi) {
+        // Close form after short delay only for new KPIs
+        setTimeout(() => {
+          onCancel()
+        }, 1500)
+      }
       
     } catch (err: any) {
       console.error('❌ Error submitting KPI:', err)
@@ -555,6 +631,39 @@ export function IntelligentKPIForm({
             </button>
           </div>
         </div>
+
+        {/* Auto-save indicator */}
+        {kpi && isInitialized && (
+          <div className="mb-4 flex items-center justify-between p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg">
+            <div className="flex items-center gap-2">
+              {autoSaving ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                  <span className="text-sm text-blue-700 dark:text-blue-300 font-medium">
+                    جاري الحفظ تلقائياً...
+                  </span>
+                </>
+              ) : lastSaved ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4 text-green-600" />
+                  <span className="text-sm text-green-700 dark:text-green-300 font-medium">
+                    تم الحفظ تلقائياً
+                  </span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    {lastSaved.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Info className="w-4 h-4 text-blue-600" />
+                  <span className="text-sm text-blue-700 dark:text-blue-300">
+                    سيتم الحفظ تلقائياً عند تغيير أي حقل
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+        )}
 
         {error && (
           <Alert variant="error" className="mb-4">

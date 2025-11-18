@@ -28,7 +28,9 @@ import {
   FileText,
   FileJson,
   FileSpreadsheet,
-  Database
+  Database,
+  CheckSquare,
+  Square
 } from 'lucide-react'
 
 interface Department {
@@ -105,6 +107,10 @@ export function DepartmentsJobTitlesManager() {
     is_active: true,
     display_order: 0
   })
+  
+  // Selection states
+  const [selectedDepartments, setSelectedDepartments] = useState<Set<string>>(new Set())
+  const [selectedJobTitles, setSelectedJobTitles] = useState<Set<string>>(new Set())
 
   const parseBoolean = (value: any, defaultValue = true) => {
     if (typeof value === 'boolean') return value
@@ -138,6 +144,9 @@ export function DepartmentsJobTitlesManager() {
   }
 
   useEffect(() => {
+    // Clear selections when switching tabs
+    setSelectedDepartments(new Set())
+    setSelectedJobTitles(new Set())
     loadData()
   }, [activeTab])
 
@@ -644,6 +653,162 @@ export function DepartmentsJobTitlesManager() {
       setError('Failed to toggle status')
     }
   }
+  
+  // Selection handlers
+  const handleSelectDepartment = (id: string) => {
+    setSelectedDepartments(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(id)) {
+        newSet.delete(id)
+      } else {
+        newSet.add(id)
+      }
+      return newSet
+    })
+  }
+  
+  const handleSelectAllDepartments = () => {
+    if (selectedDepartments.size === departments.length) {
+      setSelectedDepartments(new Set())
+    } else {
+      setSelectedDepartments(new Set(departments.map(d => d.id)))
+    }
+  }
+  
+  const handleSelectJobTitle = (id: string) => {
+    setSelectedJobTitles(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(id)) {
+        newSet.delete(id)
+      } else {
+        newSet.add(id)
+      }
+      return newSet
+    })
+  }
+  
+  const handleSelectAllJobTitles = () => {
+    if (selectedJobTitles.size === jobTitles.length) {
+      setSelectedJobTitles(new Set())
+    } else {
+      setSelectedJobTitles(new Set(jobTitles.map(t => t.id)))
+    }
+  }
+  
+  // Bulk operations
+  const handleBulkDeleteDepartments = async () => {
+    if (selectedDepartments.size === 0) {
+      setError('Please select at least one department to delete')
+      return
+    }
+    
+    if (!confirm(`Are you sure you want to delete ${selectedDepartments.size} department(s)?`)) return
+    
+    try {
+      setSaving(true)
+      setError('')
+      
+      const ids = Array.from(selectedDepartments)
+      const { error: deleteError } = await (supabase as any)
+        .from('departments')
+        .delete()
+        .in('id', ids)
+      
+      if (deleteError) throw deleteError
+      
+      setSuccess(`Successfully deleted ${ids.length} department(s)`)
+      setSelectedDepartments(new Set())
+      await loadDepartments()
+    } catch (error: any) {
+      setError('Failed to delete departments: ' + error.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+  
+  const handleBulkDeleteJobTitles = async () => {
+    if (selectedJobTitles.size === 0) {
+      setError('Please select at least one job title to delete')
+      return
+    }
+    
+    if (!confirm(`Are you sure you want to delete ${selectedJobTitles.size} job title(s)?`)) return
+    
+    try {
+      setSaving(true)
+      setError('')
+      
+      const ids = Array.from(selectedJobTitles)
+      const { error: deleteError } = await (supabase as any)
+        .from('job_titles')
+        .delete()
+        .in('id', ids)
+      
+      if (deleteError) throw deleteError
+      
+      setSuccess(`Successfully deleted ${ids.length} job title(s)`)
+      setSelectedJobTitles(new Set())
+      await loadJobTitles()
+    } catch (error: any) {
+      setError('Failed to delete job titles: ' + error.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+  
+  const handleBulkToggleActiveDepartments = async (activate: boolean) => {
+    if (selectedDepartments.size === 0) {
+      setError('Please select at least one department')
+      return
+    }
+    
+    try {
+      setSaving(true)
+      setError('')
+      
+      const ids = Array.from(selectedDepartments)
+      const { error: updateError } = await (supabase as any)
+        .from('departments')
+        .update({ is_active: activate })
+        .in('id', ids)
+      
+      if (updateError) throw updateError
+      
+      setSuccess(`Successfully ${activate ? 'activated' : 'deactivated'} ${ids.length} department(s)`)
+      await loadDepartments()
+    } catch (error: any) {
+      setError('Failed to update departments: ' + error.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+  
+  const handleBulkToggleActiveJobTitles = async (activate: boolean) => {
+    if (selectedJobTitles.size === 0) {
+      setError('Please select at least one job title')
+      return
+    }
+    
+    try {
+      setSaving(true)
+      setError('')
+      
+      const ids = Array.from(selectedJobTitles)
+      const { error: updateError } = await (supabase as any)
+        .from('job_titles')
+        .update({ is_active: activate })
+        .in('id', ids)
+      
+      if (updateError) throw updateError
+      
+      setSuccess(`Successfully ${activate ? 'activated' : 'deactivated'} ${ids.length} job title(s)`)
+      await loadJobTitles()
+    } catch (error: any) {
+      setError('Failed to update job titles: ' + error.message)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   if (!guard.hasAccess('settings.divisions')) {
     return (
@@ -878,120 +1043,190 @@ export function DepartmentsJobTitlesManager() {
               {/* Departments List */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Departments List ({departments.length})</CardTitle>
+                  <div className="flex items-center justify-between">
+                    <CardTitle>Departments List ({departments.length})</CardTitle>
+                    {selectedDepartments.size > 0 && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-600 dark:text-gray-400">
+                          {selectedDepartments.size} selected
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleBulkToggleActiveDepartments(true)}
+                          disabled={saving}
+                        >
+                          <Eye className="h-4 w-4 mr-1" />
+                          Activate
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleBulkToggleActiveDepartments(false)}
+                          disabled={saving}
+                        >
+                          <EyeOff className="h-4 w-4 mr-1" />
+                          Deactivate
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleBulkDeleteDepartments}
+                          disabled={saving}
+                          className="text-red-600 hover:text-red-700"
+                        >
+                          <Trash2 className="h-4 w-4 mr-1" />
+                          Delete
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 </CardHeader>
                 <CardContent>
+                  {departments.length > 0 && (
+                    <div className="mb-4 pb-3 border-b border-gray-200 dark:border-gray-700">
+                      <button
+                        onClick={handleSelectAllDepartments}
+                        className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+                      >
+                        {selectedDepartments.size === departments.length ? (
+                          <CheckSquare className="h-4 w-4" />
+                        ) : (
+                          <Square className="h-4 w-4" />
+                        )}
+                        <span>Select All ({selectedDepartments.size}/{departments.length})</span>
+                      </button>
+                    </div>
+                  )}
                   <div className="space-y-3">
                     {departments.map((dept) => (
                       <div
                         key={dept.id}
-                        className="border border-gray-200 dark:border-gray-700 rounded-lg p-4"
+                        className={`border rounded-lg p-4 ${
+                          selectedDepartments.has(dept.id)
+                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                            : 'border-gray-200 dark:border-gray-700'
+                        }`}
                       >
-                        {editingDept === dept.id ? (
-                          <div className="space-y-3">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                              <Input
-                                value={dept.name_en}
-                                onChange={(e) => {
-                                  const updated = departments.map(d =>
-                                    d.id === dept.id ? { ...d, name_en: e.target.value } : d
-                                  )
-                                  setDepartments(updated)
-                                }}
-                              />
-                              <Input
-                                value={dept.name_ar}
-                                onChange={(e) => {
-                                  const updated = departments.map(d =>
-                                    d.id === dept.id ? { ...d, name_ar: e.target.value } : d
-                                  )
-                                  setDepartments(updated)
-                                }}
-                                dir="rtl"
-                              />
-                              <div className="md:col-span-2">
+                        <div className="flex items-start gap-3">
+                          <button
+                            onClick={() => handleSelectDepartment(dept.id)}
+                            className="mt-1 flex-shrink-0"
+                          >
+                            {selectedDepartments.has(dept.id) ? (
+                              <CheckSquare className="h-5 w-5 text-blue-600" />
+                            ) : (
+                              <Square className="h-5 w-5 text-gray-400" />
+                            )}
+                          </button>
+                          <div className="flex-1">
+                          {editingDept === dept.id ? (
+                            <div className="space-y-3">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 <Input
-                                  value={dept.description || ''}
+                                  value={dept.name_en}
                                   onChange={(e) => {
                                     const updated = departments.map(d =>
-                                      d.id === dept.id ? { ...d, description: e.target.value } : d
+                                      d.id === dept.id ? { ...d, name_en: e.target.value } : d
                                     )
                                     setDepartments(updated)
                                   }}
-                                  placeholder="Description"
                                 />
+                                <Input
+                                  value={dept.name_ar}
+                                  onChange={(e) => {
+                                    const updated = departments.map(d =>
+                                      d.id === dept.id ? { ...d, name_ar: e.target.value } : d
+                                    )
+                                    setDepartments(updated)
+                                  }}
+                                  dir="rtl"
+                                />
+                                <div className="md:col-span-2">
+                                  <Input
+                                    value={dept.description || ''}
+                                    onChange={(e) => {
+                                      const updated = departments.map(d =>
+                                        d.id === dept.id ? { ...d, description: e.target.value } : d
+                                      )
+                                      setDepartments(updated)
+                                    }}
+                                    placeholder="Description"
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex items-center justify-end space-x-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setEditingDept(null)}
+                                >
+                                  <X className="h-4 w-4 mr-1" />
+                                  Cancel
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleUpdateDepartment(dept)}
+                                  disabled={saving}
+                                >
+                                  <Save className="h-4 w-4 mr-1" />
+                                  Save
+                                </Button>
                               </div>
                             </div>
-                            <div className="flex items-center justify-end space-x-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => setEditingDept(null)}
-                              >
-                                <X className="h-4 w-4 mr-1" />
-                                Cancel
-                              </Button>
-                              <Button
-                                size="sm"
-                                onClick={() => handleUpdateDepartment(dept)}
-                                disabled={saving}
-                              >
-                                <Save className="h-4 w-4 mr-1" />
-                                Save
-                              </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-between">
-                            <div className="flex-1">
-                              <h3 className="font-medium text-gray-900 dark:text-white">
-                                {dept.name_en}
-                                {dept.name_ar?.trim() ? ` / ${dept.name_ar.trim()}` : ''}
-                              </h3>
-                              {dept.description && (
-                                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                                  {dept.description}
-                                </p>
-                              )}
-                              <div className="flex items-center space-x-2 mt-2">
-                                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                                  dept.is_active
-                                    ? 'bg-green-100 text-green-800'
-                                    : 'bg-gray-100 text-gray-800'
-                                }`}>
-                                  {dept.is_active ? 'Active' : 'Inactive'}
-                                </span>
-                                <span className="text-xs text-gray-500">
-                                  Order: {dept.display_order}
-                                </span>
+                          ) : (
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1">
+                                <h3 className="font-medium text-gray-900 dark:text-white">
+                                  {dept.name_en}
+                                  {dept.name_ar?.trim() ? ` / ${dept.name_ar.trim()}` : ''}
+                                </h3>
+                                {dept.description && (
+                                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                                    {dept.description}
+                                  </p>
+                                )}
+                                <div className="flex items-center space-x-2 mt-2">
+                                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                    dept.is_active
+                                      ? 'bg-green-100 text-green-800'
+                                      : 'bg-gray-100 text-gray-800'
+                                  }`}>
+                                    {dept.is_active ? 'Active' : 'Inactive'}
+                                  </span>
+                                  <span className="text-xs text-gray-500">
+                                    Order: {dept.display_order}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => toggleActive('department', dept.id, dept.is_active)}
+                                >
+                                  {dept.is_active ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setEditingDept(dept.id)}
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleDeleteDepartment(dept.id)}
+                                  className="text-red-600 hover:text-red-700"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
                               </div>
                             </div>
-                            <div className="flex items-center space-x-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => toggleActive('department', dept.id, dept.is_active)}
-                              >
-                                {dept.is_active ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => setEditingDept(dept.id)}
-                              >
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleDeleteDepartment(dept.id)}
-                                className="text-red-600 hover:text-red-700"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
+                          )}
                           </div>
-                        )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1044,9 +1279,61 @@ export function DepartmentsJobTitlesManager() {
               {/* Job Titles List */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Job Titles List ({jobTitles.length})</CardTitle>
+                  <div className="flex items-center justify-between">
+                    <CardTitle>Job Titles List ({jobTitles.length})</CardTitle>
+                    {selectedJobTitles.size > 0 && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-600 dark:text-gray-400">
+                          {selectedJobTitles.size} selected
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleBulkToggleActiveJobTitles(true)}
+                          disabled={saving}
+                        >
+                          <Eye className="h-4 w-4 mr-1" />
+                          Activate
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleBulkToggleActiveJobTitles(false)}
+                          disabled={saving}
+                        >
+                          <EyeOff className="h-4 w-4 mr-1" />
+                          Deactivate
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleBulkDeleteJobTitles}
+                          disabled={saving}
+                          className="text-red-600 hover:text-red-700"
+                        >
+                          <Trash2 className="h-4 w-4 mr-1" />
+                          Delete
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 </CardHeader>
                 <CardContent>
+                  {jobTitles.length > 0 && (
+                    <div className="mb-4 pb-3 border-b border-gray-200 dark:border-gray-700">
+                      <button
+                        onClick={handleSelectAllJobTitles}
+                        className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+                      >
+                        {selectedJobTitles.size === jobTitles.length ? (
+                          <CheckSquare className="h-4 w-4" />
+                        ) : (
+                          <Square className="h-4 w-4" />
+                        )}
+                        <span>Select All ({selectedJobTitles.size}/{jobTitles.length})</span>
+                      </button>
+                    </div>
+                  )}
                   <div className="space-y-3">
                     {jobTitles.map((title) => {
                       const trimmedArabic = title.title_ar?.trim()
@@ -1054,113 +1341,131 @@ export function DepartmentsJobTitlesManager() {
                       return (
                         <div
                           key={title.id}
-                          className="border border-gray-200 dark:border-gray-700 rounded-lg p-4"
+                          className={`border rounded-lg p-4 ${
+                            selectedJobTitles.has(title.id)
+                              ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                              : 'border-gray-200 dark:border-gray-700'
+                          }`}
                         >
-                          {editingTitle === title.id ? (
-                            <div className="space-y-3">
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                <Input
-                                  value={title.title_en}
-                                  onChange={(e) => {
-                                    const updated = jobTitles.map(t =>
-                                      t.id === title.id ? { ...t, title_en: e.target.value } : t
-                                    )
-                                    setJobTitles(updated)
-                                  }}
-                                />
-                                <Input
-                                  value={title.title_ar}
-                                  onChange={(e) => {
-                                    const updated = jobTitles.map(t =>
-                                      t.id === title.id ? { ...t, title_ar: e.target.value } : t
-                                    )
-                                    setJobTitles(updated)
-                                  }}
-                                  dir="rtl"
-                                />
-                                <div className="md:col-span-2">
-                                  <Input
-                                    value={title.description || ''}
-                                    onChange={(e) => {
-                                      const updated = jobTitles.map(t =>
-                                        t.id === title.id ? { ...t, description: e.target.value } : t
-                                      )
-                                      setJobTitles(updated)
-                                    }}
-                                    placeholder="Description"
-                                  />
+                          <div className="flex items-start gap-3">
+                            <button
+                              onClick={() => handleSelectJobTitle(title.id)}
+                              className="mt-1 flex-shrink-0"
+                            >
+                              {selectedJobTitles.has(title.id) ? (
+                                <CheckSquare className="h-5 w-5 text-blue-600" />
+                              ) : (
+                                <Square className="h-5 w-5 text-gray-400" />
+                              )}
+                            </button>
+                            <div className="flex-1">
+                              {editingTitle === title.id ? (
+                                <div className="space-y-3">
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <Input
+                                      value={title.title_en}
+                                      onChange={(e) => {
+                                        const updated = jobTitles.map(t =>
+                                          t.id === title.id ? { ...t, title_en: e.target.value } : t
+                                        )
+                                        setJobTitles(updated)
+                                      }}
+                                    />
+                                    <Input
+                                      value={title.title_ar}
+                                      onChange={(e) => {
+                                        const updated = jobTitles.map(t =>
+                                          t.id === title.id ? { ...t, title_ar: e.target.value } : t
+                                        )
+                                        setJobTitles(updated)
+                                      }}
+                                      dir="rtl"
+                                    />
+                                    <div className="md:col-span-2">
+                                      <Input
+                                        value={title.description || ''}
+                                        onChange={(e) => {
+                                          const updated = jobTitles.map(t =>
+                                            t.id === title.id ? { ...t, description: e.target.value } : t
+                                          )
+                                          setJobTitles(updated)
+                                        }}
+                                        placeholder="Description"
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center justify-end space-x-2">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => setEditingTitle(null)}
+                                    >
+                                      <X className="h-4 w-4 mr-1" />
+                                      Cancel
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      onClick={() => handleUpdateJobTitle(title)}
+                                      disabled={saving}
+                                    >
+                                      <Save className="h-4 w-4 mr-1" />
+                                      Save
+                                    </Button>
+                                  </div>
                                 </div>
-                              </div>
-                              <div className="flex items-center justify-end space-x-2">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => setEditingTitle(null)}
-                                >
-                                  <X className="h-4 w-4 mr-1" />
-                                  Cancel
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleUpdateJobTitle(title)}
-                                  disabled={saving}
-                                >
-                                  <Save className="h-4 w-4 mr-1" />
-                                  Save
-                                </Button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="flex items-center justify-between">
-                              <div className="flex-1">
-                                <h3 className="font-medium text-gray-900 dark:text-white">
-                                  {title.title_en}
-                                  {trimmedArabic ? ` / ${trimmedArabic}` : ''}
-                                </h3>
-                                {title.description && (
-                                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                                    {title.description}
-                                  </p>
-                                )}
-                                <div className="flex items-center space-x-2 mt-2">
-                                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                                    title.is_active
-                                      ? 'bg-green-100 text-green-800'
-                                      : 'bg-gray-100 text-gray-800'
-                                  }`}>
-                                    {title.is_active ? 'Active' : 'Inactive'}
-                                  </span>
-                                  <span className="text-xs text-gray-500">
-                                    Order: {title.display_order}
-                                  </span>
+                              ) : (
+                                <div className="flex items-center justify-between">
+                                  <div className="flex-1">
+                                    <h3 className="font-medium text-gray-900 dark:text-white">
+                                      {title.title_en}
+                                      {trimmedArabic ? ` / ${trimmedArabic}` : ''}
+                                    </h3>
+                                    {title.description && (
+                                      <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                                        {title.description}
+                                      </p>
+                                    )}
+                                    <div className="flex items-center space-x-2 mt-2">
+                                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                        title.is_active
+                                          ? 'bg-green-100 text-green-800'
+                                          : 'bg-gray-100 text-gray-800'
+                                      }`}>
+                                        {title.is_active ? 'Active' : 'Inactive'}
+                                      </span>
+                                      <span className="text-xs text-gray-500">
+                                        Order: {title.display_order}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center space-x-2">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => toggleActive('job_title', title.id, title.is_active)}
+                                    >
+                                      {title.is_active ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => setEditingTitle(title.id)}
+                                    >
+                                      <Edit className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleDeleteJobTitle(title.id)}
+                                      className="text-red-600 hover:text-red-700"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </div>
                                 </div>
-                              </div>
-                              <div className="flex items-center space-x-2">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => toggleActive('job_title', title.id, title.is_active)}
-                                >
-                                  {title.is_active ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => setEditingTitle(title.id)}
-                                >
-                                  <Edit className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleDeleteJobTitle(title.id)}
-                                  className="text-red-600 hover:text-red-700"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </div>
+                              )}
                             </div>
-                          )}
+                          </div>
                         </div>
                       )
                     })}

@@ -34,7 +34,9 @@ import {
   Database,
   Eye,
   Search,
-  Filter
+  Filter,
+  CheckSquare,
+  Square
 } from 'lucide-react'
 
 export function CompaniesManager() {
@@ -60,6 +62,9 @@ export function CompaniesManager() {
     company_name: '',
     company_type: 'Client' as Company['company_type']
   })
+  
+  // Selection state
+  const [selectedCompanies, setSelectedCompanies] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     fetchCompanies()
@@ -351,6 +356,77 @@ export function CompaniesManager() {
     }
   }
 
+  // Selection handlers
+  const handleSelectCompany = (id: string) => {
+    setSelectedCompanies(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(id)) {
+        newSet.delete(id)
+      } else {
+        newSet.add(id)
+      }
+      return newSet
+    })
+  }
+  
+  const handleSelectAllCompanies = () => {
+    if (selectedCompanies.size === filteredCompanies.length) {
+      setSelectedCompanies(new Set())
+    } else {
+      setSelectedCompanies(new Set(filteredCompanies.map(c => c.id)))
+    }
+  }
+  
+  // Bulk operations
+  const handleBulkDeleteCompanies = async () => {
+    if (selectedCompanies.size === 0) {
+      setError('Please select at least one company to delete')
+      return
+    }
+    
+    if (!confirm(`Are you sure you want to delete ${selectedCompanies.size} company/companies?`)) return
+    
+    try {
+      setLoading(true)
+      setError('')
+      setSuccess('')
+      
+      const ids = Array.from(selectedCompanies)
+      let deleted = 0
+      let failed = 0
+      
+      for (const id of ids) {
+        try {
+          await deleteCompany(id)
+          deleted++
+        } catch (error: any) {
+          console.error(`Failed to delete company ${id}:`, error)
+          failed++
+        }
+      }
+      
+      if (deleted > 0) {
+        setSuccess(`Successfully deleted ${deleted} company/companies${failed > 0 ? `. ${failed} failed.` : ''}`)
+      } else {
+        setError(`Failed to delete companies. ${failed} failed.`)
+      }
+      
+      setSelectedCompanies(new Set())
+      await fetchCompanies()
+      
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (error: any) {
+      setError('Failed to delete companies: ' + error.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+  
+  // Clear selection when filter/search changes
+  useEffect(() => {
+    setSelectedCompanies(new Set())
+  }, [searchQuery, filterType])
+  
   const companyTypes: Company['company_type'][] = ['Client', 'Consultant', 'Contractor', 'First Party', 'Individual']
 
   return (
@@ -429,6 +505,24 @@ export function CompaniesManager() {
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
+            
+            {selectedCompanies.size > 0 && (
+              <>
+                <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-2" />
+                <span className="text-sm text-gray-600 dark:text-gray-400">
+                  {selectedCompanies.size} selected
+                </span>
+                <Button
+                  onClick={handleBulkDeleteCompanies}
+                  disabled={loading}
+                  variant="outline"
+                  className="flex items-center gap-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete Selected
+                </Button>
+              </>
+            )}
 
             <div className="flex items-center gap-2 ml-auto">
               <select
@@ -617,9 +711,37 @@ export function CompaniesManager() {
             </div>
           ) : (
             <div className="overflow-x-auto">
+              {filteredCompanies.length > 0 && (
+                <div className="mb-4 pb-3 border-b border-gray-200 dark:border-gray-700">
+                  <button
+                    onClick={handleSelectAllCompanies}
+                    className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+                  >
+                    {selectedCompanies.size === filteredCompanies.length ? (
+                      <CheckSquare className="h-4 w-4" />
+                    ) : (
+                      <Square className="h-4 w-4" />
+                    )}
+                    <span>Select All ({selectedCompanies.size}/{filteredCompanies.length})</span>
+                  </button>
+                </div>
+              )}
               <table className="w-full border-collapse">
                 <thead>
                   <tr className="border-b bg-gray-50 dark:bg-gray-800">
+                    <th className="px-4 py-3 text-left text-sm font-semibold w-12">
+                      <button
+                        onClick={handleSelectAllCompanies}
+                        className="flex items-center"
+                        title="Select All"
+                      >
+                        {selectedCompanies.size === filteredCompanies.length && filteredCompanies.length > 0 ? (
+                          <CheckSquare className="h-4 w-4 text-blue-600" />
+                        ) : (
+                          <Square className="h-4 w-4 text-gray-400" />
+                        )}
+                      </button>
+                    </th>
                     <th className="px-4 py-3 text-left text-sm font-semibold">Company Name</th>
                     <th className="px-4 py-3 text-left text-sm font-semibold">Type</th>
                     <th className="px-4 py-3 text-right text-sm font-semibold">Actions</th>
@@ -627,7 +749,27 @@ export function CompaniesManager() {
                 </thead>
                 <tbody>
                   {filteredCompanies.map((company) => (
-                    <tr key={company.id} className="border-b hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                    <tr 
+                      key={company.id} 
+                      className={`border-b hover:bg-gray-50 dark:hover:bg-gray-800/50 ${
+                        selectedCompanies.has(company.id)
+                          ? 'bg-blue-50 dark:bg-blue-900/20'
+                          : ''
+                      }`}
+                    >
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => handleSelectCompany(company.id)}
+                          className="flex items-center"
+                          title={selectedCompanies.has(company.id) ? 'Deselect' : 'Select'}
+                        >
+                          {selectedCompanies.has(company.id) ? (
+                            <CheckSquare className="h-4 w-4 text-blue-600" />
+                          ) : (
+                            <Square className="h-4 w-4 text-gray-400" />
+                          )}
+                        </button>
+                      </td>
                       <td className="px-4 py-3">{company.company_name}</td>
                       <td className="px-4 py-3">
                         <span className="px-2 py-1 text-xs rounded-full bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200">

@@ -360,97 +360,94 @@ export function ProjectsTableWithCustomization({
     return String(code).trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
   }, [])
 
-  // ✅ EXPANDED: Check if item matches project (comprehensive matching for all projects) - OPTIMIZED with useCallback
+  // ✅ IMPROVED: Check if item matches project using STRICT matching logic from projectAnalytics.ts
+  // This ensures accurate matching based on full_code and sub_code (e.g., project 5066)
   const matchesProject = useCallback((item: any, project: Project): boolean => {
     if (!project?.project_code || !item) return false
     
     try {
-      // Get all project code variations
-      const projectCode = normalizeCode(project.project_code)
-      const projectSubCode = normalizeCode(project.project_sub_code || '')
-      const projectFullCodeFromProject = getProjectField(project, 'Project Full Code') || ''
-      const projectFullCode = normalizeCode(projectFullCodeFromProject) || (projectSubCode ? `${projectCode}${projectSubCode}` : projectCode)
+      // ✅ Build project_full_code correctly (same logic as projectAnalytics.ts)
+      const projectCode = (project.project_code || '').toString().trim()
+      const projectSubCode = (project.project_sub_code || '').toString().trim()
       
-      // Get item codes from all possible sources (EXPANDED)
-      const rawItem = (item as any).raw || {}
-      
-      const getCode = (field: string): string => {
-        const variations = [
-          item[field],
-          item[field.toLowerCase()],
-          item[field.replace(/\s+/g, '')],
-          item[field.replace(/\s+/g, '_')],
-          rawItem[field],
-          rawItem[field.replace(/\s+/g, ' ')],
-          rawItem[field.replace(/\s+/g, '')],
-          rawItem[field.replace(/\s+/g, '_')]
-        ]
-        
-        for (const val of variations) {
-          const normalized = normalizeCode(val)
-          if (normalized) return normalized
-        }
-        return ''
-      }
-      
-      const itemProjectCode = getCode('Project Code') || getCode('project_code')
-      const itemProjectFullCode = getCode('Project Full Code') || getCode('project_full_code')
-      const itemProjectSubCode = getCode('Project Sub Code') || getCode('project_sub_code')
-      const itemFullCode = itemProjectSubCode ? `${itemProjectCode}${itemProjectSubCode}` : (itemProjectFullCode || itemProjectCode)
-      
-      // ✅ STRATEGY 1: Exact matches (case-insensitive)
-      if (itemProjectCode === projectCode || itemProjectFullCode === projectCode || itemFullCode === projectCode) {
-        return true
-      }
-      if (projectFullCode && (itemProjectFullCode === projectFullCode || itemFullCode === projectFullCode || itemProjectCode === projectFullCode)) {
-        return true
-      }
-      
-      // ✅ STRATEGY 2: Contains/Partial matches (more flexible)
-      if (itemProjectCode && projectCode.includes(itemProjectCode)) {
-        return true
-      }
-      if (itemProjectCode && itemProjectCode.includes(projectCode)) {
-        return true
-      }
-      if (itemProjectFullCode && projectCode.includes(itemProjectFullCode)) {
-        return true
-      }
-      if (itemProjectFullCode && itemProjectFullCode.includes(projectCode)) {
-        return true
-      }
-      if (projectFullCode && itemProjectFullCode && projectFullCode.includes(itemProjectFullCode)) {
-        return true
-      }
-      if (projectFullCode && itemProjectFullCode && itemProjectFullCode.includes(projectFullCode)) {
-        return true
-      }
-      
-      // ✅ STRATEGY 3: Numeric match (e.g., P5011 matches P5011-01, P5011-02, etc.)
-      const projectNum = projectCode.match(/(\d+)/)?.[0]
-      if (projectNum) {
-        const itemNum = itemProjectCode.match(/(\d+)/)?.[0]
-        if (itemNum === projectNum) {
-          return true
-        }
-        const itemFullNum = itemProjectFullCode.match(/(\d+)/)?.[0]
-        if (itemFullNum === projectNum) {
-          return true
-        }
-      }
-      
-      // ✅ STRATEGY 4: Fuzzy match - check if codes share common prefix/suffix
-      if (itemProjectCode.length >= 3 && projectCode.length >= 3) {
-        const commonPrefix = itemProjectCode.substring(0, 3) === projectCode.substring(0, 3)
-        const commonSuffix = itemProjectCode.slice(-3) === projectCode.slice(-3)
-        if (commonPrefix || commonSuffix) {
-          // Additional check: numeric part should match
-          const projectNumeric = projectCode.match(/\d+/)?.[0]
-          const itemNumeric = itemProjectCode.match(/\d+/)?.[0]
-          if (projectNumeric && itemNumeric && projectNumeric === itemNumeric) {
-            return true
+      // Build project_full_code (case-sensitive for exact matching)
+      let projectFullCode = projectCode
+      if (projectSubCode) {
+        // Check if sub_code already starts with project_code (case-insensitive)
+        if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+          projectFullCode = projectSubCode
+        } else {
+          if (projectSubCode.startsWith('-')) {
+            projectFullCode = `${projectCode}${projectSubCode}`
+          } else {
+            projectFullCode = `${projectCode}-${projectSubCode}`
           }
         }
+      }
+      
+      const projectCodeUpper = projectCode.toUpperCase()
+      const projectFullCodeUpper = projectFullCode.toUpperCase()
+      
+      // ✅ Extract item codes from all possible sources (same logic as projectAnalytics.ts)
+      const rawItem = (item as any).raw || {}
+      
+      // ✅ PRIORITY 1: Try project_full_code first (most accurate)
+      const itemProjectFullCode = (
+        item.project_full_code ||
+        item['Project Full Code'] ||
+        rawItem['Project Full Code'] ||
+        ''
+      ).toString().trim()
+      
+      // ✅ PRIORITY 2: Get project_code and project_sub_code
+      const itemProjectCode = (
+        item.project_code ||
+        item['Project Code'] ||
+        rawItem['Project Code'] ||
+        ''
+      ).toString().trim()
+      
+      const itemProjectSubCode = (
+        item.project_sub_code ||
+        item['Project Sub Code'] ||
+        rawItem['Project Sub Code'] ||
+        ''
+      ).toString().trim()
+      
+      // ✅ PRIORITY 1: Direct exact match with project_full_code (MOST ACCURATE - prevents mixing projects)
+      if (projectFullCodeUpper && itemProjectFullCode.toUpperCase() === projectFullCodeUpper) {
+        return true
+      }
+      
+      // ✅ PRIORITY 2: Build full code from item and match
+      if (itemProjectCode && itemProjectSubCode) {
+        let itemFullCode = itemProjectCode
+        if (itemProjectSubCode) {
+          if (itemProjectSubCode.toUpperCase().startsWith(itemProjectCode.toUpperCase())) {
+            itemFullCode = itemProjectSubCode
+          } else {
+            if (itemProjectSubCode.startsWith('-')) {
+              itemFullCode = `${itemProjectCode}${itemProjectSubCode}`
+            } else {
+              itemFullCode = `${itemProjectCode}-${itemProjectSubCode}`
+            }
+          }
+        }
+        if (itemFullCode.toUpperCase() === projectFullCodeUpper) {
+          return true
+        }
+      }
+      
+      // ✅ PRIORITY 3: Match where Project Full Code starts with our project_full_code (for sub-projects)
+      if (projectFullCode && itemProjectFullCode && itemProjectFullCode.toUpperCase().startsWith(projectFullCodeUpper)) {
+        return true
+      }
+      
+      // ❌ DO NOT match by project_code alone if project has sub_code
+      // This prevents mixing projects with same project_code but different sub_code
+      // Only allow project_code matching if current project has no sub_code (old data fallback)
+      if (!projectSubCode && !itemProjectFullCode && itemProjectCode.toUpperCase() === projectCodeUpper) {
+        return true
       }
       
       return false
@@ -458,7 +455,7 @@ export function ProjectsTableWithCustomization({
       console.error('Error in matchesProject:', error)
       return false
     }
-  }, [normalizeCode, getProjectField])
+  }, [])
 
   // Helper: Format date
   const formatDate = (dateString: string | null | undefined): string => {

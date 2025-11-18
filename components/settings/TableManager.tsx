@@ -51,6 +51,8 @@ export function TableManager({ table, onUpdate }: TableManagerProps) {
   const [showConfirm, setShowConfirm] = useState<'clear' | 'import' | null>(null)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importMode, setImportMode] = useState<'append' | 'replace'>('append')
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const [uploadStatus, setUploadStatus] = useState<string>('')
 
   // تحميل الإحصائيات
   useEffect(() => {
@@ -126,12 +128,19 @@ export function TableManager({ table, onUpdate }: TableManagerProps) {
     }
   }
 
-  // استيراد البيانات - محسن للتعامل مع مشاكل ID
+  // استيراد البيانات - محسن للتعامل مع مشاكل ID مع شريط تقدم
   const handleImport = async () => {
     if (!importFile) return
 
     setLoading(true)
+    setUploadProgress(0)
+    setUploadStatus('')
+    
     try {
+      // Step 1: Reading file
+      setUploadProgress(10)
+      setUploadStatus('📖 Reading file...')
+      
       let data: any[]
       
       if (importFile.name.endsWith('.json')) {
@@ -141,13 +150,24 @@ export function TableManager({ table, onUpdate }: TableManagerProps) {
         data = await readCSVFile(importFile)
       } else {
         showMessage('error', '❌ Invalid file type. Use JSON or CSV')
+        setUploadProgress(0)
+        setUploadStatus('')
         return
       }
 
+      setUploadProgress(30)
+      setUploadStatus(`✅ Read ${data.length} rows from file`)
+
       if (data.length === 0) {
         showMessage('error', '❌ File is empty')
+        setUploadProgress(0)
+        setUploadStatus('')
         return
       }
+
+      // Step 2: Cleaning data
+      setUploadProgress(40)
+      setUploadStatus('🧹 Cleaning data...')
 
       // تحسين: إزالة عمود ID إذا كان موجوداً لتجنب مشاكل الاستيراد
       const cleanData = data.map(row => {
@@ -160,22 +180,47 @@ export function TableManager({ table, onUpdate }: TableManagerProps) {
         return cleanRow
       })
 
+      setUploadProgress(50)
+      setUploadStatus(`✅ Cleaned ${cleanData.length} rows`)
+
+      // Step 3: Validating data
+      setUploadProgress(60)
+      setUploadStatus('🔍 Validating data...')
+
+      // Step 4: Importing
+      setUploadProgress(70)
+      setUploadStatus('📤 Uploading data to database...')
+
       // استخدام دالة الاستيراد العادية (محسنة مع تنظيف البيانات)
       const result = await importTableData(table.name, cleanData, importMode)
 
       if (result.success) {
+        setUploadProgress(100)
+        setUploadStatus('✅ Import completed successfully!')
         showMessage('success', `✅ ${result.message}`)
         await loadStats()
         onUpdate?.()
+        
+        // Hide progress bar after 2 seconds
+        setTimeout(() => {
+          setUploadProgress(0)
+          setUploadStatus('')
+        }, 2000)
       } else {
+        setUploadProgress(0)
+        setUploadStatus('❌ Import failed')
         showMessage('error', `❌ ${result.message}`)
       }
     } catch (error: any) {
+      setUploadProgress(0)
+      setUploadStatus('❌ An error occurred')
       showMessage('error', `❌ Error: ${error.message}`)
     } finally {
       setLoading(false)
       setShowConfirm(null)
-      setImportFile(null)
+      if (uploadProgress === 100 || uploadProgress === 0) {
+        setImportFile(null)
+      }
     }
   }
 
@@ -360,7 +405,11 @@ export function TableManager({ table, onUpdate }: TableManagerProps) {
             <input
               type="file"
               accept=".json,.csv"
-              onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+              onChange={(e) => {
+                setImportFile(e.target.files?.[0] || null)
+                setUploadProgress(0)
+                setUploadStatus('')
+              }}
               className="block w-full text-sm text-gray-500 dark:text-gray-400
                 file:mr-4 file:py-2 file:px-4
                 file:rounded-lg file:border-0
@@ -370,23 +419,57 @@ export function TableManager({ table, onUpdate }: TableManagerProps) {
                 dark:file:bg-indigo-900/20 dark:file:text-indigo-300"
             />
             {importFile && (
-              <div className="flex gap-2">
-                <select
-                  value={importMode}
-                  onChange={(e) => setImportMode(e.target.value as 'append' | 'replace')}
-                  className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                >
-                  <option value="append">Append (Add to existing)</option>
-                  <option value="replace">Replace (Delete & Replace)</option>
-                </select>
-                <button
-                  onClick={() => setShowConfirm('import')}
-                  disabled={loading}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Upload className="w-4 h-4" />
-                  <span>Import</span>
-                </button>
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <select
+                    value={importMode}
+                    onChange={(e) => setImportMode(e.target.value as 'append' | 'replace')}
+                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  >
+                    <option value="append">Append (Add to existing)</option>
+                    <option value="replace">Replace (Delete & Replace)</option>
+                  </select>
+                  <button
+                    onClick={() => setShowConfirm('import')}
+                    disabled={loading}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>Import</span>
+                  </button>
+                </div>
+                
+                {/* Progress Bar */}
+                {(loading || uploadProgress > 0) && (
+                  <div className="space-y-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                    {uploadStatus && (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-blue-800 dark:text-blue-200 font-medium">
+                          {uploadStatus}
+                        </span>
+                        <span className="text-blue-600 dark:text-blue-400 font-bold">
+                          {uploadProgress}%
+                        </span>
+                      </div>
+                    )}
+                    <div className="w-full bg-blue-200 dark:bg-blue-900/40 rounded-full h-3 overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full transition-all duration-300 ease-out flex items-center justify-center"
+                        style={{ width: `${uploadProgress}%` }}
+                      >
+                        {uploadProgress > 10 && uploadProgress < 100 && (
+                          <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+                        )}
+                      </div>
+                    </div>
+                    {uploadProgress === 100 && (
+                      <div className="flex items-center gap-2 text-xs text-green-700 dark:text-green-300">
+                        <CheckCircle className="w-4 h-4" />
+                        <span>Import completed successfully!</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -497,13 +580,49 @@ export function TableManager({ table, onUpdate }: TableManagerProps) {
                 </p>
               )}
             </div>
+            
+            {/* Progress Bar in Modal */}
+            {(loading || uploadProgress > 0) && (
+              <div className="mb-6 space-y-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                {uploadStatus && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-blue-800 dark:text-blue-200 font-medium">
+                      {uploadStatus}
+                    </span>
+                    <span className="text-blue-600 dark:text-blue-400 font-bold">
+                      {uploadProgress}%
+                    </span>
+                  </div>
+                )}
+                <div className="w-full bg-blue-200 dark:bg-blue-900/40 rounded-full h-3 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full transition-all duration-300 ease-out flex items-center justify-center"
+                    style={{ width: `${uploadProgress}%` }}
+                  >
+                    {uploadProgress > 10 && uploadProgress < 100 && (
+                      <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+                    )}
+                  </div>
+                </div>
+                {uploadProgress === 100 && (
+                  <div className="flex items-center gap-2 text-xs text-green-700 dark:text-green-300">
+                    <CheckCircle className="w-4 h-4" />
+                    <span>Import completed successfully!</span>
+                  </div>
+                )}
+              </div>
+            )}
+            
             <div className="flex gap-3">
               <button
                 onClick={() => {
                   setShowConfirm(null)
                   setImportFile(null)
+                  setUploadProgress(0)
+                  setUploadStatus('')
                 }}
-                className="flex-1 px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                disabled={loading && uploadProgress > 0}
+                className="flex-1 px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -512,7 +631,14 @@ export function TableManager({ table, onUpdate }: TableManagerProps) {
                 disabled={loading}
                 className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50"
               >
-                {loading ? 'Importing...' : 'Yes, Import'}
+                {loading ? (
+                  <span className="flex items-center gap-2">
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Importing...
+                  </span>
+                ) : (
+                  'Yes, Import'
+                )}
               </button>
             </div>
           </div>
