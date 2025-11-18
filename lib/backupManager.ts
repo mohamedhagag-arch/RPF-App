@@ -14,6 +14,11 @@ import { createClient } from '@supabase/supabase-js'
  * This bypasses RLS policies to ensure all data is accessible
  */
 function getSupabaseServiceClient() {
+  // ✅ التحقق من أننا في runtime وليس build time
+  if (typeof window === 'undefined' && process.env.NEXT_PHASE === 'phase-production-build') {
+    throw new Error('Cannot create Supabase client during build time. This function should only be called at runtime.')
+  }
+  
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   

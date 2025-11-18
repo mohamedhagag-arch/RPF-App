@@ -8,12 +8,18 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
 export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic' // Prevent static generation during build
 
 /**
  * Get Supabase client with service role key for API routes
  * This bypasses RLS policies for server-side operations
  */
 function getSupabaseServiceClient() {
+  // ✅ التحقق من أننا في runtime وليس build time
+  if (typeof window === 'undefined' && process.env.NEXT_PHASE === 'phase-production-build') {
+    throw new Error('Cannot create Supabase client during build time. This function should only be called at runtime.')
+  }
+  
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   

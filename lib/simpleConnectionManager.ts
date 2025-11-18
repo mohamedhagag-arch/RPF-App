@@ -16,11 +16,30 @@ let sessionRefreshInterval: NodeJS.Timeout | null = null
  * الحصول على عميل Supabase
  */
 export function getSupabaseClient() {
+  // ✅ التحقق من أننا في runtime وليس build time
+  if (typeof window === 'undefined' && process.env.NEXT_PHASE === 'phase-production-build') {
+    // أثناء البناء، لا نحاول إنشاء client
+    throw new Error('Cannot create Supabase client during build time')
+  }
+  
   if (!supabaseClient) {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    
+    if (!supabaseUrl || !supabaseKey) {
+      // ✅ في build time، لا نرمي خطأ - فقط نرجع null أو نستخدم fallback
+      if (typeof window === 'undefined' && process.env.NEXT_PHASE === 'phase-production-build') {
+        console.warn('⚠️ Supabase credentials not available during build - this is expected')
+        // Return a mock client or throw a more descriptive error
+        throw new Error('Supabase credentials are required but not available during build. This route should only be called at runtime.')
+      }
+      throw new Error('Missing Supabase credentials')
+    }
+    
     console.log('🔧 Creating Supabase client...')
     supabaseClient = createClientComponentClient({
-      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
-      supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      supabaseUrl,
+      supabaseKey,
     })
     isInitialized = true
     console.log('✅ Supabase client created successfully')
