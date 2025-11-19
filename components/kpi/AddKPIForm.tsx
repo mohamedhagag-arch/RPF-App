@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
+import { useAuth } from '@/app/providers'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { Project, BOQActivity, TABLES } from '@/lib/supabase'
 import { mapProjectFromDB, mapBOQFromDB } from '@/lib/dataMappers'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -27,6 +29,8 @@ import {
 export function AddKPIForm() {
   const router = useRouter()
   const supabase = getSupabaseClient()
+  const { user: authUser, appUser } = useAuth()
+  const guard = usePermissionGuard()
   
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')

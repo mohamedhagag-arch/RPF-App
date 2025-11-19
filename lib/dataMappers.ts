@@ -451,6 +451,8 @@ export function mapBOQFromDB(row: any): any {
     use_virtual_material: row['Use Virtual Material'] === 'TRUE' || row['use_virtual_material'] === true || row['Use Virtual Material'] === true || false,
     created_at: row.created_at || new Date().toISOString(),
     updated_at: row.updated_at || new Date().toISOString(),
+    created_by: row.created_by || row['created_by'] || '',
+    updated_by: row.updated_by || row['updated_by'] || '',
     // ✅ CRITICAL: Preserve raw database row for direct column access (same as mapProjectFromDB)
     raw: row
   }

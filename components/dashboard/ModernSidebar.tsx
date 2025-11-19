@@ -26,6 +26,7 @@ import {
   FileText,
   ChevronDown,
   ChevronUp,
+  BookOpen,
   type LucideIcon
 } from 'lucide-react'
 
@@ -59,6 +60,7 @@ const sidebarItems: SidebarItem[] = [
       { icon: BarChart3, label: 'Reports', tab: 'reports' },
     ]
   },
+  { icon: BookOpen, label: 'User Guide', tab: 'user-guide' },
   { icon: Settings, label: 'Settings', tab: 'settings' },
 ]
 

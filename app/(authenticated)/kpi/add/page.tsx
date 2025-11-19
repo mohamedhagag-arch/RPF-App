@@ -109,10 +109,18 @@ export default function AddKPIPage() {
               try {
                 console.log('📦 Submitting KPI:', data)
                 
+                // ✅ SET CREATED BY: Add user who created the KPI
+                const createdByValue = appUser?.email || user?.email || appUser?.id || user?.id || 'System'
+                const kpiDataWithCreatedBy = {
+                  ...data,
+                  created_by: createdByValue
+                }
+                console.log('✅ Setting created_by:', createdByValue)
+                
                 // Submit to database
                 const { error: insertError } = await supabase
                   .from(TABLES.KPI)
-                  .insert(data as any)
+                  .insert(kpiDataWithCreatedBy as any)
                 
                 if (insertError) throw insertError
                 

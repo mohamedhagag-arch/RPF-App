@@ -14,6 +14,7 @@ import { PermissionButton } from '@/components/ui/PermissionButton'
 import { Card } from '@/components/ui/Card'
 import { ArrowLeft, CheckCircle, X, Clock, Target, AlertCircle } from 'lucide-react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
+import { useAuth } from '@/app/providers'
 
 interface PendingKPI {
   id: string
@@ -49,6 +50,7 @@ interface PendingKPI {
 export default function PendingApprovalKPIPage() {
   const router = useRouter()
   const guard = usePermissionGuard()
+  const { user: authUser, appUser } = useAuth()
   const [pendingKPIs, setPendingKPIs] = useState<PendingKPI[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
@@ -246,10 +248,15 @@ export default function PendingApprovalKPIPage() {
       setError('')
       setSuccess('')
 
+      // ✅ Get user identifier (priority: email > appUser email > auth user email > user ID > 'admin')
+      const userEmail = appUser?.email || authUser?.email || guard.user?.email || null
+      const userId = authUser?.id || appUser?.id || guard.user?.id || null
+      const approvedByValue = userEmail || userId || 'admin'
+      
       // Update using Notes field as temporary storage for approval status
       // Format: "APPROVED:approved:by:user@email.com:date:2025-01-01"
       // This works even if Approval Status column doesn't exist yet
-      const approvalNote = `APPROVED:approved:by:${guard.user?.email || 'admin'}:date:${new Date().toISOString().split('T')[0]}`
+      const approvalNote = `APPROVED:approved:by:${approvedByValue}:date:${new Date().toISOString().split('T')[0]}`
       
         // Try to update Approval Status first (if column exists)
         // Note: Use bracket notation for column name with space
@@ -257,22 +264,97 @@ export default function PendingApprovalKPIPage() {
         try {
           const updatePayload: any = {}
           updatePayload['Approval Status'] = 'approved'
+          updatePayload['Approved By'] = approvedByValue
+          updatePayload['Approval Date'] = new Date().toISOString().split('T')[0]
           
-          const { error: statusError } = await (supabase
+          console.log('✅ [KPI Approval] Updating KPI with:', {
+            kpiId,
+            updatePayload,
+            userEmail,
+            userId,
+            approvedByValue,
+            authUserEmail: authUser?.email,
+            appUserEmail: appUser?.email,
+            guardUserEmail: guard.user?.email
+          })
+          
+          const { error: statusError, data: updateData } = await (supabase
             .from(TABLES.KPI) as any)
             .update(updatePayload)
             .eq('id', kpiId)
+            .select()
         
         updateError = statusError
         
+        if (!statusError && updateData) {
+          console.log('✅ [KPI Approval] Update successful:', {
+            kpiId,
+            updatedRecord: updateData[0],
+            approvalStatus: updateData[0]?.['Approval Status'],
+            approvedBy: updateData[0]?.['Approved By'],
+            approvalDate: updateData[0]?.['Approval Date'],
+            rawData: updateData[0]
+          })
+          
+          // ✅ VERIFY: Double-check that the data was actually saved
+          const { data: verifyData, error: verifyError } = await supabase
+            .from(TABLES.KPI)
+            .select('*')
+            .eq('id', kpiId)
+            .single()
+          
+          if (!verifyError && verifyData) {
+            console.log('🔍 [KPI Approval] Verification - Data in database:', {
+              approvalStatus: verifyData['Approval Status'],
+              approvedBy: verifyData['Approved By'],
+              approvalDate: verifyData['Approval Date'],
+              notes: verifyData['Notes']
+            })
+          } else {
+            console.error('❌ [KPI Approval] Verification failed:', verifyError)
+          }
+        } else if (statusError) {
+          console.error('❌ [KPI Approval] Update error:', statusError)
+        }
+        
         // If Approval Status column doesn't exist, update Notes instead
-        if (statusError && (statusError.message?.includes('Approval Status') || statusError.message?.includes('column') || statusError.message?.includes('does not exist'))) {
+        if (statusError && (statusError.message?.includes('Approval Status') || statusError.message?.includes('column') || statusError.message?.includes('does not exist') || statusError.message?.includes('not found'))) {
           console.log('⚠️ Approval Status column not found, using Notes field instead')
+          // Try to update Notes with approval info AND also try to update individual columns if they exist
+          const notesUpdatePayload: any = {
+            'Notes': approvalNote
+          }
+          
+          // Try to update Approved By and Approval Date separately (they might exist even if Approval Status doesn't)
+          try {
+            const { error: approvedByError } = await (supabase
+              .from(TABLES.KPI) as any)
+              .update({ 'Approved By': approvedByValue })
+              .eq('id', kpiId)
+            
+            if (!approvedByError) {
+              console.log('✅ Updated Approved By column')
+            }
+          } catch (e) {
+            console.log('⚠️ Approved By column not found, will use Notes only')
+          }
+          
+          try {
+            const { error: approvalDateError } = await (supabase
+              .from(TABLES.KPI) as any)
+              .update({ 'Approval Date': new Date().toISOString().split('T')[0] })
+              .eq('id', kpiId)
+            
+            if (!approvalDateError) {
+              console.log('✅ Updated Approval Date column')
+            }
+          } catch (e) {
+            console.log('⚠️ Approval Date column not found, will use Notes only')
+          }
+          
           const { error: notesError } = await (supabase
             .from(TABLES.KPI) as any)
-            .update({
-              'Notes': approvalNote
-            })
+            .update(notesUpdatePayload)
             .eq('id', kpiId)
           
           updateError = notesError
@@ -330,8 +412,13 @@ export default function PendingApprovalKPIPage() {
       setError('')
       setSuccess('')
 
+      // ✅ Get user identifier (priority: email > appUser email > auth user email > user ID > 'admin')
+      const userEmail = appUser?.email || authUser?.email || guard.user?.email || null
+      const userId = authUser?.id || appUser?.id || guard.user?.id || null
+      const approvedByValue = userEmail || userId || 'admin'
+      
       // Update using Notes field as temporary storage for approval status
-      const rejectionNote = `APPROVED:rejected:by:${guard.user?.email || 'admin'}:date:${new Date().toISOString().split('T')[0]}`
+      const rejectionNote = `APPROVED:rejected:by:${approvedByValue}:date:${new Date().toISOString().split('T')[0]}`
       
       // Try to update Approval Status first (if column exists)
       // Note: Use bracket notation for column name with space
@@ -339,13 +426,15 @@ export default function PendingApprovalKPIPage() {
       try {
         const updatePayload: any = {}
         updatePayload['Approval Status'] = 'rejected'
+        updatePayload['Approved By'] = approvedByValue
+        updatePayload['Approval Date'] = new Date().toISOString().split('T')[0]
         
         const { error: statusError } = await (supabase
           .from(TABLES.KPI) as any)
           .update(updatePayload)
           .eq('id', kpiId)
-        
-        updateError = statusError
+      
+      updateError = statusError
         
         // If Approval Status column doesn't exist, update Notes instead
         if (statusError && (statusError.message?.includes('Approval Status') || statusError.message?.includes('column') || statusError.message?.includes('does not exist'))) {
@@ -430,12 +519,17 @@ export default function PendingApprovalKPIPage() {
       // This approach fetches and updates in chunks to handle large datasets
       console.log('🚀 Starting bulk approve for ALL Actual KPIs without approval status...')
       
+      // ✅ Get user identifier (priority: email > appUser email > auth user email > user ID > 'admin')
+      const userEmail = appUser?.email || authUser?.email || guard.user?.email || null
+      const userId = authUser?.id || appUser?.id || guard.user?.id || null
+      const approvedByValue = userEmail || userId || 'admin'
+      
       const fetchChunkSize = 1000 // Fetch 1000 at a time
       const updateChunkSize = 50 // Update 50 at a time (smaller batches for updates)
       let offset = 0
       let totalApproved = 0
       let hasMore = true
-      const approvalNote = `APPROVED:approved:by:${guard.user?.email || 'admin'}:date:${new Date().toISOString().split('T')[0]}`
+      const approvalNote = `APPROVED:approved:by:${approvedByValue}:date:${new Date().toISOString().split('T')[0]}`
       
       // Process in chunks until no more records
       while (hasMore) {
@@ -478,6 +572,8 @@ export default function PendingApprovalKPIPage() {
               // Use bracket notation for column name with space
               const updatePayload: any = {}
               updatePayload['Approval Status'] = 'approved'
+              updatePayload['Approved By'] = approvedByValue
+              updatePayload['Approval Date'] = new Date().toISOString().split('T')[0]
               
               const { error: statusError } = await (supabase
                 .from(TABLES.KPI) as any)

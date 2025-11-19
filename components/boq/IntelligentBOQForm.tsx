@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
+import { useAuth } from '@/app/providers'
 import { PermissionGuard } from '@/components/common/PermissionGuard'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
@@ -55,6 +56,7 @@ interface IntelligentBOQFormProps {
 
 export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = [] }: IntelligentBOQFormProps) {
   const guard = usePermissionGuard()
+  const { user: authUser, appUser } = useAuth()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -1401,7 +1403,10 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
             console.log(`📦 Saving ${kpisToSave.length} KPIs...`)
             console.log('📦 KPIs to save (sample):', JSON.stringify(kpisToSave.slice(0, 2), null, 2))
             
-            const result = await saveGeneratedKPIs(kpisToSave)
+            // ✅ SET CREATED BY: Add user who created the KPIs
+            const createdByValue = appUser?.email || authUser?.email || guard.user?.email || authUser?.id || appUser?.id || guard.user?.id || 'System'
+            const result = await saveGeneratedKPIs(kpisToSave, true, createdByValue)
+            console.log('✅ Setting created_by for generated KPIs:', createdByValue)
             
             if (result.success) {
               setSuccess(`✅ Activity created with ${result.savedCount} KPI records!`)

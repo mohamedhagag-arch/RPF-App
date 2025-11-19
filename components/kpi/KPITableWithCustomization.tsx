@@ -7,9 +7,11 @@ import { useColumnCustomization } from '@/lib/useColumnCustomization'
 import { Button } from '@/components/ui/Button'
 import { PermissionButton } from '@/components/ui/PermissionButton'
 import { usePermissionGuard } from '@/lib/permissionGuard'
-import { CheckCircle, Clock, AlertCircle, Calendar, Building, Activity, TrendingUp, Target, Info, Filter, X, ArrowUpDown, ArrowUp, ArrowDown, Edit } from 'lucide-react'
+import { CheckCircle, Clock, AlertCircle, Calendar, Building, Activity, TrendingUp, Target, Info, Filter, X, ArrowUpDown, ArrowUp, ArrowDown, Edit, History } from 'lucide-react'
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
+import { KPIHistoryModal } from '@/components/kpi/KPIHistoryModal'
+import { RecordHistoryModal } from '@/components/common/RecordHistoryModal'
 
 interface KPITableWithCustomizationProps {
   kpis: KPIRecord[]
@@ -57,6 +59,12 @@ export function KPITableWithCustomization({
   const guard = usePermissionGuard()
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [showCustomizer, setShowCustomizer] = useState(false)
+  const [historyKPI, setHistoryKPI] = useState<KPIRecord | null>(null)
+  const [showHistoryModal, setShowHistoryModal] = useState(false)
+  const [showRecordHistoryModal, setShowRecordHistoryModal] = useState(false)
+  const [historyRecordId, setHistoryRecordId] = useState<string>('')
+  const [historyRecordType, setHistoryRecordType] = useState<'kpi' | 'boq' | 'project'>('kpi')
+  const [historyRecordData, setHistoryRecordData] = useState<any>(null)
   // ✅ Cache for activity-to-scope mapping from project_type_activities table
   const [activityScopeMap, setActivityScopeMap] = useState<Map<string, string>>(new Map())
   
@@ -1652,8 +1660,39 @@ export function KPITableWithCustomization({
         )
       
       case 'actions':
+        const rawKPIActions = (kpi as any).raw || {}
+        const createdBy = (kpi as any).created_by || rawKPIActions['created_by'] || null
+        
         return (
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setHistoryKPI(kpi)
+                setShowHistoryModal(true)
+              }}
+              className="text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300"
+              title="View KPI History"
+            >
+              <History className="w-4 h-4 mr-1" />
+              History
+            </Button>
+            {createdBy && (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowRecordHistoryModal(true)
+                  setHistoryRecordId(kpi.id)
+                  setHistoryRecordType('kpi')
+                  setHistoryRecordData(kpi)
+                }}
+                className="px-2 py-1 text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                title="View Complete History (All Changes)"
+              >
+                👤
+              </button>
+            )}
             <PermissionButton
               permission="kpi.edit"
               variant="outline"
@@ -2057,6 +2096,30 @@ export function KPITableWithCustomization({
           storageKey="kpi"
         />
       )}
+
+      {/* KPI History Modal */}
+      <KPIHistoryModal
+        kpi={historyKPI}
+        isOpen={showHistoryModal}
+        onClose={() => {
+          setShowHistoryModal(false)
+          setHistoryKPI(null)
+        }}
+      />
+
+      {/* Record History Modal (Complete History with Audit Log) */}
+      <RecordHistoryModal
+        isOpen={showRecordHistoryModal}
+        onClose={() => {
+          setShowRecordHistoryModal(false)
+          setHistoryRecordId('')
+          setHistoryRecordData(null)
+        }}
+        recordType={historyRecordType}
+        recordId={historyRecordId}
+        recordData={historyRecordData}
+        title="KPI Complete History"
+      />
     </div>
   )
 }

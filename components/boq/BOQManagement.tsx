@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
+import { useAuth } from '@/app/providers'
 import { PermissionGuard } from '@/components/common/PermissionGuard'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
@@ -41,6 +42,7 @@ interface BOQManagementProps {
 
 export function BOQManagement({ globalSearchTerm = '', globalFilters = { project: '', status: '', division: '', dateRange: '' } }: BOQManagementProps = {}) {
   const guard = usePermissionGuard()
+  const { user: authUser, appUser } = useAuth()
   const [activities, setActivities] = useState<BOQActivity[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [projects, setProjects] = useState<Project[]>([])
@@ -1932,7 +1934,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       console.log('========================================')
       
       // Map to database format - Use BOTH old (Column 44/45) and new column names
-      const dbData = {
+      const dbData: any = {
         'Project Code': activityData.project_code || '',
         'Project Sub Code': activityData.project_sub_code || '',
         'Project Full Code': activityData.project_full_code || activityData.project_code || '',
@@ -1960,10 +1962,13 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         'Activity Timing': activityData.activity_timing || 'post-commencement',
         'Has Value': activityData.has_value !== undefined ? (activityData.has_value ? 'TRUE' : 'FALSE') : 'TRUE',
         'Affects Timeline': activityData.affects_timeline !== undefined ? (activityData.affects_timeline ? 'TRUE' : 'FALSE') : 'FALSE',
-        'Use Virtual Material': activityData.use_virtual_material !== undefined ? (activityData.use_virtual_material ? 'TRUE' : 'FALSE') : 'FALSE'
+        'Use Virtual Material': activityData.use_virtual_material !== undefined ? (activityData.use_virtual_material ? 'TRUE' : 'FALSE') : 'FALSE',
+        // ✅ SET CREATED BY: Add user who created the BOQ activity
+        'created_by': appUser?.email || authUser?.email || guard.user?.email || authUser?.id || appUser?.id || guard.user?.id || 'System'
       }
 
       console.log('📦 Database Format:', JSON.stringify(dbData, null, 2))
+      console.log('✅ Setting created_by for BOQ activity:', dbData['created_by'])
 
       const { data, error } = await supabase
         .from(TABLES.BOQ_ACTIVITIES)
@@ -2030,7 +2035,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       console.log('========================================')
       
       // Map to database format - Use BOTH old (Column 44/45) and new column names
-      const dbData = {
+      const dbData: any = {
         'Project Code': activityData.project_code || '',
         'Project Sub Code': activityData.project_sub_code || '',
         'Project Full Code': activityData.project_full_code || activityData.project_code || '',
@@ -2058,10 +2063,13 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         'Activity Timing': activityData.activity_timing || 'post-commencement',
         'Has Value': activityData.has_value !== undefined ? (activityData.has_value ? 'TRUE' : 'FALSE') : 'TRUE',
         'Affects Timeline': activityData.affects_timeline !== undefined ? (activityData.affects_timeline ? 'TRUE' : 'FALSE') : 'FALSE',
-        'Use Virtual Material': activityData.use_virtual_material !== undefined ? (activityData.use_virtual_material ? 'TRUE' : 'FALSE') : 'FALSE'
+        'Use Virtual Material': activityData.use_virtual_material !== undefined ? (activityData.use_virtual_material ? 'TRUE' : 'FALSE') : 'FALSE',
+        // ✅ SET UPDATED BY: Add user who updated the BOQ activity
+        'updated_by': appUser?.email || authUser?.email || guard.user?.email || authUser?.id || appUser?.id || guard.user?.id || 'System'
       }
 
       console.log('📦 Database Format:', JSON.stringify(dbData, null, 2))
+      console.log('✅ Setting updated_by for BOQ activity:', dbData['updated_by'])
 
       const { data, error } = await (supabase as any)
         .from(TABLES.BOQ_ACTIVITIES)

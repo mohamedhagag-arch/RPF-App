@@ -14,9 +14,13 @@ import { ArrowLeft, Target, Sparkles } from 'lucide-react'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { useRouter } from 'next/navigation'
+import { useAuth } from '@/app/providers'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 
 export default function SmartKPIPage() {
   const router = useRouter()
+  const { user: authUser, appUser } = useAuth()
+  const guard = usePermissionGuard()
   const [projects, setProjects] = useState<Project[]>([])
   const [activities, setActivities] = useState<BOQActivity[]>([])
   const [loading, setLoading] = useState(true)
@@ -166,6 +170,11 @@ export default function SmartKPIPage() {
       if (calculatedValue && calculatedValue > 0) {
         standardizedData['Value'] = calculatedValue.toString()
       }
+
+      // ✅ SET CREATED BY: Add user who created the KPI
+      const createdByValue = appUser?.email || authUser?.email || guard.user?.email || authUser?.id || appUser?.id || guard.user?.id || 'System'
+      standardizedData['created_by'] = createdByValue
+      console.log('✅ Setting created_by:', createdByValue)
 
       console.log('🔧 Standardized KPI data:', standardizedData)
       

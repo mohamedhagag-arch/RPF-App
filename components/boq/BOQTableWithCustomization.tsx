@@ -11,6 +11,7 @@ import { PermissionGuard } from '@/components/common/PermissionGuard'
 import { CheckCircle, Clock, AlertCircle, Calendar, Building, Activity, TrendingUp, Target, Info, Filter, X, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
+import { RecordHistoryModal } from '@/components/common/RecordHistoryModal'
 
 interface BOQTableWithCustomizationProps {
   activities: BOQActivity[]
@@ -40,7 +41,7 @@ const defaultBOQColumns: ColumnConfig[] = [
   { id: 'daily_productivity', label: 'Daily Productivity', visible: true, order: 11, width: '240px' },
   { id: 'activity_status', label: 'Activity Status', visible: true, order: 12, width: '150px' },
   { id: 'use_virtual_material', label: 'Use Virtual Material', visible: true, order: 13, width: '150px' },
-  { id: 'actions', label: 'Actions', visible: true, order: 14, fixed: true, width: '150px' }
+  { id: 'actions', label: 'Actions', visible: true, order: 14, fixed: true, width: '200px' }
 ]
 
 export function BOQTableWithCustomization({ 
@@ -57,6 +58,10 @@ export function BOQTableWithCustomization({
   const guard = usePermissionGuard()
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [showCustomizer, setShowCustomizer] = useState(false)
+  const [showHistoryModal, setShowHistoryModal] = useState(false)
+  const [historyRecordId, setHistoryRecordId] = useState<string>('')
+  const [historyRecordType, setHistoryRecordType] = useState<'kpi' | 'boq' | 'project'>('boq')
+  const [historyRecordData, setHistoryRecordData] = useState<any>(null)
   // ✅ FIX: Load project types from project_types table for Scope display
   const [projectTypesMap, setProjectTypesMap] = useState<Map<string, { name: string; description?: string }>>(new Map())
   
@@ -3409,6 +3414,9 @@ export function BOQTableWithCustomization({
         )
       
       case 'actions':
+        const rawActivity = (activity as any).raw || {}
+        const createdBy = (activity as any).created_by || rawActivity['created_by'] || null
+        
         return (
           <div className="flex items-center gap-2">
             <PermissionButton
@@ -3429,6 +3437,19 @@ export function BOQTableWithCustomization({
             >
               Delete
             </PermissionButton>
+            <button
+              type="button"
+              onClick={() => {
+                setShowHistoryModal(true)
+                setHistoryRecordId(activity.id)
+                setHistoryRecordType('boq')
+                setHistoryRecordData(activity)
+              }}
+              className="px-2 py-1 text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+              title="View Complete History"
+            >
+              👤
+            </button>
           </div>
         )
       
@@ -3750,6 +3771,20 @@ export function BOQTableWithCustomization({
           />
         )}
       </PermissionGuard>
+
+      {/* History Modal */}
+      <RecordHistoryModal
+        isOpen={showHistoryModal}
+        onClose={() => {
+          setShowHistoryModal(false)
+          setHistoryRecordId('')
+          setHistoryRecordData(null)
+        }}
+        recordType={historyRecordType}
+        recordId={historyRecordId}
+        recordData={historyRecordData}
+        title="BOQ Activity Complete History"
+      />
     </div>
   )
 }

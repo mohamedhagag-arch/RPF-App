@@ -62,7 +62,7 @@ export function ProjectsList({
   globalFilters = { project: '', status: '', division: '', dateRange: '' } 
 }: ProjectsListProps = {}) {
   // ==================== Hooks & Refs ====================
-  const { appUser } = useAuth()
+  const { user: authUser, appUser } = useAuth()
   const guard = usePermissionGuard()
   const router = useRouter()
   const supabase = getSupabaseClient()
@@ -832,6 +832,12 @@ export function ProjectsList({
       })
       
       const dbData = mapProjectToDB(projectData)
+      
+      // ✅ SET CREATED BY: Add user who created the project
+      const createdByValue = appUser?.email || authUser?.email || guard.user?.email || authUser?.id || appUser?.id || guard.user?.id || 'System'
+      dbData['created_by'] = createdByValue
+      console.log('✅ Setting created_by for project:', createdByValue)
+      
       console.log('💾 handleCreateProject: Mapped dbData:', {
         'Project Duration': dbData['Project Duration'],
         hasProjectDuration: 'Project Duration' in dbData,
@@ -892,6 +898,12 @@ export function ProjectsList({
       })
       
       const dbData = mapProjectToDB(projectData)
+      
+      // ✅ SET UPDATED BY: Add user who updated the project
+      const updatedByValue = appUser?.email || authUser?.email || guard.user?.email || authUser?.id || appUser?.id || guard.user?.id || 'System'
+      dbData['updated_by'] = updatedByValue
+      console.log('✅ Setting updated_by for project:', updatedByValue)
+      
       console.log('💾 handleUpdateProject: Mapped dbData:', {
         'Project Duration': dbData['Project Duration'],
         hasProjectDuration: 'Project Duration' in dbData,

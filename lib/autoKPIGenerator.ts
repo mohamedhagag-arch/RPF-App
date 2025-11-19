@@ -221,13 +221,39 @@ async function deleteExistingPlannedKPIs(
 /**
  * Save generated KPIs to database
  */
-export async function saveGeneratedKPIs(kpis: GeneratedKPI[], cleanupFirst: boolean = true): Promise<{ success: boolean; message: string; savedCount: number; deletedCount?: number }> {
+export async function saveGeneratedKPIs(kpis: GeneratedKPI[], cleanupFirst: boolean = true, createdBy?: string): Promise<{ success: boolean; message: string; savedCount: number; deletedCount?: number }> {
   if (kpis.length === 0) {
     return { success: true, message: 'No KPIs to save', savedCount: 0 }
   }
   
   try {
     const supabase = getSupabaseClient()
+    
+    // ✅ Get user info if not provided
+    let createdByValue = createdBy
+    if (!createdByValue) {
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) {
+          // Try to get email from users table
+          const { data: userData } = await supabase
+            .from('users')
+            .select('email')
+            .eq('id', user.id)
+            .single()
+          
+          if (userData && typeof userData === 'object' && 'email' in userData) {
+            createdByValue = (userData as { email?: string }).email || user.email || user.id || 'System'
+          } else {
+            createdByValue = user.email || user.id || 'System'
+          }
+        } else {
+          createdByValue = 'System'
+        }
+      } catch (e) {
+        createdByValue = 'System'
+      }
+    }
     
     let deletedCount = 0
     
@@ -256,7 +282,8 @@ export async function saveGeneratedKPIs(kpis: GeneratedKPI[], cleanupFirst: bool
       'Unit': kpi.unit,
       'Section': kpi.section,
       'Day': kpi.day,
-      'Approval Status': 'approved' // ✅ Auto-approve Planned KPIs
+      'Approval Status': 'approved', // ✅ Auto-approve Planned KPIs
+      'created_by': createdByValue // ✅ Set created_by
     }))
     
     console.log('📦 Database format sample:', JSON.stringify(dbKPIs[0], null, 2))

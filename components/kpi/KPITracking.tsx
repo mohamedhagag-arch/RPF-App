@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { usePermissionGuard } from '@/lib/permissionGuard'
+import { useAuth } from '@/app/providers'
 import { PermissionGuard } from '@/components/common/PermissionGuard'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
@@ -45,6 +46,7 @@ interface KPITrackingProps {
 export function KPITracking({ globalSearchTerm = '', globalFilters = { project: '', status: '', division: '', dateRange: '' } }: KPITrackingProps = {}) {
   const router = useRouter()
   const guard = usePermissionGuard()
+  const { user: authUser, appUser } = useAuth()
   const [kpis, setKpis] = useState<ProcessedKPI[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [activities, setActivities] = useState<BOQActivity[]>([])
@@ -1000,6 +1002,15 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         console.log('✅ Auto-approving Planned KPI on creation')
       }
 
+      // ✅ SET CREATED BY: Add user who created the KPI
+      const createdByValue = appUser?.email || authUser?.email || guard.user?.email || authUser?.id || appUser?.id || guard.user?.id || 'System'
+      dbData['created_by'] = createdByValue
+      console.log('✅ Setting created_by:', createdByValue, {
+        appUserEmail: appUser?.email,
+        authUserEmail: authUser?.email,
+        guardUserEmail: guard.user?.email
+      })
+
       console.log('📦 Database format:', dbData)
 
       const { data, error } = await supabase
@@ -1088,7 +1099,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       console.log('🎯 Inserting into MAIN KPI table')
       
       // Map to database format (WITH Input Type in unified table)
-      const dbData = {
+      const dbData: any = {
         'Project Full Code': kpiData['Project Full Code'] || kpiData.project_full_code || '',
         'Project Code': kpiData['Project Code'] || kpiData.project_code || '',
         'Project Sub Code': kpiData['Project Sub Code'] || kpiData.project_sub_code || '',
@@ -1105,6 +1116,11 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         'Day': kpiData['Day'] || kpiData.day || '',
         'Drilled Meters': kpiData['Drilled Meters'] || kpiData.drilled_meters?.toString() || '0'
       }
+      
+      // ✅ SET UPDATED BY: Add user who updated the KPI
+      const updatedByValue = appUser?.email || authUser?.email || guard.user?.email || authUser?.id || appUser?.id || guard.user?.id || 'System'
+      dbData['updated_by'] = updatedByValue
+      console.log('✅ Setting updated_by:', updatedByValue)
       
       console.log('🔍 dbData after mapping:', dbData)
       console.log('🔍 dbData Project Full Code:', dbData['Project Full Code'])

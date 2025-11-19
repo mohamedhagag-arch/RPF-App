@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
+import { useAuth } from '@/app/providers'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { Project, BOQActivity, TABLES } from '@/lib/supabase'
@@ -41,6 +42,7 @@ interface ProjectDetailsPanelProps {
 
 export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelProps) {
   const guard = usePermissionGuard()
+  const { user: authUser, appUser } = useAuth()
   const [analytics, setAnalytics] = useState<ProjectAnalytics | null>(null)
   const [loading, setLoading] = useState(true)
   const [activeView, setActiveView] = useState<'overview' | 'activities' | 'kpis'>('overview')
@@ -870,10 +872,13 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
         'Total Drilling Meters': data.total_drilling_meters?.toString() || '0',
         'Calendar Duration': data.calendar_duration?.toString() || '0',
         'Project Full Name': data.project_full_name || '',
-        'Project Status': data.project_status || 'upcoming'
+        'Project Status': data.project_status || 'upcoming',
+        // ✅ SET CREATED BY: Add user who created the BOQ activity
+        'created_by': appUser?.email || authUser?.email || guard.user?.email || authUser?.id || appUser?.id || guard.user?.id || 'System'
       }
       
       console.log('📦 Database format:', dbData)
+      console.log('✅ Setting created_by for BOQ activity:', dbData['created_by'])
       
       // Insert into BOQ Rates table
       const { data: inserted, error } = await (supabase as any)

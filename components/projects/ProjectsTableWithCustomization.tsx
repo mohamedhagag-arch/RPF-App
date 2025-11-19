@@ -9,6 +9,7 @@ import { PermissionButton } from '@/components/ui/PermissionButton'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { PermissionGuard } from '@/components/common/PermissionGuard'
 import { CheckCircle, Clock, AlertCircle, Calendar, Building, Activity, TrendingUp, Target, Info, Filter, X, RotateCcw, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { RecordHistoryModal } from '@/components/common/RecordHistoryModal'
 import { calculateProjectAnalytics, ProjectAnalytics } from '@/lib/projectAnalytics'
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 import { getProjectStatusText, getProjectStatusColor } from '@/lib/projectStatusManager'
@@ -71,8 +72,8 @@ const defaultProjectsColumns: ColumnConfig[] = [
   { id: 'virtual_material_value', label: 'Virtual Material Value', visible: false, order: 39, width: '180px' },
   { id: 'created_at', label: 'Created At', visible: false, order: 40, width: '150px' },
   { id: 'updated_at', label: 'Updated At', visible: false, order: 41, width: '150px' },
-  { id: 'created_by', label: 'Created By', visible: false, order: 42, width: '150px' },
-  { id: 'actions', label: 'Actions', visible: true, order: 43, fixed: true, width: '150px' }
+  { id: 'created_by', label: 'Created By', visible: false, order: 42, width: '180px' },
+  { id: 'actions', label: 'Actions', visible: true, order: 43, fixed: true, width: '200px' }
 ]
 
 export function ProjectsTableWithCustomization({ 
@@ -90,6 +91,10 @@ export function ProjectsTableWithCustomization({
   const guard = usePermissionGuard()
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [showCustomizer, setShowCustomizer] = useState(false)
+  const [showHistoryModal, setShowHistoryModal] = useState(false)
+  const [historyRecordId, setHistoryRecordId] = useState<string>('')
+  const [historyRecordType, setHistoryRecordType] = useState<'kpi' | 'boq' | 'project'>('project')
+  const [historyRecordData, setHistoryRecordData] = useState<any>(null)
   const [expandedScopes, setExpandedScopes] = useState<Set<string>>(new Set()) // Track expanded scopes per project
   const [expandedDivisions, setExpandedDivisions] = useState<Set<string>>(new Set()) // Track expanded divisions per project
   const [copiedPlotNumber, setCopiedPlotNumber] = useState<string | null>(null) // Track copied plot number for feedback
@@ -4142,15 +4147,8 @@ export function ProjectsTableWithCustomization({
             </div>
           )
         
-        case 'created_by':
-          const createdBy = project.created_by || getProjectField(project, 'created_by') || 'N/A'
-          return (
-            <div className="text-sm text-gray-900 dark:text-white">
-              {createdBy !== 'N/A' ? createdBy : <span className="text-gray-400 dark:text-gray-500">N/A</span>}
-            </div>
-          )
-        
         case 'actions':
+          const createdBy = project.created_by || getProjectField(project, 'created_by') || null
           return (
             <div className="flex items-center gap-2">
               <PermissionButton
@@ -4171,6 +4169,19 @@ export function ProjectsTableWithCustomization({
               >
                 Delete
               </PermissionButton>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowHistoryModal(true)
+                  setHistoryRecordId(project.id)
+                  setHistoryRecordType('project')
+                  setHistoryRecordData(project)
+                }}
+                className="px-2 py-1 text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                title="View Complete History"
+              >
+                👤
+              </button>
             </div>
           )
         
@@ -4554,6 +4565,20 @@ export function ProjectsTableWithCustomization({
         />
       )}
       </PermissionGuard>
+
+      {/* History Modal */}
+      <RecordHistoryModal
+        isOpen={showHistoryModal}
+        onClose={() => {
+          setShowHistoryModal(false)
+          setHistoryRecordId('')
+          setHistoryRecordData(null)
+        }}
+        recordType={historyRecordType}
+        recordId={historyRecordId}
+        recordData={historyRecordData}
+        title="Project Complete History"
+      />
     </div>
   )
 }
