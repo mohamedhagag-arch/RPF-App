@@ -36,7 +36,7 @@ interface ProjectsTableWithCustomizationProps {
 const defaultProjectsColumns: ColumnConfig[] = [
   { id: 'select', label: 'Select', visible: true, order: 0, fixed: true, width: '60px' },
   { id: 'project_code', label: 'Project Code', visible: true, order: 1, width: '150px' },
-  { id: 'full_project_code', label: 'Full Project Code', visible: true, order: 2, width: '180px' },
+  { id: 'full_project_code', label: 'Full Project Code', visible: true, order: 2, fixed: true, width: '180px' },
   { id: 'project_name', label: 'Project Name', visible: true, order: 3, width: '250px' },
   { id: 'project_description', label: 'Project Description', visible: true, order: 4, width: '300px' },
   { id: 'plot_number', label: 'Plot No.', visible: true, order: 5, width: '120px' },
@@ -4349,9 +4349,22 @@ export function ProjectsTableWithCustomization({
         <table className="w-full border-collapse">
           <thead className="sticky top-0 z-10">
             <tr className="border-b border-gray-200 dark:border-gray-700">
-              {visibleColumns.map((column) => {
+              {visibleColumns.map((column, columnIndex) => {
                 const isSortable = column.id !== 'select' && column.id !== 'actions'
                 const isSorted = sortColumn === column.id
+                
+                // Calculate left position for fixed columns
+                let leftPosition = 0
+                if (column.fixed) {
+                  for (let i = 0; i < columnIndex; i++) {
+                    const prevColumn = visibleColumns[i]
+                    if (prevColumn.fixed) {
+                      const width = prevColumn.width || '120px'
+                      const widthNum = parseInt(width.replace('px', '')) || 120
+                      leftPosition += widthNum
+                    }
+                  }
+                }
                 
                 return (
                 <th
@@ -4359,14 +4372,15 @@ export function ProjectsTableWithCustomization({
                     onClick={() => isSortable && handleSort(column.id)}
                     className={`px-4 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 ${
                       isSortable ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none' : ''
-                    }`}
+                    } ${column.fixed ? 'shadow-[2px_0_4px_rgba(0,0,0,0.1)]' : ''}`}
                     style={{
                       width: column.width || 'auto',
                       minWidth: column.width || '120px',
                       maxWidth: column.width || 'none',
-                      position: 'sticky',
+                      position: column.fixed ? 'sticky' : 'relative',
+                      left: column.fixed ? `${leftPosition}px` : 'auto',
                       top: 0,
-                      zIndex: 10
+                      zIndex: column.fixed ? 20 : 10
                     }}
                   >
                     {column.id === 'select' ? (
@@ -4407,21 +4421,39 @@ export function ProjectsTableWithCustomization({
             {sortedProjects.map((project) => (
               <tr
                 key={project.id}
-                className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                className="group border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50"
               >
-                {visibleColumns.map((column) => (
-                  <td
-                    key={column.id}
-                    className="px-4 py-3 text-sm"
-                    style={{
-                      width: column.width || 'auto',
-                      minWidth: column.width || '120px',
-                      maxWidth: column.width || 'none'
-                    }}
-                  >
-                    {renderCell(project, column)}
-                  </td>
-                ))}
+                {visibleColumns.map((column, columnIndex) => {
+                  // Calculate left position for fixed columns
+                  let leftPosition = 0
+                  if (column.fixed) {
+                    for (let i = 0; i < columnIndex; i++) {
+                      const prevColumn = visibleColumns[i]
+                      if (prevColumn.fixed) {
+                        const width = prevColumn.width || '120px'
+                        const widthNum = parseInt(width.replace('px', '')) || 120
+                        leftPosition += widthNum
+                      }
+                    }
+                  }
+                  
+                  return (
+                    <td
+                      key={column.id}
+                      className={`px-4 py-3 text-sm ${column.fixed ? 'shadow-[2px_0_4px_rgba(0,0,0,0.1)] bg-white dark:bg-gray-900 group-hover:bg-gray-50 dark:group-hover:bg-gray-800/50' : ''}`}
+                      style={{
+                        width: column.width || 'auto',
+                        minWidth: column.width || '120px',
+                        maxWidth: column.width || 'none',
+                        position: column.fixed ? 'sticky' : 'relative',
+                        left: column.fixed ? `${leftPosition}px` : 'auto',
+                        zIndex: column.fixed ? 15 : 1
+                      }}
+                    >
+                      {renderCell(project, column)}
+                    </td>
+                  )
+                })}
               </tr>
             ))}
           </tbody>
