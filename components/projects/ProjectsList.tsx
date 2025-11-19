@@ -83,6 +83,7 @@ export function ProjectsList({
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [viewingProject, setViewingProject] = useState<Project | null>(null)
   const [searchTerm, setSearchTerm] = useState(globalSearchTerm || '')
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(globalSearchTerm || '')
   // ✅ PERFORMANCE: Cache for loaded analytics data per project
   const [analyticsCache, setAnalyticsCache] = useState<Map<string, { activities: any[], kpis: any[] }>>(new Map())
   // ✅ Trigger to force re-calculation of analytics when cache updates
@@ -635,8 +636,8 @@ export function ProjectsList({
       division: selectedDivisions.length > 0 ? selectedDivisions[0] : '',
       dateRange: dateRange
     }
-    await fetchProjectsPage(currentPage, searchTerm, currentFilters)
-  }, [fetchProjectsPage, currentPage, searchTerm, selectedStatuses, selectedDivisions, dateRange])
+    await fetchProjectsPage(currentPage, debouncedSearchTerm, currentFilters)
+  }, [fetchProjectsPage, currentPage, debouncedSearchTerm, selectedStatuses, selectedDivisions, dateRange])
 
   // ==================== Event Handlers ====================
 
@@ -1056,7 +1057,7 @@ export function ProjectsList({
             division: selectedDivisions.length > 0 ? selectedDivisions[0] : '',
             dateRange: dateRange
           }
-          fetchProjectsPage(currentPage, searchTerm, currentFilters)
+          fetchProjectsPage(currentPage, debouncedSearchTerm, currentFilters)
         }
       }
     }
@@ -1071,7 +1072,7 @@ export function ProjectsList({
         division: selectedDivisions.length > 0 ? selectedDivisions[0] : '',
         dateRange: dateRange
       }
-      fetchProjectsPage(1, searchTerm, initialFilters)
+      fetchProjectsPage(1, debouncedSearchTerm, initialFilters)
     }
 
     return () => {
@@ -1086,6 +1087,17 @@ export function ProjectsList({
   }, []) // Only run once on mount
 
   /**
+   * ✅ Debounce search term to avoid too many API calls
+   */
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm)
+    }, 300) // Wait 300ms after user stops typing
+
+    return () => clearTimeout(timer)
+  }, [searchTerm])
+
+  /**
    * ✅ PERFORMANCE: Reload projects when page, search, filters, or sorting change
    */
   useEffect(() => {
@@ -1098,9 +1110,9 @@ export function ProjectsList({
       dateRange: dateRange
     }
     
-    fetchProjectsPage(currentPage, searchTerm, currentFilters)
+    fetchProjectsPage(currentPage, debouncedSearchTerm, currentFilters)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, searchTerm, selectedStatuses.join(','), selectedDivisions.join(','), dateRange?.from, dateRange?.to, sortBy, sortDirection])
+  }, [currentPage, debouncedSearchTerm, selectedStatuses.join(','), selectedDivisions.join(','), dateRange?.from, dateRange?.to, sortBy, sortDirection])
   
   /**
    * ✅ Handle sorting from table - triggers database-level sort
