@@ -308,6 +308,94 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     return columnMap[columnId] || null
   }
 
+  // ✅ Sort processed KPIs by column ID
+  const sortKPIs = useCallback((kpis: ProcessedKPI[], columnId: string | null, direction: 'asc' | 'desc'): ProcessedKPI[] => {
+    if (!columnId) return kpis
+
+    const sorted = [...kpis].sort((a, b) => {
+      let aValue: any
+      let bValue: any
+
+      switch (columnId) {
+        case 'activity_details':
+          aValue = (a.activity_name || '').toLowerCase()
+          bValue = (b.activity_name || '').toLowerCase()
+          break
+        case 'date':
+        case 'key_dates':
+          aValue = a.activity_date || a.target_date || ''
+          bValue = b.activity_date || b.target_date || ''
+          break
+        case 'input_type':
+          aValue = (a.input_type || '').toLowerCase()
+          bValue = (b.input_type || '').toLowerCase()
+          break
+        case 'quantities':
+        case 'cumulative_quantity':
+          aValue = Number(a.quantity || 0)
+          bValue = Number(b.quantity || 0)
+          break
+        case 'value':
+        case 'cumulative_value':
+          aValue = Number(a.value || 0)
+          bValue = Number(b.value || 0)
+          break
+        case 'virtual_value': {
+          const aRaw = (a as any).raw || {}
+          const bRaw = (b as any).raw || {}
+          aValue = Number(aRaw['Virtual Material Value'] || 0)
+          bValue = Number(bRaw['Virtual Material Value'] || 0)
+          break
+        }
+        case 'activity_commencement_relation': {
+          const aRaw = (a as any).raw || {}
+          const bRaw = (b as any).raw || {}
+          aValue = (aRaw['Activity Timing'] || '').toLowerCase()
+          bValue = (bRaw['Activity Timing'] || '').toLowerCase()
+          break
+        }
+        case 'activity_division': {
+          const aRaw = (a as any).raw || {}
+          const bRaw = (b as any).raw || {}
+          aValue = (aRaw['Activity Division'] || '').toLowerCase()
+          bValue = (bRaw['Activity Division'] || '').toLowerCase()
+          break
+        }
+        case 'activity_scope': {
+          const aRaw = (a as any).raw || {}
+          const bRaw = (b as any).raw || {}
+          aValue = (aRaw['Activity Scope'] || '').toLowerCase()
+          bValue = (bRaw['Activity Scope'] || '').toLowerCase()
+          break
+        }
+        default:
+          // Default sort by created_at
+          aValue = a.created_at || ''
+          bValue = b.created_at || ''
+      }
+
+      // Handle date comparison
+      if (columnId === 'date' || columnId === 'key_dates') {
+        const aDate = aValue ? new Date(aValue).getTime() : 0
+        const bDate = bValue ? new Date(bValue).getTime() : 0
+        return direction === 'asc' ? aDate - bDate : bDate - aDate
+      }
+
+      // Handle number comparison
+      if (columnId === 'quantities' || columnId === 'cumulative_quantity' || 
+          columnId === 'value' || columnId === 'cumulative_value' || columnId === 'virtual_value') {
+        return direction === 'asc' ? aValue - bValue : bValue - aValue
+      }
+
+      // Handle string comparison
+      if (aValue < bValue) return direction === 'asc' ? -1 : 1
+      if (aValue > bValue) return direction === 'asc' ? 1 : -1
+      return 0
+    })
+
+    return sorted
+  }, [])
+
   // ✅ PERFORMANCE: Fetch KPI page with pagination (only visible KPIs)
   const fetchKPIPage = useCallback(async (page: number = 1, filterProjects: string[] = [], search: string = '', sortCol: string | null = null, sortDir: 'asc' | 'desc' = 'asc') => {
     // ✅ Prevent multiple simultaneous loads
@@ -641,15 +729,18 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       
       const processedKPIs = filteredKPIs.map(processKPIRecord)
       
+      // ✅ Apply sorting to all merged data after processing
+      const sortedKPIs = sortKPIs(processedKPIs, sortCol, sortDir)
+      
       // Update state
       if (isMountedRef.current) {
         setActivities(mappedActivities)
-        setKpis(processedKPIs)
+        setKpis(sortedKPIs)
         setTotalKPICount(mappedKPIs.length)
         
         // Calculate progress for activities
         try {
-          const kpiRecordsForProgress: KPIRecord[] = processedKPIs.map((processed: ProcessedKPI) => ({
+          const kpiRecordsForProgress: KPIRecord[] = sortedKPIs.map((processed: ProcessedKPI) => ({
             id: processed.id,
             project_full_code: processed.project_full_code,
             activity_name: processed.activity_name,
@@ -683,7 +774,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         
         console.log('✅ Data loaded:', {
           activities: mappedActivities.length,
-          kpis: processedKPIs.length
+          kpis: sortedKPIs.length
         })
       }
       
@@ -700,7 +791,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         stopSmartLoading(setLoading)
       }
     }
-  }, [supabase, startSmartLoading, stopSmartLoading, sortColumn, sortDirection])
+  }, [supabase, startSmartLoading, stopSmartLoading, sortColumn, sortDirection, sortKPIs])
 
   // ✅ Fetch projects only on mount (lightweight)
   const fetchProjects = useCallback(async () => {

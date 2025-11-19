@@ -341,6 +341,21 @@ export function ProjectsList({
       // Build project full codes for filtering using buildProjectFullCode
       const projectFullCodes = projectsToLoad.map(p => buildProjectFullCode(p))
       
+      // ✅ DEBUG: Log project full codes for P5066-R4
+      const p5066R4Project = projectsToLoad.find(p => 
+        (p.project_code || '').trim() === 'P5066' && 
+        ((p.project_sub_code || '').trim() === 'R4' || (p.project_sub_code || '').trim() === 'P5066-R4' || (p.project_sub_code || '').trim().endsWith('-R4'))
+      )
+      if (p5066R4Project) {
+        const p5066R4FullCode = buildProjectFullCode(p5066R4Project)
+        console.log('🔍 [P5066-R4] Project full codes for query:', {
+          projectCode: p5066R4Project.project_code,
+          projectSubCode: p5066R4Project.project_sub_code,
+          projectFullCode: p5066R4FullCode,
+          allProjectFullCodes: projectFullCodes
+        })
+      }
+      
       if (process.env.NODE_ENV === 'development') {
         console.log('📊 Loading analytics for projects:', projectFullCodes.length)
       }
@@ -365,8 +380,84 @@ export function ProjectsList({
         console.error('❌ Error loading KPIs:', kpisRes.error)
       }
       
+      // ✅ FALLBACK: If no KPIs found by Project Full Code, try by Project Code + Project Sub Code
+      // This handles cases where Project Full Code might not be set correctly in database
+      let kpisData = kpisRes.data || []
+      
+      // ✅ SPECIAL CASE: For projects like P5066-R4 where project_sub_code = "P5066-R4"
+      // Also try fetching by Project Code and filter client-side
+      const projectsWithSpecialSubCode = projectsToLoad.filter(p => {
+        const code = (p.project_code || '').trim()
+        const subCode = (p.project_sub_code || '').trim()
+        return code && subCode && subCode.toUpperCase().startsWith(code.toUpperCase())
+      })
+      
+      if (projectsWithSpecialSubCode.length > 0) {
+        const specialProjectCodes = projectsWithSpecialSubCode.map(p => (p.project_code || '').trim()).filter(Boolean)
+        const uniqueSpecialCodes = Array.from(new Set(specialProjectCodes))
+        
+        if (uniqueSpecialCodes.length > 0) {
+          const kpisByCodeRes = await supabase
+            .from(TABLES.KPI)
+            .select('*')
+            .in('Project Code', uniqueSpecialCodes)
+          
+          if (!kpisByCodeRes.error && kpisByCodeRes.data && kpisByCodeRes.data.length > 0) {
+            // Merge with existing KPIs (avoid duplicates)
+            const existingIds = new Set(kpisData.map((k: any) => k.id))
+            const newKPIs = (kpisByCodeRes.data || []).filter((k: any) => !existingIds.has(k.id))
+            if (newKPIs.length > 0) {
+              console.log(`✅ Found ${newKPIs.length} additional KPIs by Project Code for special projects, will filter client-side`)
+              kpisData = [...kpisData, ...newKPIs]
+            }
+          }
+        }
+      }
+      
+      // ✅ FALLBACK: If still no KPIs found, try by Project Code only (for all projects)
+      if (kpisData.length === 0 && projectFullCodes.length > 0) {
+        console.log('⚠️ No KPIs found by Project Full Code, trying Project Code only...')
+        // Extract project codes
+        const projectCodes = projectsToLoad.map(p => (p.project_code || '').trim()).filter(Boolean)
+        const uniqueProjectCodes = Array.from(new Set(projectCodes))
+        
+        // Try fetching by Project Code only (for projects with sub_code)
+        if (uniqueProjectCodes.length > 0) {
+          const kpisByCodeRes = await supabase
+            .from(TABLES.KPI)
+            .select('*')
+            .in('Project Code', uniqueProjectCodes)
+          
+          if (!kpisByCodeRes.error && kpisByCodeRes.data && kpisByCodeRes.data.length > 0) {
+            console.log(`✅ Found ${kpisByCodeRes.data.length} KPIs by Project Code, will filter client-side`)
+            kpisData = kpisByCodeRes.data
+          }
+        }
+      }
+      
       const mappedActivities = (activitiesRes.data || []).map(mapBOQFromDB)
-      const mappedKPIs = (kpisRes.data || []).map(mapKPIFromDB)
+      const mappedKPIs = kpisData.map(mapKPIFromDB)
+      
+      // ✅ DEBUG: Log KPIs for P5066-R4
+      if (p5066R4Project) {
+        const p5066R4FullCode = buildProjectFullCode(p5066R4Project)
+        const kpisForP5066R4 = mappedKPIs.filter(k => {
+          const kpiFullCode = (k.project_full_code || (k as any)['Project Full Code'] || '').toString().trim()
+          return kpiFullCode === p5066R4FullCode || kpiFullCode.toUpperCase() === p5066R4FullCode.toUpperCase()
+        })
+        console.log('🔍 [P5066-R4] KPIs fetched from database:', {
+          totalKPIsFetched: mappedKPIs.length,
+          kpisForP5066R4: kpisForP5066R4.length,
+          projectFullCode: p5066R4FullCode,
+          sampleKPIs: mappedKPIs.slice(0, 5).map(k => ({
+            kpiFullCode: (k.project_full_code || (k as any)['Project Full Code'] || '').toString().trim(),
+            kpiProjectCode: ((k as any).project_code || (k as any)['Project Code'] || '').toString().trim(),
+            kpiProjectSubCode: ((k as any).project_sub_code || (k as any)['Project Sub Code'] || '').toString().trim(),
+            activityName: k.activity_name,
+            rawProjectFullCode: (k as any).raw?.['Project Full Code'] || 'N/A'
+          }))
+        })
+      }
       
       // Update cache - use functional update to avoid dependency on analyticsCache
       // ✅ PERFORMANCE: Only update allActivities/allKPIs if they actually changed
@@ -432,34 +523,119 @@ export function ProjectsList({
             })
             
             // Find KPIs for this project (multiple matching strategies)
+            const isDebugProject = projectCode === 'P5066' && (projectSubCode === 'R4' || projectSubCode === 'P5066-R4' || projectSubCode.endsWith('-R4'))
+            
+            // ✅ DEBUG: Log project info for P5066-R4
+            if (isDebugProject) {
+              console.log('🔍 [P5066-R4] Starting KPI filtering:', {
+                projectCode,
+                projectSubCode,
+                projectFullCode,
+                totalKPIs: mappedKPIs.length,
+                sampleKPIs: mappedKPIs.slice(0, 3).map(k => ({
+                  kpiFullCode: k.project_full_code || (k as any)['Project Full Code'] || 'N/A',
+                  kpiProjectCode: (k as any).project_code || (k as any)['Project Code'] || 'N/A',
+                  kpiProjectSubCode: (k as any).project_sub_code || (k as any)['Project Sub Code'] || 'N/A',
+                  activityName: k.activity_name,
+                  rawProjectFullCode: (k as any).raw?.['Project Full Code'] || 'N/A',
+                  rawProjectCode: (k as any).raw?.['Project Code'] || 'N/A'
+                }))
+              })
+            }
+            
             const projectKPIs = mappedKPIs.filter(k => {
               const kpiFullCode = ((k.project_full_code || (k as any)['Project Full Code'] || '')).toString().trim()
               const kpiProjectCode = ((k as any).project_code || (k as any)['Project Code'] || '').toString().trim()
               const kpiProjectSubCode = ((k as any).project_sub_code || (k as any)['Project Sub Code'] || '').toString().trim()
               
-              // Exact match on project_full_code
-              if (kpiFullCode && kpiFullCode === projectFullCode) {
+              // ✅ PRIORITY 1: Exact match on project_full_code (case-insensitive)
+              if (kpiFullCode && kpiFullCode.toUpperCase() === projectFullCode.toUpperCase()) {
+                if (isDebugProject && mappedKPIs.indexOf(k) < 3) {
+                  console.log('✅ [P5066-R4] KPI matched by exact project_full_code:', {
+                    kpiFullCode,
+                    projectFullCode,
+                    kpiActivityName: k.activity_name
+                  })
+                }
                 return true
               }
               
-              // Match by project_code if no sub_code
-              if (!projectSubCode && !kpiProjectSubCode && kpiProjectCode === projectCode) {
-                return true
-              }
-              
-              // Build KPI full code and match
+              // ✅ PRIORITY 2: Build KPI full code and match (case-insensitive)
               if (kpiProjectCode && kpiProjectSubCode) {
                 let kpiFullCodeBuilt = kpiProjectCode
                 if (kpiProjectSubCode.toUpperCase().startsWith(kpiProjectCode.toUpperCase())) {
                   kpiFullCodeBuilt = kpiProjectSubCode
                 } else if (kpiProjectSubCode.startsWith('-')) {
                   kpiFullCodeBuilt = `${kpiProjectCode}${kpiProjectSubCode}`
-          } else {
+                } else {
                   kpiFullCodeBuilt = `${kpiProjectCode}-${kpiProjectSubCode}`
                 }
-                if (kpiFullCodeBuilt === projectFullCode) {
+                if (kpiFullCodeBuilt.toUpperCase() === projectFullCode.toUpperCase()) {
+                  if (isDebugProject && mappedKPIs.indexOf(k) < 3) {
+                    console.log('✅ [P5066-R4] KPI matched by built full code:', {
+                      kpiFullCodeBuilt,
+                      projectFullCode,
+                      kpiProjectCode,
+                      kpiProjectSubCode,
+                      kpiActivityName: k.activity_name
+                    })
+                  }
                   return true
                 }
+              }
+              
+              // ✅ PRIORITY 2.5: Special case for P5066-R4 - Match when KPI has Project Code = P5066 and Project Sub Code = P5066-R4
+              // This handles the case where project_sub_code = "P5066-R4" (starts with project_code)
+              if (projectCode === 'P5066' && projectSubCode && projectSubCode.toUpperCase().startsWith('P5066')) {
+                // Project has sub_code that starts with project_code (e.g., "P5066-R4")
+                if (kpiProjectCode.toUpperCase() === 'P5066' && kpiProjectSubCode && kpiProjectSubCode.toUpperCase() === projectSubCode.toUpperCase()) {
+                  if (isDebugProject && mappedKPIs.indexOf(k) < 3) {
+                    console.log('✅ [P5066-R4] KPI matched by special case (P5066-R4):', {
+                      kpiProjectCode,
+                      kpiProjectSubCode,
+                      projectSubCode,
+                      kpiActivityName: k.activity_name
+                    })
+                  }
+                  return true
+                }
+              }
+              
+              // ✅ PRIORITY 3: Match where KPI Project Full Code starts with our project_full_code (for sub-projects)
+              // Only if project has sub_code (to avoid matching other projects with same project_code)
+              if (projectSubCode && projectFullCode && kpiFullCode && kpiFullCode.toUpperCase().startsWith(projectFullCode.toUpperCase())) {
+                if (isDebugProject && mappedKPIs.indexOf(k) < 3) {
+                  console.log('✅ [P5066-R4] KPI matched by startsWith:', {
+                    kpiFullCode,
+                    projectFullCode,
+                    kpiActivityName: k.activity_name
+                  })
+                }
+                return true
+              }
+              
+              // ✅ PRIORITY 4: Match by project_code if no sub_code (old data fallback)
+              if (!projectSubCode && !kpiProjectSubCode && kpiProjectCode.toUpperCase() === projectCode.toUpperCase()) {
+                if (isDebugProject && mappedKPIs.indexOf(k) < 3) {
+                  console.log('✅ [P5066-R4] KPI matched by project_code only:', {
+                    kpiProjectCode,
+                    projectCode,
+                    kpiActivityName: k.activity_name
+                  })
+                }
+                return true
+              }
+              
+              // ✅ DEBUG: Log why it didn't match for P5066-R4
+              if (isDebugProject && mappedKPIs.indexOf(k) < 3) {
+                console.log('❌ [P5066-R4] KPI did not match:', {
+                  projectFullCode,
+                  kpiFullCode,
+                  kpiProjectCode,
+                  kpiProjectSubCode,
+                  kpiActivityName: k.activity_name,
+                  kpiRaw: (k as any).raw?.['Project Full Code'] || (k as any).raw?.['Project Code'] || 'N/A'
+                })
               }
               
               return false

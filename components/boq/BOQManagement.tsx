@@ -685,6 +685,96 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     return columnMap[columnId] || null
   }
 
+  // ✅ Sort activities by column ID
+  const sortActivities = useCallback((activities: any[], columnId: string | null, direction: 'asc' | 'desc'): any[] => {
+    if (!columnId) return activities
+
+    const sorted = [...activities].sort((a, b) => {
+      let aValue: any
+      let bValue: any
+
+      switch (columnId) {
+        case 'activity_details':
+          aValue = (a.activity || a.activity_name || '').toLowerCase()
+          bValue = (b.activity || b.activity_name || '').toLowerCase()
+          break
+        case 'scope':
+          aValue = ((a as any).raw?.['Activity Scope'] || a.activity_scope || '').toLowerCase()
+          bValue = ((b as any).raw?.['Activity Scope'] || b.activity_scope || '').toLowerCase()
+          break
+        case 'division':
+          aValue = ((a as any).raw?.['Activity Division'] || a.activity_division || '').toLowerCase()
+          bValue = ((b as any).raw?.['Activity Division'] || b.activity_division || '').toLowerCase()
+          break
+        case 'activity_timing':
+          aValue = ((a as any).raw?.['Activity Timing'] || a.activity_timing || '').toLowerCase()
+          bValue = ((b as any).raw?.['Activity Timing'] || b.activity_timing || '').toLowerCase()
+          break
+        case 'quantities':
+          aValue = Number(a.total_units || a.planned_units || 0)
+          bValue = Number(b.total_units || b.planned_units || 0)
+          break
+        case 'activity_value':
+          aValue = Number(a.total_value || a.planned_value || 0)
+          bValue = Number(b.total_value || b.planned_value || 0)
+          break
+        case 'planned_dates':
+          aValue = a.planned_start_date || a.planned_activity_start_date || ''
+          bValue = b.planned_start_date || b.planned_activity_start_date || ''
+          break
+        case 'actual_dates':
+          aValue = a.actual_start_date || a.actual_activity_start_date || ''
+          bValue = b.actual_start_date || b.actual_activity_start_date || ''
+          break
+        case 'progress_summary':
+          aValue = Number(a.activity_progress_percentage || 0)
+          bValue = Number(b.activity_progress_percentage || 0)
+          break
+        case 'work_value_status':
+          aValue = Number(a.earned_value || 0)
+          bValue = Number(b.earned_value || 0)
+          break
+        case 'daily_productivity':
+          aValue = Number(a.productivity_daily_rate || 0)
+          bValue = Number(b.productivity_daily_rate || 0)
+          break
+        case 'activity_status':
+          aValue = (a.activity_status || a.status || '').toLowerCase()
+          bValue = (b.activity_status || b.status || '').toLowerCase()
+          break
+        case 'use_virtual_material':
+          aValue = (a.use_virtual_material || false) ? 1 : 0
+          bValue = (b.use_virtual_material || false) ? 1 : 0
+          break
+        default:
+          // Default sort by created_at
+          aValue = a.created_at || ''
+          bValue = b.created_at || ''
+      }
+
+      // Handle date comparison
+      if (columnId === 'planned_dates' || columnId === 'actual_dates') {
+        const aDate = aValue ? new Date(aValue).getTime() : 0
+        const bDate = bValue ? new Date(bValue).getTime() : 0
+        return direction === 'asc' ? aDate - bDate : bDate - aDate
+      }
+
+      // Handle number comparison
+      if (columnId === 'quantities' || columnId === 'activity_value' || 
+          columnId === 'progress_summary' || columnId === 'work_value_status' || 
+          columnId === 'daily_productivity' || columnId === 'use_virtual_material') {
+        return direction === 'asc' ? aValue - bValue : bValue - aValue
+      }
+
+      // Handle string comparison
+      if (aValue < bValue) return direction === 'asc' ? -1 : 1
+      if (aValue > bValue) return direction === 'asc' ? 1 : -1
+      return 0
+    })
+
+    return sorted
+  }, [])
+
   // ✅ PERFORMANCE: Fetch BOQ page with pagination (only visible activities)
   const fetchBOQPage = useCallback(async (page: number = 1, filterProjects: string[] = [], search: string = '', sortCol: string | null = null, sortDir: 'asc' | 'desc' = 'asc') => {
     // ✅ Prevent multiple simultaneous loads
@@ -1026,14 +1116,17 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         return { ...activity, activity_progress_percentage: progress.metrics.progress }
       })
       
+      // ✅ Apply sorting to all merged data after processing
+      const sortedActivities = sortActivities(activitiesWithProgress, sortCol, sortDir)
+      
       // Update state
       if (isMountedRef.current) {
-        setActivities(activitiesWithProgress)
+        setActivities(sortedActivities)
         setAllKPIs(mappedKPIs)
-        setTotalCount(activitiesWithProgress.length)
+        setTotalCount(sortedActivities.length)
         
         console.log('✅ Data loaded:', {
-          activities: activitiesWithProgress.length,
+          activities: sortedActivities.length,
           kpis: mappedKPIs.length
         })
       }
@@ -1048,7 +1141,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         stopSmartLoading(setLoading)
       }
     }
-  }, [supabase, startSmartLoading, stopSmartLoading, itemsPerPage, sortColumn, sortDirection])
+  }, [supabase, startSmartLoading, stopSmartLoading, itemsPerPage, sortColumn, sortDirection, sortActivities])
   
   // ✅ LEGACY: Keep fetchData for backward compatibility (wraps fetchBOQPage)
   const fetchData = useCallback(async (filterProjects: string[] = []) => {

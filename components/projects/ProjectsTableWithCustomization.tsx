@@ -388,6 +388,9 @@ export function ProjectsTableWithCustomization({
       const projectCodeUpper = projectCode.toUpperCase()
       const projectFullCodeUpper = projectFullCode.toUpperCase()
       
+      // ✅ DEBUG: Log matching for P5066-R4
+      const isDebugProject = projectCodeUpper === 'P5066' && projectSubCode.toUpperCase() === 'R4'
+      
       // ✅ Extract item codes from all possible sources (same logic as projectAnalytics.ts)
       const rawItem = (item as any).raw || {}
       
@@ -416,6 +419,12 @@ export function ProjectsTableWithCustomization({
       
       // ✅ PRIORITY 1: Direct exact match with project_full_code (MOST ACCURATE - prevents mixing projects)
       if (projectFullCodeUpper && itemProjectFullCode.toUpperCase() === projectFullCodeUpper) {
+        if (isDebugProject) {
+          console.log('✅ [P5066-R4] Matched by exact project_full_code:', {
+            projectFullCode,
+            itemProjectFullCode
+          })
+        }
         return true
       }
       
@@ -434,20 +443,93 @@ export function ProjectsTableWithCustomization({
           }
         }
         if (itemFullCode.toUpperCase() === projectFullCodeUpper) {
+          if (isDebugProject) {
+            console.log('✅ [P5066-R4] Matched by built item full code:', {
+              projectFullCode,
+              itemFullCode,
+              itemProjectCode,
+              itemProjectSubCode
+            })
+          }
           return true
         }
       }
       
       // ✅ PRIORITY 3: Match where Project Full Code starts with our project_full_code (for sub-projects)
-      if (projectFullCode && itemProjectFullCode && itemProjectFullCode.toUpperCase().startsWith(projectFullCodeUpper)) {
+      // Only if project has sub_code (to avoid matching other projects with same project_code)
+      if (projectSubCode && projectFullCode && itemProjectFullCode && itemProjectFullCode.toUpperCase().startsWith(projectFullCodeUpper)) {
+        if (isDebugProject) {
+          console.log('✅ [P5066-R4] Matched by startsWith:', {
+            projectFullCode,
+            itemProjectFullCode
+          })
+        }
         return true
+      }
+      
+      // ✅ PRIORITY 4: Build item full code from item codes and match (if item has both codes)
+      if (itemProjectCode && itemProjectSubCode) {
+        let builtItemFullCode = itemProjectCode
+        if (itemProjectSubCode.toUpperCase().startsWith(itemProjectCode.toUpperCase())) {
+          builtItemFullCode = itemProjectSubCode
+        } else if (itemProjectSubCode.startsWith('-')) {
+          builtItemFullCode = `${itemProjectCode}${itemProjectSubCode}`
+        } else {
+          builtItemFullCode = `${itemProjectCode}-${itemProjectSubCode}`
+        }
+        if (builtItemFullCode.toUpperCase() === projectFullCodeUpper) {
+          if (isDebugProject) {
+            console.log('✅ [P5066-R4] Matched by PRIORITY 4 built item full code:', {
+              projectFullCode,
+              builtItemFullCode,
+              itemProjectCode,
+              itemProjectSubCode
+            })
+          }
+          return true
+        }
+      }
+      
+      // ✅ PRIORITY 4.5: Special case for P5066-R4 - Match when item has Project Code = P5066 and Project Sub Code = P5066-R4
+      // This handles the case where project_sub_code = "P5066-R4" (starts with project_code)
+      if (projectCodeUpper === 'P5066' && projectSubCode && projectSubCode.toUpperCase().startsWith('P5066')) {
+        // Project has sub_code that starts with project_code (e.g., "P5066-R4")
+        if (itemProjectCode.toUpperCase() === 'P5066' && itemProjectSubCode && itemProjectSubCode.toUpperCase() === projectSubCode.toUpperCase()) {
+          if (isDebugProject) {
+            console.log('✅ [P5066-R4] Matched by special case (P5066-R4):', {
+              itemProjectCode,
+              itemProjectSubCode,
+              projectSubCode
+            })
+          }
+          return true
+        }
       }
       
       // ❌ DO NOT match by project_code alone if project has sub_code
       // This prevents mixing projects with same project_code but different sub_code
       // Only allow project_code matching if current project has no sub_code (old data fallback)
       if (!projectSubCode && !itemProjectFullCode && itemProjectCode.toUpperCase() === projectCodeUpper) {
+        if (isDebugProject) {
+          console.log('✅ [P5066-R4] Matched by project_code only (no sub_code):', {
+            itemProjectCode,
+            projectCode
+          })
+        }
         return true
+      }
+      
+      // ✅ DEBUG: Log why it didn't match for P5066-R4
+      if (isDebugProject) {
+        console.log('❌ [P5066-R4] No match found:', {
+          projectFullCode,
+          projectFullCodeUpper,
+          itemProjectFullCode,
+          itemProjectCode,
+          itemProjectSubCode,
+          projectCode,
+          projectSubCode
+        })
       }
       
       return false
