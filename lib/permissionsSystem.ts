@@ -84,6 +84,21 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: 'system.audit', name: 'View Audit Logs', category: 'system', description: 'Can view system audit logs', action: 'view' },
   { id: 'system.search', name: 'Search System', category: 'system', description: 'Can use global search functionality', action: 'view' },
   
+  // Audit Log Permissions (Detailed change tracking for BOQ, Projects, KPI)
+  { id: 'audit_log.view', name: 'View Audit Logs', category: 'system', description: 'Can view detailed audit logs for BOQ, Projects, and KPI changes', action: 'view' },
+  { id: 'audit_log.export', name: 'Export Audit Logs', category: 'system', description: 'Can export audit log data', action: 'export' },
+  
+  // User Guide Permissions
+  { id: 'user_guide.view', name: 'View User Guide', category: 'system', description: 'Can view user guides and tutorials', action: 'view' },
+  { id: 'user_guide.manage', name: 'Manage User Guide', category: 'system', description: 'Can create, edit, and delete user guides (Admin only)', action: 'manage' },
+  
+  // Activity Log Permissions (User activity tracking)
+  { id: 'activity_log.view', name: 'View Activity Log', category: 'system', description: 'Can view user activity logs and tracking data', action: 'view' },
+  { id: 'activity_log.export', name: 'Export Activity Log', category: 'system', description: 'Can export activity log data', action: 'export' },
+  
+  // Active Users Permissions
+  { id: 'active_users.view', name: 'View Active Users', category: 'users', description: 'Can view currently active/online users', action: 'view' },
+  
   // Directory & User Directory Permissions
   { id: 'directory.view', name: 'View Directory', category: 'users', description: 'Can view user directory and team members', action: 'view' },
   { id: 'directory.export', name: 'Export Directory', category: 'users', description: 'Can export user directory data', action: 'export' },
@@ -214,6 +229,10 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'profile.view', 'profile.edit', 'profile.qr', 'profile.photo', 'profile.share',
     // System (limited)
     'system.export', 'system.backup', 'system.search', 'system.audit',
+    'audit_log.view', 'audit_log.export',
+    'user_guide.view',
+    'activity_log.view', 'activity_log.export',
+    'active_users.view',
     'data.import', 'data.export', 'data.templates', 'data.validation',
     'analytics.view', 'analytics.export', 'analytics.dashboard',
     'performance.view', 'performance.monitor',
@@ -244,7 +263,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     // Users (limited)
     'directory.view', 'directory.search', 'profile.view', 'profile.edit', 'profile.qr', 'profile.photo',
     // System (limited)
-    'system.search', 'data.export', 'data.templates', 'analytics.view', 'performance.view',
+    'system.search', 'user_guide.view', 'active_users.view',
+    'data.export', 'data.templates', 'analytics.view', 'performance.view',
     'notifications.view', 'alerts.view', 'integrations.view', 'api.access',
     'workflow.view', 'automation.view', 'security.view', 'compliance.view',
     // Database (view only)
@@ -261,7 +281,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'reports.lookahead', 'reports.critical', 'reports.performance',
     'settings.view', 'project_types.view', 'activities.view', 'departments.view', 'job_titles.view',
     'directory.view', 'directory.search', 'profile.view',
-    'system.search', 'analytics.view', 'performance.view',
+    'system.search', 'user_guide.view', 'active_users.view',
+    'analytics.view', 'performance.view',
     'notifications.view', 'alerts.view', 'integrations.view',
     'workflow.view', 'automation.view', 'security.view', 'compliance.view',
     'database.view'
@@ -285,7 +306,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     // Users (limited)
     'directory.view', 'directory.search', 'profile.view', 'profile.edit',
     // System (limited)
-    'system.search', 'data.export', 'data.templates', 'analytics.view', 'performance.view',
+    'system.search', 'user_guide.view', 'active_users.view',
+    'data.export', 'data.templates', 'analytics.view', 'performance.view',
     'notifications.view', 'alerts.view', 'workflow.view', 'automation.view',
     'database.view', 'database.templates'
   ]

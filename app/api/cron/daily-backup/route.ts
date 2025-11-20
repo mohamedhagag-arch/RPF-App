@@ -175,6 +175,25 @@ export async function GET(req: NextRequest) {
 
     console.log('✅ Daily backup completed:', result.message || result)
 
+    // Also cleanup old activities (older than 7 days)
+    try {
+      console.log('🧹 Starting cleanup of old user activities...')
+      const backupManager = await import('@/lib/backupManager')
+      const supabase = backupManager.getSupabaseServiceClient()
+      
+      const { data: cleanupData, error: cleanupError } = await (supabase as any).rpc('cleanup_old_activities')
+      
+      if (cleanupError) {
+        console.error('❌ Error cleaning up old activities:', cleanupError)
+      } else {
+        const deletedCount = cleanupData?.[0]?.deleted_count || 0
+        console.log(`✅ Cleaned up ${deletedCount} old activity records`)
+      }
+    } catch (cleanupErr: any) {
+      console.error('❌ Error in cleanup process:', cleanupErr)
+      // Don't fail the backup if cleanup fails
+    }
+
     return NextResponse.json({
       success: true,
       message: 'Daily backup completed successfully',

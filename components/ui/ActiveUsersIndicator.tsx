@@ -1,9 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Users, Wifi, WifiOff, ChevronDown } from 'lucide-react'
+import { Users, Wifi, WifiOff, ChevronDown, Activity, FileText } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { formatDistanceToNow } from 'date-fns'
+import { getSupabaseClient } from '@/lib/simpleConnectionManager'
+import { useAuth } from '@/app/providers'
 
 interface OnlineUser {
   user_id: string
@@ -12,6 +14,13 @@ interface OnlineUser {
   role: string
   last_seen: string
   is_online: boolean
+  current_activity?: {
+    page_title: string
+    page_path: string
+    action: string
+    description: string
+    timestamp: string
+  }
 }
 
 export function ActiveUsersIndicator() {
@@ -21,6 +30,8 @@ export function ActiveUsersIndicator() {
   const [isHovered, setIsHovered] = useState(false)
   const [isOpen, setIsOpen] = useState(false)
   const router = useRouter()
+  const { appUser } = useAuth()
+  const isAdmin = appUser?.role === 'admin'
 
   useEffect(() => {
     const fetchOnlineUsers = async () => {
@@ -29,8 +40,55 @@ export function ActiveUsersIndicator() {
         const data = await response.json()
 
         if (data.success) {
-          setOnlineCount(data.count || 0)
-          setOnlineUsers(data.users || [])
+          const users = data.users || []
+          
+          // Fetch current activities for each user
+          const usersWithActivities = await Promise.all(
+            users.map(async (user: OnlineUser) => {
+              try {
+                const supabase = getSupabaseClient()
+                const sessionId = sessionStorage.getItem('session_id')
+                
+                // Get the most recent activity for this user (within last 2 minutes)
+                const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString()
+                const { data: activityData } = await (supabase as any)
+                  .from('user_activities')
+                  .select('*')
+                  .eq('user_email', user.email)
+                  .eq('is_active', true)
+                  .gte('created_at', twoMinutesAgo)
+                  .order('created_at', { ascending: false })
+                  .limit(1)
+                  .maybeSingle()
+                
+                if (activityData) {
+                  // Parse metadata for more details
+                  const metadata = activityData.metadata || {}
+                  const queryParams = metadata.query_params || ''
+                  
+                  return {
+                    ...user,
+                    current_activity: {
+                      page_title: activityData.page_title || activityData.page_path || 'Unknown',
+                      page_path: activityData.current_page || activityData.page_path || '',
+                      action: activityData.action_type || 'view',
+                      description: activityData.description || '',
+                      timestamp: activityData.created_at,
+                      query_params: queryParams,
+                      full_path: metadata.full_path || activityData.current_page || '',
+                    }
+                  }
+                }
+              } catch (error) {
+                console.error('Error fetching activity for user:', user.email, error)
+              }
+              
+              return user
+            })
+          )
+          
+          setOnlineCount(usersWithActivities.length)
+          setOnlineUsers(usersWithActivities)
         }
       } catch (error) {
         console.error('Error fetching online users:', error)
@@ -67,9 +125,9 @@ export function ActiveUsersIndicator() {
       fetchOnlineUsers()
     })
 
-    // Send heartbeat every 30 seconds and refresh count every 15 seconds (real-time)
+    // Send heartbeat every 30 seconds and refresh count every 10 seconds (more frequent for accuracy)
     const heartbeatInterval = setInterval(sendHeartbeat, 30000) // 30 seconds
-    const fetchInterval = setInterval(fetchOnlineUsers, 15000) // 15 seconds
+    const fetchInterval = setInterval(fetchOnlineUsers, 10000) // 10 seconds for more accurate tracking
 
     // Mark as offline when page unloads
     const handleBeforeUnload = () => {
@@ -202,12 +260,28 @@ export function ActiveUsersIndicator() {
                 <Wifi className="h-4 w-4 text-green-500" />
                 Online Users ({onlineCount})
               </h3>
-              <button
-                onClick={() => router.push('/settings?tab=active-users')}
-                className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
-              >
-                View All
-              </button>
+              <div className="flex items-center gap-2">
+                {isAdmin && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      router.push('/activity-log')
+                      setIsOpen(false)
+                    }}
+                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+                    title="View Activity Log"
+                  >
+                    <FileText className="h-3 w-3" />
+                    Activity Log
+                  </button>
+                )}
+                <button
+                  onClick={() => router.push('/settings?tab=active-users')}
+                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  View All
+                </button>
+              </div>
             </div>
           </div>
           
@@ -244,6 +318,12 @@ export function ActiveUsersIndicator() {
                   <p className="text-xs text-gray-400 dark:text-gray-500">
                     Active {formatLastSeen(user.last_seen)}
                   </p>
+                  {user.current_activity && (
+                    <div className="mt-1 flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400">
+                      <Activity className="h-3 w-3" />
+                      <span className="truncate font-medium">{user.current_activity.page_title}</span>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}

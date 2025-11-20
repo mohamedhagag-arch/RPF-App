@@ -12,6 +12,7 @@ import { Users } from 'lucide-react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { ConnectionMonitor } from '@/components/common/ConnectionMonitor'
 import { ProfileCompletionWrapper } from '@/components/auth/ProfileCompletionWrapper'
+import { useActivityTracker } from '@/hooks/useActivityTracker'
 import '@/lib/simpleConnectionTest'
 
 /**
@@ -39,11 +40,50 @@ export default function AuthenticatedLayout({
   const [mounted, setMounted] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const supabase = createClientComponentClient()
+  const activityTracker = useActivityTracker()
 
   // Mark component as mounted
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  // Track page views for active users with high precision
+  useEffect(() => {
+    if (!mounted || !user || !pathname) return
+
+    // Small delay to ensure page is fully loaded
+    const timeoutId = setTimeout(() => {
+      const pageTitle = document.title || pathname
+      const queryParams = window.location.search
+      const fullPath = pathname + queryParams
+      
+      // Get more context about the page
+      let description = `Viewing ${pageTitle}`
+      if (queryParams) {
+        const params = new URLSearchParams(queryParams)
+        const tab = params.get('tab')
+        if (tab) {
+          description += ` - ${tab} tab`
+        }
+      }
+      
+      activityTracker.log({
+        action: 'view',
+        entity: 'other',
+        pagePath: fullPath, // Include query params
+        pageTitle: pageTitle,
+        description: description,
+        isActive: true,
+        metadata: {
+          pathname: pathname,
+          query_params: queryParams,
+          referrer: document.referrer || '',
+        },
+      })
+    }, 100) // Small delay to capture full page state
+
+    return () => clearTimeout(timeoutId)
+  }, [pathname, mounted, user, activityTracker])
 
   // ✅ Send heartbeat to keep user online (from every page)
   useEffect(() => {

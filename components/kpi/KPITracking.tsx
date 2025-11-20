@@ -32,6 +32,7 @@ import { ExportButton } from '@/components/ui/ExportButton'
 import { ImportButton } from '@/components/ui/ImportButton'
 import { PrintButton } from '@/components/ui/PrintButton'
 import { PermissionButton } from '@/components/ui/PermissionButton'
+import { useEntityActivityTracker } from '@/hooks/useActivityTracker'
 
 interface KPITrackingProps {
   globalSearchTerm?: string
@@ -47,6 +48,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   const router = useRouter()
   const guard = usePermissionGuard()
   const { user: authUser, appUser } = useAuth()
+  const activityTracker = useEntityActivityTracker('kpi')
   const [kpis, setKpis] = useState<ProcessedKPI[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [activities, setActivities] = useState<BOQActivity[]>([])
@@ -1071,6 +1073,18 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         console.log(`📊 BOQ Actual updated to: ${syncResult.updatedBOQActual}`)
       }
       
+      // Track activity
+      const insertedData = data as any
+      if (insertedData?.id) {
+        activityTracker.create(insertedData.id, {
+          project_code: projectCode,
+          activity_name: activityName,
+          input_type: inputType,
+          quantity: quantity,
+          value: calculatedValue,
+        })
+      }
+      
       // Refresh data to show new record
       setShowForm(false)
       if (selectedProjects.length > 0) {
@@ -1183,6 +1197,14 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       console.log('Updated Data:', data)
       console.log('Updated Data ID:', data?.id)
       console.log('Updated Data Keys:', data ? Object.keys(data) : 'No data')
+      
+      // Track activity
+      activityTracker.update(id, {
+        old_values: existingKPI,
+        new_values: dbData,
+        project_code: dbData['Project Full Code'],
+        activity_name: dbData['Activity Name'],
+      })
       
       // Verify the update was successful
       if (!data) {
@@ -1324,6 +1346,13 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         .eq('id', id)
 
       if (error) throw error
+      
+      // Track activity
+      activityTracker.delete(id, {
+        project_code: kpiToDelete?.project_full_code,
+        activity_name: kpiToDelete?.activity_name,
+        input_type: kpiToDelete?.input_type,
+      })
       
       // Update local state immediately
       setKpis(kpis.filter(k => k.id !== id))

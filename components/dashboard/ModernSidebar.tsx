@@ -27,6 +27,7 @@ import {
   ChevronDown,
   ChevronUp,
   BookOpen,
+  Activity,
   type LucideIcon
 } from 'lucide-react'
 
@@ -89,6 +90,7 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
     if (tab === 'directory') return '/directory'
     if (tab === 'search') return '/dashboard?search=true'
     if (tab === 'planning') return '/boq' // Default to BOQ when clicking Planning
+    if (tab === 'activity-log') return '/activity-log'
     return `/${tab}`
   }
 

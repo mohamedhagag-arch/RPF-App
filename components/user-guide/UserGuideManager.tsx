@@ -82,8 +82,10 @@ export function UserGuideManager({ onClose, onSave, guideToEdit }: UserGuideMana
       const supabase = getSupabaseClient()
       const userId = appUser?.email || user?.email || appUser?.id || user?.id || 'admin'
 
+      // Prepare guide data, ensuring difficulty_level is null if empty
       const guideData = {
         ...formData,
+        difficulty_level: formData.difficulty_level || null, // Convert empty string to null
         updated_by: userId,
         updated_at: new Date().toISOString()
       }

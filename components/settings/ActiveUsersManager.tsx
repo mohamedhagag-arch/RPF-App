@@ -3,9 +3,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
-import { Users, Wifi, WifiOff, Clock, RefreshCw } from 'lucide-react'
+import { Users, Wifi, WifiOff, Clock, RefreshCw, History } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { formatDistanceToNow } from 'date-fns'
+import { useRouter } from 'next/navigation'
 
 interface ActiveUser {
   user_id: string
@@ -23,6 +24,11 @@ export function ActiveUsersManager() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [activeTab, setActiveTab] = useState<'online' | 'today'>('online')
+  const router = useRouter()
+
+  const handleViewHistory = (userEmail: string) => {
+    router.push(`/activity-log?user=${encodeURIComponent(userEmail)}`)
+  }
 
   // Fetch users
   const fetchUsers = useCallback(async (type: 'online' | 'today') => {
@@ -269,6 +275,16 @@ export function ActiveUsersManager() {
                         <Clock className="h-3 w-3" />
                         {formatLastSeen(user.last_seen)}
                       </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleViewHistory(user.email)}
+                        className="flex items-center gap-1"
+                        title="View User Activity History"
+                      >
+                        <History className="h-3 w-3" />
+                        History
+                      </Button>
                     </div>
                   </div>
                 ))
@@ -321,6 +337,16 @@ export function ActiveUsersManager() {
                         <Clock className="h-3 w-3" />
                         {formatLastSeen(user.last_seen)}
                       </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleViewHistory(user.email)}
+                        className="flex items-center gap-1"
+                        title="View User Activity History"
+                      >
+                        <History className="h-3 w-3" />
+                        History
+                      </Button>
                     </div>
                   </div>
                 ))

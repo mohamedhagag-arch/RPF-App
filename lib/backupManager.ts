@@ -13,7 +13,7 @@ import { createClient } from '@supabase/supabase-js'
  * Get Supabase client with service role key for server-side operations
  * This bypasses RLS policies to ensure all data is accessible
  */
-function getSupabaseServiceClient() {
+export function getSupabaseServiceClient() {
   // ✅ التحقق من أننا في runtime وليس build time
   if (typeof window === 'undefined' && process.env.NEXT_PHASE === 'phase-production-build') {
     throw new Error('Cannot create Supabase client during build time. This function should only be called at runtime.')
