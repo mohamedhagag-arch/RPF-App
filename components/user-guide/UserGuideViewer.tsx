@@ -40,6 +40,68 @@ export function UserGuideViewer({ guide, onClose }: UserGuideViewerProps) {
   const articleRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
 
+  // Add highlight styles
+  useEffect(() => {
+    const style = document.createElement('style')
+    style.textContent = `
+      .highlight-heading {
+        background: linear-gradient(90deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.25) 100%) !important;
+        border-left: 5px solid rgb(59, 130, 246) !important;
+        padding-left: 1.25rem !important;
+        padding-right: 1rem !important;
+        padding-top: 0.75rem !important;
+        padding-bottom: 0.75rem !important;
+        border-radius: 0.75rem !important;
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2), 0 0 0 1px rgba(59, 130, 246, 0.1) !important;
+        animation: highlightPulse 3s ease-in-out !important;
+        transition: all 0.3s ease !important;
+        transform: scale(1.02) !important;
+        margin: 0.5rem 0 !important;
+      }
+      @keyframes highlightPulse {
+        0% {
+          background: linear-gradient(90deg, rgba(59, 130, 246, 0.3) 0%, rgba(59, 130, 246, 0.4) 100%);
+          box-shadow: 0 6px 20px rgba(59, 130, 246, 0.35), 0 0 0 2px rgba(59, 130, 246, 0.2);
+          transform: scale(1.03);
+        }
+        50% {
+          background: linear-gradient(90deg, rgba(59, 130, 246, 0.2) 0%, rgba(59, 130, 246, 0.3) 100%);
+          box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25), 0 0 0 1px rgba(59, 130, 246, 0.15);
+        }
+        100% {
+          background: linear-gradient(90deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.25) 100%);
+          box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2), 0 0 0 1px rgba(59, 130, 246, 0.1);
+          transform: scale(1.02);
+        }
+      }
+      .dark .highlight-heading {
+        background: linear-gradient(90deg, rgba(96, 165, 250, 0.2) 0%, rgba(96, 165, 250, 0.3) 100%) !important;
+        border-left-color: rgb(96, 165, 250) !important;
+        box-shadow: 0 4px 12px rgba(96, 165, 250, 0.25), 0 0 0 1px rgba(96, 165, 250, 0.15) !important;
+      }
+      .dark @keyframes highlightPulse {
+        0% {
+          background: linear-gradient(90deg, rgba(96, 165, 250, 0.35) 0%, rgba(96, 165, 250, 0.45) 100%);
+          box-shadow: 0 6px 20px rgba(96, 165, 250, 0.4), 0 0 0 2px rgba(96, 165, 250, 0.25);
+          transform: scale(1.03);
+        }
+        50% {
+          background: linear-gradient(90deg, rgba(96, 165, 250, 0.25) 0%, rgba(96, 165, 250, 0.35) 100%);
+          box-shadow: 0 4px 12px rgba(96, 165, 250, 0.3), 0 0 0 1px rgba(96, 165, 250, 0.2);
+        }
+        100% {
+          background: linear-gradient(90deg, rgba(96, 165, 250, 0.2) 0%, rgba(96, 165, 250, 0.3) 100%);
+          box-shadow: 0 4px 12px rgba(96, 165, 250, 0.25), 0 0 0 1px rgba(96, 165, 250, 0.15);
+          transform: scale(1.02);
+        }
+      }
+    `
+    document.head.appendChild(style)
+    return () => {
+      document.head.removeChild(style)
+    }
+  }, [])
+
   // Load related guides
   useEffect(() => {
     loadRelatedGuides()
@@ -522,8 +584,41 @@ export function UserGuideViewer({ guide, onClose }: UserGuideViewerProps) {
   const scrollToHeading = (id: string) => {
     const element = document.getElementById(id)
     if (element) {
-      element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      // Remove previous highlight from all headings
+      document.querySelectorAll('.highlight-heading').forEach(el => {
+        el.classList.remove('highlight-heading')
+      })
+
+      // Set active heading immediately
       setActiveHeading(id)
+
+      // Scroll to element with offset for header - immediate scroll first
+      const offset = 120
+      const elementPosition = element.getBoundingClientRect().top
+      const offsetPosition = elementPosition + window.pageYOffset - offset
+
+      // Immediate scroll to get close
+      window.scrollTo({
+        top: offsetPosition,
+        behavior: 'auto'
+      })
+
+      // Add highlight immediately
+      element.classList.add('highlight-heading')
+
+      // Fine-tune scroll position smoothly
+      setTimeout(() => {
+        const finalPosition = element.getBoundingClientRect().top + window.pageYOffset - offset
+        window.scrollTo({
+          top: finalPosition,
+          behavior: 'smooth'
+        })
+      }, 10)
+      
+      // Remove highlight after animation completes (longer duration for better visibility)
+      setTimeout(() => {
+        element.classList.remove('highlight-heading')
+      }, 3000)
     }
   }
 
@@ -862,7 +957,7 @@ export function UserGuideViewer({ guide, onClose }: UserGuideViewerProps) {
                 <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-8 shadow-lg">
                   <div 
                     ref={articleRef}
-                    className={`prose ${fontSizeClasses[fontSize]} dark:prose-invert max-w-none prose-headings:font-bold prose-p:text-gray-700 dark:prose-p:text-gray-300 prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-strong:text-gray-900 dark:prose-strong:text-white prose-code:text-blue-600 dark:prose-code:text-blue-400 prose-headings:scroll-mt-20`}
+                    className={`prose ${fontSizeClasses[fontSize]} dark:prose-invert max-w-none prose-headings:font-bold prose-p:text-gray-700 dark:prose-p:text-gray-300 prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-strong:text-gray-900 dark:prose-strong:text-white prose-code:text-blue-600 dark:prose-code:text-blue-400 prose-headings:scroll-mt-20 prose-headings:transition-all prose-headings:duration-300`}
                     dangerouslySetInnerHTML={{ __html: guide.article_content }}
                   />
                 </div>

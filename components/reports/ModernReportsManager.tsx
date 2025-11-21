@@ -1,21 +1,19 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { getSupabaseClient, executeQuery } from '@/lib/simpleConnectionManager'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
+import { downloadExcel } from '@/lib/exportImportUtils'
 import { Project, BOQActivity, TABLES } from '@/lib/supabase'
 import { mapProjectFromDB, mapBOQFromDB, mapKPIFromDB } from '@/lib/dataMappers'
 import { processKPIRecord, ProcessedKPI } from '@/lib/kpiProcessor'
+import { getAllProjectsAnalytics } from '@/lib/projectAnalytics'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Alert } from '@/components/ui/Alert'
-import { SmartFilter } from '@/components/ui/SmartFilter'
 import { PrintableReport } from './PrintableReport'
-import { PrintButton } from '@/components/ui/PrintButton'
-import { PrintSettings } from '@/components/ui/PrintSettingsModal'
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
-import { getAllProjectsAnalytics } from '@/lib/projectAnalytics'
 import {
   FileText,
   Download,
@@ -37,19 +35,49 @@ import {
   CalendarDays,
   CalendarRange,
   CalendarClock,
-  FastForward
+  FastForward,
+  TrendingDown,
+  Users,
+  Building2,
+  Zap,
+  Award,
+  ArrowUpRight,
+  ArrowDownRight,
+  Minus,
+  Search,
+  ChevronDown
 } from 'lucide-react'
 import {
-  generateDailyReport,
-  generateWeeklyReport,
-  generateMonthlyReport,
-  generateLookaheadReport,
-  generateProjectSummary,
-  WorkReport,
-  LookaheadReport
-} from '@/lib/reportingSystem'
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer
+} from 'recharts'
 
-type ReportType = 'summary' | 'daily' | 'weekly' | 'monthly' | 'lookahead' | 'projects' | 'activities' | 'kpis' | 'financial' | 'performance'
+type ReportType = 'overview' | 'projects' | 'activities' | 'kpis' | 'financial' | 'performance' | 'lookahead' | 'monthly-revenue'
+
+interface ReportStats {
+  totalProjects: number
+  activeProjects: number
+  completedProjects: number
+  totalActivities: number
+  completedActivities: number
+  delayedActivities: number
+  totalKPIs: number
+  plannedKPIs: number
+  actualKPIs: number
+  totalValue: number
+  earnedValue: number
+  plannedValue: number
+  variance: number
+  overallProgress: number
+}
 
 export function ModernReportsManager() {
   const [projects, setProjects] = useState<Project[]>([])
@@ -57,643 +85,917 @@ export function ModernReportsManager() {
   const [kpis, setKpis] = useState<ProcessedKPI[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [activeReport, setActiveReport] = useState<ReportType>('summary')
+  const [isFromCache, setIsFromCache] = useState(false)
+  const [activeReport, setActiveReport] = useState<ReportType>('overview')
+  const [cachedAnalytics, setCachedAnalytics] = useState<any[] | null>(null) // ✅ Store cached analytics
+  const [selectedDivision, setSelectedDivision] = useState<string>('')
+  const [selectedProjects, setSelectedProjects] = useState<string[]>([]) // ✅ Changed to array for multi-select
+  const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ start: '', end: '' })
+  
+  // ✅ Multi-select dropdown states
+  const [showProjectDropdown, setShowProjectDropdown] = useState(false)
+  const [projectSearch, setProjectSearch] = useState('')
+  const projectDropdownRef = useRef<HTMLDivElement>(null)
+  
+  // ✅ PERFORMANCE: Debounced filter values to reduce recalculation
+  const [debouncedDivision, setDebouncedDivision] = useState<string>('')
+  const [debouncedProjects, setDebouncedProjects] = useState<string[]>([]) // ✅ Changed to array
+  const [debouncedDateRange, setDebouncedDateRange] = useState<{ start: string; end: string }>({ start: '', end: '' })
   
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('modern-reports')
-  
-  // Smart Filter State
-  const [selectedProjects, setSelectedProjects] = useState<string[]>([])
-  const [selectedDivisions, setSelectedDivisions] = useState<string[]>([])
-  const [selectedTypes, setSelectedTypes] = useState<string[]>([])
-  const [selectedZones, setSelectedZones] = useState<string[]>([])
-  const [selectedUnits, setSelectedUnits] = useState<string[]>([])
-  const [selectedActivities, setSelectedActivities] = useState<string[]>([])
-  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([])
-  const [smartFilterDateRange, setSmartFilterDateRange] = useState<{ from?: string; to?: string }>({})
-  const [valueRange, setValueRange] = useState<{ min?: number; max?: number }>({})
-  const [quantityRange, setQuantityRange] = useState<{ min?: number; max?: number }>({})
-  
-  const [dateRange, setDateRange] = useState({
-    start: '',
-    end: ''
-  })
-  
   const supabase = getSupabaseClient()
   const isMountedRef = useRef(true)
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // ✅ CACHE: Storage keys and cache expiration (30 minutes)
+  const CACHE_KEYS = {
+    projects: 'reports_cache_projects',
+    activities: 'reports_cache_activities',
+    kpis: 'reports_cache_kpis',
+    analytics: 'reports_cache_analytics', // ✅ Cache analytics too
+    timestamp: 'reports_cache_timestamp'
+  }
+  const CACHE_EXPIRATION_MS = 30 * 60 * 1000 // 30 minutes
 
+  // Handle Print
+  const handlePrint = useCallback(() => {
+    window.print()
+  }, [])
+
+  // ✅ Close dropdown when clicking outside
   useEffect(() => {
-    isMountedRef.current = true
-    console.log('🟡 Reports: Component mounted')
+    const handleClickOutside = (event: MouseEvent) => {
+      if (projectDropdownRef.current && !projectDropdownRef.current.contains(event.target as Node)) {
+        setShowProjectDropdown(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // ✅ PERFORMANCE: Debounce filter changes to reduce recalculation
+  useEffect(() => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current)
+    }
     
-    fetchAllData()
+    debounceTimerRef.current = setTimeout(() => {
+      setDebouncedDivision(selectedDivision)
+      setDebouncedProjects(selectedProjects)
+      setDebouncedDateRange(dateRange)
+    }, 300) // 300ms debounce
     
     return () => {
-      console.log('🔴 Reports: Component unmounting')
-      isMountedRef.current = false
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current)
+      }
+    }
+  }, [selectedDivision, selectedProjects, dateRange])
+
+  // ✅ CACHE: Clear cache (defined first for use in other cache functions)
+  const clearCache = useCallback(() => {
+    try {
+      localStorage.removeItem(CACHE_KEYS.projects)
+      localStorage.removeItem(CACHE_KEYS.activities)
+      localStorage.removeItem(CACHE_KEYS.kpis)
+      localStorage.removeItem(CACHE_KEYS.analytics)
+      localStorage.removeItem(CACHE_KEYS.timestamp)
+      console.log('🗑️ Cache cleared')
+    } catch (error) {
+      console.error('❌ Error clearing cache:', error)
     }
   }, [])
 
-  const fetchAllData = async () => {
+  // ✅ CACHE: Load data from localStorage (with fallback for partial cache)
+  const loadFromCache = useCallback(() => {
     try {
-      startSmartLoading(setLoading)
-      setError('')
-      console.log('📊 Reports: Fetching all data...')
-
-      // ✅ SMART LOADING: Load only what's needed based on filters
-      const shouldLoadAll = selectedProjects.length === 0
+      const timestamp = localStorage.getItem(CACHE_KEYS.timestamp)
+      if (!timestamp) return null
       
-      if (shouldLoadAll) {
-        console.log('📊 Loading summary data (limited records for performance)...')
-        
-        // Load limited data for summary
-      const [projectsResult, activitiesResult, kpisResult] = await Promise.all([
-          executeQuery(async () =>
-        supabase
-          .from(TABLES.PROJECTS)
+      const cacheAge = Date.now() - parseInt(timestamp, 10)
+      if (cacheAge > CACHE_EXPIRATION_MS) {
+        console.log('⏰ Cache expired, will fetch fresh data')
+        return null
+      }
+      
+      const cachedProjects = localStorage.getItem(CACHE_KEYS.projects)
+      const cachedActivities = localStorage.getItem(CACHE_KEYS.activities)
+      const cachedKPIs = localStorage.getItem(CACHE_KEYS.kpis)
+      const cachedAnalytics = localStorage.getItem(CACHE_KEYS.analytics)
+      
+      // At minimum, we need projects and KPIs
+      if (!cachedProjects || !cachedKPIs) {
+        return null
+      }
+      
+      const projects = JSON.parse(cachedProjects)
+      const kpis = JSON.parse(cachedKPIs)
+      const activities = cachedActivities ? JSON.parse(cachedActivities) : []
+      const analytics = cachedAnalytics ? JSON.parse(cachedAnalytics) : null
+      
+      console.log(`✅ Loaded from cache: ${projects.length} projects, ${activities.length} activities, ${kpis.length} KPIs${analytics ? `, ${analytics.length} analytics` : ''} (age: ${Math.round(cacheAge / 1000 / 60)} minutes)`)
+      
+      return { projects, activities, kpis, analytics }
+    } catch (error) {
+      console.error('❌ Error loading from cache:', error)
+      // Clear corrupted cache
+      try {
+        clearCache()
+      } catch (e) {
+        // Ignore errors when clearing
+      }
+      return null
+    }
+  }, [clearCache])
+
+  // ✅ CACHE: Save data to localStorage with smart fallback
+  const saveToCache = useCallback((projects: Project[], activities: BOQActivity[], kpis: ProcessedKPI[], analytics?: any[]) => {
+    try {
+      // First, try to clear old cache to free space
+      try {
+        localStorage.removeItem(CACHE_KEYS.projects)
+        localStorage.removeItem(CACHE_KEYS.activities)
+        localStorage.removeItem(CACHE_KEYS.kpis)
+        localStorage.removeItem(CACHE_KEYS.analytics)
+      } catch (e) {
+        // Ignore errors when clearing
+      }
+
+      // Try to save essential data first
+      try {
+        localStorage.setItem(CACHE_KEYS.projects, JSON.stringify(projects))
+        localStorage.setItem(CACHE_KEYS.kpis, JSON.stringify(kpis))
+        localStorage.setItem(CACHE_KEYS.timestamp, Date.now().toString())
+        console.log('💾 Essential data saved to cache')
+      } catch (error: any) {
+        if (error.name === 'QuotaExceededError') {
+          console.warn('⚠️ localStorage full, skipping cache save')
+          return
+        }
+        throw error
+      }
+
+      // Try to save activities (usually the largest)
+      try {
+        localStorage.setItem(CACHE_KEYS.activities, JSON.stringify(activities))
+        console.log('💾 Activities saved to cache')
+      } catch (error: any) {
+        if (error.name === 'QuotaExceededError') {
+          console.warn('⚠️ Activities too large for cache, skipping activities')
+          // Keep essential data (projects, KPIs) but skip activities
+        } else {
+          throw error
+        }
+      }
+
+      // Try to save analytics (optional, can be skipped if needed)
+      if (analytics) {
+        try {
+          // ✅ OPTIMIZATION: Only save essential analytics fields to reduce size
+          const compactAnalytics = analytics.map((a: any) => ({
+            project: { id: a.project.id, project_code: a.project.project_code, project_full_code: a.project.project_full_code },
+            totalValue: a.totalValue,
+            totalEarnedValue: a.totalEarnedValue,
+            totalPlannedValue: a.totalPlannedValue,
+            totalRemainingValue: a.totalRemainingValue,
+            variance: a.variance,
+            variancePercentage: a.variancePercentage,
+            projectStatus: a.projectStatus
+          }))
+          localStorage.setItem(CACHE_KEYS.analytics, JSON.stringify(compactAnalytics))
+          console.log(`💾 Analytics saved to cache (compact format: ${analytics.length} items)`)
+        } catch (error: any) {
+          if (error.name === 'QuotaExceededError') {
+            console.warn('⚠️ Analytics too large for cache, skipping analytics')
+            // Analytics are optional, continue without them
+          } else {
+            throw error
+          }
+        }
+      }
+    } catch (error: any) {
+      console.error('❌ Error saving to cache:', error)
+      // Final fallback: clear everything and try to save at least timestamp
+      try {
+        clearCache()
+        localStorage.setItem(CACHE_KEYS.timestamp, Date.now().toString())
+        console.log('💾 Cache cleared and timestamp saved')
+      } catch (finalError) {
+        console.error('❌ Failed to save even timestamp:', finalError)
+      }
+    }
+  }, [clearCache])
+
+  // ✅ CACHE: Get cache size estimate (for debugging)
+  const getCacheSize = useCallback(() => {
+    try {
+      let totalSize = 0
+      Object.values(CACHE_KEYS).forEach(key => {
+        const item = localStorage.getItem(key)
+        if (item) {
+          totalSize += new Blob([item]).size
+        }
+      })
+      return totalSize
+    } catch (error) {
+      return 0
+    }
+  }, [])
+
+  // Helper function to fetch all records with pagination (Supabase default limit is 1000)
+  const fetchAllRecords = useCallback(async (table: string) => {
+    let allData: any[] = []
+    let offset = 0
+    const chunkSize = 1000
+    let hasMore = true
+    
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from(table)
           .select('*')
               .order('created_at', { ascending: false })
-              // Removed limit to load all projects
-          ),
-          executeQuery(async () =>
-        supabase
-          .from(TABLES.BOQ_ACTIVITIES)
-          .select('*')
-              .order('created_at', { ascending: false })
-              .limit(200) // Limit to 200 activities
-          ),
-          executeQuery(async () =>
-        supabase
-          .from(TABLES.KPI)
-          .select('*')
-          .order('created_at', { ascending: false })
-              .limit(500) // Limit to 500 KPIs
-          )
-        ])
-
-        if (projectsResult.error) throw projectsResult.error
-        if (activitiesResult.error) throw activitiesResult.error
-        if (kpisResult.error) throw kpisResult.error
-
-        const mappedProjects = (projectsResult.data || []).map(mapProjectFromDB)
-        const mappedActivities = (activitiesResult.data || []).map(mapBOQFromDB)
-        const mappedKPIs = (kpisResult.data || []).map(mapKPIFromDB)
-        const processedKPIs = mappedKPIs.map(processKPIRecord)
-
-        setProjects(mappedProjects)
-        setActivities(mappedActivities)
-        setKpis(processedKPIs)
-
-        console.log('✅ Reports: Summary data loaded (limited)', {
-          projects: mappedProjects.length,
-          activities: mappedActivities.length,
-          kpis: processedKPIs.length
-        })
+        .range(offset, offset + chunkSize - 1)
+      
+      if (error) {
+        console.error(`❌ Error fetching ${table}:`, error)
+        throw error
+      }
+      
+      if (!data || data.length === 0) {
+        hasMore = false
+        break
+      }
+      
+      allData = [...allData, ...data]
+      console.log(`📥 Fetched ${table} chunk: ${data.length} records (total so far: ${allData.length})`)
+      
+      if (data.length < chunkSize) {
+        hasMore = false
       } else {
-        console.log('📊 Loading filtered data for selected projects:', selectedProjects)
-        
-        // Load full data for selected projects
-        const [projectsResult, activitiesResult, kpisResult] = await Promise.all([
-          executeQuery(async () =>
-            supabase
-              .from(TABLES.PROJECTS)
-              .select('*')
-              .in('Project Code', selectedProjects)
-          ),
-          executeQuery(async () =>
-            supabase
-              .from(TABLES.BOQ_ACTIVITIES)
-              .select('*')
-              .in('Project Code', selectedProjects)
-          ),
-          executeQuery(async () =>
-            supabase
-              .from(TABLES.KPI)
-              .select('*')
-              .in('Project Full Code', selectedProjects)
-          )
-        ])
+        offset += chunkSize
+      }
+    }
+    
+    console.log(`✅ Total ${table} records fetched: ${allData.length}`)
+    return allData
+  }, [supabase])
 
-        if (projectsResult.error) throw projectsResult.error
-        if (activitiesResult.error) throw activitiesResult.error
-        if (kpisResult.error) throw kpisResult.error
+  // ✅ Store loading functions in ref to prevent infinite loops
+  const loadingFunctionsRef = useRef({ startSmartLoading, stopSmartLoading })
+  useEffect(() => {
+    loadingFunctionsRef.current = { startSmartLoading, stopSmartLoading }
+  }, [startSmartLoading, stopSmartLoading])
 
-      const mappedProjects = (projectsResult.data || []).map(mapProjectFromDB)
-      const mappedActivities = (activitiesResult.data || []).map(mapBOQFromDB)
-      const mappedKPIs = (kpisResult.data || []).map(mapKPIFromDB)
+  const fetchAllData = useCallback(async (forceRefresh: boolean = false) => {
+    try {
+      // ✅ CACHE: Try to load from cache first (unless force refresh)
+      if (!forceRefresh) {
+        const cachedData = loadFromCache()
+        if (cachedData) {
+          if (isMountedRef.current) {
+            setProjects(cachedData.projects)
+            setActivities(cachedData.activities)
+            setKpis(cachedData.kpis)
+            if (cachedData.analytics) {
+              setCachedAnalytics(cachedData.analytics)
+            }
+            setLoading(false)
+            setIsFromCache(true)
+          }
+          return
+        }
+      }
+      
+      // If loading from server, reset cache flag
+      setIsFromCache(false)
+      setCachedAnalytics(null)
+
+      loadingFunctionsRef.current.startSmartLoading(setLoading)
+      setError('')
+
+      // Fetch all data with pagination to get ALL records (not just first 1000)
+      const [projectsData, activitiesData, kpisData] = await Promise.all([
+        fetchAllRecords(TABLES.PROJECTS),
+        fetchAllRecords(TABLES.BOQ_ACTIVITIES),
+        fetchAllRecords(TABLES.KPI)
+      ])
+
+      const mappedProjects = (projectsData || []).map(mapProjectFromDB)
+      const mappedActivities = (activitiesData || []).map(mapBOQFromDB)
+      const mappedKPIs = (kpisData || []).map(mapKPIFromDB)
       const processedKPIs = mappedKPIs.map(processKPIRecord)
 
+      // ✅ PERFORMANCE: Calculate analytics once and cache it
+      const calculatedAnalytics = getAllProjectsAnalytics(mappedProjects, mappedActivities, processedKPIs)
+
+      if (isMountedRef.current) {
       setProjects(mappedProjects)
       setActivities(mappedActivities)
       setKpis(processedKPIs)
-
-        console.log('✅ Reports: Filtered data loaded', {
-        projects: mappedProjects.length,
-        activities: mappedActivities.length,
-        kpis: processedKPIs.length
-      })
+        setCachedAnalytics(calculatedAnalytics)
+        
+        // ✅ CACHE: Save to cache after successful load (including analytics)
+        saveToCache(mappedProjects, mappedActivities, processedKPIs, calculatedAnalytics)
       }
+      
+      console.log(`✅ Reports data loaded: ${mappedProjects.length} projects, ${mappedActivities.length} activities, ${processedKPIs.length} KPIs`)
     } catch (error: any) {
-      console.error('❌ Reports: Error loading data:', error)
-      setError('Failed to load report data: ' + error.message)
+      console.error('Error loading data:', error)
+      if (isMountedRef.current) {
+        setError('Failed to load report data: ' + (error.message || 'Unknown error'))
+      }
     } finally {
-      stopSmartLoading(setLoading)
+      if (isMountedRef.current) {
+        loadingFunctionsRef.current.stopSmartLoading(setLoading)
+      }
     }
-  }
+  }, [fetchAllRecords, loadFromCache, saveToCache])
 
-  // Apply filters
-  const getFilteredData = () => {
+  // ✅ Load data on mount only (prevent infinite loop)
+  const hasLoadedRef = useRef(false)
+  useEffect(() => {
+    isMountedRef.current = true
+    
+    // Only load once
+    if (!hasLoadedRef.current) {
+      hasLoadedRef.current = true
+      fetchAllData()
+    }
+    
+    return () => {
+      isMountedRef.current = false
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current)
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Empty deps - only run once on mount
+
+  // Filter data based on division, project, and date range
+  // ✅ PERFORMANCE: Optimized filtering using Sets for O(1) lookups and debounced values
+  const filteredData = useMemo(() => {
     let filteredProjects = projects
     let filteredActivities = activities
     let filteredKPIs = kpis
 
-    // Filter by selected projects
-    if (selectedProjects.length > 0) {
-      filteredProjects = projects.filter(p => selectedProjects.includes(p.project_code))
-      filteredActivities = activities.filter(a => selectedProjects.some(pc => 
-        a.project_code === pc || a.project_full_code?.startsWith(pc)
-      ))
-      filteredKPIs = kpis.filter(k => selectedProjects.some(pc => 
-        (k as any).project_code === pc || k.project_full_code?.startsWith(pc)
-      ))
+    // Filter by division (using debounced value)
+    if (debouncedDivision) {
+      filteredProjects = filteredProjects.filter(p => p.responsible_division === debouncedDivision)
     }
 
-    // Filter by activities
-    if (selectedActivities.length > 0) {
-      filteredActivities = filteredActivities.filter(a =>
-        selectedActivities.includes(a.activity_name)
-      )
-      filteredKPIs = filteredKPIs.filter(k =>
-        selectedActivities.includes((k as any).activity_name || k.activity_name)
-      )
-    }
-
-    // Filter by divisions
-    if (selectedDivisions.length > 0) {
+    // Filter by projects (multi-select, using debounced values)
+    // ✅ FIX: Use project_full_code only
+    if (debouncedProjects.length > 0) {
+      const debouncedProjectsSet = new Set(debouncedProjects)
       filteredProjects = filteredProjects.filter(p => 
-        selectedDivisions.includes(p.responsible_division)
-      )
-      filteredActivities = filteredActivities.filter(a =>
-        selectedDivisions.some(div => 
-          (a.activity_division || '').toLowerCase().includes(div.toLowerCase())
-        )
-      )
-      filteredKPIs = filteredKPIs.filter(k =>
-        selectedDivisions.some(div => 
-          ((k as any).activity_division || '').toLowerCase().includes(div.toLowerCase())
-        )
+        (p.project_full_code && debouncedProjectsSet.has(p.project_full_code)) || 
+        debouncedProjectsSet.has(p.id)
       )
     }
 
-    // Filter by zones
-    if (selectedZones.length > 0) {
+    // Filter activities and KPIs based on filtered projects
+    // ✅ PERFORMANCE: Use Sets for O(1) lookup instead of O(n) includes
+    // ✅ FIX: Use project_full_code only for matching
+    if (debouncedDivision || debouncedProjects.length > 0) {
+      const projectFullCodesSet = new Set(filteredProjects.map(p => p.project_full_code).filter(Boolean))
+      const projectIdsSet = new Set(filteredProjects.map(p => p.id))
+      
       filteredActivities = filteredActivities.filter(a => {
-        const activityZone = (a.zone_ref || a.zone_number || '').toLowerCase().trim()
-        return selectedZones.some(zone =>
-          activityZone === zone.toLowerCase().trim() ||
-          activityZone.includes(zone.toLowerCase().trim())
-        )
+        const activityFullCode = a.project_full_code || ''
+        return projectFullCodesSet.has(activityFullCode) ||
+               projectIdsSet.has(a.project_id)
+      })
+      
+      filteredKPIs = filteredKPIs.filter(k => {
+        const kpiProjectFullCode = (k as any).project_full_code || (k as any)['Project Full Code'] || ''
+        return projectFullCodesSet.has(kpiProjectFullCode) ||
+               ((k as any).project_id && projectIdsSet.has((k as any).project_id))
+      })
+    }
+
+    // Filter by date range (using debounced values)
+    if (debouncedDateRange.start) {
+      const startDate = new Date(debouncedDateRange.start).getTime()
+      filteredActivities = filteredActivities.filter(a => {
+        return new Date(a.created_at).getTime() >= startDate
       })
       filteredKPIs = filteredKPIs.filter(k => {
-        const kpiZone = ((k as any).zone || (k as any).section || '').toLowerCase().trim()
-        return selectedZones.some(zone =>
-          kpiZone === zone.toLowerCase().trim() ||
-          kpiZone.includes(zone.toLowerCase().trim())
-        )
+        return new Date(k.created_at).getTime() >= startDate
       })
     }
 
-    // Filter by units
-    if (selectedUnits.length > 0) {
-      filteredActivities = filteredActivities.filter(a =>
-        selectedUnits.includes(a.unit || '')
-      )
-      filteredKPIs = filteredKPIs.filter(k =>
-        selectedUnits.includes((k as any).unit || '')
-      )
-    }
-
-    // Filter by types
-    if (selectedTypes.length > 0) {
-      filteredKPIs = filteredKPIs.filter(k =>
-        selectedTypes.includes((k as any).input_type || k.input_type)
-      )
-    }
-
-    // Filter by date range (Smart Filter)
-    if (smartFilterDateRange.from || smartFilterDateRange.to) {
+    if (debouncedDateRange.end) {
+      const endDate = new Date(debouncedDateRange.end).getTime()
+      filteredActivities = filteredActivities.filter(a => {
+        return new Date(a.created_at).getTime() <= endDate
+      })
       filteredKPIs = filteredKPIs.filter(k => {
-        const kpiDate = new Date((k as any).target_date || (k as any).activity_date || k.created_at)
-        if (smartFilterDateRange.from) {
-          const fromDate = new Date(smartFilterDateRange.from)
-          fromDate.setHours(0, 0, 0, 0)
-          if (kpiDate < fromDate) return false
-        }
-        if (smartFilterDateRange.to) {
-          const toDate = new Date(smartFilterDateRange.to)
-          toDate.setHours(23, 59, 59, 999)
-          if (kpiDate > toDate) return false
-        }
-        return true
+        return new Date(k.created_at).getTime() <= endDate
       })
-    }
-
-    // Filter by value range
-    if (valueRange.min !== undefined || valueRange.max !== undefined) {
-      filteredKPIs = filteredKPIs.filter(k => {
-        const kpiValue = (k as any).value || 0
-        if (valueRange.min !== undefined && kpiValue < valueRange.min) return false
-        if (valueRange.max !== undefined && kpiValue > valueRange.max) return false
-        return true
-      })
-    }
-
-    // Filter by quantity range
-    if (quantityRange.min !== undefined || quantityRange.max !== undefined) {
-      filteredKPIs = filteredKPIs.filter(k => {
-        const kpiQuantity = (k as any).quantity || 0
-        if (quantityRange.min !== undefined && kpiQuantity < quantityRange.min) return false
-        if (quantityRange.max !== undefined && kpiQuantity > quantityRange.max) return false
-        return true
-      })
-    }
-
-    // Filter by date range
-    if (dateRange.start) {
-      const startDate = new Date(dateRange.start)
-      filteredProjects = filteredProjects.filter(p => new Date(p.created_at) >= startDate)
-      filteredActivities = filteredActivities.filter(a => new Date(a.created_at) >= startDate)
-      filteredKPIs = filteredKPIs.filter(k => new Date(k.created_at) >= startDate)
-    }
-
-    if (dateRange.end) {
-      const endDate = new Date(dateRange.end)
-      filteredProjects = filteredProjects.filter(p => new Date(p.created_at) <= endDate)
-      filteredActivities = filteredActivities.filter(a => new Date(a.created_at) <= endDate)
-      filteredKPIs = filteredKPIs.filter(k => new Date(k.created_at) <= endDate)
     }
 
     return { filteredProjects, filteredActivities, filteredKPIs }
-  }
+  }, [projects, activities, kpis, debouncedDivision, debouncedProjects, debouncedDateRange.start, debouncedDateRange.end])
 
-  const { filteredProjects, filteredActivities, filteredKPIs } = getFilteredData()
+  // ✅ PERFORMANCE: Use cached analytics and filter instead of recalculating
+  const allAnalytics = useMemo(() => {
+    const { filteredProjects, filteredActivities, filteredKPIs } = filteredData
+    
+    // If no filters applied, use cached analytics directly (much faster)
+    if (!debouncedDivision && debouncedProjects.length === 0 && !debouncedDateRange.start && !debouncedDateRange.end) {
+      if (cachedAnalytics && cachedAnalytics.length > 0) {
+        // Filter cached analytics by projects
+        const filteredProjectIds = new Set(filteredProjects.map(p => p.id))
+        return cachedAnalytics.filter((a: any) => filteredProjectIds.has(a.project.id))
+      }
+    }
+    
+    // If filters applied or no cache, calculate from filtered data
+    if (filteredProjects.length === 0) return []
+    
+    // ✅ PERFORMANCE: Only recalculate if filters changed, otherwise use cached
+    return getAllProjectsAnalytics(filteredProjects, filteredActivities, filteredKPIs)
+  }, [filteredData, cachedAnalytics, debouncedDivision, debouncedProjects, debouncedDateRange.start, debouncedDateRange.end])
 
-  // Calculate summary statistics using NEW CONCEPTS
-  // Calculate analytics for filtered projects
-  const filteredProjectsAnalytics = getAllProjectsAnalytics(filteredProjects, filteredActivities, filteredKPIs)
-  
-  // Aggregate values from analytics
-  const totalValue = filteredProjectsAnalytics.reduce((sum, a) => sum + a.totalValue, 0)
-  const totalPlannedValue = filteredProjectsAnalytics.reduce((sum, a) => sum + a.totalPlannedValue, 0)
-  const totalEarnedValue = filteredProjectsAnalytics.reduce((sum, a) => sum + a.totalEarnedValue, 0)
-  const variance = filteredProjectsAnalytics.reduce((sum, a) => sum + a.variance, 0)
-  const actualProgress = totalValue > 0 ? (totalEarnedValue / totalValue) * 100 : 0
-  const plannedProgress = totalValue > 0 ? (totalPlannedValue / totalValue) * 100 : 0
-  
-  const summary = {
-    totalProjects: filteredProjects.length,
-    activeProjects: filteredProjects.filter(p => p.project_status === 'on-going').length,
-    completedProjects: filteredProjects.filter(p => p.project_status === 'completed-duration' || p.project_status === 'contract-completed').length,
-    onHoldProjects: filteredProjects.filter(p => p.project_status === 'on-hold').length,
+  // Calculate comprehensive statistics
+  // ✅ PERFORMANCE: Optimized stats calculation - separate simple counts from heavy analytics
+  const stats = useMemo((): ReportStats => {
+    const { filteredProjects, filteredActivities, filteredKPIs } = filteredData
     
-    totalActivities: filteredActivities.length,
-    completedActivities: filteredActivities.filter(a => a.activity_completed).length,
-    delayedActivities: filteredActivities.filter(a => a.activity_delayed).length,
-    onTrackActivities: filteredActivities.filter(a => a.activity_on_track).length,
-    
-    totalKPIs: filteredKPIs.length,
-    plannedKPIs: filteredKPIs.filter(k => k.input_type === 'Planned').length,
-    actualKPIs: filteredKPIs.filter(k => k.input_type === 'Actual').length,
-    
-    // NEW CONCEPTS - Financial Metrics
-    totalContractValue: filteredProjects.reduce((sum, p) => sum + (p.contract_amount || 0), 0),
+    // Projects stats - simple counts (fast)
+    const totalProjects = filteredProjects.length
+    const activeProjects = filteredProjects.filter(p => 
+      p.project_status === 'on-going' || p.project_status === 'site-preparation'
+    ).length
+    const completedProjects = filteredProjects.filter(p => 
+      p.project_status === 'completed-duration' || p.project_status === 'contract-completed'
+    ).length
+
+    // Activities stats - simple counts (fast)
+    const totalActivities = filteredActivities.length
+    const completedActivities = filteredActivities.filter(a => 
+      a.activity_progress_percentage >= 100 || a.activity_completed
+    ).length
+    const now = Date.now()
+    const delayedActivities = filteredActivities.filter(a => 
+      a.activity_delayed || (a.deadline && new Date(a.deadline).getTime() < now && a.activity_progress_percentage < 100)
+    ).length
+
+    // KPIs stats - simple counts (fast)
+    const totalKPIs = filteredKPIs.length
+    const plannedKPIs = filteredKPIs.filter(k => k.input_type === 'Planned').length
+    const actualKPIs = filteredKPIs.filter(k => k.input_type === 'Actual').length
+
+    // Financial stats (using pre-calculated analytics)
+    const totalValue = allAnalytics.reduce((sum, a) => sum + a.totalValue, 0)
+    const earnedValue = allAnalytics.reduce((sum, a) => sum + a.totalEarnedValue, 0)
+    const plannedValue = allAnalytics.reduce((sum, a) => sum + a.totalPlannedValue, 0)
+    const variance = earnedValue - plannedValue
+    const overallProgress = totalValue > 0 ? (earnedValue / totalValue) * 100 : 0
+
+    return {
+      totalProjects,
+      activeProjects,
+      completedProjects,
+      totalActivities,
+      completedActivities,
+      delayedActivities,
+      totalKPIs,
+      plannedKPIs,
+      actualKPIs,
     totalValue,
-    totalPlannedValue,
-    totalEarnedValue,
+      earnedValue,
+      plannedValue,
     variance,
-    actualProgress,
-    plannedProgress,
-    
-    // Legacy fields for compatibility
-    totalActualValue: totalEarnedValue, // Map to totalEarnedValue
-    
-    // Calculate average progress from KPIs
-    averageProgress: actualProgress
-  }
+      overallProgress
+    }
+  }, [filteredData, allAnalytics])
 
-  const exportToCSV = () => {
-    let csv = ''
-    
-    if (activeReport === 'projects') {
-      csv = 'Project Code,Project Name,Division,Status,Contract Amount,Created\n'
-      filteredProjects.forEach(p => {
-        csv += `"${p.project_code}","${p.project_name}","${p.responsible_division}","${p.project_status}","${p.contract_amount}","${new Date(p.created_at).toLocaleDateString()}"\n`
-      })
-    } else if (activeReport === 'activities') {
-      csv = 'Activity Name,Project,Division,Planned,Actual,Unit,Progress,Start Date,End Date,Status,Created\n'
-      filteredActivities.forEach(a => {
-        const startDate = a.planned_activity_start_date || a.activity_planned_start_date || a.lookahead_start_date || ''
-        const endDate = a.deadline || a.activity_planned_completion_date || a.lookahead_activity_completion_date || ''
-        csv += `"${a.activity_name}","${a.project_code}","${a.activity_division}","${a.planned_units}","${a.actual_units}","${a.unit}","${(a.activity_progress_percentage || 0).toFixed(0)}%","${startDate ? new Date(startDate).toLocaleDateString() : ''}","${endDate ? new Date(endDate).toLocaleDateString() : ''}","${a.activity_actual_status}","${new Date(a.created_at).toLocaleDateString()}"\n`
-      })
-    } else if (activeReport === 'kpis') {
-      csv = 'Activity,Project,Type,Quantity,Unit,Date,Created\n'
-      filteredKPIs.forEach(k => {
-        const dateValue = k.activity_date || k.target_date || ''
-        csv += `"${k.activity_name}","${k.project_full_code}","${k.input_type}","${k.quantity}","${k.unit || ''}","${dateValue ? new Date(dateValue).toLocaleDateString() : ''}","${new Date(k.created_at).toLocaleDateString()}"\n`
-      })
-    }
+  // Get unique divisions
+  const divisions = useMemo(() => {
+    return Array.from(new Set(projects.map(p => p.responsible_division).filter(Boolean))).sort()
+  }, [projects])
 
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `${activeReport}-report-${new Date().toISOString().split('T')[0]}.csv`
-    link.click()
-    window.URL.revokeObjectURL(url)
-  }
+  // ✅ PERFORMANCE: Memoize formatting functions
+  const formatCurrency = useCallback((amount: number, currencyCode?: string) => {
+    return formatCurrencyByCodeSync(amount || 0, currencyCode || 'AED')
+  }, [])
 
-  const printReport = () => {
-    // Trigger browser print dialog
-    window.print()
-  }
+  const formatNumber = useCallback((num: number) => {
+    return new Intl.NumberFormat('en-US').format(num)
+  }, [])
 
-  const getReportTitle = () => {
-    switch (activeReport) {
-      case 'summary': return 'Project Summary Report'
-      case 'daily': return 'Daily Progress Report'
-      case 'weekly': return 'Weekly Progress Report'
-      case 'monthly': return 'Monthly Progress Report'
-      case 'lookahead': return 'Lookahead Planning Report'
-      case 'projects': return 'Projects Overview Report'
-      case 'activities': return 'BOQ Activities Report'
-      case 'kpis': return 'KPI Tracking Report'
-      case 'financial': return 'Financial Performance Report'
-      case 'performance': return 'Performance Analysis Report'
-      default: return 'Project Report'
-    }
-  }
-
-  const getPrintSettingsForReport = (reportType: ReportType): PrintSettings => {
-    switch (reportType) {
-      case 'activities':
-        return {
-          fontSize: 'medium',
-          compactMode: true
-        }
-      default:
-        return {
-          fontSize: 'medium',
-          compactMode: true
-        }
-    }
-  }
-
-  const getReportDateRange = () => {
-    if (dateRange.start && dateRange.end) {
-      return `${new Date(dateRange.start).toLocaleDateString()} - ${new Date(dateRange.end).toLocaleDateString()}`
-    }
-    if (activeReport === 'daily') {
-      return new Date().toLocaleDateString()
-    }
-    if (activeReport === 'weekly') {
-      const now = new Date()
-      const weekStart = new Date(now.setDate(now.getDate() - now.getDay()))
-      const weekEnd = new Date(now.setDate(now.getDate() - now.getDay() + 6))
-      return `${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}`
-    }
-    if (activeReport === 'monthly') {
-      return new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-    }
-    return 'All Time'
-  }
+  const formatPercentage = useCallback((num: number) => {
+    return `${num.toFixed(1)}%`
+  }, [])
 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <LoadingSpinner size="lg" />
-          <p className="mt-4 text-gray-600">Loading reports data...</p>
-        </div>
+        <LoadingSpinner />
       </div>
     )
   }
 
+  if (error) {
   return (
-    <PrintableReport
-      title={getReportTitle()}
-      reportType={activeReport.toUpperCase() + ' REPORT'}
-      dateRange={getReportDateRange()}
-      preparedBy="System Administrator"
-      projectCode={selectedProjects.length === 1 ? selectedProjects[0] : undefined}
-      projectName={selectedProjects.length === 1 ? projects.find(p => p.project_code === selectedProjects[0])?.project_name : undefined}
-      showSignatures={true}
-      confidential={false}
-    >
+      <Alert variant="error" className="m-4">
+        <AlertTriangle className="h-4 w-4" />
+        <span>{error}</span>
+        <Button onClick={() => fetchAllData(true)} size="sm" variant="outline" className="ml-4">
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Retry
+        </Button>
+      </Alert>
+    )
+  }
+
+  return (
+    <PrintableReport title="Reports & Analytics" reportType={activeReport}>
     <div className="space-y-6">
-        {/* Header - Hidden on print */}
-        <div className="flex justify-between items-center no-print print-hide">
+        {/* Header */}
+        <div className="flex items-center justify-between no-print">
         <div>
-          <h2 className="text-3xl font-bold text-gray-900 dark:text-white">
-            Reports & Analytics
-          </h2>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">
-            Comprehensive project reports with real-time data from BOQ and KPI
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Reports & Analytics</h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              Comprehensive project performance insights
+              {isFromCache && (
+                <span className="ml-2 text-xs text-blue-600 dark:text-blue-400" title="Data loaded from cache">
+                  (Cached)
+                </span>
+              )}
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button onClick={fetchAllData} variant="outline" size="sm">
+          <div className="flex items-center gap-2">
+          <Button onClick={() => fetchAllData(true)} variant="outline" size="sm" title="Refresh data from server (bypass cache)">
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
           </Button>
-          <PrintButton
-            label="Print Report"
-            variant="outline"
-            printTitle={getReportTitle()}
-            printSettings={getPrintSettingsForReport(activeReport)}
-          />
-          <Button onClick={exportToCSV} variant="primary" size="sm">
+            <Button variant="outline" size="sm">
             <Download className="h-4 w-4 mr-2" />
-            Export CSV
+              Export
+            </Button>
+            <Button variant="outline" size="sm" onClick={handlePrint}>
+              <Printer className="h-4 w-4 mr-2" />
+              Print
           </Button>
         </div>
       </div>
 
-      {error && (
-        <Alert variant="error">
-          {error}
-        </Alert>
-      )}
-
-        {/* Smart Filters - Hidden on print */}
-        <Card className="no-print print-hide">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Filter className="h-5 w-5" />
-            Report Filters
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <SmartFilter
-              projects={projects.map(p => ({ 
-                project_code: p.project_code, 
-                project_name: p.project_name 
-              }))}
-              activities={activities.map(a => ({
-                activity_name: a.activity_name,
-                project_code: a.project_code,
-                zone: a.zone_ref || a.zone_number || '',
-                unit: a.unit || '',
-                activity_division: a.activity_division || ''
-              }))}
-              kpis={kpis.map(k => ({
-                zone: (k as any).zone || (k as any).section || '',
-                unit: (k as any).unit || '',
-                activity_division: (k as any).activity_division || '',
-                value: (k as any).value || 0,
-                quantity: (k as any).quantity || 0
-              }))}
-              selectedProjects={selectedProjects}
-              selectedActivities={selectedActivities}
-              selectedTypes={selectedTypes}
-              selectedZones={selectedZones}
-              selectedUnits={selectedUnits}
-              selectedDivisions={selectedDivisions}
-              selectedStatuses={selectedStatuses}
-              dateRange={smartFilterDateRange}
-              valueRange={valueRange}
-              quantityRange={quantityRange}
-              onProjectsChange={setSelectedProjects}
-              onActivitiesChange={setSelectedActivities}
-              onTypesChange={setSelectedTypes}
-              onZonesChange={setSelectedZones}
-              onUnitsChange={setSelectedUnits}
-              onDivisionsChange={setSelectedDivisions}
-              onStatusesChange={setSelectedStatuses}
-              onDateRangeChange={setSmartFilterDateRange}
-              onValueRangeChange={setValueRange}
-              onQuantityRangeChange={setQuantityRange}
-              onClearAll={() => {
-                setSelectedProjects([])
-                setSelectedActivities([])
-                setSelectedTypes([])
-                setSelectedZones([])
-                setSelectedUnits([])
-                setSelectedDivisions([])
-                setSelectedStatuses([])
-                setSmartFilterDateRange({})
-                setValueRange({})
-                setQuantityRange({})
-              }}
-            />
-            
-            {/* Date Range Filter */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+        {/* Filters */}
+        <Card className="no-print">
+          <CardContent className="pt-6">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Division
+                </label>
+                <select
+                  value={selectedDivision}
+                  onChange={(e) => {
+                    setSelectedDivision(e.target.value)
+                    // Clear project selection when division changes
+                    if (e.target.value !== selectedDivision) {
+                      setSelectedProjects([])
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                >
+                  <option value="">All Divisions</option>
+                  {divisions.map(div => (
+                    <option key={div} value={div}>{div}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="relative" ref={projectDropdownRef}>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Project
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowProjectDropdown(!showProjectDropdown)}
+                  className={`w-full px-3 py-2 border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white flex items-center justify-between ${
+                    selectedProjects.length > 0
+                      ? 'border-blue-500 ring-2 ring-blue-200 dark:ring-blue-800'
+                      : 'border-gray-300 dark:border-gray-600'
+                  } hover:border-gray-400 dark:hover:border-gray-500`}
+                >
+                  <span className="text-sm truncate">
+                    {selectedProjects.length === 0
+                      ? 'All Projects'
+                      : selectedProjects.length === 1
+                      ? (() => {
+                          const project = projects.find(p => 
+                            (p.project_full_code && selectedProjects.includes(p.project_full_code)) || 
+                            selectedProjects.includes(p.id)
+                          )
+                          return project 
+                            ? `${project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`} - ${project.project_name}`
+                            : '1 project selected'
+                        })()
+                      : `${selectedProjects.length} projects selected`
+                    }
+                  </span>
+                  <ChevronDown className={`w-4 h-4 ml-2 flex-shrink-0 transition-transform ${showProjectDropdown ? 'rotate-180' : ''}`} />
+                </button>
+                
+                {showProjectDropdown && (
+                  <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-80 overflow-hidden">
+                    <div className="p-3 border-b border-gray-200 dark:border-gray-700">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input
+                          type="text"
+                          placeholder="Search projects..."
+                          value={projectSearch}
+                          onChange={(e) => setProjectSearch(e.target.value)}
+                          className="w-full pl-10 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          autoFocus
+                        />
+                      </div>
+                      {selectedProjects.length > 0 && (
+                        <button
+                          onClick={() => setSelectedProjects([])}
+                          className="mt-2 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
+                        >
+                          Clear selection
+                        </button>
+                      )}
+                    </div>
+                    <div className="max-h-64 overflow-y-auto">
+                      {(() => {
+                        const availableProjects = selectedDivision 
+                    ? projects.filter(p => p.responsible_division === selectedDivision)
+                    : projects
+                        
+                        const filteredProjects = projectSearch
+                          ? availableProjects.filter(p => {
+                              const searchLower = projectSearch.toLowerCase()
+                              const projectCode = (p.project_full_code || `${p.project_code}${p.project_sub_code ? `-${p.project_sub_code}` : ''}`).toLowerCase()
+                              const projectName = (p.project_name || '').toLowerCase()
+                              return projectCode.includes(searchLower) || projectName.includes(searchLower)
+                            })
+                          : availableProjects
+                        
+                        return filteredProjects.length > 0 ? (
+                          filteredProjects.map((project) => {
+                            const projectFullCode = project.project_full_code || project.id
+                            const displayCode = project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`
+                            const isSelected = selectedProjects.includes(projectFullCode)
+                            
+                            return (
+                              <label
+                                key={project.id}
+                                className="flex items-center space-x-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer transition-colors"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => {
+                                    if (isSelected) {
+                                      setSelectedProjects(selectedProjects.filter(p => p !== projectFullCode))
+                                    } else {
+                                      setSelectedProjects([...selectedProjects, projectFullCode])
+                                    }
+                                  }}
+                                  className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                                    {displayCode}
+                                  </div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                                    {project.project_name}
+                                  </div>
+                                </div>
+                              </label>
+                            )
+                          })
+                        ) : (
+                          <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400 text-center">
+                            No projects found
+                          </div>
+                        )
+                      })()}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Start Date
                 </label>
                 <input
                   type="date"
                   value={dateRange.start}
-                  onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
-                  className="w-full h-10 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   End Date
                 </label>
                 <input
                   type="date"
                   value={dateRange.end}
-                  onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
-                  className="w-full h-10 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 />
               </div>
+              <div className="flex items-end">
+                <Button
+                  onClick={() => {
+                    setSelectedDivision('')
+                    setSelectedProjects([])
+                    setDateRange({ start: '', end: '' })
+                    setProjectSearch('')
+                  }}
+                  variant="outline"
+                  className="w-full"
+                >
+                  Clear Filters
+                </Button>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Summary Statistics */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 stat-card-grid">
-        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900 dark:to-blue-800 border-blue-200 dark:border-blue-700">
-          <CardContent className="p-6">
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20">
+            <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-blue-700 dark:text-blue-300">Total Projects</p>
-                <p className="text-3xl font-bold text-blue-900 dark:text-blue-100">{summary.totalProjects}</p>
-                <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-                  {summary.activeProjects} active, {summary.completedProjects} completed
+                  <p className="text-sm font-medium text-blue-600 dark:text-blue-400">Total Projects</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
+                    {formatNumber(stats.totalProjects)}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    {stats.activeProjects} active, {stats.completedProjects} completed
                 </p>
               </div>
-              <Archive className="h-10 w-10 text-blue-600" />
+                <Building2 className="h-12 w-12 text-blue-500 dark:text-blue-400 opacity-50" />
             </div>
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900 dark:to-green-800 border-green-200 dark:border-green-700">
-          <CardContent className="p-6">
+          <Card className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20">
+            <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-green-700 dark:text-green-300">BOQ Activities</p>
-                <p className="text-3xl font-bold text-green-900 dark:text-green-100">{summary.totalActivities}</p>
-                <p className="text-xs text-green-600 dark:text-green-400 mt-1">
-                  {summary.completedActivities} completed, {summary.delayedActivities} delayed
+                  <p className="text-sm font-medium text-green-600 dark:text-green-400">BOQ Activities</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
+                    {formatNumber(stats.totalActivities)}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    {stats.completedActivities} completed, {stats.delayedActivities} delayed
                 </p>
               </div>
-              <Target className="h-10 w-10 text-green-600" />
+                <Target className="h-12 w-12 text-green-500 dark:text-green-400 opacity-50" />
             </div>
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900 dark:to-purple-800 border-purple-200 dark:border-purple-700">
-          <CardContent className="p-6">
+          <Card className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20">
+            <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-purple-700 dark:text-purple-300">KPI Records</p>
-                <p className="text-3xl font-bold text-purple-900 dark:text-purple-100">{summary.totalKPIs}</p>
-                <p className="text-xs text-purple-600 dark:text-purple-400 mt-1">
-                  {summary.plannedKPIs} planned, {summary.actualKPIs} actual
+                  <p className="text-sm font-medium text-purple-600 dark:text-purple-400">KPI Records</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
+                    {formatNumber(stats.totalKPIs)}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    {stats.plannedKPIs} planned, {stats.actualKPIs} actual
                 </p>
               </div>
-              <BarChart3 className="h-10 w-10 text-purple-600" />
+                <BarChart3 className="h-12 w-12 text-purple-500 dark:text-purple-400 opacity-50" />
             </div>
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900 dark:to-orange-800 border-orange-200 dark:border-orange-700">
-          <CardContent className="p-6">
+          <Card className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/20 dark:to-orange-800/20">
+            <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-orange-700 dark:text-orange-300">Avg Progress</p>
-                <p className="text-3xl font-bold text-orange-900 dark:text-orange-100">
-                  {summary.averageProgress.toFixed(1)}%
-                </p>
-                <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
-                  Based on KPI data
+                  <p className="text-sm font-medium text-orange-600 dark:text-orange-400">Overall Progress</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
+                    {formatPercentage(stats.overallProgress)}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Based on earned value
                 </p>
               </div>
-              <TrendingUp className="h-10 w-10 text-orange-600" />
+                <TrendingUp className="h-12 w-12 text-orange-500 dark:text-orange-400 opacity-50" />
             </div>
           </CardContent>
         </Card>
       </div>
 
-        {/* Report Type Tabs - Hidden on print */}
-        <div className="flex gap-2 flex-wrap no-print print-hide">
-        {[
-          { id: 'summary', label: 'Summary', icon: BarChart3, color: 'blue' },
-          { id: 'daily', label: 'Daily', icon: CalendarDays, color: 'green' },
-          { id: 'weekly', label: 'Weekly', icon: CalendarRange, color: 'purple' },
-          { id: 'monthly', label: 'Monthly', icon: CalendarClock, color: 'orange' },
-          { id: 'lookahead', label: 'Lookahead', icon: FastForward, color: 'pink' },
-          { id: 'projects', label: 'Projects', icon: Archive, color: 'indigo' },
-          { id: 'activities', label: 'Activities', icon: Target, color: 'teal' },
-          { id: 'kpis', label: 'KPIs', icon: TrendingUp, color: 'cyan' },
-          { id: 'financial', label: 'Financial', icon: DollarSign, color: 'emerald' },
-          { id: 'performance', label: 'Performance', icon: Activity, color: 'rose' }
+        {/* Financial Summary */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <DollarSign className="h-5 w-5 text-green-500" />
+                Total Value
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-3xl font-bold text-gray-900 dark:text-white">
+                {formatCurrency(stats.totalValue)}
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                Total contract value
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CheckCircle className="h-5 w-5 text-blue-500" />
+                Earned Value
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-3xl font-bold text-gray-900 dark:text-white">
+                {formatCurrency(stats.earnedValue)}
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                {formatPercentage((stats.totalValue > 0 ? stats.earnedValue / stats.totalValue : 0) * 100)} of total
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Target className="h-5 w-5 text-purple-500" />
+                Planned Value
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-3xl font-bold text-gray-900 dark:text-white">
+                {formatCurrency(stats.plannedValue)}
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                {formatPercentage((stats.totalValue > 0 ? stats.plannedValue / stats.totalValue : 0) * 100)} of total
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="h-5 w-5 text-orange-500" />
+                Remaining Value
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-3xl font-bold text-gray-900 dark:text-white">
+                {formatCurrency(stats.totalValue - stats.earnedValue)}
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                {formatPercentage((stats.totalValue > 0 ? ((stats.totalValue - stats.earnedValue) / stats.totalValue) * 100 : 0))} remaining
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                {stats.variance >= 0 ? (
+                  <ArrowUpRight className="h-5 w-5 text-green-500" />
+                ) : (
+                  <ArrowDownRight className="h-5 w-5 text-red-500" />
+                )}
+                Variance
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className={`text-3xl font-bold ${stats.variance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {formatCurrency(stats.variance)}
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                Earned - Planned
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Report Tabs */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-2">
+          {[
+            { id: 'overview', label: 'Overview', icon: BarChart3 },
+            { id: 'projects', label: 'Projects', icon: Building2 },
+            { id: 'activities', label: 'Activities', icon: Target },
+            { id: 'kpis', label: 'KPIs', icon: TrendingUp },
+            { id: 'financial', label: 'Financial', icon: DollarSign },
+            { id: 'performance', label: 'Performance', icon: Activity },
+            { id: 'lookahead', label: 'LookAhead', icon: FastForward },
+            { id: 'monthly-revenue', label: 'Monthly Revenue', icon: CalendarDays }
         ].map((tab) => {
           const Icon = tab.icon
           return (
@@ -712,978 +1014,1927 @@ export function ModernReportsManager() {
 
       {/* Report Content */}
         <div className="report-section">
-          {activeReport === 'summary' && <SummaryReport summary={summary} activities={filteredActivities} />}
-          {activeReport === 'daily' && <DailyReport activities={filteredActivities} />}
-          {activeReport === 'weekly' && <WeeklyReport activities={filteredActivities} />}
-          {activeReport === 'monthly' && <MonthlyReport activities={filteredActivities} />}
-          {activeReport === 'lookahead' && <LookaheadReportView activities={filteredActivities} />}
-          {activeReport === 'projects' && <ProjectsReport projects={filteredProjects} activities={filteredActivities} kpis={filteredKPIs} />}
-          {activeReport === 'activities' && <ActivitiesReport activities={filteredActivities} />}
-          {activeReport === 'kpis' && <KPIsReport kpis={filteredKPIs} />}
-          {activeReport === 'financial' && <FinancialReport summary={summary} projects={filteredProjects} activities={filteredActivities} />}
-          {activeReport === 'performance' && <PerformanceReport projects={filteredProjects} activities={filteredActivities} kpis={filteredKPIs} />}
+          {activeReport === 'overview' && (
+            <OverviewReport stats={stats} filteredData={filteredData} formatCurrency={formatCurrency} formatPercentage={formatPercentage} />
+          )}
+          {activeReport === 'projects' && (
+            <ProjectsReport projects={filteredData.filteredProjects} activities={filteredData.filteredActivities} kpis={filteredData.filteredKPIs} formatCurrency={formatCurrency} />
+          )}
+          {activeReport === 'activities' && (
+            <ActivitiesReport activities={filteredData.filteredActivities} kpis={filteredData.filteredKPIs} formatCurrency={formatCurrency} />
+          )}
+          {activeReport === 'kpis' && (
+            <KPIsReport kpis={filteredData.filteredKPIs} formatCurrency={formatCurrency} />
+          )}
+          {activeReport === 'financial' && (
+            <FinancialReport stats={stats} filteredData={filteredData} formatCurrency={formatCurrency} />
+          )}
+          {activeReport === 'performance' && (
+            <PerformanceReport filteredData={filteredData} formatCurrency={formatCurrency} formatPercentage={formatPercentage} />
+          )}
+          {activeReport === 'lookahead' && (
+            <LookaheadReportView activities={filteredData.filteredActivities} projects={filteredData.filteredProjects} formatCurrency={formatCurrency} />
+          )}
+          {activeReport === 'monthly-revenue' && (
+            <MonthlyWorkRevenueReportView 
+              activities={filteredData.filteredActivities} 
+              projects={filteredData.filteredProjects} 
+              kpis={filteredData.filteredKPIs}
+              formatCurrency={formatCurrency} 
+            />
+          )}
         </div>
       </div>
     </PrintableReport>
   )
 }
 
-// Daily Report Component
-function DailyReport({ activities }: { activities: BOQActivity[] }) {
-  const todayReport = generateDailyReport(activities, new Date())
+// Overview Report Component
+function OverviewReport({ stats, filteredData, formatCurrency, formatPercentage }: any) {
+  const { filteredProjects, filteredActivities, filteredKPIs } = filteredData
+
+  // Project status distribution
+  const projectStatusCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    filteredProjects.forEach((p: Project) => {
+      const status = p.project_status || 'unknown'
+      counts[status] = (counts[status] || 0) + 1
+    })
+    return counts
+  }, [filteredProjects])
+
+  // Activity status distribution
+  const activityStatusCounts = useMemo(() => {
+    return {
+      completed: filteredActivities.filter((a: BOQActivity) => a.activity_progress_percentage >= 100).length,
+      inProgress: filteredActivities.filter((a: BOQActivity) => a.activity_progress_percentage > 0 && a.activity_progress_percentage < 100).length,
+      notStarted: filteredActivities.filter((a: BOQActivity) => a.activity_progress_percentage === 0).length,
+      delayed: filteredActivities.filter((a: BOQActivity) => a.activity_delayed).length
+    }
+  }, [filteredActivities])
   
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h3 className="text-2xl font-bold text-gray-900 dark:text-white">
-          Daily Report - {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-        </h3>
-      </div>
-
-      {/* Daily Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900 dark:to-blue-800">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-blue-700 dark:text-blue-300">Total Planned</p>
-                <p className="text-3xl font-bold text-blue-900 dark:text-blue-100">
-                  {todayReport.totalPlanned.toFixed(0)}
-                </p>
-              </div>
-              <Target className="h-10 w-10 text-blue-600" />
-            </div>
-        </CardContent>
-      </Card>
-
-        <Card className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900 dark:to-green-800">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-green-700 dark:text-green-300">Total Actual</p>
-                <p className="text-3xl font-bold text-green-900 dark:text-green-100">
-                  {todayReport.totalActual.toFixed(0)}
-                </p>
-              </div>
-              <CheckCircle className="h-10 w-10 text-green-600" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900 dark:to-purple-800">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-purple-700 dark:text-purple-300">Progress</p>
-                <p className="text-3xl font-bold text-purple-900 dark:text-purple-100">
-                  {todayReport.progressPercentage.toFixed(0)}%
-                </p>
-              </div>
-              <TrendingUp className="h-10 w-10 text-purple-600" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900 dark:to-orange-800">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-orange-700 dark:text-orange-300">Activities</p>
-                <p className="text-3xl font-bold text-orange-900 dark:text-orange-100">
-                  {todayReport.activities.length}
-                </p>
-                <p className="text-xs text-orange-600 mt-1">{todayReport.completedActivities} completed</p>
-              </div>
-              <Activity className="h-10 w-10 text-orange-600" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Today's Activities */}
-      {todayReport.activities.length > 0 ? (
-        <div className="overflow-x-auto">
-          <h4 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Today's Activities</h4>
-          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead className="bg-gray-50 dark:bg-gray-800">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Activity</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Project</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Planned</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Actual</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Progress</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Status</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-              {todayReport.activities.map(activity => (
-                <tr key={activity.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                  <td className="px-6 py-4 font-medium text-gray-900 dark:text-gray-100">{activity.activity_name}</td>
-                  <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{activity.project_code}</td>
-                  <td className="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">{activity.planned_units} {activity.unit}</td>
-                  <td className="px-6 py-4 text-sm font-semibold text-green-600">{activity.actual_units} {activity.unit}</td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      <div className="w-20 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                        <div className="bg-blue-600 h-2 rounded-full" style={{ width: `${Math.min(activity.activity_progress_percentage || 0, 100)}%` }}></div>
-                      </div>
-                      <span className="text-sm font-medium">{(activity.activity_progress_percentage || 0).toFixed(0)}%</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      activity.activity_completed ? 'bg-green-100 text-green-800' :
-                      activity.activity_delayed ? 'bg-red-100 text-red-800' :
-                      'bg-blue-100 text-blue-800'
-                    }`}>
-                      {activity.activity_completed ? 'Completed' : activity.activity_delayed ? 'Delayed' : 'In Progress'}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="text-center py-12 text-gray-500">
-          <CalendarDays className="h-12 w-12 mx-auto mb-3 text-gray-400" />
-          <p>No activities scheduled for today</p>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// Weekly Report Component
-function WeeklyReport({ activities }: { activities: BOQActivity[] }) {
-  const weeklyReport = generateWeeklyReport(activities)
-  const weekNumber = Math.ceil((new Date().getDate()) / 7)
-  
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h3 className="text-2xl font-bold text-gray-900 dark:text-white">
-          Weekly Report - {weeklyReport.startDate.toLocaleDateString()} to {weeklyReport.endDate.toLocaleDateString()}
-        </h3>
-      </div>
-
-      {/* Weekly Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <Card className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900 dark:to-purple-800">
-          <CardContent className="p-6">
-            <p className="text-sm font-medium text-purple-700 dark:text-purple-300">Total Activities</p>
-            <p className="text-3xl font-bold text-purple-900 dark:text-purple-100">{weeklyReport.activities.length}</p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900 dark:to-green-800">
-          <CardContent className="p-6">
-            <p className="text-sm font-medium text-green-700 dark:text-green-300">Completed</p>
-            <p className="text-3xl font-bold text-green-900 dark:text-green-100">{weeklyReport.completedActivities}</p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900 dark:to-blue-800">
-          <CardContent className="p-6">
-            <p className="text-sm font-medium text-blue-700 dark:text-blue-300">In Progress</p>
-            <p className="text-3xl font-bold text-blue-900 dark:text-blue-100">{weeklyReport.ongoingActivities}</p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-red-50 to-red-100 dark:from-red-900 dark:to-red-800">
-          <CardContent className="p-6">
-            <p className="text-sm font-medium text-red-700 dark:text-red-300">Delayed</p>
-            <p className="text-3xl font-bold text-red-900 dark:text-red-100">{weeklyReport.delayedActivities}</p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-indigo-50 to-indigo-100 dark:from-indigo-900 dark:to-indigo-800">
-          <CardContent className="p-6">
-            <p className="text-sm font-medium text-indigo-700 dark:text-indigo-300">Progress</p>
-            <p className="text-3xl font-bold text-indigo-900 dark:text-indigo-100">{weeklyReport.progressPercentage.toFixed(0)}%</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Weekly Activities Table */}
-      {weeklyReport.activities.length > 0 && (
-        <ActivitiesReport activities={weeklyReport.activities} />
-      )}
-    </div>
-  )
-}
-
-// Monthly Report Component
-function MonthlyReport({ activities }: { activities: BOQActivity[] }) {
-  const monthlyReport = generateMonthlyReport(activities)
-  const monthName = monthlyReport.startDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-  
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h3 className="text-2xl font-bold text-gray-900 dark:text-white">
-          Monthly Report - {monthName}
-        </h3>
-      </div>
-
-      {/* Monthly Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <Card className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900 dark:to-orange-800">
-          <CardContent className="p-6">
-            <p className="text-sm font-medium text-orange-700 dark:text-orange-300">Total Activities</p>
-            <p className="text-3xl font-bold text-orange-900 dark:text-orange-100">{monthlyReport.activities.length}</p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900 dark:to-green-800">
-          <CardContent className="p-6">
-            <p className="text-sm font-medium text-green-700 dark:text-green-300">Completed</p>
-            <p className="text-3xl font-bold text-green-900 dark:text-green-100">{monthlyReport.completedActivities}</p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900 dark:to-blue-800">
-          <CardContent className="p-6">
-            <p className="text-sm font-medium text-blue-700 dark:text-blue-300">Total Planned</p>
-            <p className="text-3xl font-bold text-blue-900 dark:text-blue-100">{monthlyReport.totalPlanned.toFixed(0)}</p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-cyan-50 to-cyan-100 dark:from-cyan-900 dark:to-cyan-800">
-          <CardContent className="p-6">
-            <p className="text-sm font-medium text-cyan-700 dark:text-cyan-300">Total Actual</p>
-            <p className="text-3xl font-bold text-cyan-900 dark:text-cyan-100">{monthlyReport.totalActual.toFixed(0)}</p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900 dark:to-purple-800">
-          <CardContent className="p-6">
-            <p className="text-sm font-medium text-purple-700 dark:text-purple-300">Progress</p>
-            <p className="text-3xl font-bold text-purple-900 dark:text-purple-100">{monthlyReport.progressPercentage.toFixed(0)}%</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Progress Bar */}
-      <div className="p-6 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-lg">
-        <div className="flex items-center justify-between mb-2">
-          <h4 className="font-semibold text-gray-900 dark:text-white">Monthly Progress</h4>
-          <span className="text-2xl font-bold text-blue-600">{monthlyReport.progressPercentage.toFixed(1)}%</span>
-        </div>
-        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-4">
-          <div
-            className="bg-gradient-to-r from-blue-600 to-purple-600 h-4 rounded-full transition-all"
-            style={{ width: `${Math.min(monthlyReport.progressPercentage, 100)}%` }}
-          ></div>
-        </div>
-      </div>
-
-      {/* Monthly Activities */}
-      {monthlyReport.activities.length > 0 && (
-        <ActivitiesReport activities={monthlyReport.activities} />
-      )}
-    </div>
-  )
-}
-
-// Lookahead Report Component
-function LookaheadReportView({ activities }: { activities: BOQActivity[] }) {
-  const lookaheadReport = generateLookaheadReport(activities)
-  
-  return (
-    <div className="space-y-6">
-      <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
-        Lookahead Report - Planning Ahead
-      </h3>
-
-      {/* Current Week */}
-      <Card className="bg-gradient-to-br from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20 border-blue-300 dark:border-blue-700">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Project Status */}
+        <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-blue-900 dark:text-blue-100">
-            <CalendarRange className="h-5 w-5" />
-            Current Week (Week {lookaheadReport.currentWeek.weekNumber})
-          </CardTitle>
-          <p className="text-sm text-gray-600">
-            {lookaheadReport.currentWeek.startDate.toLocaleDateString()} - {lookaheadReport.currentWeek.endDate.toLocaleDateString()}
-          </p>
+            <CardTitle>Project Status Distribution</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            <div className="p-4 bg-white dark:bg-gray-800 rounded-lg">
-              <p className="text-sm text-gray-600 dark:text-gray-400">Total Activities</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">{lookaheadReport.currentWeek.plannedActivities.length}</p>
-            </div>
-            <div className="p-4 bg-white dark:bg-gray-800 rounded-lg">
-              <p className="text-sm text-gray-600 dark:text-gray-400">Completed</p>
-              <p className="text-2xl font-bold text-green-600">{lookaheadReport.currentWeek.completedActivities.length}</p>
-            </div>
-            <div className="p-4 bg-white dark:bg-gray-800 rounded-lg">
-              <p className="text-sm text-gray-600 dark:text-gray-400">In Progress</p>
-              <p className="text-2xl font-bold text-blue-600">{lookaheadReport.currentWeek.inProgressActivities.length}</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Next Week */}
-      <Card className="bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border-green-300 dark:border-green-700">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-green-900 dark:text-green-100">
-            <FastForward className="h-5 w-5" />
-            Next Week (Week {lookaheadReport.nextWeek.weekNumber})
-          </CardTitle>
-          <p className="text-sm text-gray-600">
-            {lookaheadReport.nextWeek.startDate.toLocaleDateString()} - {lookaheadReport.nextWeek.endDate.toLocaleDateString()}
-          </p>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div className="p-4 bg-white dark:bg-gray-800 rounded-lg">
-              <p className="text-sm text-gray-600 dark:text-gray-400">Planned Activities</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">{lookaheadReport.nextWeek.plannedActivities.length}</p>
-            </div>
-            <div className="p-4 bg-white dark:bg-gray-800 rounded-lg">
-              <p className="text-sm text-gray-600 dark:text-gray-400">Estimated Workload</p>
-              <p className="text-2xl font-bold text-green-600">{lookaheadReport.nextWeek.estimatedWorkload.toFixed(0)}</p>
-            </div>
-          </div>
-          
-          {lookaheadReport.nextWeek.plannedActivities.length > 0 && (
-            <div className="space-y-2">
-              <h5 className="font-semibold text-gray-900 dark:text-white">Upcoming Activities:</h5>
-              {lookaheadReport.nextWeek.plannedActivities.slice(0, 5).map(activity => (
-                <div key={activity.id} className="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-lg">
-                  <div>
-                    <p className="font-medium text-gray-900 dark:text-gray-100">{activity.activity_name}</p>
-                    <p className="text-xs text-gray-500">{activity.project_code}</p>
-                  </div>
-                  <div className="text-sm text-gray-700 dark:text-gray-300">
-                    {activity.planned_units} {activity.unit}
-                  </div>
+            <div className="space-y-3">
+              {Object.entries(projectStatusCounts).map(([status, count]) => (
+                <div key={status} className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600 dark:text-gray-400 capitalize">
+                    {status.replace('-', ' ')}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <div className="w-32 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                      <div
+                        className="bg-blue-500 h-2 rounded-full"
+                        style={{ width: `${(count as number / filteredProjects.length) * 100}%` }}
+                      />
+      </div>
+                    <span className="text-sm font-semibold w-12 text-right">{count as number}</span>
+              </div>
                 </div>
               ))}
             </div>
-          )}
         </CardContent>
       </Card>
 
-      {/* Critical Path */}
-      {lookaheadReport.upcoming.criticalPath.length > 0 && (
-        <Card className="bg-gradient-to-br from-red-50 to-orange-50 dark:from-red-900/20 dark:to-orange-900/20 border-red-300 dark:border-red-700">
+        {/* Activity Status */}
+        <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-red-900 dark:text-red-100">
-              <AlertTriangle className="h-5 w-5" />
-              Critical Path - Needs Attention
-            </CardTitle>
+            <CardTitle>Activity Status Distribution</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              {lookaheadReport.upcoming.criticalPath.map(activity => (
-                <div key={activity.id} className="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-lg border-l-4 border-red-500">
-                  <div>
-                    <p className="font-medium text-gray-900 dark:text-gray-100">{activity.activity_name}</p>
-                    <p className="text-xs text-gray-500">{activity.project_code} • Deadline: {new Date(activity.deadline).toLocaleDateString()}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-bold text-red-600">{(activity.activity_progress_percentage || 0).toFixed(0)}%</p>
-                    <p className="text-xs text-gray-500">Progress</p>
-                  </div>
-                </div>
+            <div className="space-y-3">
+              {Object.entries(activityStatusCounts).map(([status, count]) => (
+                <div key={status} className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600 dark:text-gray-400 capitalize">
+                    {status.replace(/([A-Z])/g, ' $1').trim()}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <div className="w-32 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                      <div
+                        className="bg-green-500 h-2 rounded-full"
+                        style={{ width: `${(count as number / filteredActivities.length) * 100}%` }}
+                      />
+              </div>
+                    <span className="text-sm font-semibold w-12 text-right">{count as number}</span>
+            </div>
+              </div>
               ))}
             </div>
           </CardContent>
         </Card>
-      )}
     </div>
-  )
-}
 
-// Summary Report Component
-function SummaryReport({ summary, activities }: { summary: any, activities: BOQActivity[] }) {
-  const projectSummary = generateProjectSummary(activities)
-  
-  return (
-    <div className="space-y-6">
-      {/* Overall Project Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-emerald-900 dark:to-emerald-800">
-          <CardContent className="p-6">
-            <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">Total Work Planned</p>
-            <p className="text-3xl font-bold text-emerald-900 dark:text-emerald-100">
-              {projectSummary.totalWork.planned.toFixed(0)}
-            </p>
-            <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1">All units combined</p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900 dark:to-blue-800">
-          <CardContent className="p-6">
-            <p className="text-sm font-medium text-blue-700 dark:text-blue-300">Total Work Actual</p>
-            <p className="text-3xl font-bold text-blue-900 dark:text-blue-100">
-              {projectSummary.totalWork.actual.toFixed(0)}
-            </p>
-            <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">Completed work</p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900 dark:to-orange-800">
-          <CardContent className="p-6">
-            <p className="text-sm font-medium text-orange-700 dark:text-orange-300">Remaining Work</p>
-            <p className="text-3xl font-bold text-orange-900 dark:text-orange-100">
-              {projectSummary.totalWork.remaining.toFixed(0)}
-            </p>
-            <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">To be completed</p>
-          </CardContent>
-        </Card>
-
-        <Card className={`bg-gradient-to-br ${
-          projectSummary.progress.status === 'ahead' ? 'from-green-50 to-green-100 dark:from-green-900 dark:to-green-800' :
-          projectSummary.progress.status === 'on_track' ? 'from-blue-50 to-blue-100 dark:from-blue-900 dark:to-blue-800' :
-          projectSummary.progress.status === 'at_risk' ? 'from-yellow-50 to-yellow-100 dark:from-yellow-900 dark:to-yellow-800' :
-          'from-red-50 to-red-100 dark:from-red-900 dark:to-red-800'
-        }`}>
-          <CardContent className="p-6">
-            <p className={`text-sm font-medium ${
-              projectSummary.progress.status === 'ahead' ? 'text-green-700 dark:text-green-300' :
-              projectSummary.progress.status === 'on_track' ? 'text-blue-700 dark:text-blue-300' :
-              projectSummary.progress.status === 'at_risk' ? 'text-yellow-700 dark:text-yellow-300' :
-              'text-red-700 dark:text-red-300'
-            }`}>Overall Progress</p>
-            <p className={`text-3xl font-bold ${
-              projectSummary.progress.status === 'ahead' ? 'text-green-900 dark:text-green-100' :
-              projectSummary.progress.status === 'on_track' ? 'text-blue-900 dark:text-blue-100' :
-              projectSummary.progress.status === 'at_risk' ? 'text-yellow-900 dark:text-yellow-100' :
-              'text-red-900 dark:text-red-100'
-            }`}>
-              {projectSummary.progress.percentage.toFixed(1)}%
-            </p>
-            <p className={`text-xs mt-1 ${
-              projectSummary.progress.status === 'ahead' ? 'text-green-600 dark:text-green-400' :
-              projectSummary.progress.status === 'on_track' ? 'text-blue-600 dark:text-blue-400' :
-              projectSummary.progress.status === 'at_risk' ? 'text-yellow-600 dark:text-yellow-400' :
-              'text-red-600 dark:text-red-400'
-            }`}>{projectSummary.progress.status.replace('_', ' ').toUpperCase()}</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Work by Period */}
+      {/* Key Metrics */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <CalendarClock className="h-5 w-5" />
-            Work Breakdown by Period
-          </CardTitle>
+          <CardTitle>Key Performance Metrics</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="p-4 bg-gradient-to-r from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20 rounded-lg">
-              <p className="text-sm text-gray-600 dark:text-gray-400">Today</p>
-              <p className="text-2xl font-bold text-blue-900 dark:text-blue-100">{projectSummary.byPeriod.today.toFixed(0)}</p>
+            <div className="text-center p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+              <p className="text-2xl font-bold text-blue-600">{formatPercentage(stats.overallProgress)}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Overall Progress</p>
             </div>
-            <div className="p-4 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-lg">
-              <p className="text-sm text-gray-600 dark:text-gray-400">This Week</p>
-              <p className="text-2xl font-bold text-purple-900 dark:text-purple-100">{projectSummary.byPeriod.thisWeek.toFixed(0)}</p>
+            <div className="text-center p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+              <p className="text-2xl font-bold text-green-600">{formatCurrency(stats.earnedValue)}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Earned Value</p>
             </div>
-            <div className="p-4 bg-gradient-to-r from-orange-50 to-red-50 dark:from-orange-900/20 dark:to-red-900/20 rounded-lg">
-              <p className="text-sm text-gray-600 dark:text-gray-400">This Month</p>
-              <p className="text-2xl font-bold text-orange-900 dark:text-orange-100">{projectSummary.byPeriod.thisMonth.toFixed(0)}</p>
+            <div className="text-center p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+              <p className="text-2xl font-bold text-purple-600">{formatCurrency(stats.plannedValue)}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Planned Value</p>
             </div>
-            <div className="p-4 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-lg">
-              <p className="text-sm text-gray-600 dark:text-gray-400">Total</p>
-              <p className="text-2xl font-bold text-green-900 dark:text-green-100">{projectSummary.byPeriod.total.toFixed(0)}</p>
+            <div className={`text-center p-4 rounded-lg ${stats.variance >= 0 ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20'}`}>
+              <p className={`text-2xl font-bold ${stats.variance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {formatCurrency(stats.variance)}
+              </p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Variance</p>
+              </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Detailed Breakdown */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Projects Summary */}
-        <div className="p-6 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700">
-          <h3 className="font-semibold text-lg text-blue-900 dark:text-blue-100 mb-4">Projects Overview</h3>
-          <div className="space-y-3">
-            <div className="flex justify-between">
-              <span className="text-gray-700 dark:text-gray-300">Total:</span>
-              <span className="font-bold text-gray-900 dark:text-white">{summary.totalProjects}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-700 dark:text-gray-300">Active:</span>
-              <span className="font-bold text-green-600">{summary.activeProjects}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-700 dark:text-gray-300">Completed:</span>
-              <span className="font-bold text-blue-600">{summary.completedProjects}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-700 dark:text-gray-300">On Hold:</span>
-              <span className="font-bold text-yellow-600">{summary.onHoldProjects}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Activities Summary */}
-        <div className="p-6 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-700">
-          <h3 className="font-semibold text-lg text-green-900 dark:text-green-100 mb-4">Activities Overview</h3>
-          <div className="space-y-3">
-            <div className="flex justify-between">
-              <span className="text-gray-700 dark:text-gray-300">Total:</span>
-              <span className="font-bold text-gray-900 dark:text-white">{summary.totalActivities}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-700 dark:text-gray-300">Completed:</span>
-              <span className="font-bold text-green-600">{summary.completedActivities}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-700 dark:text-gray-300">On Track:</span>
-              <span className="font-bold text-blue-600">{summary.onTrackActivities}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-700 dark:text-gray-300">Delayed:</span>
-              <span className="font-bold text-red-600">{summary.delayedActivities}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* KPIs Summary */}
-        <div className="p-6 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-700">
-          <h3 className="font-semibold text-lg text-purple-900 dark:text-purple-100 mb-4">KPIs Overview</h3>
-          <div className="space-y-3">
-            <div className="flex justify-between">
-              <span className="text-gray-700 dark:text-gray-300">Total Records:</span>
-              <span className="font-bold text-gray-900 dark:text-white">{summary.totalKPIs}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-700 dark:text-gray-300">Planned:</span>
-              <span className="font-bold text-blue-600">{summary.plannedKPIs}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-700 dark:text-gray-300">Actual:</span>
-              <span className="font-bold text-green-600">{summary.actualKPIs}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-700 dark:text-gray-300">Progress:</span>
-              <span className="font-bold text-purple-600">{summary.averageProgress.toFixed(1)}%</span>
-            </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       </div>
-
-      {/* Progress Bar */}
-      <div className="p-6 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-lg border border-blue-200 dark:border-blue-700">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="font-semibold text-gray-900 dark:text-white">Overall KPI Progress</h3>
-          <span className="text-2xl font-bold text-blue-600">{summary.averageProgress.toFixed(1)}%</span>
-        </div>
-        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-4">
-          <div
-            className="bg-gradient-to-r from-blue-600 to-purple-600 h-4 rounded-full transition-all duration-500"
-            style={{ width: `${Math.min(summary.averageProgress, 100)}%` }}
-          ></div>
-        </div>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
-          Based on {summary.actualKPIs} actual vs {summary.plannedKPIs} planned KPIs
-        </p>
-      </div>
-    </div>
   )
 }
 
 // Projects Report Component
-function ProjectsReport({ projects, activities, kpis }: { projects: Project[], activities: BOQActivity[], kpis: ProcessedKPI[] }) {
-  return (
-    <div className="space-y-4">
-      <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-        Projects Report ({projects.length} projects)
-      </h3>
-      
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-          <thead className="bg-gray-50 dark:bg-gray-800">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Project</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Division</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Status</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Activities</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">KPIs</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Progress</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Contract Value</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-            {projects.map(project => {
-              const projectActivities = activities.filter(a => 
-                a.project_code === project.project_code || 
-                a.project_full_code?.startsWith(project.project_code)
-              )
-              const projectKPIs = kpis.filter(k => 
-                k.project_full_code?.startsWith(project.project_code)
-              )
-              
-              const plannedKPIs = projectKPIs.filter(k => k.input_type === 'Planned')
-              const actualKPIs = projectKPIs.filter(k => k.input_type === 'Actual')
-              
-              const totalPlanned = plannedKPIs.reduce((sum, k) => sum + (parseFloat(k.quantity?.toString() || '0') || 0), 0)
-              const totalActual = actualKPIs.reduce((sum, k) => sum + (parseFloat(k.quantity?.toString() || '0') || 0), 0)
-              const progress = totalPlanned > 0 ? (totalActual / totalPlanned) * 100 : 0
+function ProjectsReport({ projects, activities, kpis, formatCurrency }: any) {
+  // ✅ PERFORMANCE: Memoize analytics calculation
+  const allAnalytics = useMemo(() => {
+    return getAllProjectsAnalytics(projects, activities, kpis)
+  }, [projects, activities, kpis])
 
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Projects Report</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse">
+            <thead>
+              <tr className="bg-gray-100 dark:bg-gray-800">
+                <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Project</th>
+                <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Status</th>
+                <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Contract Value</th>
+                <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Earned Value</th>
+                <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Progress</th>
+                <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Variance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {allAnalytics.map((analytics: any) => {
+                const project = analytics.project
+                const progress = analytics.actualProgress || 0
+                const variance = analytics.variance || 0
               return (
                 <tr key={project.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                  <td className="px-6 py-4">
-                    <div className="font-medium text-gray-900 dark:text-gray-100">{project.project_name}</div>
-                    <div className="text-sm text-gray-500">{project.project_code}</div>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
-                    {project.responsible_division || 'N/A'}
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      project.project_status === 'on-going' ? 'bg-green-100 text-green-800' :
-                      project.project_status === 'completed-duration' || project.project_status === 'contract-completed' ? 'bg-blue-100 text-blue-800' :
-                      project.project_status === 'on-hold' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-red-100 text-red-800'
-                    }`}>
-                      {project.project_status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">
-                    {projectActivities.length}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">
-                    {projectKPIs.length}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      <div className="w-24 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                        <div
-                          className="bg-blue-600 h-2 rounded-full"
-                          style={{ width: `${Math.min(progress, 100)}%` }}
-                        ></div>
-                      </div>
-                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                        {progress.toFixed(0)}%
-                      </span>
+                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">
+                      <div>
+                        <p className="font-medium">{project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`}</p>
+                        <p className="text-xs text-gray-500">{project.project_name}</p>
                     </div>
                   </td>
-                  <td className="px-6 py-4 text-sm font-semibold text-gray-900 dark:text-gray-100">
-                    AED {(project.contract_amount || 0).toLocaleString()}
+                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">
+                      <span className={`px-2 py-1 rounded text-xs ${
+                        project.project_status === 'on-going' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
+                        project.project_status === 'completed-duration' || project.project_status === 'contract-completed' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
+                        'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+                      }`}>
+                        {project.project_status?.replace('-', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()) || 'N/A'}
+                    </span>
+                  </td>
+                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">
+                      {formatCurrency(project.contract_amount || 0, project.currency)}
+                  </td>
+                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">
+                      {formatCurrency(analytics.totalEarnedValue || 0, project.currency)}
+                  </td>
+                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                      <div className="w-24 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                        <div
+                            className="bg-blue-500 h-2 rounded-full"
+                          style={{ width: `${Math.min(progress, 100)}%` }}
+                          />
+                      </div>
+                        <span className="text-sm font-semibold">{progress.toFixed(1)}%</span>
+                    </div>
+                  </td>
+                    <td className={`border border-gray-300 dark:border-gray-600 px-4 py-2 text-right ${variance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {formatCurrency(variance, project.currency)}
                   </td>
                 </tr>
               )
             })}
-          </tbody>
-        </table>
-      </div>
-    </div>
+            </tbody>
+          </table>
+        </div>
+          </CardContent>
+        </Card>
   )
 }
 
 // Activities Report Component
-function ActivitiesReport({ activities }: { activities: BOQActivity[] }) {
+function ActivitiesReport({ activities, kpis = [], formatCurrency }: any) {
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 50
+  
+  // Get project currency for each activity
+  const getActivityCurrency = (activity: BOQActivity): string => {
+    // Try to get currency from project if available
+    return (activity as any).project?.currency || 'AED'
+  }
+  
+  // Calculate Actual Units from KPIs for an activity
+  const calculateActualUnits = useCallback((activity: BOQActivity): number => {
+    if (!kpis || kpis.length === 0) {
+      return activity.actual_units || 0
+    }
+    
+    try {
+      const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+      const projectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim()
+      const zoneRef = (activity.zone_ref || '').toString().trim().toLowerCase()
+      const zoneNumber = (activity.zone_number || '').toString().trim().toLowerCase()
+      
+      // Filter KPIs for this activity
+      const activityKPIs = kpis.filter((kpi: any) => {
+        const kpiActivityName = String(kpi.activity_name || kpi['Activity Name'] || (kpi as any).raw?.['Activity Name'] || '').toLowerCase().trim()
+        const kpiProjectFullCode = String(kpi.project_full_code || kpi['Project Full Code'] || (kpi as any).raw?.['Project Full Code'] || '').toString().trim()
+        const kpiProjectCode = String(kpi.project_code || kpi['Project Code'] || (kpi as any).raw?.['Project Code'] || '').toString().trim()
+        const kpiZone = String(kpi.zone || kpi['Zone'] || (kpi as any).raw?.['Zone'] || '').toString().trim().toLowerCase()
+        
+        // Match activity name
+        const activityMatch = kpiActivityName === activityName || 
+                              kpiActivityName.includes(activityName) || 
+                              activityName.includes(kpiActivityName)
+        
+        if (!activityMatch) return false
+        
+        // Match project
+        const projectMatch = kpiProjectFullCode === projectFullCode || 
+                            kpiProjectCode === projectFullCode ||
+                            kpiProjectFullCode === activity.project_code ||
+                            kpiProjectCode === activity.project_code
+        
+        if (!projectMatch) return false
+        
+        // Match zone if available
+        if (zoneRef && zoneRef !== 'enabling division' && zoneNumber) {
+          const zoneMatch = kpiZone === zoneRef || 
+                           kpiZone === zoneNumber ||
+                           kpiZone.includes(zoneRef) ||
+                           kpiZone.includes(zoneNumber)
+          if (!zoneMatch) return false
+        }
+        
+        return true
+      })
+      
+      // Sum only ACTUAL KPIs
+      const actualKPIs = activityKPIs.filter((kpi: any) => {
+        const inputType = String(kpi.input_type || kpi['Input Type'] || (kpi as any).raw?.['Input Type'] || '').trim().toLowerCase()
+        return inputType === 'actual'
+      })
+      
+      const totalActual = actualKPIs.reduce((sum: number, kpi: any) => {
+        const qty = parseFloat(String(kpi.quantity || kpi['Quantity'] || (kpi as any).raw?.['Quantity'] || '0').replace(/,/g, '')) || 0
+        return sum + qty
+      }, 0)
+      
+      return totalActual
+    } catch (error) {
+      console.error('Error calculating actual units:', error)
+      return activity.actual_units || 0
+    }
+  }, [kpis])
+  
+  // Calculate Earned Value from KPIs for an activity
+  const calculateEarnedValue = useCallback((activity: BOQActivity): number => {
+    if (!kpis || kpis.length === 0) {
+      return activity.earned_value || 0
+    }
+    
+    try {
+      const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+      const projectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim()
+      const zoneRef = (activity.zone_ref || '').toString().trim().toLowerCase()
+      const zoneNumber = (activity.zone_number || '').toString().trim().toLowerCase()
+      
+      // Filter KPIs for this activity (same logic as calculateActualUnits)
+      const activityKPIs = kpis.filter((kpi: any) => {
+        const kpiActivityName = String(kpi.activity_name || kpi['Activity Name'] || (kpi as any).raw?.['Activity Name'] || '').toLowerCase().trim()
+        const kpiProjectFullCode = String(kpi.project_full_code || kpi['Project Full Code'] || (kpi as any).raw?.['Project Full Code'] || '').toString().trim()
+        const kpiProjectCode = String(kpi.project_code || kpi['Project Code'] || (kpi as any).raw?.['Project Code'] || '').toString().trim()
+        const kpiZone = String(kpi.zone || kpi['Zone'] || (kpi as any).raw?.['Zone'] || '').toString().trim().toLowerCase()
+        
+        // Match activity name
+        const activityMatch = kpiActivityName === activityName || 
+                              kpiActivityName.includes(activityName) || 
+                              activityName.includes(kpiActivityName)
+        
+        if (!activityMatch) return false
+        
+        // Match project
+        const projectMatch = kpiProjectFullCode === projectFullCode || 
+                            kpiProjectCode === projectFullCode ||
+                            kpiProjectFullCode === activity.project_code ||
+                            kpiProjectCode === activity.project_code
+        
+        if (!projectMatch) return false
+        
+        // Match zone if available
+        if (zoneRef && zoneRef !== 'enabling division' && zoneNumber) {
+          const zoneMatch = kpiZone === zoneRef || 
+                           kpiZone === zoneNumber ||
+                           kpiZone.includes(zoneRef) ||
+                           kpiZone.includes(zoneNumber)
+          if (!zoneMatch) return false
+        }
+        
+        return true
+      })
+      
+      // Sum only ACTUAL KPIs
+      const actualKPIs = activityKPIs.filter((kpi: any) => {
+        const inputType = String(kpi.input_type || kpi['Input Type'] || (kpi as any).raw?.['Input Type'] || '').trim().toLowerCase()
+        return inputType === 'actual'
+      })
+      
+      // Calculate Earned Value using unified logic (same as workValueCalculator.ts)
+      let earnedValue = 0
+      
+      actualKPIs.forEach((kpi: any) => {
+        const rawKpi = (kpi as any).raw || {}
+        const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
+        
+        // Get activity rate
+        let rate = 0
+        const rawActivity = (activity as any).raw || {}
+        
+        // Priority 1: Calculate Rate = Total Value / Total Units
+        const totalValueFromActivity = activity.total_value || 
+                                     parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                     0
+        
+        const totalUnits = activity.total_units || 
+                        activity.planned_units ||
+                        parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                        0
+        
+        if (totalUnits > 0 && totalValueFromActivity > 0) {
+          rate = totalValueFromActivity / totalUnits
+        } else {
+          // Priority 2: Use rate directly from activity
+          rate = activity.rate || 
+                parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+                0
+        }
+        
+        // Priority 1: Calculate from Rate × Quantity
+        let calculatedValue = 0
+        if (rate > 0 && quantity > 0) {
+          calculatedValue = rate * quantity
+          if (calculatedValue > 0) {
+            earnedValue += calculatedValue
+            return // Move to next KPI
+          }
+        }
+        
+        // Priority 2: Use Value directly from KPI
+        let kpiValue = 0
+        
+        // Try raw['Value'] (from database with capital V)
+        if (rawKpi['Value'] !== undefined && rawKpi['Value'] !== null) {
+          const val = rawKpi['Value']
+          kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+        }
+        
+        // Try raw.value (from database with lowercase v)
+        if (kpiValue === 0 && rawKpi.value !== undefined && rawKpi.value !== null) {
+          const val = rawKpi.value
+          kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+        }
+        
+        // Try k.value (direct property from ProcessedKPI)
+        if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
+          const val = kpi.value
+          kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+        }
+        
+        if (kpiValue > 0) {
+          earnedValue += kpiValue
+          return // Move to next KPI
+        }
+        
+        // Priority 3: Try Actual Value
+        const actualValue = (kpi.actual_value ?? 
+                           parseFloat(String(rawKpi['Actual Value'] || '0').replace(/,/g, ''))) || 
+                           0
+        
+        if (actualValue > 0) {
+          earnedValue += actualValue
+          return // Move to next KPI
+        }
+      })
+      
+      return earnedValue
+    } catch (error) {
+      console.error('Error calculating earned value:', error)
+      return activity.earned_value || 0
+    }
+  }, [kpis])
+  
+  // Calculate pagination
+  const totalPages = Math.ceil(activities.length / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedActivities = activities.slice(startIndex, endIndex)
+  
+  // Calculate totals
+  const totals = useMemo(() => {
+    return activities.reduce((acc: any, activity: BOQActivity) => {
+      acc.totalUnits += activity.total_units || 0
+      acc.plannedUnits += activity.planned_units || 0
+      acc.actualUnits += calculateActualUnits(activity)
+      acc.totalValue += activity.total_value || 0
+      acc.plannedValue += activity.planned_value || 0
+      acc.earnedValue += activity.earned_value || 0
+      return acc
+    }, {
+      totalUnits: 0,
+      plannedUnits: 0,
+      actualUnits: 0,
+      totalValue: 0,
+      plannedValue: 0,
+      earnedValue: 0
+    })
+  }, [activities, calculateActualUnits, calculateEarnedValue])
+  
+  const formatDate = (date: string | null | undefined): string => {
+    if (!date) return 'N/A'
+    try {
+      return new Date(date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+    } catch {
+      return 'N/A'
+    }
+  }
+  
+  // Helper: Get activity field (same as BOQTableWithCustomization)
+  const getActivityField = (activity: BOQActivity, fieldName: string): any => {
+    const raw = (activity as any).raw || activity
+    return raw[fieldName] || raw[fieldName.replace(/\s+/g, ' ')] || (activity as any)[fieldName] || ''
+  }
+  
+  // Helper: Normalize zone (remove project code prefix)
+  const normalizeZone = (zone: string, projectCode: string): string => {
+    if (!zone || !projectCode) return (zone || '').toLowerCase().trim()
+    let normalized = zone.trim()
+    const codeUpper = projectCode.toUpperCase()
+    normalized = normalized.replace(new RegExp(`^${codeUpper}\\s*-\\s*`, 'i'), '').trim()
+    normalized = normalized.replace(new RegExp(`^${codeUpper}\\s+`, 'i'), '').trim()
+    normalized = normalized.replace(new RegExp(`^${codeUpper}-`, 'i'), '').trim()
+    return normalized.toLowerCase()
+  }
+  
+  // Helper: Extract zone from activity
+  const getActivityZone = (activity: BOQActivity): string => {
+    const rawActivity = (activity as any).raw || {}
+    let zoneValue = activity.zone_number || 
+                   activity.zone_ref || 
+                   rawActivity['Zone Number'] ||
+                   rawActivity['Zone Ref'] ||
+                   rawActivity['Zone #'] ||
+                   ''
+    
+    if (zoneValue && activity.project_code) {
+      const projectCodeUpper = activity.project_code.toUpperCase().trim()
+      let zoneStr = zoneValue.toString()
+      zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+      zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
+      zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
+      zoneStr = zoneStr.replace(/^\s*-\s*/, '').trim()
+      zoneStr = zoneStr.replace(/\s+/g, ' ').trim()
+      zoneValue = zoneStr || ''
+    }
+    
+    return (zoneValue || '').toString().toLowerCase().trim()
+  }
+  
+  // Helper: Extract zone from KPI
+  const getKPIZone = (kpi: any): string => {
+    const rawKPI = (kpi as any).raw || {}
+    const zoneRaw = (
+      kpi.zone || 
+      kpi.section || 
+      rawKPI['Zone'] || 
+      rawKPI['Zone Number'] || 
+      ''
+    ).toString().trim()
+    const projectCode = (kpi.project_code || kpi['Project Code'] || rawKPI['Project Code'] || '').toString().trim()
+    return normalizeZone(zoneRaw, projectCode)
+  }
+  
+  // Helper: Extract zone number for exact matching
+  const extractZoneNumber = (zone: string): string => {
+    if (!zone || zone.trim() === '') return ''
+    
+    const normalizedZone = zone.toLowerCase().trim()
+    
+    // Try to match "zone X" or "zone-X" pattern first
+    const zonePatternMatch = normalizedZone.match(/zone\s*[-_]?\s*(\d+)/i)
+    if (zonePatternMatch && zonePatternMatch[1]) {
+      return zonePatternMatch[1]
+    }
+    
+    // Try to match standalone number at the end
+    const endNumberMatch = normalizedZone.match(/(\d+)\s*$/)
+    if (endNumberMatch && endNumberMatch[1]) {
+      return endNumberMatch[1]
+    }
+    
+    // Fallback: extract first number
+    const numberMatch = normalizedZone.match(/\d+/)
+    if (numberMatch) return numberMatch[0]
+    
+    return normalizedZone
+  }
+  
+  // Helper: Parse date string to YYYY-MM-DD format
+  const parseDateToYYYYMMDD = (dateStr: string): string | null => {
+    if (!dateStr || dateStr.trim() === '' || dateStr === 'N/A') return null
+    
+    try {
+      const date = new Date(dateStr)
+      if (isNaN(date.getTime())) return null
+      
+      const year = date.getFullYear()
+      const month = String(date.getMonth() + 1).padStart(2, '0')
+      const day = String(date.getDate()).padStart(2, '0')
+      
+      return `${year}-${month}-${day}`
+    } catch {
+      return null
+    }
+  }
+  
+  // Get Planned Start Date (same logic as BOQTableWithCustomization)
+  const getPlannedStartDate = useCallback((activity: BOQActivity): string => {
+    const raw = (activity as any).raw || {}
+    
+    // PRIORITY 1: Get from first Planned KPI Date column
+    if (kpis && kpis.length > 0) {
+      const activityName = (activity.activity_name || '').toLowerCase().trim()
+      const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
+      const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+      const activityZone = getActivityZone(activity)
+      const activityZoneNum = extractZoneNumber(activityZone)
+      
+      // Find matching Planned KPIs
+      const matchingKPIs = kpis.filter((kpi: any) => {
+        const rawKPI = (kpi as any).raw || {}
+        
+        // 1. Must be Planned
+        const kpiInputType = (kpi.input_type || rawKPI['Input Type'] || '').toString().toLowerCase().trim()
+        if (kpiInputType !== 'planned') return false
+        
+        // 2. Activity Name must match
+        const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
+        if (!kpiActivityName || !activityName) return false
+        if (kpiActivityName !== activityName && !kpiActivityName.includes(activityName) && !activityName.includes(kpiActivityName)) {
+          return false
+        }
+        
+        // 3. Project Code must match
+        const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+        const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+        
+        const projectMatch = (
+          (kpiProjectCode && activityProjectCode && kpiProjectCode === activityProjectCode) ||
+          (kpiProjectFullCode && activityProjectFullCode && kpiProjectFullCode === activityProjectFullCode) ||
+          (kpiProjectCode && activityProjectFullCode && kpiProjectCode === activityProjectFullCode) ||
+          (kpiProjectFullCode && activityProjectCode && kpiProjectFullCode === activityProjectCode)
+        )
+        if (!projectMatch) return false
+        
+        // 4. Zone must match EXACTLY (if activity has zone)
+        if (activityZone && activityZone.trim() !== '') {
+          const kpiZone = getKPIZone(kpi)
+          if (!kpiZone || kpiZone.trim() === '') return false
+          
+          const kpiZoneNum = extractZoneNumber(kpiZone)
+          if (activityZoneNum && kpiZoneNum && activityZoneNum !== kpiZoneNum) {
+            return false
+          }
+        }
+        
+        return true
+      })
+      
+      // Get dates from matching KPIs
+      if (matchingKPIs.length > 0) {
+        const validDates: Array<{ dateStr: string; dateObj: Date }> = []
+        
+        matchingKPIs.forEach((kpi: any) => {
+          const rawKPI = (kpi as any).raw || {}
+          
+          // Get Date from Date column
+          let kpiDateStr = ''
+          if (kpi.target_date && kpi.target_date.toString().trim() !== '' && kpi.target_date !== 'N/A') {
+            kpiDateStr = kpi.target_date.toString().trim()
+          } else if (kpi.activity_date && kpi.activity_date.toString().trim() !== '' && kpi.activity_date !== 'N/A') {
+            kpiDateStr = kpi.activity_date.toString().trim()
+          } else if (rawKPI['Date'] && rawKPI['Date'].toString().trim() !== '' && rawKPI['Date'] !== 'N/A') {
+            kpiDateStr = rawKPI['Date'].toString().trim()
+          } else if (rawKPI['Target Date'] && rawKPI['Target Date'].toString().trim() !== '' && rawKPI['Target Date'] !== 'N/A') {
+            kpiDateStr = rawKPI['Target Date'].toString().trim()
+          } else if (rawKPI['Activity Date'] && rawKPI['Activity Date'].toString().trim() !== '' && rawKPI['Activity Date'] !== 'N/A') {
+            kpiDateStr = rawKPI['Activity Date'].toString().trim()
+          }
+          
+          if (kpiDateStr) {
+            const parsedDate = parseDateToYYYYMMDD(kpiDateStr)
+            if (parsedDate) {
+              try {
+                const [year, month, day] = parsedDate.split('-').map(Number)
+                const dateObj = new Date(year, month - 1, day)
+                if (!isNaN(dateObj.getTime())) {
+                  validDates.push({ dateStr: parsedDate, dateObj })
+                }
+              } catch {
+                // Skip invalid date
+              }
+            }
+          }
+        })
+        
+        // Sort by date and return earliest
+        if (validDates.length > 0) {
+          validDates.sort((a, b) => a.dateObj.getTime() - b.dateObj.getTime())
+          return validDates[0].dateStr
+        }
+      }
+    }
+    
+    // Priority 2: Direct BOQ Activity fields
+    const directStart = activity.planned_activity_start_date || 
+                       activity.activity_planned_start_date ||
+                       getActivityField(activity, 'Planned Activity Start Date') ||
+                       getActivityField(activity, 'Planned Start Date') ||
+                       getActivityField(activity, 'Activity Planned Start Date') ||
+                       raw['Planned Activity Start Date'] ||
+                       raw['Planned Start Date'] ||
+                       raw['Activity Planned Start Date'] ||
+                       ''
+    
+    if (directStart && directStart.trim() !== '' && directStart !== 'N/A') {
+      return directStart
+    }
+    
+    return ''
+  }, [kpis])
+  
+  // Get Planned End Date (last date from Planned KPIs)
+  const getPlannedEndDate = useCallback((activity: BOQActivity): string => {
+    const raw = (activity as any).raw || {}
+    
+    // PRIORITY 1: Get from last Planned KPI Date column
+    if (kpis && kpis.length > 0) {
+      const activityName = (activity.activity_name || '').toLowerCase().trim()
+      const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
+      const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+      const activityZone = getActivityZone(activity)
+      const activityZoneNum = extractZoneNumber(activityZone)
+      
+      // Find matching Planned KPIs (same logic as getPlannedStartDate)
+      const matchingKPIs = kpis.filter((kpi: any) => {
+        const rawKPI = (kpi as any).raw || {}
+        
+        const kpiInputType = (kpi.input_type || rawKPI['Input Type'] || '').toString().toLowerCase().trim()
+        if (kpiInputType !== 'planned') return false
+        
+        const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
+        if (!kpiActivityName || !activityName) return false
+        if (kpiActivityName !== activityName && !kpiActivityName.includes(activityName) && !activityName.includes(kpiActivityName)) {
+          return false
+        }
+        
+        const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+        const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+        
+        const projectMatch = (
+          (kpiProjectCode && activityProjectCode && kpiProjectCode === activityProjectCode) ||
+          (kpiProjectFullCode && activityProjectFullCode && kpiProjectFullCode === activityProjectFullCode) ||
+          (kpiProjectCode && activityProjectFullCode && kpiProjectCode === activityProjectFullCode) ||
+          (kpiProjectFullCode && activityProjectCode && kpiProjectFullCode === activityProjectCode)
+        )
+        if (!projectMatch) return false
+        
+        if (activityZone && activityZone.trim() !== '') {
+          const kpiZone = getKPIZone(kpi)
+          if (!kpiZone || kpiZone.trim() === '') return false
+          
+          const kpiZoneNum = extractZoneNumber(kpiZone)
+          if (activityZoneNum && kpiZoneNum && activityZoneNum !== kpiZoneNum) {
+            return false
+          }
+        }
+        
+        return true
+      })
+      
+      // Get dates from matching KPIs
+      if (matchingKPIs.length > 0) {
+        const validDates: Array<{ dateStr: string; dateObj: Date }> = []
+        
+        matchingKPIs.forEach((kpi: any) => {
+          const rawKPI = (kpi as any).raw || {}
+          
+          let kpiDateStr = ''
+          if (kpi.target_date && kpi.target_date.toString().trim() !== '' && kpi.target_date !== 'N/A') {
+            kpiDateStr = kpi.target_date.toString().trim()
+          } else if (kpi.activity_date && kpi.activity_date.toString().trim() !== '' && kpi.activity_date !== 'N/A') {
+            kpiDateStr = kpi.activity_date.toString().trim()
+          } else if (rawKPI['Date'] && rawKPI['Date'].toString().trim() !== '' && rawKPI['Date'] !== 'N/A') {
+            kpiDateStr = rawKPI['Date'].toString().trim()
+          } else if (rawKPI['Target Date'] && rawKPI['Target Date'].toString().trim() !== '' && rawKPI['Target Date'] !== 'N/A') {
+            kpiDateStr = rawKPI['Target Date'].toString().trim()
+          } else if (rawKPI['Activity Date'] && rawKPI['Activity Date'].toString().trim() !== '' && rawKPI['Activity Date'] !== 'N/A') {
+            kpiDateStr = rawKPI['Activity Date'].toString().trim()
+          }
+          
+          if (kpiDateStr) {
+            const parsedDate = parseDateToYYYYMMDD(kpiDateStr)
+            if (parsedDate) {
+              try {
+                const [year, month, day] = parsedDate.split('-').map(Number)
+                const dateObj = new Date(year, month - 1, day)
+                if (!isNaN(dateObj.getTime())) {
+                  validDates.push({ dateStr: parsedDate, dateObj })
+                }
+              } catch {
+                // Skip invalid date
+              }
+            }
+          }
+        })
+        
+        // Sort by date and return latest (LAST date)
+        if (validDates.length > 0) {
+          validDates.sort((a, b) => a.dateObj.getTime() - b.dateObj.getTime())
+          return validDates[validDates.length - 1].dateStr
+        }
+      }
+    }
+    
+    // Priority 2: Direct BOQ Activity fields
+    const directEnd = activity.deadline || 
+                      activity.activity_planned_completion_date ||
+                      getActivityField(activity, 'Deadline') ||
+                      getActivityField(activity, 'Planned Completion Date') ||
+                      getActivityField(activity, 'Activity Planned Completion Date') ||
+                      raw['Deadline'] ||
+                      raw['Planned Completion Date'] ||
+                      raw['Activity Planned Completion Date'] ||
+                      ''
+    
+    if (directEnd && directEnd.trim() !== '' && directEnd !== 'N/A') {
+      return directEnd
+    }
+    
+    return ''
+  }, [kpis])
+  
+  // Get Actual Start Date (first date from Actual KPIs)
+  const getActualStartDate = useCallback((activity: BOQActivity): string => {
+    const raw = (activity as any).raw || {}
+    
+    // PRIORITY 1: Get from first Actual KPI Date column
+    if (kpis && kpis.length > 0) {
+      const activityName = (activity.activity_name || '').toLowerCase().trim()
+      const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
+      const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+      const activityZone = getActivityZone(activity)
+      const activityZoneNum = extractZoneNumber(activityZone)
+      
+      // Find matching Actual KPIs
+      const matchingKPIs = kpis.filter((kpi: any) => {
+        const rawKPI = (kpi as any).raw || {}
+        
+        // 1. Must be Actual
+        const kpiInputType = (kpi.input_type || rawKPI['Input Type'] || '').toString().toLowerCase().trim()
+        if (kpiInputType !== 'actual') return false
+        
+        // 2. Activity Name must match
+        const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
+        if (!kpiActivityName || !activityName) return false
+        if (kpiActivityName !== activityName && !kpiActivityName.includes(activityName) && !activityName.includes(kpiActivityName)) {
+          return false
+        }
+        
+        // 3. Project Code must match
+        const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+        const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+        
+        const projectMatch = (
+          (kpiProjectCode && activityProjectCode && kpiProjectCode === activityProjectCode) ||
+          (kpiProjectFullCode && activityProjectFullCode && kpiProjectFullCode === activityProjectFullCode) ||
+          (kpiProjectCode && activityProjectFullCode && kpiProjectCode === activityProjectFullCode) ||
+          (kpiProjectFullCode && activityProjectCode && kpiProjectFullCode === activityProjectCode)
+        )
+        if (!projectMatch) return false
+        
+        // 4. Zone must match EXACTLY (if activity has zone)
+        if (activityZone && activityZone.trim() !== '') {
+          const kpiZone = getKPIZone(kpi)
+          if (!kpiZone || kpiZone.trim() === '') return false
+          
+          const kpiZoneNum = extractZoneNumber(kpiZone)
+          if (activityZoneNum && kpiZoneNum && activityZoneNum !== kpiZoneNum) {
+            return false
+          }
+        }
+        
+        return true
+      })
+      
+      // Get dates from matching KPIs
+      if (matchingKPIs.length > 0) {
+        const validDates: Array<{ dateStr: string; dateObj: Date }> = []
+        
+        matchingKPIs.forEach((kpi: any) => {
+          const rawKPI = (kpi as any).raw || {}
+          
+          // Get Date from Date/Actual Date column
+          let kpiDateStr = ''
+          if (kpi.actual_date && kpi.actual_date.toString().trim() !== '' && kpi.actual_date !== 'N/A') {
+            kpiDateStr = kpi.actual_date.toString().trim()
+          } else if (kpi.activity_date && kpi.activity_date.toString().trim() !== '' && kpi.activity_date !== 'N/A') {
+            kpiDateStr = kpi.activity_date.toString().trim()
+          } else if (kpi.target_date && kpi.target_date.toString().trim() !== '' && kpi.target_date !== 'N/A') {
+            kpiDateStr = kpi.target_date.toString().trim()
+          } else if (rawKPI['Date'] && rawKPI['Date'].toString().trim() !== '' && rawKPI['Date'] !== 'N/A') {
+            kpiDateStr = rawKPI['Date'].toString().trim()
+          } else if (rawKPI['Actual Date'] && rawKPI['Actual Date'].toString().trim() !== '' && rawKPI['Actual Date'] !== 'N/A') {
+            kpiDateStr = rawKPI['Actual Date'].toString().trim()
+          } else if (rawKPI['Activity Date'] && rawKPI['Activity Date'].toString().trim() !== '' && rawKPI['Activity Date'] !== 'N/A') {
+            kpiDateStr = rawKPI['Activity Date'].toString().trim()
+          }
+          
+          if (kpiDateStr) {
+            const parsedDate = parseDateToYYYYMMDD(kpiDateStr)
+            if (parsedDate) {
+              try {
+                const [year, month, day] = parsedDate.split('-').map(Number)
+                const dateObj = new Date(year, month - 1, day)
+                if (!isNaN(dateObj.getTime())) {
+                  validDates.push({ dateStr: parsedDate, dateObj })
+                }
+              } catch {
+                // Skip invalid date
+              }
+            }
+          }
+        })
+        
+        // Sort by date and return earliest (FIRST date)
+        if (validDates.length > 0) {
+          validDates.sort((a, b) => a.dateObj.getTime() - b.dateObj.getTime())
+          return validDates[0].dateStr
+        }
+      }
+    }
+    
+    // Priority 2: Direct BOQ Activity fields
+    const directStart = getActivityField(activity, 'Actual Start Date') ||
+                       getActivityField(activity, 'Actual Start') ||
+                       getActivityField(activity, 'Activity Actual Start Date') ||
+                       raw['Actual Start Date'] ||
+                       raw['Actual Start'] ||
+                       raw['Activity Actual Start Date'] ||
+                       ''
+    
+    if (directStart && directStart.trim() !== '' && directStart !== 'N/A') {
+      return directStart
+    }
+    
+    return ''
+  }, [kpis])
+  
+  // Get Actual End Date (last date from Actual KPIs)
+  // ✅ IMPORTANT: If activity hasn't started (no Actual Start Date), return empty string
+  const getActualEndDate = useCallback((activity: BOQActivity): string => {
+    // ✅ FIRST: Check if activity has started (has Actual Start Date)
+    const actualStart = getActualStartDate(activity)
+    if (!actualStart || actualStart.trim() === '' || actualStart === 'N/A') {
+      // Activity hasn't started yet, so no Actual End Date
+      return ''
+    }
+    
+    const raw = (activity as any).raw || {}
+    
+    // PRIORITY 1: Get from last Actual KPI Date column
+    if (kpis && kpis.length > 0) {
+      const activityName = (activity.activity_name || '').toLowerCase().trim()
+      const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
+      const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+      const activityZone = getActivityZone(activity)
+      const activityZoneNum = extractZoneNumber(activityZone)
+      
+      // Find matching Actual KPIs (same logic as getActualStartDate)
+      const matchingKPIs = kpis.filter((kpi: any) => {
+        const rawKPI = (kpi as any).raw || {}
+        
+        const kpiInputType = (kpi.input_type || rawKPI['Input Type'] || '').toString().toLowerCase().trim()
+        if (kpiInputType !== 'actual') return false
+        
+        const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
+        if (!kpiActivityName || !activityName) return false
+        if (kpiActivityName !== activityName && !kpiActivityName.includes(activityName) && !activityName.includes(kpiActivityName)) {
+          return false
+        }
+        
+        const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+        const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+        
+        const projectMatch = (
+          (kpiProjectCode && activityProjectCode && kpiProjectCode === activityProjectCode) ||
+          (kpiProjectFullCode && activityProjectFullCode && kpiProjectFullCode === activityProjectFullCode) ||
+          (kpiProjectCode && activityProjectFullCode && kpiProjectCode === activityProjectFullCode) ||
+          (kpiProjectFullCode && activityProjectCode && kpiProjectFullCode === activityProjectCode)
+        )
+        if (!projectMatch) return false
+        
+        if (activityZone && activityZone.trim() !== '') {
+          const kpiZone = getKPIZone(kpi)
+          if (!kpiZone || kpiZone.trim() === '') return false
+          
+          const kpiZoneNum = extractZoneNumber(kpiZone)
+          if (activityZoneNum && kpiZoneNum && activityZoneNum !== kpiZoneNum) {
+            return false
+          }
+        }
+        
+        return true
+      })
+      
+      // Get dates from matching KPIs
+      if (matchingKPIs.length > 0) {
+        const validDates: Array<{ dateStr: string; dateObj: Date }> = []
+        
+        matchingKPIs.forEach((kpi: any) => {
+          const rawKPI = (kpi as any).raw || {}
+          
+          let kpiDateStr = ''
+          if (kpi.actual_date && kpi.actual_date.toString().trim() !== '' && kpi.actual_date !== 'N/A') {
+            kpiDateStr = kpi.actual_date.toString().trim()
+          } else if (kpi.activity_date && kpi.activity_date.toString().trim() !== '' && kpi.activity_date !== 'N/A') {
+            kpiDateStr = kpi.activity_date.toString().trim()
+          } else if (kpi.target_date && kpi.target_date.toString().trim() !== '' && kpi.target_date !== 'N/A') {
+            kpiDateStr = kpi.target_date.toString().trim()
+          } else if (rawKPI['Date'] && rawKPI['Date'].toString().trim() !== '' && rawKPI['Date'] !== 'N/A') {
+            kpiDateStr = rawKPI['Date'].toString().trim()
+          } else if (rawKPI['Actual Date'] && rawKPI['Actual Date'].toString().trim() !== '' && rawKPI['Actual Date'] !== 'N/A') {
+            kpiDateStr = rawKPI['Actual Date'].toString().trim()
+          } else if (rawKPI['Activity Date'] && rawKPI['Activity Date'].toString().trim() !== '' && rawKPI['Activity Date'] !== 'N/A') {
+            kpiDateStr = rawKPI['Activity Date'].toString().trim()
+          }
+          
+          if (kpiDateStr) {
+            const parsedDate = parseDateToYYYYMMDD(kpiDateStr)
+            if (parsedDate) {
+              try {
+                const [year, month, day] = parsedDate.split('-').map(Number)
+                const dateObj = new Date(year, month - 1, day)
+                if (!isNaN(dateObj.getTime())) {
+                  validDates.push({ dateStr: parsedDate, dateObj })
+                }
+              } catch {
+                // Skip invalid date
+              }
+            }
+          }
+        })
+        
+        // Sort by date and return latest (LAST date)
+        if (validDates.length > 0) {
+          validDates.sort((a, b) => a.dateObj.getTime() - b.dateObj.getTime())
+          return validDates[validDates.length - 1].dateStr
+        }
+      }
+    }
+    
+    // Priority 2: Direct BOQ Activity fields (ONLY if activity has started)
+    // Note: We already checked that actualStart exists at the beginning of the function
+    const directEnd = getActivityField(activity, 'Actual Completion Date') ||
+                      getActivityField(activity, 'Actual Completion') ||
+                      getActivityField(activity, 'Activity Actual Completion Date') ||
+                      raw['Actual Completion Date'] ||
+                      raw['Actual Completion'] ||
+                      raw['Activity Actual Completion Date'] ||
+                      ''
+    
+    // ✅ Don't use deadline as fallback for Actual End Date - it's a planned date
+    if (directEnd && directEnd.trim() !== '' && directEnd !== 'N/A') {
+      return directEnd
+    }
+    
+    return ''
+  }, [kpis, getActualStartDate])
+  
+  // Get Start Date with priority order (DEPRECATED - use getPlannedStartDate/getActualStartDate instead)
+  const getStartDate = useCallback((activity: BOQActivity): string | null => {
+    const raw = (activity as any).raw || {}
+    const activityAny = activity as any
+    
+    // Priority 1: From mapped fields (snake_case)
+    let start = activity.planned_activity_start_date || 
+                activity.activity_planned_start_date || 
+                activityAny.planned_start_date ||
+                ''
+    
+    // Priority 2: From raw database row (with spaces - EXACT MATCH)
+    if (!start || start === '' || start === 'N/A' || start === 'null') {
+      start = raw['Planned Activity Start Date'] ||
+             raw['PlannedActivityStartDate'] ||
+             raw['Activity Planned Start Date'] ||
+             raw['ActivityPlannedStartDate'] ||
+             ''
+    }
+    
+    // Priority 3: From activity object with bracket notation
+    if (!start || start === '' || start === 'N/A' || start === 'null') {
+      start = activityAny['Planned Activity Start Date'] ||
+             activityAny['PlannedActivityStartDate'] ||
+             activityAny['Activity Planned Start Date'] ||
+             activityAny['ActivityPlannedStartDate'] ||
+             activityAny['Planned Start Date'] ||
+             activityAny['Start Date'] ||
+             ''
+    }
+    
+    // Priority 4: Try lookahead_start_date
+    if (!start || start === '' || start === 'N/A' || start === 'null') {
+      start = activity.lookahead_start_date || raw['Lookahead Start Date'] || ''
+    }
+    
+    if (start && start.toString().trim() !== '' && start !== 'N/A' && start !== 'null') {
+      try {
+        const parsedDate = new Date(start)
+        if (!isNaN(parsedDate.getTime())) {
+          return parsedDate.toISOString().split('T')[0]
+        }
+      } catch {
+        // Invalid date, continue
+      }
+    }
+    
+    return null
+  }, [])
+  
+  // Calculate Progress from Actual Units / Planned Units
+  const calculateProgress = useCallback((activity: BOQActivity): number => {
+    const plannedUnits = activity.planned_units || 0
+    if (plannedUnits <= 0) return 0
+    
+    const actualUnits = calculateActualUnits(activity)
+    const progress = (actualUnits / plannedUnits) * 100
+    return Math.max(0, progress) // Allow values over 100%
+  }, [calculateActualUnits])
+  
+  // Export to Excel function (moved here to use date functions)
+  const handleExportActivities = useCallback(async () => {
+    if (activities.length === 0) {
+      alert('No data to export')
+      return
+    }
+
+    try {
+      // Dynamically import xlsx-js-style for advanced formatting
+      const XLSX = await import('xlsx-js-style')
+      
+      // Prepare data for Excel export
+      const exportData: any[] = []
+
+      // Add header row
+      const headerRow: any = {
+        'Activity Name': 'Activity Name',
+        'Project': 'Project',
+        'Zone': 'Zone',
+        'Division': 'Division',
+        'Unit': 'Unit',
+        'Total Units': 'Total Units',
+        'Planned Units': 'Planned Units',
+        'Actual Units': 'Actual Units',
+        'Rate': 'Rate',
+        'Total Value': 'Total Value',
+        'Planned Value': 'Planned Value',
+        'Earned Value': 'Earned Value',
+        'Progress %': 'Progress %',
+        'Planned Start Date': 'Planned Start Date',
+        'Planned End Date': 'Planned End Date',
+        'Actual Start Date': 'Actual Start Date',
+        'Actual End Date': 'Actual End Date',
+        'Status': 'Status'
+      }
+      exportData.push(headerRow)
+
+      // Add data rows
+      activities.forEach((activity: BOQActivity) => {
+        const currency = getActivityCurrency(activity)
+        const progressValue = calculateProgress(activity)
+        const zoneDisplay = activity.zone_ref && activity.zone_ref !== 'Enabling Division' 
+          ? `${activity.zone_ref}${activity.zone_number ? ` - ${activity.zone_number}` : ''}`
+          : activity.zone_number || 'N/A'
+        
+        const plannedStartDate = getPlannedStartDate(activity)
+        const plannedEndDate = getPlannedEndDate(activity)
+        const actualStartDate = getActualStartDate(activity)
+        const actualEndDate = getActualEndDate(activity)
+        
+        // ✅ Calculate Status based on Progress percentage (same logic as table)
+        let status = 'In Progress'
+        if ((progressValue === 0 || progressValue < 0.1) && (!actualStartDate || actualStartDate.trim() === '' || actualStartDate === 'N/A')) {
+          status = 'Not Started'
+        } else if (progressValue >= 100) {
+          status = 'Completed'
+        } else if (progressValue < 50 && actualStartDate) {
+          status = 'Delayed'
+        } else if (progressValue >= 50 && progressValue < 100) {
+          status = 'On Track'
+        } else {
+          status = 'In Progress'
+        }
+        
+        // ✅ If activity hasn't started, show "Not Started" instead of date
+        const actualEndDateDisplay = actualStartDate 
+          ? (actualEndDate ? formatDate(actualEndDate) : 'N/A')
+          : 'Not Started'
+        
+        const row: any = {
+          'Activity Name': activity.activity_name || activity.activity || 'N/A',
+          'Project': activity.project_full_code || activity.project_code || 'N/A',
+          'Zone': zoneDisplay,
+          'Division': activity.activity_division || 'N/A',
+          'Unit': activity.unit || 'N/A',
+          'Total Units': activity.total_units || 0,
+          'Planned Units': activity.planned_units || 0,
+          'Actual Units': calculateActualUnits(activity),
+          'Rate': activity.rate || 0,
+          'Total Value': activity.total_value || 0,
+          'Planned Value': activity.planned_value || 0,
+          'Earned Value': calculateEarnedValue(activity),
+          'Progress %': progressValue,
+          'Planned Start Date': plannedStartDate ? formatDate(plannedStartDate) : 'N/A',
+          'Planned End Date': plannedEndDate ? formatDate(plannedEndDate) : 'N/A',
+          'Actual Start Date': actualStartDate ? formatDate(actualStartDate) : 'N/A',
+          'Actual End Date': actualEndDateDisplay,
+          'Status': status
+        }
+        exportData.push(row)
+      })
+
+      // Add totals row
+      const totals = activities.reduce((acc: any, activity: BOQActivity) => {
+        acc.totalUnits += activity.total_units || 0
+        acc.plannedUnits += activity.planned_units || 0
+        acc.actualUnits += calculateActualUnits(activity)
+        acc.totalValue += activity.total_value || 0
+        acc.plannedValue += activity.planned_value || 0
+        acc.earnedValue += calculateEarnedValue(activity)
+        return acc
+      }, {
+        totalUnits: 0,
+        plannedUnits: 0,
+        actualUnits: 0,
+        totalValue: 0,
+        plannedValue: 0,
+        earnedValue: 0
+      })
+      
+      const totalsRow: any = {
+        'Activity Name': 'TOTAL',
+        'Project': '',
+        'Zone': '',
+        'Division': '',
+        'Unit': '',
+        'Total Units': totals.totalUnits,
+        'Planned Units': totals.plannedUnits,
+        'Actual Units': totals.actualUnits,
+        'Rate': '',
+        'Total Value': totals.totalValue,
+        'Planned Value': totals.plannedValue,
+        'Earned Value': totals.earnedValue,
+        'Progress %': '',
+        'Planned Start Date': '',
+        'Planned End Date': '',
+        'Actual Start Date': '',
+        'Actual End Date': '',
+        'Status': ''
+      }
+      exportData.push(totalsRow)
+
+      // Create worksheet
+      const ws = XLSX.utils.json_to_sheet(exportData)
+      
+      // Define column widths
+      const colWidths = [
+        { wch: 40 }, // Activity Name
+        { wch: 20 }, // Project
+        { wch: 18 }, // Zone
+        { wch: 20 }, // Division
+        { wch: 12 }, // Unit
+        { wch: 15 }, // Total Units
+        { wch: 15 }, // Planned Units
+        { wch: 15 }, // Actual Units
+        { wch: 15 }, // Rate
+        { wch: 18 }, // Total Value
+        { wch: 18 }, // Planned Value
+        { wch: 18 }, // Earned Value
+        { wch: 12 }, // Progress %
+        { wch: 18 }, // Planned Start Date
+        { wch: 18 }, // Planned End Date
+        { wch: 18 }, // Actual Start Date
+        { wch: 18 }, // Actual End Date
+        { wch: 15 }  // Status
+      ]
+      ws['!cols'] = colWidths
+      
+      // Freeze first row
+      ws['!freeze'] = { xSplit: 0, ySplit: 1, topLeftCell: 'A2', activePane: 'bottomLeft', state: 'frozen' }
+      
+      // Define styles
+      const headerStyle = {
+        font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 11 },
+        fill: { fgColor: { rgb: '4472C4' } },
+        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+        border: {
+          top: { style: 'thin', color: { rgb: '000000' } },
+          bottom: { style: 'thin', color: { rgb: '000000' } },
+          left: { style: 'thin', color: { rgb: '000000' } },
+          right: { style: 'thin', color: { rgb: '000000' } }
+        }
+      }
+      
+      const numberStyle = {
+        numFmt: '#,##0.00',
+        alignment: { horizontal: 'right', vertical: 'center' },
+        border: {
+          top: { style: 'thin', color: { rgb: 'CCCCCC' } },
+          bottom: { style: 'thin', color: { rgb: 'CCCCCC' } },
+          left: { style: 'thin', color: { rgb: 'CCCCCC' } },
+          right: { style: 'thin', color: { rgb: 'CCCCCC' } }
+        }
+      }
+      
+      const textStyle = {
+        alignment: { horizontal: 'left', vertical: 'center', wrapText: true },
+        border: {
+          top: { style: 'thin', color: { rgb: 'CCCCCC' } },
+          bottom: { style: 'thin', color: { rgb: 'CCCCCC' } },
+          left: { style: 'thin', color: { rgb: 'CCCCCC' } },
+          right: { style: 'thin', color: { rgb: 'CCCCCC' } }
+        }
+      }
+      
+      const totalsStyle = {
+        font: { bold: true, sz: 11 },
+        fill: { fgColor: { rgb: 'D9E1F2' } },
+        alignment: { horizontal: 'right', vertical: 'center' },
+        numFmt: '#,##0.00',
+        border: {
+          top: { style: 'medium', color: { rgb: '000000' } },
+          bottom: { style: 'medium', color: { rgb: '000000' } },
+          left: { style: 'thin', color: { rgb: 'CCCCCC' } },
+          right: { style: 'thin', color: { rgb: 'CCCCCC' } }
+        }
+      }
+      
+      const totalsTextStyle = {
+        font: { bold: true, sz: 11 },
+        fill: { fgColor: { rgb: 'D9E1F2' } },
+        alignment: { horizontal: 'left', vertical: 'center' },
+        border: {
+          top: { style: 'medium', color: { rgb: '000000' } },
+          bottom: { style: 'medium', color: { rgb: '000000' } },
+          left: { style: 'thin', color: { rgb: 'CCCCCC' } },
+          right: { style: 'thin', color: { rgb: 'CCCCCC' } }
+        }
+      }
+      
+      // Apply styles to cells
+      const range = XLSX.utils.decode_range(ws['!ref'] || 'A1')
+      const getColLetter = (colIndex: number): string => {
+        try {
+          return XLSX.utils.encode_col(colIndex)
+        } catch {
+          let result = ''
+          let num = colIndex
+          while (num >= 0) {
+            result = String.fromCharCode(65 + (num % 26)) + result
+            num = Math.floor(num / 26) - 1
+          }
+          return result
+        }
+      }
+      
+      // Style header row (row 0)
+      for (let col = range.s.c; col <= range.e.c; col++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: 0, c: col })
+        if (!ws[cellAddress]) continue
+        ws[cellAddress].s = headerStyle
+      }
+      
+      // Style data rows
+      for (let row = 1; row <= range.e.r; row++) {
+        const isTotalsRow = row === range.e.r
+        for (let col = range.s.c; col <= range.e.c; col++) {
+          const cellAddress = XLSX.utils.encode_cell({ r: row, c: col })
+          if (!ws[cellAddress]) continue
+          
+          const colIndex = col
+          // Number columns: 5-11 (Total Units through Earned Value), 12 (Progress %)
+          const isNumberColumn = (colIndex >= 5 && colIndex <= 11) || colIndex === 12
+          
+          if (isTotalsRow) {
+            if (colIndex === 0) {
+              ws[cellAddress].s = totalsTextStyle
+            } else if (isNumberColumn) {
+              ws[cellAddress].s = totalsStyle
+            } else {
+              ws[cellAddress].s = totalsTextStyle
+            }
+          } else {
+            const evenRowStyle = row % 2 === 0 
+              ? { ...textStyle, fill: { fgColor: { rgb: 'F2F2F2' } } }
+              : textStyle
+            
+            if (isNumberColumn) {
+              ws[cellAddress].s = row % 2 === 0 
+                ? { ...numberStyle, fill: { fgColor: { rgb: 'F2F2F2' } } }
+                : numberStyle
+            } else {
+              ws[cellAddress].s = evenRowStyle
+            }
+          }
+        }
+      }
+      
+      // Create workbook
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Activities Report')
+      
+      // Generate filename
+      const dateStr = new Date().toISOString().split('T')[0]
+      
+      // Write file
+      XLSX.writeFile(wb, `Activities_Report_${dateStr}.xlsx`)
+      
+      console.log(`✅ Downloaded formatted Excel: Activities_Report_${dateStr}.xlsx`)
+    } catch (error) {
+      console.error('Error exporting to Excel:', error)
+      alert('Failed to export data. Please try again.')
+    }
+  }, [activities, formatCurrency, calculateActualUnits, calculateEarnedValue, calculateProgress, getPlannedStartDate, getPlannedEndDate, getActualStartDate, getActualEndDate])
+  
   return (
     <div className="space-y-4">
-      <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-        Activities Report ({activities.length} activities)
-      </h3>
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Activities</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{activities.length}</p>
+              </div>
+              <Activity className="h-10 w-10 text-blue-500" />
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Value</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
+                  {formatCurrency(totals.totalValue)}
+                </p>
+              </div>
+              <DollarSign className="h-10 w-10 text-green-500" />
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Earned Value</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
+                  {formatCurrency(totals.earnedValue)}
+                </p>
+              </div>
+              <TrendingUp className="h-10 w-10 text-purple-500" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
       
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-          <thead className="bg-gray-50 dark:bg-gray-800">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Activity</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Project</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Division</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Planned</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Actual</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Progress</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Start Date</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">End Date</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Status</th>
+      {/* Activities Table */}
+    <Card>
+      <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Activity className="h-5 w-5 text-blue-500" />
+                Activities Report
+              </CardTitle>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                Showing {startIndex + 1}-{Math.min(endIndex, activities.length)} of {activities.length} activities
+              </p>
+            </div>
+            <Button
+              onClick={handleExportActivities}
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2"
+            >
+              <Download className="h-4 w-4" />
+              Export to Excel
+            </Button>
+          </div>
+      </CardHeader>
+      <CardContent>
+          <div className="relative">
+            <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 'calc(100vh - 300px)', scrollbarWidth: 'auto' }}>
+              <table className="border-collapse text-sm" style={{ tableLayout: 'auto', width: 'auto', minWidth: '100%' }}>
+                <thead className="sticky top-0 z-10">
+                  <tr className="bg-gray-100 dark:bg-gray-800 border-b-2 border-gray-300 dark:border-gray-600">
+                  <th className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-left font-semibold whitespace-nowrap" style={{ minWidth: '300px' }}>Activity Name</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-left font-semibold whitespace-nowrap" style={{ minWidth: '180px' }}>Project</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-left font-semibold whitespace-nowrap" style={{ minWidth: '150px' }}>Zone</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-left font-semibold whitespace-nowrap" style={{ minWidth: '180px' }}>Division</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-left font-semibold whitespace-nowrap">Unit</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-right font-semibold whitespace-nowrap">Total Units</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-right font-semibold whitespace-nowrap">Planned Units</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-right font-semibold whitespace-nowrap">Actual Units</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-right font-semibold whitespace-nowrap">Rate</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-right font-semibold whitespace-nowrap">Total Value</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-right font-semibold whitespace-nowrap">Planned Value</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-right font-semibold whitespace-nowrap">Earned Value</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-right font-semibold whitespace-nowrap">Progress</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-left font-semibold whitespace-nowrap">Planned Start Date</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-left font-semibold whitespace-nowrap">Planned End Date</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-left font-semibold whitespace-nowrap">Actual Start Date</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-left font-semibold whitespace-nowrap">Actual End Date</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-center font-semibold whitespace-nowrap">Status</th>
             </tr>
           </thead>
-          <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-            {activities.slice(0, 50).map(activity => (
-              <tr key={activity.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                <td className="px-6 py-4">
-                  <div className="font-medium text-gray-900 dark:text-gray-100">{activity.activity_name}</div>
+            <tbody>
+                {                  paginatedActivities.length === 0 ? (
+                  <tr>
+                    <td colSpan={19} className="border border-gray-300 dark:border-gray-600 px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                      <div className="flex flex-col items-center gap-2">
+                        <AlertTriangle className="h-8 w-8 text-gray-400" />
+                        <p>No activities found</p>
+                      </div>
                 </td>
-                <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
-                  {activity.project_code}
+                  </tr>
+                ) : (
+                  paginatedActivities.map((activity: BOQActivity) => {
+                    const currency = getActivityCurrency(activity)
+                    const progress = calculateProgress(activity)
+                    const zoneDisplay = activity.zone_ref && activity.zone_ref !== 'Enabling Division' 
+                      ? `${activity.zone_ref}${activity.zone_number ? ` - ${activity.zone_number}` : ''}`
+                      : activity.zone_number || 'N/A'
+                    const plannedStartDate = getPlannedStartDate(activity)
+                    const plannedEndDate = getPlannedEndDate(activity)
+                    const actualStartDate = getActualStartDate(activity)
+                    const actualEndDate = getActualEndDate(activity)
+                    
+                    // ✅ Calculate Status based on Progress percentage
+                    let status = 'In Progress'
+                    let statusColor = 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                    
+                    // Priority 1: Check if activity hasn't started (Progress = 0% and no Actual Start Date)
+                    if ((progress === 0 || progress < 0.1) && (!actualStartDate || actualStartDate.trim() === '' || actualStartDate === 'N/A')) {
+                      status = 'Not Started'
+                      statusColor = 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
+                    }
+                    // Priority 2: Check if activity is completed (Progress >= 100%)
+                    else if (progress >= 100) {
+                      status = 'Completed'
+                      statusColor = 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                    }
+                    // Priority 3: Check if activity is behind schedule (Progress < 50% and has started)
+                    else if (progress < 50 && actualStartDate) {
+                      status = 'Delayed'
+                      statusColor = 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                    }
+                    // Priority 4: Check if activity is on track (Progress >= 50% and < 100%)
+                    else if (progress >= 50 && progress < 100) {
+                      status = 'On Track'
+                      statusColor = 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                    }
+                    // Default: In Progress (Progress > 0% and < 50%)
+                    else {
+                      status = 'In Progress'
+                      statusColor = 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                    }
+                    
+                    return (
+                      <tr key={activity.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                        <td className="border border-gray-300 dark:border-gray-600 px-5 py-4" style={{ minWidth: '300px' }}>
+                          <div className="font-medium text-gray-900 dark:text-white">
+                            {activity.activity_name || activity.activity || 'N/A'}
+                          </div>
+                          {activity.activity_timing && (
+                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                              {activity.activity_timing}
+                            </div>
+                          )}
                 </td>
-                <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
-                  {activity.activity_division || 'N/A'}
+                        <td className="border border-gray-300 dark:border-gray-600 px-5 py-4" style={{ minWidth: '180px' }}>
+                          <div className="text-sm text-gray-900 dark:text-white">
+                            {activity.project_full_code || activity.project_code || 'N/A'}
+                          </div>
                 </td>
-                <td className="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">
-                  {activity.planned_units} {activity.unit}
+                        <td className="border border-gray-300 dark:border-gray-600 px-5 py-4" style={{ minWidth: '150px' }}>
+                          <span className="text-xs px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-400 rounded">
+                            {zoneDisplay}
+                          </span>
                 </td>
-                <td className="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">
-                  {activity.actual_units} {activity.unit}
+                        <td className="border border-gray-300 dark:border-gray-600 px-5 py-4" style={{ minWidth: '180px' }}>
+                          <span className="text-sm text-gray-700 dark:text-gray-300">
+                            {activity.activity_division || 'N/A'}
+                          </span>
+                        </td>
+                        <td className="border border-gray-300 dark:border-gray-600 px-5 py-4">
+                          <span className="text-sm text-gray-700 dark:text-gray-300">
+                            {activity.unit || 'N/A'}
+                          </span>
+                        </td>
+                        <td className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-right">
+                          <span className="text-sm font-medium text-gray-900 dark:text-white">
+                            {(activity.total_units || 0).toLocaleString()}
+                          </span>
+                        </td>
+                        <td className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-right">
+                          <span className="text-sm font-medium text-gray-900 dark:text-white">
+                            {(activity.planned_units || 0).toLocaleString()}
+                          </span>
+                        </td>
+                        <td className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-right">
+                          <span className="text-sm font-medium text-gray-900 dark:text-white">
+                            {calculateActualUnits(activity).toLocaleString()}
+                          </span>
+                        </td>
+                        <td className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-right">
+                          <span className="text-sm font-medium text-gray-900 dark:text-white">
+                            {formatCurrency(activity.rate || 0, currency)}
+                          </span>
+                        </td>
+                        <td className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-right">
+                          <span className="text-sm font-medium text-gray-900 dark:text-white">
+                            {formatCurrency(activity.total_value || 0, currency)}
+                          </span>
+                        </td>
+                        <td className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-right">
+                          <span className="text-sm font-medium text-blue-600 dark:text-blue-400">
+                            {formatCurrency(activity.planned_value || 0, currency)}
+                          </span>
+                        </td>
+                        <td className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-right">
+                          <span className="text-sm font-medium text-green-600 dark:text-green-400">
+                            {formatCurrency(calculateEarnedValue(activity), currency)}
+                          </span>
+                        </td>
+                        <td className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-right whitespace-nowrap">
+                    <div className="flex items-center justify-end gap-2">
+                      <div className="w-24 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                        <div
+                                className={`h-2 rounded-full ${
+                                  progress >= 100 ? 'bg-green-500' :
+                                  progress >= 75 ? 'bg-blue-500' :
+                                  progress >= 50 ? 'bg-yellow-500' :
+                                  'bg-red-500'
+                                }`}
+                                style={{ width: `${Math.min(100, progress)}%` }}
+                        />
+        </div>
+                            <span className="text-sm font-semibold text-right">
+                              {progress.toFixed(1)}%
+                            </span>
+      </div>
                 </td>
-                <td className="px-6 py-4">
-                  <div className="flex items-center gap-2">
-                    <div className="w-20 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                      <div
-                        className="bg-blue-600 h-2 rounded-full"
-                        style={{ width: `${Math.min(activity.activity_progress_percentage || 0, 100)}%` }}
-                      ></div>
-                    </div>
-                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                      {(activity.activity_progress_percentage || 0).toFixed(0)}%
-                    </span>
-                  </div>
-                </td>
-                <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
-                  {activity.planned_activity_start_date || activity.activity_planned_start_date || activity.lookahead_start_date ? 
-                    new Date(activity.planned_activity_start_date || activity.activity_planned_start_date || activity.lookahead_start_date).toLocaleDateString() : 'N/A'}
-                </td>
-                <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
-                  {activity.deadline || activity.activity_planned_completion_date || activity.lookahead_activity_completion_date ? 
-                    new Date(activity.deadline || activity.activity_planned_completion_date || activity.lookahead_activity_completion_date).toLocaleDateString() : 'N/A'}
-                </td>
-                <td className="px-6 py-4">
-                  <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                    activity.activity_completed ? 'bg-green-100 text-green-800' :
-                    activity.activity_delayed ? 'bg-red-100 text-red-800' :
-                    activity.activity_on_track ? 'bg-blue-100 text-blue-800' :
-                    'bg-gray-100 text-gray-800'
-                  }`}>
-                    {activity.activity_actual_status || 'Unknown'}
+                        <td className="border border-gray-300 dark:border-gray-600 px-5 py-4">
+                          <span className="text-xs text-gray-600 dark:text-gray-400">
+                            {plannedStartDate ? formatDate(plannedStartDate) : 'N/A'}
+                          </span>
+                        </td>
+                        <td className="border border-gray-300 dark:border-gray-600 px-5 py-4">
+                          <span className="text-xs text-gray-600 dark:text-gray-400">
+                            {plannedEndDate ? formatDate(plannedEndDate) : 'N/A'}
+                          </span>
+                        </td>
+                        <td className="border border-gray-300 dark:border-gray-600 px-5 py-4">
+                          <span className="text-xs text-gray-600 dark:text-gray-400">
+                            {actualStartDate ? formatDate(actualStartDate) : 'N/A'}
+                          </span>
+                        </td>
+                        <td className="border border-gray-300 dark:border-gray-600 px-5 py-4">
+                          <span className={`text-xs ${!actualStartDate ? 'text-orange-600 dark:text-orange-400 font-medium' : 'text-gray-600 dark:text-gray-400'}`}>
+                            {actualStartDate 
+                              ? (actualEndDate ? formatDate(actualEndDate) : 'N/A') 
+                              : 'Not Started'}
+                          </span>
+                        </td>
+                        <td className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-center">
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${statusColor}`}>
+                            {status}
                   </span>
                 </td>
               </tr>
-            ))}
+                    )
+                  })
+                )}
           </tbody>
+              {paginatedActivities.length > 0 && (
+                <tfoot>
+                  <tr className="bg-gray-100 dark:bg-gray-800 font-bold border-t-2 border-gray-300 dark:border-gray-600">
+                    <td colSpan={5} className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-right">TOTAL:</td>
+                    <td colSpan={4} className="border border-gray-300 dark:border-gray-600 px-5 py-4"></td>
+                    <td className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-right">
+                      {totals.totalUnits.toLocaleString()}
+                    </td>
+                    <td className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-right">
+                      {totals.plannedUnits.toLocaleString()}
+                    </td>
+                    <td className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-right">
+                      {totals.actualUnits.toLocaleString()}
+                    </td>
+                    <td className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-right">-</td>
+                    <td className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-right">
+                      {formatCurrency(totals.totalValue)}
+                    </td>
+                    <td className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-right">
+                      {formatCurrency(totals.plannedValue)}
+                    </td>
+                    <td className="border border-gray-300 dark:border-gray-600 px-5 py-4 text-right">
+                      {formatCurrency(totals.earnedValue)}
+                    </td>
+                    <td colSpan={4} className="border border-gray-300 dark:border-gray-600 px-5 py-4"></td>
+                  </tr>
+                </tfoot>
+              )}
         </table>
-      </div>
-      
-      {activities.length > 50 && (
-        <p className="text-sm text-gray-500 text-center">
-          Showing first 50 of {activities.length} activities. Export to view all.
-        </p>
-      )}
+    </div>
+          </div>
+          
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between mt-4">
+              <div className="text-sm text-gray-600 dark:text-gray-400">
+                Page {currentPage} of {totalPages}
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage === totalPages}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
+      </CardContent>
+    </Card>
     </div>
   )
 }
 
 // KPIs Report Component
-function KPIsReport({ kpis }: { kpis: ProcessedKPI[] }) {
+function KPIsReport({ kpis, formatCurrency }: any) {
+  // ✅ PERFORMANCE: Memoize filtered KPIs
+  const plannedKPIs = useMemo(() => {
+    return kpis.filter((k: ProcessedKPI) => k.input_type === 'Planned')
+  }, [kpis])
+  
+  const actualKPIs = useMemo(() => {
+    return kpis.filter((k: ProcessedKPI) => k.input_type === 'Actual')
+  }, [kpis])
+  
+  // ✅ PERFORMANCE: Memoize totals
+  const plannedTotalQuantity = useMemo(() => {
+    return plannedKPIs.reduce((sum: number, k: ProcessedKPI) => sum + (k.quantity || 0), 0)
+  }, [plannedKPIs])
+  
+  const actualTotalQuantity = useMemo(() => {
+    return actualKPIs.reduce((sum: number, k: ProcessedKPI) => sum + (k.quantity || 0), 0)
+  }, [actualKPIs])
+  
+  // ✅ PERFORMANCE: Memoize displayed KPIs (limit to 100)
+  const displayedKPIs = useMemo(() => {
+    return kpis.slice(0, 100)
+  }, [kpis])
+  
   return (
-    <div className="space-y-4">
-      <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-        KPI Records Report ({kpis.length} records)
-      </h3>
-      
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card>
+        <CardHeader>
+            <CardTitle>Planned KPIs</CardTitle>
+        </CardHeader>
+        <CardContent>
+            <p className="text-3xl font-bold">{plannedKPIs.length}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              Total planned quantity: {plannedTotalQuantity.toLocaleString()}
+            </p>
+        </CardContent>
+      </Card>
+        <Card>
+        <CardHeader>
+            <CardTitle>Actual KPIs</CardTitle>
+        </CardHeader>
+        <CardContent>
+            <p className="text-3xl font-bold">{actualKPIs.length}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              Total actual quantity: {actualTotalQuantity.toLocaleString()}
+            </p>
+        </CardContent>
+      </Card>
+      </div>
+      <Card>
+          <CardHeader>
+          <CardTitle>KPI Records</CardTitle>
+          </CardHeader>
+          <CardContent>
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-          <thead className="bg-gray-50 dark:bg-gray-800">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Activity</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Project</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Type</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Quantity</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Unit</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Date</th>
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="bg-gray-100 dark:bg-gray-800">
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Activity</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Project</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Type</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Quantity</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Date</th>
             </tr>
           </thead>
-          <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-            {kpis.slice(0, 50).map(kpi => (
+              <tbody>
+                {displayedKPIs.map((kpi: ProcessedKPI) => (
               <tr key={kpi.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                <td className="px-6 py-4">
-                  <div className="font-medium text-gray-900 dark:text-gray-100">{kpi.activity_name}</div>
+                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">
+                      {kpi.activity_name}
                 </td>
-                <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
-                  {kpi.project_full_code || (kpi as any).project_code}
+                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">
+                      {kpi.project_full_code || (kpi as any)['Project Full Code'] || 'N/A'}
                 </td>
-                <td className="px-6 py-4">
-                  <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                    kpi.input_type === 'Planned' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'
+                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">
+                      <span className={`px-2 py-1 rounded text-xs ${
+                        kpi.input_type === 'Planned' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
+                        'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
                   }`}>
                     {kpi.input_type}
                   </span>
                 </td>
-                <td className="px-6 py-4 text-sm font-semibold text-gray-900 dark:text-gray-100">
-                  {parseFloat(kpi.quantity?.toString() || '0').toLocaleString()}
+                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">
+                      {kpi.quantity || 0} {kpi.unit || ''}
                 </td>
-                <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
-                  {kpi.unit || 'N/A'}
-                </td>
-                <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
-                  {kpi.activity_date ? new Date(kpi.activity_date).toLocaleDateString() : 
-                   kpi.target_date ? new Date(kpi.target_date).toLocaleDateString() : 'N/A'}
+                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">
+                      {kpi.activity_date ? new Date(kpi.activity_date).toLocaleDateString() : 'N/A'}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
-      
-      {kpis.length > 50 && (
-        <p className="text-sm text-gray-500 text-center">
-          Showing first 50 of {kpis.length} KPI records. Export to view all.
-        </p>
-      )}
+            </div>
+          </CardContent>
+        </Card>
     </div>
   )
 }
 
-// Helper function - use dynamic currency system
-const formatCurrency = (amount: number, currencyCode?: string) => {
-  return formatCurrencyByCodeSync(amount || 0, currencyCode)
-}
+// Financial Report Component
+function FinancialReport({ stats, filteredData, formatCurrency }: any) {
+  const { filteredProjects } = filteredData
+  
+  // ✅ PERFORMANCE: Memoize analytics calculation
+  const allAnalytics = useMemo(() => {
+    return getAllProjectsAnalytics(filteredProjects, filteredData.filteredActivities, filteredData.filteredKPIs)
+  }, [filteredProjects, filteredData.filteredActivities, filteredData.filteredKPIs])
 
-// Financial Report Component - NEW CONCEPTS
-function FinancialReport({ summary, projects, activities }: { summary: any, projects: Project[], activities: BOQActivity[] }) {
-  // Get currency from first project or default to AED
-  const defaultCurrency = projects[0]?.currency || 'AED'
-
+  // ✅ PERFORMANCE: Memoize totals
+  const totals = useMemo(() => {
+    return {
+      totalContractValue: allAnalytics.reduce((sum: number, a: any) => sum + (a.totalContractValue || 0), 0),
+      totalEarnedValue: allAnalytics.reduce((sum: number, a: any) => sum + (a.totalEarnedValue || 0), 0),
+      totalPlannedValue: allAnalytics.reduce((sum: number, a: any) => sum + (a.totalPlannedValue || 0), 0),
+      totalRemainingValue: allAnalytics.reduce((sum: number, a: any) => sum + (a.totalRemainingValue || 0), 0)
+    }
+  }, [allAnalytics])
+  
+  const { totalContractValue, totalEarnedValue, totalPlannedValue, totalRemainingValue } = totals
+  
   return (
     <div className="space-y-6">
-      <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-        Financial Report
-      </h3>
-
-      {/* Financial Overview - NEW CONCEPTS */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <div className="p-6 bg-gray-50 dark:bg-gray-900/20 rounded-lg border-2 border-gray-300 dark:border-gray-700">
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="font-semibold text-gray-900 dark:text-gray-100">Contract Value</h4>
-            <DollarSign className="h-8 w-8 text-gray-600" />
-          </div>
-          <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">
-            {formatCurrency(summary.totalContractValue, defaultCurrency)}
-          </p>
-          <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">Entered manually</p>
-        </div>
-
-        <div className="p-6 bg-blue-50 dark:bg-blue-900/20 rounded-lg border-2 border-blue-300 dark:border-blue-700">
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="font-semibold text-blue-900 dark:text-blue-100">Total Value</h4>
-            <DollarSign className="h-8 w-8 text-blue-600" />
-          </div>
-          <p className="text-3xl font-bold text-blue-900 dark:text-blue-100">
-            {formatCurrency(summary.totalValue, defaultCurrency)}
-          </p>
-          <p className="text-xs text-blue-700 dark:text-blue-400 mt-1">Sum of all activities</p>
-        </div>
-
-        <div className="p-6 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg border-2 border-indigo-300 dark:border-indigo-700">
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="font-semibold text-indigo-900 dark:text-indigo-100">Planned Value</h4>
-            <TrendingUp className="h-8 w-8 text-indigo-600" />
-          </div>
-          <p className="text-3xl font-bold text-indigo-900 dark:text-indigo-100">
-            {formatCurrency(summary.totalPlannedValue, defaultCurrency)}
-          </p>
-          <p className="text-xs text-indigo-700 dark:text-indigo-400 mt-1">Till yesterday (Planned KPI)</p>
-        </div>
-
-        <div className="p-6 bg-green-50 dark:bg-green-900/20 rounded-lg border-2 border-green-300 dark:border-green-700">
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="font-semibold text-green-900 dark:text-green-100">Earned Value</h4>
-            <CheckCircle className="h-8 w-8 text-green-600" />
-          </div>
-          <p className="text-3xl font-bold text-green-900 dark:text-green-100">
-            {formatCurrency(summary.totalEarnedValue, defaultCurrency)}
-          </p>
-          <p className="text-xs text-green-700 dark:text-green-400 mt-1">Till yesterday (Actual KPI)</p>
-        </div>
-
-        <div className="p-6 bg-orange-50 dark:bg-orange-900/20 rounded-lg border-2 border-orange-300 dark:border-orange-700">
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="font-semibold text-orange-900 dark:text-orange-100">Remaining Value</h4>
-            <Clock className="h-8 w-8 text-orange-600" />
-          </div>
-          <p className="text-3xl font-bold text-orange-900 dark:text-orange-100">
-            {formatCurrency(summary.totalValue - summary.totalEarnedValue, defaultCurrency)}
-          </p>
-          <p className="text-xs text-orange-700 dark:text-orange-400 mt-1">Total - Earned</p>
-        </div>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Total Contract Value</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">{formatCurrency(totalContractValue)}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Earned Value</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold text-green-600">{formatCurrency(totalEarnedValue)}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              {totalContractValue > 0 ? ((totalEarnedValue / totalContractValue) * 100).toFixed(1) : 0}% of contract
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Planned Value</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold text-blue-600">{formatCurrency(totalPlannedValue)}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              {totalContractValue > 0 ? ((totalPlannedValue / totalContractValue) * 100).toFixed(1) : 0}% of contract
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Remaining Value</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold text-orange-600">{formatCurrency(totalRemainingValue)}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              {totalContractValue > 0 ? ((totalRemainingValue / totalContractValue) * 100).toFixed(1) : 0}% of contract
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Progress and Variance - NEW CONCEPTS */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="p-6 bg-green-50 dark:bg-green-900/20 rounded-lg border-2 border-green-300 dark:border-green-700">
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="font-semibold text-green-900 dark:text-green-100">Actual Progress</h4>
-            <BarChart3 className="h-8 w-8 text-green-600" />
-          </div>
-          <p className="text-3xl font-bold text-green-900 dark:text-green-100">
-            {summary.actualProgress.toFixed(1)}%
-          </p>
-          <p className="text-xs text-green-700 dark:text-green-400 mt-1">(Earned Value / Total Value)</p>
-        </div>
-
-        <div className="p-6 bg-blue-50 dark:bg-blue-900/20 rounded-lg border-2 border-blue-300 dark:border-blue-700">
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="font-semibold text-blue-900 dark:text-blue-100">Planned Progress</h4>
-            <BarChart3 className="h-8 w-8 text-blue-600" />
-          </div>
-          <p className="text-3xl font-bold text-blue-900 dark:text-blue-100">
-            {summary.plannedProgress.toFixed(1)}%
-          </p>
-          <p className="text-xs text-blue-700 dark:text-blue-400 mt-1">(Planned Value / Total Value)</p>
-        </div>
-
-        <div className={`p-6 rounded-lg border-2 ${summary.variance >= 0 ? 'bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-700' : 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700'}`}>
-          <div className="flex items-center justify-between mb-2">
-            <h4 className={`font-semibold ${summary.variance >= 0 ? 'text-green-900 dark:text-green-100' : 'text-red-900 dark:text-red-100'}`}>Variance</h4>
-            <AlertTriangle className={`h-8 w-8 ${summary.variance >= 0 ? 'text-green-600' : 'text-red-600'}`} />
-          </div>
-          <p className={`text-3xl font-bold ${summary.variance >= 0 ? 'text-green-900 dark:text-green-100' : 'text-red-900 dark:text-red-100'}`}>
-            {summary.variance >= 0 ? '+' : ''}{formatCurrency(summary.variance, defaultCurrency)}
-          </p>
-          <p className={`text-xs mt-1 ${summary.variance >= 0 ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}`}>
-            Earned - Planned
-          </p>
-        </div>
-      </div>
-
-      {/* Projects Financial Breakdown */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Financial Summary by Project</CardTitle>
+        </CardHeader>
+        <CardContent>
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-          <thead className="bg-gray-50 dark:bg-gray-800">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Project</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Contract Amount</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Activities Value</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Percentage</th>
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="bg-gray-100 dark:bg-gray-800">
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Project</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Contract Value</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Earned Value</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Planned Value</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Variance</th>
             </tr>
           </thead>
-          <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-            {projects.map(project => {
-              const projectActivities = activities.filter(a => 
-                a.project_code === project.project_code || 
-                a.project_full_code?.startsWith(project.project_code)
-              )
-              const activitiesValue = projectActivities.reduce((sum, a) => sum + (a.total_value || 0), 0)
-              const percentage = project.contract_amount > 0 
-                ? (activitiesValue / project.contract_amount) * 100 
-                : 0
-
+              <tbody>
+                {allAnalytics.map((analytics: any) => {
+                  const project = analytics.project
               return (
                 <tr key={project.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                  <td className="px-6 py-4">
-                    <div className="font-medium text-gray-900 dark:text-gray-100">{project.project_name}</div>
-                    <div className="text-sm text-gray-500">{project.project_code}</div>
+                      <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">
+                        {project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`}
                   </td>
-                  <td className="px-6 py-4 text-sm font-semibold text-gray-900 dark:text-gray-100">
-                    {formatCurrency(project.contract_amount, project.currency)}
+                      <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">
+                        {formatCurrency(analytics.totalContractValue || 0, project.currency)}
                   </td>
-                  <td className="px-6 py-4 text-sm font-semibold text-green-600">
-                    {formatCurrency(activitiesValue, project.currency)}
+                      <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">
+                        {formatCurrency(analytics.totalEarnedValue || 0, project.currency)}
                   </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      <div className="w-24 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                        <div
-                          className="bg-green-600 h-2 rounded-full"
-                          style={{ width: `${Math.min(percentage, 100)}%` }}
-                        ></div>
-                      </div>
-                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                        {percentage.toFixed(1)}%
-                      </span>
-                    </div>
+                      <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">
+                        {formatCurrency(analytics.totalPlannedValue || 0, project.currency)}
+                  </td>
+                      <td className={`border border-gray-300 dark:border-gray-600 px-4 py-2 text-right ${analytics.variance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {formatCurrency(analytics.variance || 0, project.currency)}
                   </td>
                 </tr>
               )
@@ -1691,168 +2942,2474 @@ function FinancialReport({ summary, projects, activities }: { summary: any, proj
           </tbody>
         </table>
       </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }
 
-// Performance Report Component - NEW CONCEPTS
-function PerformanceReport({ projects, activities, kpis }: { projects: Project[], activities: BOQActivity[], kpis: ProcessedKPI[] }) {
-  // Calculate project performance using NEW CONCEPTS
-  const allAnalytics = getAllProjectsAnalytics(projects, activities, kpis as any[])
-  
-  const projectPerformance = allAnalytics.map(analytics => {
-    const progress = analytics.actualProgress
+// Performance Report Component
+function PerformanceReport({ filteredData, formatCurrency, formatPercentage }: any) {
+  // ✅ PERFORMANCE: Memoize analytics calculation
+  const allAnalytics = useMemo(() => {
+    return getAllProjectsAnalytics(filteredData.filteredProjects, filteredData.filteredActivities, filteredData.filteredKPIs)
+  }, [filteredData.filteredProjects, filteredData.filteredActivities, filteredData.filteredKPIs])
 
+  // ✅ PERFORMANCE: Memoize project status counts
+  const projectStatusCounts = useMemo(() => {
     return {
-      project: analytics.project,
-      activitiesCount: analytics.totalActivities,
-      kpisCount: analytics.totalKPIs,
-      progress,
-      totalValue: analytics.totalValue,
-      totalPlannedValue: analytics.totalPlannedValue,
-      totalEarnedValue: analytics.totalEarnedValue,
-      variance: analytics.variance,
-      status: progress >= 75 ? 'Excellent' : progress >= 50 ? 'Good' : progress >= 25 ? 'Fair' : 'Needs Attention'
+      onSchedule: allAnalytics.filter((a: any) => a.projectStatus === 'on_track').length,
+      delayed: allAnalytics.filter((a: any) => a.projectStatus === 'delayed').length,
+      ahead: allAnalytics.filter((a: any) => a.projectStatus === 'ahead').length
     }
-  }).sort((a, b) => b.progress - a.progress)
+  }, [allAnalytics])
+  
+  const { onSchedule: onScheduleProjects, delayed: delayedProjects, ahead: aheadProjects } = projectStatusCounts
 
   return (
     <div className="space-y-6">
-      <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-        Performance Report
-      </h3>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Top Performers */}
-        <Card className="bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border-green-200 dark:border-green-700">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-green-900 dark:text-green-100">
-              <TrendingUp className="h-5 w-5" />
-              Top Performers
-            </CardTitle>
+            <CardTitle>On Schedule</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              {projectPerformance.slice(0, 5).map((item, index) => (
-                <div key={item.project.id} className="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center justify-center w-8 h-8 bg-green-600 text-white rounded-full font-bold text-sm">
-                      {index + 1}
-                    </div>
-                    <div>
-                      <div className="font-medium text-gray-900 dark:text-gray-100">{item.project.project_name}</div>
-                      <div className="text-xs text-gray-500">{item.project.project_code}</div>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-lg font-bold text-green-600">{item.progress.toFixed(0)}%</div>
-                    <div className="text-xs text-gray-500">{item.status}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <p className="text-3xl font-bold text-green-600">{onScheduleProjects}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Projects</p>
           </CardContent>
         </Card>
-
-        {/* Needs Attention */}
-        <Card className="bg-gradient-to-br from-red-50 to-orange-50 dark:from-red-900/20 dark:to-orange-900/20 border-red-200 dark:border-red-700">
+        <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-red-900 dark:text-red-100">
-              <AlertTriangle className="h-5 w-5" />
-              Needs Attention
-            </CardTitle>
+            <CardTitle>Delayed</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              {projectPerformance.slice(-5).reverse().map((item, index) => (
-                <div key={item.project.id} className="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center justify-center w-8 h-8 bg-red-600 text-white rounded-full font-bold text-sm">
-                      {index + 1}
-                    </div>
-                    <div>
-                      <div className="font-medium text-gray-900 dark:text-gray-100">{item.project.project_name}</div>
-                      <div className="text-xs text-gray-500">{item.project.project_code}</div>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-lg font-bold text-red-600">{item.progress.toFixed(0)}%</div>
-                    <div className="text-xs text-gray-500">{item.status}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <p className="text-3xl font-bold text-red-600">{delayedProjects}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Projects</p>
           </CardContent>
         </Card>
-      </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Ahead of Schedule</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold text-blue-600">{aheadProjects}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Projects</p>
+          </CardContent>
+        </Card>
+        </div>
 
-      {/* All Projects Performance */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Performance by Project</CardTitle>
+        </CardHeader>
+        <CardContent>
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-          <thead className="bg-gray-50 dark:bg-gray-800">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Rank</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Project</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Activities</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">KPIs</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Progress</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Status</th>
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="bg-gray-100 dark:bg-gray-800">
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Project</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Progress</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Planned Progress</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Variance</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Status</th>
             </tr>
           </thead>
-          <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-            {projectPerformance.map((item, index) => (
-              <tr key={item.project.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                <td className="px-6 py-4">
-                  <div className="flex items-center justify-center w-8 h-8 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-full font-bold text-sm">
-                    {index + 1}
-                  </div>
+              <tbody>
+                {allAnalytics.map((analytics: any) => {
+                  const project = analytics.project
+                  const progress = analytics.actualProgress || 0
+                  const plannedProgress = analytics.plannedProgress || 0
+                  const variance = progress - plannedProgress
+              return (
+                <tr key={project.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                      <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">
+                        {project.project_full_code || project.project_code}
                 </td>
-                <td className="px-6 py-4">
-                  <div className="font-medium text-gray-900 dark:text-gray-100">{item.project.project_name}</div>
-                  <div className="text-sm text-gray-500">{item.project.project_code}</div>
+                      <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">
+                        {formatPercentage(progress)}
                 </td>
-                <td className="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">
-                  {item.activitiesCount}
+                      <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">
+                        {formatPercentage(plannedProgress)}
                 </td>
-                <td className="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">
-                  {item.kpisCount}
+                      <td className={`border border-gray-300 dark:border-gray-600 px-4 py-2 text-right ${variance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {variance >= 0 ? '+' : ''}{formatPercentage(variance)}
                 </td>
-                <td className="px-6 py-4">
-                  <div className="flex items-center gap-2">
-                    <div className="w-24 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                      <div
-                        className={`h-2 rounded-full ${
-                          item.progress >= 75 ? 'bg-green-600' :
-                          item.progress >= 50 ? 'bg-blue-600' :
-                          item.progress >= 25 ? 'bg-yellow-600' :
-                          'bg-red-600'
-                        }`}
-                        style={{ width: `${Math.min(item.progress, 100)}%` }}
-                      ></div>
-                    </div>
-                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                      {item.progress.toFixed(1)}%
-                    </span>
-                  </div>
-                </td>
-                <td className="px-6 py-4">
-                  <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                    item.status === 'Excellent' ? 'bg-green-100 text-green-800' :
-                    item.status === 'Good' ? 'bg-blue-100 text-blue-800' :
-                    item.status === 'Fair' ? 'bg-yellow-100 text-yellow-800' :
-                    'bg-red-100 text-red-800'
-                  }`}>
-                    {item.status}
+                      <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">
+                        <span className={`px-2 py-1 rounded text-xs ${
+                          analytics.projectStatus === 'on_track' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
+                          analytics.projectStatus === 'delayed' ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' :
+                          'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                        }`}>
+                          {analytics.projectStatus === 'on_track' ? 'On Track' :
+                           analytics.projectStatus === 'delayed' ? 'Delayed' : 'Ahead'}
                   </span>
                 </td>
               </tr>
-            ))}
+              )
+            })}
           </tbody>
         </table>
       </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }
 
-export default ModernReportsManager
+// LookAhead Report Component - Rebuilt from scratch
+function LookaheadReportView({ activities, projects, formatCurrency }: any) {
+  const [selectedDivision, setSelectedDivision] = useState<string>('')
+  const [kpis, setKpis] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const supabase = getSupabaseClient()
 
+  useEffect(() => {
+    // Fetch KPIs for accurate calculations
+    const fetchKPIs = async () => {
+      try {
+        setLoading(true)
+        const { data, error } = await supabase
+          .from(TABLES.KPI)
+          .select('*')
+          .order('created_at', { ascending: false })
+        
+        if (!error && data) {
+          const mappedKPIs = data.map(mapKPIFromDB)
+          const processedKPIs = mappedKPIs.map(processKPIRecord)
+          setKpis(processedKPIs)
+        }
+      } catch (error) {
+        console.error('Error fetching KPIs:', error)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchKPIs()
+  }, [])
+
+  // Get next 3 months (current month + next 2 months)
+  const lookAheadMonths = useMemo(() => {
+    const months: string[] = []
+    const now = new Date()
+    for (let i = 0; i < 3; i++) {
+      const date = new Date(now.getFullYear(), now.getMonth() + i, 1)
+      months.push(date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }))
+    }
+    return months
+  }, [])
+  
+  // ✅ PERFORMANCE: Memoize filtered projects
+  const filteredProjects = useMemo(() => {
+    let filtered = selectedDivision 
+      ? projects.filter((p: Project) => p.responsible_division === selectedDivision)
+      : projects
+    
+    // Filter only active projects (on-going, upcoming, or site-preparation)
+    return filtered.filter((p: Project) => 
+      p.project_status === 'on-going' || 
+      p.project_status === 'upcoming' || 
+      p.project_status === 'site-preparation'
+    )
+  }, [projects, selectedDivision])
+
+  const divisions = useMemo(() => {
+    return Array.from(new Set(projects.map((p: Project) => p.responsible_division).filter(Boolean))).sort()
+  }, [projects])
+
+  // Calculate analytics for all filtered projects
+  const allAnalytics = useMemo(() => {
+    return getAllProjectsAnalytics(filteredProjects, activities, kpis)
+  }, [filteredProjects, activities, kpis])
+
+  // ✅ PERFORMANCE: Memoize getKPIValue
+  const getKPIValue = useCallback((kpi: any, relatedActivity: BOQActivity | null): number => {
+    const rawKpi = (kpi as any).raw || {}
+    const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
+    
+    // Try to get rate
+    let rate = 0
+    
+    // Priority 1: Use KPI value directly if available
+    if (kpi.value && kpi.value > 0 && quantity > 0) {
+      rate = kpi.value / quantity
+    } 
+    // Priority 2: Use KPI planned_value
+    else if (kpi.planned_value && kpi.planned_value > 0 && quantity > 0) {
+      rate = kpi.planned_value / quantity
+    }
+    // Priority 3: Get rate from related activity
+    else if (relatedActivity) {
+      if (relatedActivity.rate && relatedActivity.rate > 0) {
+        rate = relatedActivity.rate
+      } else if (relatedActivity.total_value && relatedActivity.planned_units && relatedActivity.planned_units > 0) {
+        rate = relatedActivity.total_value / relatedActivity.planned_units
+      }
+    }
+    
+    return quantity * rate
+  }, [])
+
+  // ✅ PERFORMANCE: Memoize calculateKPIPlannedValuePerMonth
+  const calculateKPIPlannedValuePerMonth = useCallback((project: Project, analytics: any): number[] => {
+      const projectKPIs = analytics.kpis || []
+      
+      return lookAheadMonths.map((_, monthIndex) => {
+        const monthDate = new Date()
+        monthDate.setMonth(monthDate.getMonth() + monthIndex)
+        const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1)
+        const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0)
+        monthEnd.setHours(23, 59, 59, 999)
+
+        // Get KPI Planned for this month
+        const plannedKPIsInMonth = projectKPIs.filter((kpi: any) => {
+          // Check if it's Planned
+          const inputType = String(
+            kpi.input_type || 
+            kpi['Input Type'] || 
+            (kpi as any).raw?.['Input Type'] || 
+            (kpi as any).raw?.['input_type'] ||
+            ''
+          ).trim().toLowerCase()
+          
+          if (inputType !== 'planned') {
+            return false
+          }
+          
+          // Check if date is in this month
+          const kpiDateStr = kpi.activity_date || kpi.target_date || ''
+          if (!kpiDateStr) return false
+          
+          try {
+            const kpiDate = new Date(kpiDateStr)
+            return kpiDate >= monthStart && kpiDate <= monthEnd
+          } catch {
+            return false
+          }
+        })
+
+        // Calculate value from KPI Planned
+        return plannedKPIsInMonth.reduce((sum: number, kpi: any) => {
+          // Find related activity for rate calculation
+          const relatedActivity = activities.find((a: BOQActivity) => {
+            const activityFullCode = (a.project_full_code || '').toString().trim()
+            const projectFullCode = (project.project_full_code || '').toString().trim()
+            const activityName = (a.activity_name || a.activity || '').toString().trim()
+            const kpiActivityName = (kpi.activity_name || '').toString().trim()
+            
+            return activityFullCode === projectFullCode && 
+                   activityName === kpiActivityName
+          })
+          
+          const value = getKPIValue(kpi, relatedActivity)
+          return sum + value
+        }, 0)
+      })
+  }, [lookAheadMonths, activities, getKPIValue])
+
+  // Filter projects with Remaining Value > 0
+  const projectsWithRemainingValue = useMemo(() => {
+    return allAnalytics.filter((analytics: any) => {
+      const totalValue = analytics.totalValue || 0
+      const earnedValue = analytics.totalEarnedValue || 0
+      const remainingValue = totalValue - earnedValue
+      return remainingValue > 0
+    })
+  }, [allAnalytics])
+
+  // Calculate totals
+  const totals = useMemo(() => {
+    const totalContractValue = projectsWithRemainingValue.reduce((sum: number, a: any) => sum + (a.totalContractValue || 0), 0)
+    const totalEarnedValue = projectsWithRemainingValue.reduce((sum: number, a: any) => sum + (a.totalEarnedValue || 0), 0)
+    const totalRemainingValue = projectsWithRemainingValue.reduce((sum: number, a: any) => {
+      const totalValue = a.totalValue || 0
+      const earnedValue = a.totalEarnedValue || 0
+      return sum + (totalValue - earnedValue)
+    }, 0)
+
+    // Calculate Look Ahead Revenue from KPI Planned per month
+    const lookAheadRevenueByMonth = lookAheadMonths.map((_: string, monthIndex: number) => {
+      return projectsWithRemainingValue.reduce((sum: number, analytics: any) => {
+        const project = analytics.project
+        const kpiPlannedValues = calculateKPIPlannedValuePerMonth(project, analytics)
+        return sum + kpiPlannedValues[monthIndex]
+      }, 0)
+    })
+    const totalLookAheadRevenue = lookAheadRevenueByMonth.reduce((sum: number, val: number) => sum + val, 0)
+
+    return {
+      totalContractValue,
+      totalEarnedValue,
+      totalRemainingValue,
+      lookAheadRevenueByMonth,
+      totalLookAheadRevenue
+    }
+  }, [projectsWithRemainingValue, lookAheadMonths, calculateKPIPlannedValuePerMonth])
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <LoadingSpinner />
+          </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-2xl font-bold text-gray-900 dark:text-white">LookAhead Planning Report</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            Data Range: {lookAheadMonths[0]} - {lookAheadMonths[lookAheadMonths.length - 1]}
+          </p>
+        </div>
+        <select
+          value={selectedDivision}
+          onChange={(e) => setSelectedDivision(e.target.value)}
+          className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+        >
+          <option value="">All Divisions</option>
+          {(divisions as string[]).map((div: string) => (
+            <option key={div} value={div}>{div}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-blue-600 dark:text-blue-400">Total Contract Value</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
+                  {formatCurrency(totals.totalContractValue)}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  {projectsWithRemainingValue.length} active projects
+                </p>
+        </div>
+              <DollarSign className="h-12 w-12 text-blue-500 dark:text-blue-400 opacity-50" />
+          </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-green-600 dark:text-green-400">Earned Value</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
+                  {formatCurrency(totals.totalEarnedValue)}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  {totals.totalContractValue > 0 ? ((totals.totalEarnedValue / totals.totalContractValue) * 100).toFixed(1) : 0}% completed
+                </p>
+        </div>
+              <CheckCircle className="h-12 w-12 text-green-500 dark:text-green-400 opacity-50" />
+          </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/20 dark:to-orange-800/20">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-orange-600 dark:text-orange-400">Remaining Value</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
+                  {formatCurrency(totals.totalRemainingValue)}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  To be completed in next 3 months
+          </p>
+        </div>
+              <Target className="h-12 w-12 text-orange-500 dark:text-orange-400 opacity-50" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Projects Forecast Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5 text-blue-500" />
+            SUM of Forecast Value - Active Projects (Next 3 Months)
+          </CardTitle>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            Projects that are on-going or upcoming with remaining value. Values are based on KPI Planned for each month.
+          </p>
+        </CardHeader>
+        <CardContent>
+      <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="bg-gray-100 dark:bg-gray-800 border-b-2 border-gray-300 dark:border-gray-600">
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold">Project Full Name</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold">Project Status</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold">Contract Value</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold">Earned Value</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold">Remaining Value</th>
+                  {lookAheadMonths.map(month => (
+                    <th key={month} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold">{month}</th>
+                  ))}
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold">Grand Total</th>
+            </tr>
+          </thead>
+              <tbody>
+                {projectsWithRemainingValue.length === 0 ? (
+                  <tr>
+                    <td colSpan={7 + lookAheadMonths.length} className="border border-gray-300 dark:border-gray-600 px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                      <div className="flex flex-col items-center gap-2">
+                        <AlertTriangle className="h-8 w-8 text-gray-400" />
+                        <p>No active projects with remaining value found</p>
+                        <p className="text-xs">Projects with Remaining Value = 0 are not displayed</p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  projectsWithRemainingValue.map((analytics: any) => {
+                    const project = analytics.project
+                    // Remaining Value = Total Value - Earned Value (من KPIs)
+                    const totalValue = analytics.totalValue || 0
+                    const earnedValue = analytics.totalEarnedValue || 0
+                    const remainingValue = totalValue - earnedValue
+                    const contractValue = analytics.totalContractValue || project.contract_amount || 0
+                    
+                    // Get KPI Planned values per month
+                    const kpiPlannedValues = calculateKPIPlannedValuePerMonth(project, analytics)
+
+              return (
+                      <tr key={project.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3">
+                          <div>
+                            <p className="font-semibold text-gray-900 dark:text-white">
+                              {project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                              {project.project_name}
+                            </p>
+                          </div>
+                  </td>
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3">
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${
+                            project.project_status === 'on-going' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
+                            project.project_status === 'upcoming' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
+                            project.project_status === 'site-preparation' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
+                            'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+                          }`}>
+                            {project.project_status?.replace('-', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()) || 'N/A'}
+                          </span>
+                  </td>
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right">
+                          <span className="font-medium text-gray-900 dark:text-white">
+                            {formatCurrency(contractValue, project.currency)}
+                          </span>
+                  </td>
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right">
+                          <span className="font-medium text-green-600 dark:text-green-400">
+                            {formatCurrency(earnedValue, project.currency)}
+                      </span>
+                        </td>
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right">
+                          <span className="font-semibold text-blue-600 dark:text-blue-400">
+                            {formatCurrency(remainingValue, project.currency)}
+                          </span>
+                        </td>
+                        {kpiPlannedValues.map((value: number, index: number) => (
+                          <td key={index} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right">
+                            {value > 0 ? (
+                              <span className="font-medium text-blue-600 dark:text-blue-400">
+                                {formatCurrency(value, project.currency)}
+                              </span>
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            )}
+                          </td>
+                        ))}
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right">
+                          <span className="font-bold text-gray-900 dark:text-white">
+                            {formatCurrency(remainingValue, project.currency)}
+                          </span>
+                  </td>
+                </tr>
+              )
+                  })
+                )}
+          </tbody>
+              {projectsWithRemainingValue.length > 0 && (
+                <tfoot>
+                  <tr className="bg-gray-100 dark:bg-gray-800 font-bold border-t-2 border-gray-300 dark:border-gray-600">
+                    <td colSpan={5} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right">
+                      Total:
+                    </td>
+                    {totals.lookAheadRevenueByMonth.map((value, index) => (
+                      <td key={index} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right">
+                        <span className="text-blue-600 dark:text-blue-400">
+                          {formatCurrency(value)}
+                        </span>
+                      </td>
+                    ))}
+                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right">
+                      <span className="text-gray-900 dark:text-white">
+                        {formatCurrency(totals.totalRemainingValue)}
+                      </span>
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+        </table>
+      </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+// Monthly Work Revenue Report Component - ما تم تنفيذه حتى الآن
+function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurrency }: any) {
+  const [selectedDivision, setSelectedDivision] = useState<string>('')
+  const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ 
+    start: '', 
+    end: '' 
+  })
+  const [viewPlannedValue, setViewPlannedValue] = useState<boolean>(false)
+  const [showChartExportMenu, setShowChartExportMenu] = useState<boolean>(false)
+  const chartRef = useRef<HTMLDivElement>(null)
+  const chartExportMenuRef = useRef<HTMLDivElement>(null)
+
+  const divisions = useMemo(() => {
+    return Array.from(new Set(projects.map((p: Project) => p.responsible_division).filter(Boolean))).sort()
+  }, [projects])
+
+  const filteredProjects = useMemo(() => {
+    let filtered = projects
+    if (selectedDivision) {
+      filtered = filtered.filter((p: Project) => p.responsible_division === selectedDivision)
+    }
+    return filtered
+  }, [projects, selectedDivision])
+
+  // Calculate Divisions Contract Amount (same logic as ProjectsTableWithCustomization)
+  const divisionsDataMap = useMemo(() => {
+    const map = new Map<string, { divisionAmounts: Record<string, number>, divisionNames: Record<string, string> }>()
+    
+    if (activities.length === 0) {
+      return map
+    }
+    
+    projects.forEach((project: Project) => {
+      // ✅ FIX: Use project_full_code as primary identifier (use existing if available)
+      let projectFullCode = (project.project_full_code || '').toString().trim()
+      if (!projectFullCode) {
+        // Build from project_code + project_sub_code if not available
+        const projectCode = (project.project_code || '').toString().trim()
+        const projectSubCode = (project.project_sub_code || '').toString().trim()
+        if (projectSubCode) {
+          if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+            projectFullCode = projectSubCode
+          } else if (projectSubCode.startsWith('-')) {
+            projectFullCode = `${projectCode}${projectSubCode}`
+          } else {
+            projectFullCode = `${projectCode}-${projectSubCode}`
+          }
+        } else {
+          projectFullCode = projectCode
+        }
+      }
+      const projectFullCodeUpper = projectFullCode.toUpperCase()
+      
+      // Build project code variations for backward compatibility
+      const projectCode = (project.project_code || '').toString().trim()
+      const projectSubCode = (project.project_sub_code || '').toString().trim()
+      const projectCodeUpper = projectCode.toUpperCase()
+      const projectSubCodeUpper = projectSubCode.toUpperCase()
+      
+      // Build project code variations (for backward compatibility)
+      const projectCodeVariations = new Set<string>()
+      projectCodeVariations.add(projectFullCodeUpper) // ✅ Priority: project_full_code first
+      projectCodeVariations.add(projectCodeUpper)
+      if (projectSubCode) {
+        projectCodeVariations.add(projectSubCodeUpper)
+        if (projectSubCodeUpper.includes(projectCodeUpper)) {
+          projectCodeVariations.add(projectSubCodeUpper)
+        } else {
+          projectCodeVariations.add(`${projectCodeUpper}${projectSubCodeUpper}`)
+          projectCodeVariations.add(`${projectCodeUpper}-${projectSubCodeUpper}`)
+        }
+      }
+      
+      // Filter activities for this project using project_full_code primarily
+      const projectActivities = activities.filter((activity: BOQActivity) => {
+        // ✅ Priority 1: Match by project_full_code (EXACT MATCH ONLY)
+        const activityFullCode = (activity.project_full_code || '').toString().trim().toUpperCase()
+        if (activityFullCode && activityFullCode === projectFullCodeUpper) {
+          return true
+        }
+        
+        // ✅ Priority 2: Match by project_id (EXACT MATCH ONLY)
+        if (activity.project_id === project.id) {
+          return true
+        }
+        
+        // ❌ REMOVED: Don't use project_code variations to avoid matching wrong projects
+        // This was causing activities from other projects (like 5066-1, 5066-2) to be included
+        return false
+      })
+      
+      const divisionAmounts: Record<string, number> = {}
+      const divisionNames: Record<string, string> = {}
+      
+      projectActivities.forEach((activity: any) => {
+        const rawActivity = (activity as any).raw || {}
+        
+        // Get division from activity
+        const division = activity.activity_division || 
+                       activity['Activity Division'] || 
+                       rawActivity['Activity Division'] || 
+                       rawActivity['activity_division'] || ''
+        
+        // Skip if no division found
+        if (!division || division.trim() === '') {
+          return
+        }
+        
+        const divisionKey = division.trim().toLowerCase()
+        const divisionName = division.trim()
+        
+        // Get Total Value directly from BOQ Activity
+        let activityValue = 0
+        
+        // Priority 1: Use Total Value from activity
+        const totalValue = activity.total_value || parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 0
+        if (totalValue > 0) {
+          activityValue = totalValue
+        }
+        
+        // Priority 2: Calculate from Rate × Total Units if Total Value not available
+        if (activityValue === 0) {
+          const rate = activity.rate || parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
+          const totalUnits = activity.total_units || parseFloat(String(rawActivity['Total Units'] || '0').replace(/,/g, '')) || 0
+          if (rate > 0 && totalUnits > 0) {
+            activityValue = rate * totalUnits
+          }
+        }
+        
+        // Priority 3: Use Activity Value if available
+        if (activityValue === 0) {
+          const activityValueField = activity.activity_value || parseFloat(String(rawActivity['Activity Value'] || '0').replace(/,/g, '')) || 0
+          if (activityValueField > 0) {
+            activityValue = activityValueField
+          }
+        }
+        
+        // Sum values for this division (only if we have a value)
+        if (activityValue > 0) {
+          if (!divisionNames[divisionKey]) {
+            divisionNames[divisionKey] = divisionName
+          }
+          divisionAmounts[divisionKey] = (divisionAmounts[divisionKey] || 0) + activityValue
+        }
+      })
+      
+      // Store in map
+      map.set(project.id, { divisionAmounts, divisionNames })
+    })
+    
+    return map
+  }, [projects, activities])
+
+  // Get weeks in date range - تقسيم المدة إلى أسابيع
+  const getWeeksInRange = useMemo(() => {
+    if (!dateRange.start || !dateRange.end) {
+      // Default: last 4 weeks
+      const weeks: Array<{ label: string; start: Date; end: Date }> = []
+      const now = new Date()
+      for (let i = 3; i >= 0; i--) {
+        const weekStart = new Date(now)
+        weekStart.setDate(now.getDate() - (i * 7) - (now.getDay() === 0 ? 6 : now.getDay() - 1))
+        weekStart.setHours(0, 0, 0, 0)
+        const weekEnd = new Date(weekStart)
+        weekEnd.setDate(weekStart.getDate() + 6)
+        weekEnd.setHours(23, 59, 59, 999)
+        weeks.push({
+          label: `Week ${4 - i}`,
+          start: weekStart,
+          end: weekEnd
+        })
+      }
+      return weeks
+    }
+
+    const start = new Date(dateRange.start)
+    const end = new Date(dateRange.end)
+    start.setHours(0, 0, 0, 0)
+    end.setHours(23, 59, 59, 999)
+    
+    const weeks: Array<{ label: string; start: Date; end: Date }> = []
+    const current = new Date(start)
+    
+    // Start from the beginning of the week (Monday)
+    const dayOfWeek = current.getDay()
+    const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1
+    current.setDate(current.getDate() - diff)
+    current.setHours(0, 0, 0, 0)
+
+    let weekNumber = 1
+    while (current <= end) {
+      const weekStart = new Date(current)
+      const weekEnd = new Date(current)
+      weekEnd.setDate(weekStart.getDate() + 6)
+      weekEnd.setHours(23, 59, 59, 999)
+      
+      // Only add week if it overlaps with the date range
+      if (weekStart <= end && weekEnd >= start) {
+        weeks.push({
+          label: `Week ${weekNumber}`,
+          start: weekStart,
+          end: weekEnd
+        })
+        weekNumber++
+      }
+      
+      current.setDate(current.getDate() + 7)
+    }
+
+    return weeks
+  }, [dateRange])
+
+  const weeks = getWeeksInRange
+
+  const getKPIValue = (kpi: any, relatedActivity: BOQActivity | null): number => {
+    try {
+      const rawKpi = (kpi as any).raw || {}
+      
+      // Get quantity
+      const quantity = parseFloat(String(
+        kpi.quantity || 
+        rawKpi['Quantity'] || 
+        rawKpi['quantity'] || 
+        '0'
+      ).replace(/,/g, '')) || 0
+      
+      // Priority 1: Use KPI value directly if available (this is the total value)
+      // This is the same logic used in calculateProjectAnalytics
+      const kpiValue = parseFloat(String(
+        kpi.value || 
+        rawKpi['Value'] || 
+        rawKpi['value'] || 
+        '0'
+      ).replace(/,/g, '')) || 0
+      
+      if (kpiValue > 0) {
+        return kpiValue
+      }
+      
+      // Priority 2: Calculate from quantity × rate (same as calculateProjectAnalytics)
+      let rate = 0
+      
+      // Try to get rate from related activity (same logic as calculateProjectAnalytics)
+      if (relatedActivity) {
+        // Use calculateActivityRate if available, otherwise calculate manually
+        const activityRate = parseFloat(String(relatedActivity.rate || '0').replace(/,/g, '')) || 0
+        if (activityRate > 0) {
+          rate = activityRate
+        } else {
+          const totalValue = parseFloat(String(relatedActivity.total_value || '0').replace(/,/g, '')) || 0
+          const plannedUnits = parseFloat(String(relatedActivity.planned_units || '0').replace(/,/g, '')) || 0
+          
+          if (totalValue > 0 && plannedUnits > 0) {
+            rate = totalValue / plannedUnits
+          }
+        }
+      }
+      
+      // Calculate value = rate × quantity (same as calculateProjectAnalytics)
+      if (rate > 0 && quantity > 0) {
+        return quantity * rate
+      }
+      
+      // Last resort: use quantity as value (1:1 ratio)
+      if (quantity > 0) {
+        return quantity
+      }
+      
+      return 0
+    } catch (error) {
+      console.error('[Monthly Revenue] Error in getKPIValue:', error, { kpi })
+      return 0
+    }
+  }
+
+  // Helper: Match KPI to project using project_full_code only
+  const matchesProject = (kpi: any, project: Project): boolean => {
+    // ✅ FIX: Use project_full_code only
+    const kpiProjectFullCode = (kpi.project_full_code || (kpi as any)['Project Full Code'] || '').toString().trim()
+    const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim()
+    
+    // Priority 1: Exact match on project_full_code
+    if (kpiProjectFullCode && projectFullCode && kpiProjectFullCode.toUpperCase() === projectFullCode.toUpperCase()) {
+      return true
+    }
+    
+    // ✅ FIX: If KPI doesn't have project_full_code, try to build it from project_code + project_sub_code
+    if (!kpiProjectFullCode) {
+      const kpiProjectCode = (kpi.project_code || (kpi as any)['Project Code'] || '').toString().trim()
+      const kpiProjectSubCode = (kpi.project_sub_code || (kpi as any)['Project Sub Code'] || '').toString().trim()
+      
+      if (kpiProjectCode) {
+        let kpiFullCode = kpiProjectCode
+        if (kpiProjectSubCode) {
+          if (kpiProjectSubCode.toUpperCase().startsWith(kpiProjectCode.toUpperCase())) {
+            kpiFullCode = kpiProjectSubCode
+          } else {
+            kpiFullCode = kpiProjectSubCode.startsWith('-') 
+              ? `${kpiProjectCode}${kpiProjectSubCode}`
+              : `${kpiProjectCode}-${kpiProjectSubCode}`
+          }
+        }
+        if (kpiFullCode.toUpperCase() === projectFullCode.toUpperCase()) {
+          return true
+        }
+      }
+    }
+    
+    return false
+  }
+
+  // Calculate weekly earned value per project - حساب القيمة المنجزة لكل أسبوع
+  // Calculate Weekly Planned Value (same logic as calculateWeeklyEarnedValue but for Planned KPIs)
+  // ✅ PERFORMANCE: Memoize calculateWeeklyPlannedValue to avoid recalculations
+  const calculateWeeklyPlannedValue = useCallback((project: Project, analytics: any): number[] => {
+    // Use ALL KPIs and filter them ourselves to ensure we get all Planned KPIs
+    const allProjectKPIs = kpis.filter((kpi: any) => {
+      try {
+        return matchesProject(kpi, project)
+      } catch (error) {
+        return false
+      }
+    })
+    
+    // ✅ Get today's date (end of today) for filtering current week
+    const today = new Date()
+    today.setHours(23, 59, 59, 999) // End of day
+    
+    return weeks.map((week) => {
+      const weekStart = week.start
+      const weekEnd = week.end
+
+      // ✅ For current/future weeks, use today as the end date instead of weekEnd
+      const effectiveWeekEnd = weekEnd > today ? today : weekEnd
+
+      // Get KPI Planned for this week
+      const plannedKPIsInWeek = allProjectKPIs.filter((kpi: any) => {
+        const inputType = String(
+          kpi.input_type || 
+          kpi['Input Type'] || 
+          (kpi as any).raw?.['Input Type'] || 
+          (kpi as any).raw?.['input_type'] ||
+          ''
+        ).trim().toLowerCase()
+        
+        if (inputType !== 'planned') return false
+        
+        // ✅ Use EXACT SAME LOGIC as Date column in table
+        const rawKPIDate = (kpi as any).raw || {}
+        
+        // Priority 1: Day column (if available and formatted)
+        const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
+        
+        // Priority 2: Target Date (for Planned KPIs)
+        const targetDateValue = kpi.target_date || rawKPIDate['Target Date'] || ''
+        
+        // Priority 3: Activity Date
+        const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
+        
+        // Determine which date to use based on Input Type
+        let kpiDateStr = ''
+        if (kpi.input_type === 'Planned' && targetDateValue) {
+          kpiDateStr = targetDateValue
+        } else if (dayValue) {
+          kpiDateStr = activityDateValue || dayValue
+        } else {
+          kpiDateStr = activityDateValue || targetDateValue
+        }
+        
+        if (!kpiDateStr) return false
+        
+        try {
+          const kpiDate = new Date(kpiDateStr)
+          if (isNaN(kpiDate.getTime())) return false
+          
+          kpiDate.setHours(0, 0, 0, 0) // Normalize to start of day
+          
+          // Normalize weekStart and effectiveWeekEnd for comparison
+          const normalizedWeekStart = new Date(weekStart)
+          normalizedWeekStart.setHours(0, 0, 0, 0)
+          
+          const normalizedWeekEnd = new Date(effectiveWeekEnd)
+          normalizedWeekEnd.setHours(23, 59, 59, 999) // End of day
+          
+          // Check if KPI date is within range
+          const inRange = kpiDate >= normalizedWeekStart && kpiDate <= normalizedWeekEnd
+          
+          return inRange
+        } catch {
+          return false
+        }
+      })
+
+      // Get project activities for rate calculation
+      const projectActivities = activities.filter((activity: BOQActivity) => {
+        const activityFullCode = (activity.project_full_code || '').toString().trim().toUpperCase()
+        const projectFullCode = (project.project_full_code || '').toString().trim().toUpperCase()
+        if (activityFullCode && activityFullCode === projectFullCode) {
+          return true
+        }
+        if (activity.project_id === project.id) {
+          return true
+        }
+        return false
+      })
+
+      // Calculate Planned Value using same logic as calculateWeeklyEarnedValue
+      return plannedKPIsInWeek.reduce((sum: number, kpi: any) => {
+        try {
+          const rawKpi = (kpi as any).raw || {}
+          const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
+          const quantityValue = quantity || 0
+          
+          let financialValue = 0
+          
+          // Find related activity for rate calculation (same logic as calculateWeeklyEarnedValue)
+          let relatedActivity: BOQActivity | undefined = undefined
+          const kpiActivityName = (kpi.activity_name || rawKpi['Activity Name'] || '').toLowerCase().trim()
+          const kpiProjectCode = (kpi.project_code || rawKpi['Project Code'] || '').toString().trim().toLowerCase()
+          const kpiProjectFullCode = (kpi.project_full_code || rawKpi['Project Full Code'] || '').toString().trim().toLowerCase()
+          const kpiZone = (kpi.zone || rawKpi['Zone'] || rawKpi['Zone Number'] || '').toString().toLowerCase().trim()
+          
+          // Try multiple matching strategies (same as calculateWeeklyEarnedValue)
+          if (kpiActivityName && kpiProjectFullCode) {
+            relatedActivity = projectActivities.find((a: BOQActivity) => {
+              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+              const activityFullCode = (a.project_full_code || '').toString().trim().toLowerCase()
+              return activityName === kpiActivityName && activityFullCode === kpiProjectFullCode
+            })
+          }
+          
+          if (!relatedActivity && kpiActivityName && kpiProjectCode) {
+            relatedActivity = projectActivities.find((a: BOQActivity) => {
+              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+              const activityProjectCode = (a.project_code || '').toString().trim().toLowerCase()
+              return activityName === kpiActivityName && activityProjectCode === kpiProjectCode
+            })
+          }
+          
+          if (relatedActivity) {
+            const rawActivity = (relatedActivity as any).raw || {}
+            
+            // ✅ PRIORITY 1: Calculate Rate = Total Value / Total Units
+            const totalValueFromActivity = relatedActivity.total_value || 
+                                         parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                         0
+            
+            const totalUnits = relatedActivity.total_units || 
+                            relatedActivity.planned_units ||
+                            parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                            0
+            
+            let rate = 0
+            if (totalUnits > 0 && totalValueFromActivity > 0) {
+              rate = totalValueFromActivity / totalUnits
+            } else {
+              rate = relatedActivity.rate || 
+                    parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+                    0
+            }
+            
+            // Calculate value = rate × quantity
+            if (rate > 0 && quantityValue > 0) {
+              financialValue = quantityValue * rate
+              if (financialValue > 0) {
+                return sum + financialValue
+              }
+            }
+          }
+          
+          // ✅ PRIORITY 2: Use Value directly from KPI
+          if (financialValue === 0) {
+            let kpiValue = 0
+            
+            if (rawKpi['Value'] !== undefined && rawKpi['Value'] !== null) {
+              const val = rawKpi['Value']
+              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+            }
+            
+            if (kpiValue === 0 && rawKpi.value !== undefined && rawKpi.value !== null) {
+              const val = rawKpi.value
+              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+            }
+            
+            if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
+              const val = kpi.value
+              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+            }
+            
+            if (kpiValue > 0) {
+              financialValue = kpiValue
+              return sum + financialValue
+            }
+          }
+          
+          // ✅ PRIORITY 3: Try Planned Value
+          if (financialValue === 0) {
+            const plannedValue = (kpi.planned_value ?? 
+                               parseFloat(String(rawKpi['Planned Value'] || '0').replace(/,/g, ''))) || 
+                               0
+            
+            if (plannedValue > 0) {
+              financialValue = plannedValue
+              return sum + financialValue
+            }
+          }
+          
+          return sum
+        } catch (error) {
+          console.error('[Monthly Revenue] Error calculating Planned KPI value:', error, { kpi, project })
+          return sum
+        }
+      }, 0)
+    })
+  }, [kpis, weeks, activities])
+
+  // ✅ PERFORMANCE: Memoize calculateWeeklyEarnedValue to avoid recalculations
+  const calculateWeeklyEarnedValue = useCallback((project: Project, analytics: any): number[] => {
+    // Use ALL KPIs and filter them ourselves to ensure we get all Actual KPIs
+    // analytics.kpis may be filtered by date (till yesterday), but we need future dates too
+    const allProjectKPIs = kpis.filter((kpi: any) => {
+      try {
+        return matchesProject(kpi, project)
+      } catch (error) {
+        return false
+      }
+    })
+    
+    // Debug: Log KPIs for this project
+    if (allProjectKPIs.length > 0) {
+      const actualKPIs = allProjectKPIs.filter((k: any) => {
+        const inputType = String(k.input_type || k['Input Type'] || '').trim().toLowerCase()
+        return inputType === 'actual'
+      })
+      console.log(`[Monthly Revenue] Project ${project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`}:`, {
+        totalKPIs: allProjectKPIs.length,
+        actualKPIs: actualKPIs.length,
+        sampleDates: actualKPIs.slice(0, 3).map((k: any) => k.activity_date || k.target_date || k.day)
+      })
+    }
+    
+    // ✅ Get today's date (end of today) for filtering current week
+    // Use EXACT SAME LOGIC as KPI page date range filter
+    const today = new Date()
+    today.setHours(23, 59, 59, 999) // End of day (SAME AS KPI PAGE)
+    
+    return weeks.map((week) => {
+      const weekStart = week.start
+      const weekEnd = week.end
+
+      // ✅ For current/future weeks, use today as the end date instead of weekEnd
+      // This ensures we only show KPIs up to today, not future dates
+      const effectiveWeekEnd = weekEnd > today ? today : weekEnd
+
+      // Get KPI Actual for this week (ما تم تنفيذه في هذا الأسبوع حتى تاريخ اليوم)
+      const actualKPIsInWeek = allProjectKPIs.filter((kpi: any) => {
+        const inputType = String(
+          kpi.input_type || 
+          kpi['Input Type'] || 
+          (kpi as any).raw?.['Input Type'] || 
+          (kpi as any).raw?.['input_type'] ||
+          ''
+        ).trim().toLowerCase()
+        
+        if (inputType !== 'actual') return false
+        
+        // ✅ Use EXACT SAME LOGIC as Date column in table
+        const rawKPIDate = (kpi as any).raw || {}
+        
+        // Priority 1: Day column (if available and formatted)
+        const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
+        
+        // Priority 2: Actual Date (for Actual KPIs) or Target Date (for Planned KPIs)
+        const actualDateValue = (kpi as any).actual_date || rawKPIDate['Actual Date'] || ''
+        const targetDateValue = kpi.target_date || rawKPIDate['Target Date'] || ''
+        
+        // Priority 3: Activity Date
+        const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
+        
+        // Determine which date to use based on Input Type (SAME AS TABLE COLUMN)
+        let kpiDateStr = ''
+        if (kpi.input_type === 'Actual' && actualDateValue) {
+          kpiDateStr = actualDateValue
+        } else if (kpi.input_type === 'Planned' && targetDateValue) {
+          kpiDateStr = targetDateValue
+        } else if (dayValue) {
+          // If Day is available, try to use it or fallback to Activity Date
+          kpiDateStr = activityDateValue || dayValue
+        } else {
+          kpiDateStr = activityDateValue || actualDateValue || targetDateValue
+        }
+        
+        if (!kpiDateStr) return false
+        
+        try {
+          const kpiDate = new Date(kpiDateStr)
+          if (isNaN(kpiDate.getTime())) return false
+          
+          kpiDate.setHours(0, 0, 0, 0) // Normalize to start of day (SAME AS KPI PAGE)
+          
+          // ✅ Use EXACT SAME LOGIC as KPI page date range filter
+          // Normalize weekStart and effectiveWeekEnd for comparison
+          const normalizedWeekStart = new Date(weekStart)
+          normalizedWeekStart.setHours(0, 0, 0, 0)
+          
+          const normalizedWeekEnd = new Date(effectiveWeekEnd)
+          normalizedWeekEnd.setHours(23, 59, 59, 999) // End of day (SAME AS KPI PAGE)
+          
+          // Check if KPI date is within range (SAME AS KPI PAGE)
+          const inRange = kpiDate >= normalizedWeekStart && kpiDate <= normalizedWeekEnd
+          
+          // Debug: Log date matching for first few KPIs
+          if (inRange && allProjectKPIs.indexOf(kpi) < 3) {
+            console.log(`[Monthly Revenue] KPI date match:`, {
+              project: project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`,
+              week: week.label,
+              kpiDate: kpiDateStr,
+              parsedDate: kpiDate.toLocaleDateString(),
+              weekStart: weekStart.toLocaleDateString(),
+              weekEnd: weekEnd.toLocaleDateString(),
+              effectiveWeekEnd: effectiveWeekEnd.toLocaleDateString(),
+              isCurrentWeek: weekEnd > today,
+              inRange
+            })
+          }
+          
+          return inRange
+        } catch (error) {
+          console.warn('[Monthly Revenue] Error parsing KPI date:', kpiDateStr, error)
+          return false
+        }
+      })
+      
+      // Debug: Log KPIs found in this week
+      if (actualKPIsInWeek.length > 0) {
+        console.log(`[Monthly Revenue] Found ${actualKPIsInWeek.length} Actual KPIs in ${week.label} for ${project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`}`)
+      }
+
+      // ✅ FIXED: Calculate value using EXACT SAME LOGIC as KPI page Actual Value
+      // Priority: 1) Rate × Quantity (SAME AS TABLE), 2) Value directly from KPI, 3) Actual Value
+      // This MUST match the logic in KPITracking.tsx totalActualValue calculation
+      return actualKPIsInWeek.reduce((sum: number, kpi: any) => {
+        try {
+          const rawKpi = (kpi as any).raw || {}
+          
+          // Get Quantity
+          const quantityValue = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
+          
+          // ✅ PRIORITY 1: Calculate from Rate × Quantity (SAME AS TABLE COLUMN)
+          // This is how Value is calculated in the table: Quantity × Rate
+          let financialValue = 0
+          
+          // ✅ IMPROVED: Find related activity with Zone matching (SAME AS KPI PAGE)
+          const projectActivities = analytics.activities || activities.filter((a: BOQActivity) => {
+            const activityFullCode = (a.project_full_code || '').toString().trim()
+            const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim()
+            return activityFullCode.toUpperCase() === projectFullCode.toUpperCase()
+          })
+          
+          const kpiActivityName = (kpi.activity_name || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
+          const kpiProjectFullCode = (kpi.project_full_code || kpi.project_code || '').toLowerCase().trim()
+          const kpiProjectCode = (kpi.project_code || '').toLowerCase().trim()
+          
+          // Extract KPI Zone (same logic as KPI page)
+          const kpiZoneRaw = (kpi.zone || rawKpi['Zone'] || rawKpi['Zone Number'] || '').toString().trim()
+          let kpiZone = kpiZoneRaw.toLowerCase().trim()
+          if (kpiZone && kpiProjectCode) {
+            const projectCodeUpper = kpiProjectCode.toUpperCase()
+            kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+            kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
+            kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
+          }
+          if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
+          
+          // Try multiple matching strategies (with Zone priority) - SAME AS KPI PAGE
+          let relatedActivity: BOQActivity | undefined = undefined
+          
+          // Try 1: activity_name + project_full_code + zone (most precise)
+          if (kpiActivityName && kpiProjectFullCode && kpiZone) {
+            relatedActivity = projectActivities.find((a: BOQActivity) => {
+              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
+              const rawActivity = (a as any).raw || {}
+              const activityZone = (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+              return activityName === kpiActivityName && 
+                     activityProjectFullCode === kpiProjectFullCode &&
+                     (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
+            })
+          }
+          
+          // Try 2: activity_name + project_full_code (without zone - fallback)
+          if (!relatedActivity && kpiActivityName && kpiProjectFullCode) {
+            relatedActivity = projectActivities.find((a: BOQActivity) => {
+              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
+              return activityName === kpiActivityName && activityProjectFullCode === kpiProjectFullCode
+            })
+          }
+          
+          // Try 3: activity_name + project_code + zone (if not found and project_code exists)
+          if (!relatedActivity && kpiActivityName && kpiProjectCode && kpiZone) {
+            relatedActivity = projectActivities.find((a: BOQActivity) => {
+              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+              const activityProjectCode = (a.project_code || '').toLowerCase().trim()
+              const rawActivity = (a as any).raw || {}
+              const activityZone = (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+              return activityName === kpiActivityName && 
+                     activityProjectCode === kpiProjectCode &&
+                     (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
+            })
+          }
+          
+          // Try 4: activity_name + project_code (without zone - fallback)
+          if (!relatedActivity && kpiActivityName && kpiProjectCode) {
+            relatedActivity = projectActivities.find((a: BOQActivity) => {
+              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+              const activityProjectCode = (a.project_code || '').toLowerCase().trim()
+              return activityName === kpiActivityName && activityProjectCode === kpiProjectCode
+            })
+          }
+          
+          // Try 5: activity_name only (last resort)
+          if (!relatedActivity && kpiActivityName) {
+            relatedActivity = projectActivities.find((a: BOQActivity) => {
+              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+              return activityName === kpiActivityName
+            })
+          }
+          
+          if (relatedActivity) {
+            const rawActivity = (relatedActivity as any).raw || {}
+            
+            // ✅ PRIORITY 1: Calculate Rate = Total Value / Total Units (SAME AS TABLE)
+            const totalValueFromActivity = relatedActivity.total_value || 
+                                         parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                         0
+            
+            const totalUnits = relatedActivity.total_units || 
+                            relatedActivity.planned_units ||
+                            parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                            0
+            
+            let rate = 0
+            if (totalUnits > 0 && totalValueFromActivity > 0) {
+              rate = totalValueFromActivity / totalUnits
+            } else {
+              // ✅ PRIORITY 2: Use rate directly from activity (fallback)
+              rate = relatedActivity.rate || 
+                    parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+                    0
+            }
+            
+            // Calculate value = rate × quantity
+            if (rate > 0 && quantityValue > 0) {
+              financialValue = quantityValue * rate
+              if (financialValue > 0) {
+                return sum + financialValue
+              }
+            }
+          }
+          
+          // ✅ PRIORITY 2: Use Value directly from KPI (fallback if calculated value is 0)
+          // Check raw['Value'] first (from database), then k.value
+          if (financialValue === 0) {
+            let kpiValue = 0
+            
+            // Try raw['Value'] (from database with capital V) - MOST RELIABLE
+            if (rawKpi['Value'] !== undefined && rawKpi['Value'] !== null) {
+              const val = rawKpi['Value']
+              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+            }
+            
+            // Try raw.value (from database with lowercase v)
+            if (kpiValue === 0 && rawKpi.value !== undefined && rawKpi.value !== null) {
+              const val = rawKpi.value
+              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+            }
+            
+            // Try k.value (direct property from ProcessedKPI)
+            if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
+              const val = kpi.value
+              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+            }
+            
+            if (kpiValue > 0) {
+              financialValue = kpiValue
+          return sum + financialValue
+            }
+          }
+          
+          // ✅ PRIORITY 3: Try Actual Value (fallback if calculated value and Value are both 0)
+          if (financialValue === 0) {
+            const actualValue = (kpi.actual_value ?? 
+                               parseFloat(String(rawKpi['Actual Value'] || '0').replace(/,/g, ''))) || 
+                               0
+            
+            if (actualValue > 0) {
+              financialValue = actualValue
+              return sum + financialValue
+            }
+          }
+          
+          // ✅ CRITICAL: If no value found and no rate, skip (NEVER use quantity as value!)
+          // This KPI will not contribute to weekly revenue
+          return sum
+        } catch (error) {
+          console.error('[Monthly Revenue] Error calculating KPI value:', error, { kpi, project })
+          return sum
+        }
+      }, 0)
+    })
+  }, [kpis, weeks, activities])
+
+  const allAnalytics = useMemo(() => {
+    return getAllProjectsAnalytics(filteredProjects, activities, kpis)
+  }, [filteredProjects, activities, kpis])
+
+  // Filter projects that have KPIs Actual in the selected date range
+  const projectsWithWorkInRange = useMemo(() => {
+    if (!dateRange.start || !dateRange.end) {
+      // If no date range, return ALL projects (not just those with KPIs)
+      // This allows users to see all projects even if they don't have KPIs yet
+      return allAnalytics
+    }
+
+    const rangeStart = new Date(dateRange.start)
+    const rangeEnd = new Date(dateRange.end)
+    rangeStart.setHours(0, 0, 0, 0)
+    rangeEnd.setHours(23, 59, 59, 999)
+
+    const filtered = allAnalytics.filter((analytics: any) => {
+      const project = analytics.project
+      
+      // Find KPIs that match this project
+      const projectKPIs = kpis.filter((kpi: any) => matchesProject(kpi, project))
+      
+      // Check if there are any Actual KPIs in the date range
+      const hasActualKPIsInRange = projectKPIs.some((kpi: any) => {
+        const inputType = String(
+          kpi.input_type || 
+          kpi['Input Type'] || 
+          (kpi as any).raw?.['Input Type'] || 
+          (kpi as any).raw?.['input_type'] ||
+          ''
+        ).trim().toLowerCase()
+        
+        if (inputType !== 'actual') return false
+        
+        // Try multiple date fields
+        const kpiDateStr = kpi.activity_date || 
+                          kpi.target_date || 
+                          kpi.actual_date || 
+                          (kpi as any).raw?.['Activity Date'] ||
+                          (kpi as any).raw?.['Target Date'] ||
+                          (kpi as any).raw?.['Actual Date'] ||
+                          (kpi as any).raw?.['Day'] ||
+                          kpi.day ||
+                          ''
+        
+        if (!kpiDateStr) return false
+        
+        try {
+          const kpiDate = new Date(kpiDateStr)
+          kpiDate.setHours(0, 0, 0, 0)
+          const inRange = kpiDate >= rangeStart && kpiDate <= rangeEnd
+          return inRange
+        } catch {
+          return false
+        }
+      })
+      
+      return hasActualKPIsInRange
+    })
+
+    // Debug logging
+    console.log('[Monthly Revenue] Date Range Filter:', {
+      rangeStart: rangeStart.toLocaleDateString(),
+      rangeEnd: rangeEnd.toLocaleDateString(),
+      totalProjects: allAnalytics.length,
+      filteredProjects: filtered.length,
+      totalKPIs: kpis.length,
+      actualKPIs: kpis.filter((k: any) => {
+        const inputType = String(k.input_type || k['Input Type'] || '').trim().toLowerCase()
+        return inputType === 'actual'
+      }).length
+    })
+
+    return filtered
+  }, [allAnalytics, kpis, dateRange])
+
+  // ✅ PERFORMANCE: Pre-calculate weekly values for all projects once
+  const weeklyValuesCache = useMemo(() => {
+    const cache = new Map<string, { earned: number[], planned: number[] }>()
+    
+    projectsWithWorkInRange.forEach((analytics: any) => {
+      const projectId = analytics.project.id
+      const earnedValues = calculateWeeklyEarnedValue(analytics.project, analytics)
+      const plannedValues = viewPlannedValue ? calculateWeeklyPlannedValue(analytics.project, analytics) : []
+      cache.set(projectId, { earned: earnedValues, planned: plannedValues })
+    })
+    
+    return cache
+  }, [projectsWithWorkInRange, calculateWeeklyEarnedValue, calculateWeeklyPlannedValue, viewPlannedValue])
+
+  // Debug: Log KPIs count and sample data
+  useEffect(() => {
+    if (kpis.length > 0) {
+      const actualKPIs = kpis.filter((kpi: any) => {
+        const inputType = String(
+          kpi.input_type || 
+          kpi['Input Type'] || 
+          (kpi as any).raw?.['Input Type'] || 
+          (kpi as any).raw?.['input_type'] ||
+          ''
+        ).trim().toLowerCase()
+        return inputType === 'actual'
+      })
+      
+      console.log('[Monthly Revenue Report] ========== DEBUG ==========')
+      console.log('Total KPIs:', kpis.length, 'Actual KPIs:', actualKPIs.length)
+      console.log('Filtered Projects:', filteredProjects.length)
+      console.log('Projects with Work in Range:', projectsWithWorkInRange.length)
+      console.log('Date Range:', dateRange.start, 'to', dateRange.end)
+      console.log('Weeks:', weeks.length)
+      
+      if (weeks.length > 0) {
+        console.log('Week 1:', weeks[0]?.start?.toLocaleDateString(), 'to', weeks[0]?.end?.toLocaleDateString())
+        console.log('Last Week:', weeks[weeks.length - 1]?.start?.toLocaleDateString(), 'to', weeks[weeks.length - 1]?.end?.toLocaleDateString())
+      }
+      
+      // Check matching for first few projects
+      if (filteredProjects.length > 0 && actualKPIs.length > 0) {
+        const sampleProjects = filteredProjects.slice(0, 3)
+        sampleProjects.forEach((project: Project) => {
+          const matchingKPIs = actualKPIs.filter((kpi: any) => matchesProject(kpi, project))
+          console.log(`Project ${project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`}:`, matchingKPIs.length, 'matching Actual KPIs')
+          
+          if (matchingKPIs.length > 0 && dateRange.start && dateRange.end) {
+            const rangeStart = new Date(dateRange.start)
+            const rangeEnd = new Date(dateRange.end)
+            rangeStart.setHours(0, 0, 0, 0)
+            rangeEnd.setHours(23, 59, 59, 999)
+            
+            const kpisInRange = matchingKPIs.filter((kpi: any) => {
+              const kpiDateStr = kpi.activity_date || kpi.target_date || kpi.actual_date || ''
+              if (!kpiDateStr) return false
+              try {
+                const kpiDate = new Date(kpiDateStr)
+                kpiDate.setHours(0, 0, 0, 0)
+                return kpiDate >= rangeStart && kpiDate <= rangeEnd
+              } catch {
+                return false
+              }
+            })
+            console.log(`  → KPIs in date range:`, kpisInRange.length)
+            if (kpisInRange.length > 0) {
+              console.log(`  → Sample KPI:`, {
+                date: kpisInRange[0].activity_date || kpisInRange[0].target_date,
+                quantity: kpisInRange[0].quantity,
+                value: kpisInRange[0].value,
+                activity: kpisInRange[0].activity_name
+              })
+            }
+          }
+        })
+      }
+      
+      if (actualKPIs.length > 0) {
+        const sampleKPIs = actualKPIs.slice(0, 5).map((k: any) => ({
+          date: k.activity_date || k.target_date || k.actual_date || (k as any).raw?.['Activity Date'],
+          project: k.project_full_code || k.project_code,
+          activity: k.activity_name || (k as any)['Activity Name'],
+          quantity: k.quantity,
+          value: k.value,
+          inputType: k.input_type || k['Input Type']
+        }))
+        console.log('Sample Actual KPIs (first 5):', sampleKPIs)
+      }
+      console.log('[Monthly Revenue Report] =========================')
+    }
+  }, [kpis, weeks, filteredProjects, projectsWithWorkInRange, dateRange])
+
+
+  // Close chart export menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (chartExportMenuRef.current && !chartExportMenuRef.current.contains(event.target as Node)) {
+        setShowChartExportMenu(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Export Chart function
+  const handleExportChart = useCallback(async (format: 'png' | 'jpeg' | 'svg' | 'pdf') => {
+    if (!chartRef.current) {
+      alert('Chart not found')
+      return
+    }
+
+    setShowChartExportMenu(false)
+
+    try {
+      const dateStr = dateRange.start && dateRange.end
+        ? `${dateRange.start}_to_${dateRange.end}`
+        : new Date().toISOString().split('T')[0]
+      
+      const baseFilename = `Weekly_Revenue_Chart_${dateStr}`
+
+      if (format === 'svg') {
+        // Export as SVG (direct from recharts)
+        const svgElement = chartRef.current.querySelector('svg')
+        if (!svgElement) {
+          alert('SVG element not found')
+          return
+        }
+
+        const svgData = new XMLSerializer().serializeToString(svgElement)
+        const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' })
+        const svgUrl = URL.createObjectURL(svgBlob)
+        const downloadLink = document.createElement('a')
+        downloadLink.href = svgUrl
+        downloadLink.download = `${baseFilename}.svg`
+        document.body.appendChild(downloadLink)
+        downloadLink.click()
+        document.body.removeChild(downloadLink)
+        URL.revokeObjectURL(svgUrl)
+        
+        console.log(`✅ Downloaded: ${baseFilename}.svg`)
+        return
+      }
+
+      if (format === 'png' || format === 'jpeg') {
+        // Export as PNG/JPEG using html2canvas
+        const html2canvas = (await import('html2canvas')).default
+        
+        const canvas = await html2canvas(chartRef.current, {
+          backgroundColor: '#ffffff',
+          scale: 2, // Higher quality
+          logging: false,
+          useCORS: true
+        })
+
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            alert('Failed to create image')
+            return
+          }
+
+          const url = URL.createObjectURL(blob)
+          const downloadLink = document.createElement('a')
+          downloadLink.href = url
+          downloadLink.download = `${baseFilename}.${format}`
+          document.body.appendChild(downloadLink)
+          downloadLink.click()
+          document.body.removeChild(downloadLink)
+          URL.revokeObjectURL(url)
+          
+          console.log(`✅ Downloaded: ${baseFilename}.${format}`)
+        }, `image/${format}`, 0.95)
+        return
+      }
+
+      if (format === 'pdf') {
+        // Export as PDF using jspdf
+        const html2canvas = (await import('html2canvas')).default
+        const { jsPDF } = await import('jspdf')
+
+        const canvas = await html2canvas(chartRef.current, {
+          backgroundColor: '#ffffff',
+          scale: 2,
+          logging: false,
+          useCORS: true
+        })
+
+        const imgData = canvas.toDataURL('image/png')
+        const pdf = new jsPDF({
+          orientation: 'landscape',
+          unit: 'mm',
+          format: 'a4'
+        })
+
+        const imgWidth = 297 // A4 width in mm
+        const imgHeight = (canvas.height * imgWidth) / canvas.width
+
+        pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight)
+        pdf.save(`${baseFilename}.pdf`)
+        
+        console.log(`✅ Downloaded: ${baseFilename}.pdf`)
+        return
+      }
+    } catch (error) {
+      console.error('Error exporting chart:', error)
+      alert('Failed to export chart. Please try again.')
+    }
+  }, [dateRange])
+
+  // ✅ PERFORMANCE: Calculate totals from cached values
+  const totals = useMemo(() => {
+    const totalContractValue = projectsWithWorkInRange.reduce((sum: number, a: any) => sum + (a.totalContractValue || 0), 0)
+    const totalEarnedValue = projectsWithWorkInRange.reduce((sum: number, a: any) => sum + (a.totalEarnedValue || 0), 0)
+    
+    // Calculate weekly earned value totals from cache
+    const weeklyEarnedValueTotals = weeks.map((_, weekIndex) => {
+      let sum = 0
+      projectsWithWorkInRange.forEach((analytics: any) => {
+        const cachedValues = weeklyValuesCache.get(analytics.project.id)
+        const weeklyValues = cachedValues?.earned || []
+        sum += weeklyValues[weekIndex] || 0
+      })
+      return sum
+    })
+    
+    // Calculate weekly planned value totals from cache
+    const weeklyPlannedValueTotals = weeks.map((_, weekIndex) => {
+      let sum = 0
+      projectsWithWorkInRange.forEach((analytics: any) => {
+        const cachedValues = weeklyValuesCache.get(analytics.project.id)
+        const weeklyValues = cachedValues?.planned || []
+        sum += weeklyValues[weekIndex] || 0
+      })
+      return sum
+    })
+    
+    const grandTotalEarnedValue = weeklyEarnedValueTotals.reduce((sum, val) => sum + val, 0)
+    const grandTotalPlannedValue = weeklyPlannedValueTotals.reduce((sum, val) => sum + val, 0)
+    return { 
+      totalContractValue, 
+      totalEarnedValue, 
+      weeklyEarnedValueTotals, 
+      weeklyPlannedValueTotals,
+      grandTotalEarnedValue,
+      grandTotalPlannedValue
+    }
+  }, [projectsWithWorkInRange, weeks, weeklyValuesCache])
+
+  // Export to Excel function with advanced formatting
+  const handleExportWeeklyRevenue = useCallback(async () => {
+    if (projectsWithWorkInRange.length === 0) {
+      alert('No data to export')
+      return
+    }
+
+    try {
+      // Dynamically import xlsx-js-style for advanced formatting
+      const XLSX = await import('xlsx-js-style')
+      
+      // Prepare data for Excel export
+      const exportData: any[] = []
+
+      // Add header row
+      const headerRow: any = {
+        'Project Full Name': 'Project Full Name',
+        'Divisions': 'Divisions',
+        'Workmanship?': 'Workmanship?',
+        'Total Contract Amount': 'Total Contract Amount',
+        'Division Contract Amount': 'Division Contract Amount'
+      }
+      
+      // Add week columns
+      const weekHeaders: string[] = []
+      weeks.forEach((week, index) => {
+        const weekLabel = `Week ${index + 1} (${week.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${week.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })})`
+        weekHeaders.push(weekLabel)
+        headerRow[weekLabel] = `Week ${index + 1}`
+      })
+      
+      headerRow['Grand Total'] = 'Grand Total'
+      exportData.push(headerRow)
+
+      // Add data rows
+      projectsWithWorkInRange.forEach((analytics: any) => {
+        const project = analytics.project
+        
+        // Calculate Total Contract Amount
+        const contractAmt = analytics.totalContractValue || 
+                          parseFloat(String(project.contract_amount || '0').replace(/,/g, '')) || 0
+        const variationsAmt = parseFloat(String(
+          (project as any).raw?.['Variations Amount'] || 
+          (project as any).raw?.['Variations'] || 
+          '0'
+        ).replace(/,/g, '')) || 0
+        const totalContractAmount = contractAmt + variationsAmt
+        
+        // Get Division Contract Amount data
+        const divisionsData = divisionsDataMap.get(project.id)
+        const divisionAmounts = divisionsData?.divisionAmounts || {}
+        const divisionNames = divisionsData?.divisionNames || {}
+        
+        // Build divisions list
+        const divisionsList = Object.keys(divisionAmounts)
+          .map(key => ({
+            key: key.toLowerCase().trim(),
+            name: divisionNames[key] || key,
+            amount: divisionAmounts[key] || 0
+          }))
+          .sort((a, b) => b.amount - a.amount)
+        
+        const divisionContractAmount = divisionsList.reduce((sum, div) => sum + div.amount, 0)
+        const divisionsText = divisionsList.length > 0 
+          ? divisionsList.map(d => `${d.name}: ${formatCurrency(d.amount, project.currency)}`).join('; ')
+          : (project.responsible_division || 'N/A')
+        
+        // Get Workmanship
+        const workmanship = project.workmanship_only || 
+                          (project as any).raw?.['Workmanship only?'] || 
+                          (project as any).raw?.['Workmanship?'] || 
+                          'No'
+        const isWorkmanship = workmanship === 'Yes' || workmanship === 'TRUE' || workmanship === true
+        
+        // ✅ PERFORMANCE: Get weekly values from cache
+        const cachedValues = weeklyValuesCache.get(project.id)
+        const weeklyValues = cachedValues?.earned || []
+        const grandTotal = weeklyValues.reduce((sum, val) => sum + val, 0)
+        
+        const projectFullCode = project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`
+        const projectDisplayName = `${projectFullCode} - ${project.project_name}`
+        
+        // Create row object
+        const row: any = {
+          'Project Full Name': projectDisplayName,
+          'Divisions': divisionsText,
+          'Workmanship?': isWorkmanship ? 'Yes' : 'No',
+          'Total Contract Amount': totalContractAmount,
+          'Division Contract Amount': divisionContractAmount
+        }
+        
+        // Add weekly values
+        weekHeaders.forEach((weekLabel, index) => {
+          row[weekLabel] = weeklyValues[index] || 0
+        })
+        
+        row['Grand Total'] = grandTotal
+        exportData.push(row)
+      })
+
+      // Add totals row (will be replaced with formulas later)
+      const totalsRow: any = {
+        'Project Full Name': 'TOTAL',
+        'Divisions': '',
+        'Workmanship?': '',
+        'Total Contract Amount': 0, // Will be replaced with formula
+        'Division Contract Amount': 0 // Will be replaced with formula
+      }
+      
+      weekHeaders.forEach((weekLabel, index) => {
+        totalsRow[weekLabel] = 0 // Will be replaced with formula
+      })
+      
+      totalsRow['Grand Total'] = 0 // Will be replaced with formula
+      exportData.push(totalsRow)
+
+      // Create worksheet
+      const ws = XLSX.utils.json_to_sheet(exportData)
+      
+      // Calculate row numbers (1-based, row 0 is header, last row is totals)
+      const dataStartRow = 2 // Row 2 (after header row 1)
+      const dataEndRow = dataStartRow + projectsWithWorkInRange.length - 1
+      const totalsRowNum = dataEndRow + 1
+      
+      // Get column letters (A, B, ..., Z, AA, AB, ...)
+      const getColumnLetter = (colIndex: number): string => {
+        let result = ''
+        let num = colIndex
+        while (num >= 0) {
+          result = String.fromCharCode(65 + (num % 26)) + result
+          num = Math.floor(num / 26) - 1
+        }
+        return result
+      }
+      
+      // Alternative: Use XLSX utility if available
+      const getColLetter = (colIndex: number): string => {
+        try {
+          return XLSX.utils.encode_col(colIndex)
+        } catch {
+          return getColumnLetter(colIndex)
+        }
+      }
+      
+      // Add formulas to totals row
+      // Column 3: Total Contract Amount (D column)
+      const totalContractCol = getColLetter(3)
+      const totalContractCell = `${totalContractCol}${totalsRowNum}`
+      if (ws[totalContractCell]) {
+        ws[totalContractCell] = {
+          ...ws[totalContractCell],
+          f: `SUM(${totalContractCol}${dataStartRow}:${totalContractCol}${dataEndRow})`,
+          t: 'n'
+        }
+      }
+      
+      // Column 4: Division Contract Amount (E column)
+      const divisionContractCol = getColLetter(4)
+      const divisionContractCell = `${divisionContractCol}${totalsRowNum}`
+      if (ws[divisionContractCell]) {
+        ws[divisionContractCell] = {
+          ...ws[divisionContractCell],
+          f: `SUM(${divisionContractCol}${dataStartRow}:${divisionContractCol}${dataEndRow})`,
+          t: 'n'
+        }
+      }
+      
+      // Week columns (starting from column 5, F column)
+      weekHeaders.forEach((_, weekIndex) => {
+        const weekCol = getColLetter(5 + weekIndex)
+        const weekCell = `${weekCol}${totalsRowNum}`
+        if (ws[weekCell]) {
+          ws[weekCell] = {
+            ...ws[weekCell],
+            f: `SUM(${weekCol}${dataStartRow}:${weekCol}${dataEndRow})`,
+            t: 'n'
+          }
+        }
+      })
+      
+      // Grand Total column (last column)
+      const grandTotalCol = getColLetter(5 + weekHeaders.length)
+      const grandTotalCell = `${grandTotalCol}${totalsRowNum}`
+      if (ws[grandTotalCell]) {
+        ws[grandTotalCell] = {
+          ...ws[grandTotalCell],
+          f: `SUM(${grandTotalCol}${dataStartRow}:${grandTotalCol}${dataEndRow})`,
+          t: 'n'
+        }
+      }
+      
+      // Also add formulas for Grand Total in each data row
+      projectsWithWorkInRange.forEach((_, projectIndex) => {
+        const rowNum = dataStartRow + projectIndex
+        const grandTotalCellAddr = `${grandTotalCol}${rowNum}`
+        
+        if (ws[grandTotalCellAddr]) {
+          // Build SUM formula for all week columns in this row
+          const firstWeekCol = getColLetter(5)
+          const lastWeekCol = getColLetter(5 + weekHeaders.length - 1)
+          
+          ws[grandTotalCellAddr] = {
+            ...ws[grandTotalCellAddr],
+            f: `SUM(${firstWeekCol}${rowNum}:${lastWeekCol}${rowNum})`,
+            t: 'n'
+          }
+        }
+      })
+      
+      // Define column widths
+      const colWidths = [
+        { wch: 35 }, // Project Full Name
+        { wch: 30 }, // Divisions
+        { wch: 12 }, // Workmanship?
+        { wch: 20 }, // Total Contract Amount
+        { wch: 25 }, // Division Contract Amount
+        ...weeks.map(() => ({ wch: 18 })), // Week columns
+        { wch: 18 }  // Grand Total
+      ]
+      ws['!cols'] = colWidths
+      
+      // Freeze first row
+      ws['!freeze'] = { xSplit: 0, ySplit: 1, topLeftCell: 'A2', activePane: 'bottomLeft', state: 'frozen' }
+      
+      // Define styles
+      const headerStyle = {
+        font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 11 },
+        fill: { fgColor: { rgb: '4472C4' } }, // Blue background
+        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+        border: {
+          top: { style: 'thin', color: { rgb: '000000' } },
+          bottom: { style: 'thin', color: { rgb: '000000' } },
+          left: { style: 'thin', color: { rgb: '000000' } },
+          right: { style: 'thin', color: { rgb: '000000' } }
+        }
+      }
+      
+      const numberStyle = {
+        numFmt: '#,##0.00',
+        alignment: { horizontal: 'right', vertical: 'center' },
+        border: {
+          top: { style: 'thin', color: { rgb: 'CCCCCC' } },
+          bottom: { style: 'thin', color: { rgb: 'CCCCCC' } },
+          left: { style: 'thin', color: { rgb: 'CCCCCC' } },
+          right: { style: 'thin', color: { rgb: 'CCCCCC' } }
+        }
+      }
+      
+      const textStyle = {
+        alignment: { horizontal: 'left', vertical: 'center', wrapText: true },
+        border: {
+          top: { style: 'thin', color: { rgb: 'CCCCCC' } },
+          bottom: { style: 'thin', color: { rgb: 'CCCCCC' } },
+          left: { style: 'thin', color: { rgb: 'CCCCCC' } },
+          right: { style: 'thin', color: { rgb: 'CCCCCC' } }
+        }
+      }
+      
+      const totalsStyle = {
+        font: { bold: true, sz: 11 },
+        fill: { fgColor: { rgb: 'D9E1F2' } }, // Light blue background
+        alignment: { horizontal: 'right', vertical: 'center' },
+        numFmt: '#,##0.00',
+        border: {
+          top: { style: 'medium', color: { rgb: '000000' } },
+          bottom: { style: 'medium', color: { rgb: '000000' } },
+          left: { style: 'thin', color: { rgb: 'CCCCCC' } },
+          right: { style: 'thin', color: { rgb: 'CCCCCC' } }
+        }
+      }
+      
+      const totalsTextStyle = {
+        font: { bold: true, sz: 11 },
+        fill: { fgColor: { rgb: 'D9E1F2' } },
+        alignment: { horizontal: 'left', vertical: 'center' },
+        border: {
+          top: { style: 'medium', color: { rgb: '000000' } },
+          bottom: { style: 'medium', color: { rgb: '000000' } },
+          left: { style: 'thin', color: { rgb: 'CCCCCC' } },
+          right: { style: 'thin', color: { rgb: 'CCCCCC' } }
+        }
+      }
+      
+      // Apply styles to cells
+      const range = XLSX.utils.decode_range(ws['!ref'] || 'A1')
+      
+      // Style header row (row 0)
+      for (let col = range.s.c; col <= range.e.c; col++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: 0, c: col })
+        if (!ws[cellAddress]) continue
+        ws[cellAddress].s = headerStyle
+      }
+      
+      // Style data rows
+      for (let row = 1; row <= range.e.r; row++) {
+        const isTotalsRow = row === range.e.r
+        for (let col = range.s.c; col <= range.e.c; col++) {
+          const cellAddress = XLSX.utils.encode_cell({ r: row, c: col })
+          if (!ws[cellAddress]) continue
+          
+          const colIndex = col
+          // Columns: 0=Project, 1=Divisions, 2=Workmanship, 3=Total Contract, 4=Division Contract, 5+ = Weeks, last = Grand Total
+          const isNumberColumn = colIndex === 3 || colIndex === 4 || (colIndex >= 5 && colIndex < 5 + weeks.length) || colIndex === 5 + weeks.length
+          
+          if (isTotalsRow) {
+            if (colIndex === 0) {
+              ws[cellAddress].s = totalsTextStyle
+            } else if (isNumberColumn) {
+              ws[cellAddress].s = totalsStyle
+            } else {
+              ws[cellAddress].s = totalsTextStyle
+            }
+          } else {
+            // Alternate row colors
+            const evenRowStyle = row % 2 === 0 
+              ? { ...textStyle, fill: { fgColor: { rgb: 'F2F2F2' } } }
+              : textStyle
+            
+            if (isNumberColumn) {
+              ws[cellAddress].s = row % 2 === 0 
+                ? { ...numberStyle, fill: { fgColor: { rgb: 'F2F2F2' } } }
+                : numberStyle
+            } else {
+              ws[cellAddress].s = evenRowStyle
+            }
+          }
+        }
+      }
+      
+      // Create workbook
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Weekly Work Revenue')
+      
+      // Generate filename with date range
+      const dateStr = dateRange.start && dateRange.end
+        ? `${dateRange.start}_to_${dateRange.end}`
+        : new Date().toISOString().split('T')[0]
+      
+      // Write file
+      XLSX.writeFile(wb, `Weekly_Work_Revenue_${dateStr}.xlsx`)
+      
+      console.log(`✅ Downloaded formatted Excel: Weekly_Work_Revenue_${dateStr}.xlsx`)
+    } catch (error) {
+      console.error('Error exporting to Excel:', error)
+      alert('Failed to export data. Please try again.')
+    }
+  }, [projectsWithWorkInRange, weeks, totals, divisionsDataMap, dateRange, formatCurrency, kpis, calculateWeeklyEarnedValue, calculateWeeklyPlannedValue, viewPlannedValue])
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+                    <div>
+          <h3 className="text-2xl font-bold text-gray-900 dark:text-white">MONTHLY WORK REVENUE (Excl VAT)</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">ما تم تنفيذه حتى الآن - Weekly Earned Value Report</p>
+                    </div>
+        <div className="flex items-center gap-4 flex-wrap">
+          <select
+            value={selectedDivision}
+            onChange={(e) => setSelectedDivision(e.target.value)}
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+          >
+            <option value="">All Divisions</option>
+            {(divisions as string[]).map((div: string) => (
+              <option key={div} value={div}>{div}</option>
+            ))}
+          </select>
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={dateRange.start}
+              onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+            />
+            <span className="text-gray-500">to</span>
+            <input
+              type="date"
+              value={dateRange.end}
+              onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="viewPlannedValue"
+              checked={viewPlannedValue}
+              onChange={(e) => setViewPlannedValue(e.target.checked)}
+              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+            />
+            <label htmlFor="viewPlannedValue" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
+              View Planned Value
+            </label>
+                  </div>
+                  </div>
+                </div>
+
+      {/* Weekly Revenue Chart */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-blue-500" />
+                Weekly Revenue Trend
+              </CardTitle>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                {viewPlannedValue ? 'Earned vs Planned Value per Week' : 'Earned Value per Week'}
+              </p>
+            </div>
+            <div className="relative" ref={chartExportMenuRef}>
+              <Button
+                onClick={() => setShowChartExportMenu(!showChartExportMenu)}
+                variant="outline"
+                size="sm"
+                className="flex items-center gap-2"
+              >
+                <Download className="h-4 w-4" />
+                Export Chart
+                <ChevronDown className="h-4 w-4" />
+              </Button>
+              {showChartExportMenu && (
+                <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
+                  <div className="py-1">
+                    <button
+                      onClick={() => handleExportChart('png')}
+                      className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                    >
+                      <FileText className="h-4 w-4" />
+                      PNG Image
+                    </button>
+                    <button
+                      onClick={() => handleExportChart('jpeg')}
+                      className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                    >
+                      <FileText className="h-4 w-4" />
+                      JPEG Image
+                    </button>
+                    <button
+                      onClick={() => handleExportChart('svg')}
+                      className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                    >
+                      <FileText className="h-4 w-4" />
+                      SVG Image
+                    </button>
+                    <button
+                      onClick={() => handleExportChart('pdf')}
+                      className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                    >
+                      <FileText className="h-4 w-4" />
+                      PDF Document
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div ref={chartRef} className="h-80 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={weeks.map((week, index) => ({
+                  week: week.label,
+                  weekShort: `W${index + 1}`,
+                  earned: totals.weeklyEarnedValueTotals[index] || 0,
+                  planned: viewPlannedValue ? (totals.weeklyPlannedValueTotals[index] || 0) : undefined
+                }))}
+                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" className="stroke-gray-300 dark:stroke-gray-700" />
+                <XAxis 
+                  dataKey="weekShort" 
+                  className="text-xs"
+                  tick={{ fill: 'currentColor' }}
+                />
+                <YAxis 
+                  className="text-xs"
+                  tick={{ fill: 'currentColor' }}
+                  tickFormatter={(value) => {
+                    if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`
+                    if (value >= 1000) return `${(value / 1000).toFixed(1)}K`
+                    return value.toString()
+                  }}
+                />
+                <Tooltip 
+                  contentStyle={{
+                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '8px',
+                    padding: '12px'
+                  }}
+                  formatter={(value: number, name: string) => {
+                    const currency = projectsWithWorkInRange.length > 0 
+                      ? (projectsWithWorkInRange[0]?.project?.currency || 'AED')
+                      : 'AED'
+                    return [formatCurrency(value, currency), name === 'earned' ? 'Earned Value' : 'Planned Value']
+                  }}
+                  labelFormatter={(label) => `Week: ${label}`}
+                />
+                <Legend 
+                  formatter={(value) => value === 'earned' ? 'Earned Value' : 'Planned Value'}
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="earned" 
+                  stroke="#10b981" 
+                  strokeWidth={3}
+                  dot={{ fill: '#10b981', r: 5 }}
+                  activeDot={{ r: 7 }}
+                  name="earned"
+                />
+                {viewPlannedValue && (
+                  <Line 
+                    type="monotone" 
+                    dataKey="planned" 
+                    stroke="#3b82f6" 
+                    strokeWidth={3}
+                    strokeDasharray="5 5"
+                    dot={{ fill: '#3b82f6', r: 5 }}
+                    activeDot={{ r: 7 }}
+                    name="planned"
+                  />
+                )}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-blue-600 dark:text-blue-400">Total Contract Value</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{formatCurrency(totals.totalContractValue)}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{filteredProjects.length} projects</p>
+              </div>
+              <DollarSign className="h-12 w-12 text-blue-500 dark:text-blue-400 opacity-50" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+                    <div>
+                <p className="text-sm font-medium text-green-600 dark:text-green-400">Total Earned Value</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{formatCurrency(totals.totalEarnedValue)}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  {totals.totalContractValue > 0 ? ((totals.totalEarnedValue / totals.totalContractValue) * 100).toFixed(1) : 0}% completed
+                </p>
+                    </div>
+              <CheckCircle className="h-12 w-12 text-green-500 dark:text-green-400 opacity-50" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+          <CardTitle className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5 text-blue-500" />
+            Weekly Work Revenue by Project
+          </CardTitle>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Revenue earned per week based on KPI Actual values</p>
+            </div>
+            <Button
+              onClick={handleExportWeeklyRevenue}
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2"
+            >
+              <Download className="h-4 w-4" />
+              Export to Excel
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+      <div className="overflow-x-auto">
+            <table className="border-collapse text-sm" style={{ tableLayout: 'fixed', minWidth: '100%', width: `${200 + 180 + 120 + 180 + 220 + (weeks.length * 140) + 150}px` }}>
+              <thead>
+                <tr className="bg-gray-100 dark:bg-gray-800 border-b-2 border-gray-300 dark:border-gray-600">
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold" style={{ width: '200px' }}>Project Full Name</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold" style={{ width: '180px' }}>Divisions</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: '120px' }}>Workmanship?</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '180px' }}>Total Contract Amount</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '220px' }}>Division Contract Amount</th>
+                  {weeks.map((week, index) => (
+                    <th key={index} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '140px' }}>
+                      <div>{week.label}</div>
+                      <div className="text-xs font-normal text-gray-500 dark:text-gray-400">
+                        {week.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {week.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </div>
+                    </th>
+                  ))}
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '150px' }}>Grand Total</th>
+            </tr>
+          </thead>
+              <tbody>
+                {projectsWithWorkInRange.length === 0 ? (
+                  <tr>
+                    <td colSpan={5 + weeks.length + 1} className="border border-gray-300 dark:border-gray-600 px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                      <div className="flex flex-col items-center gap-2">
+                        <AlertTriangle className="h-8 w-8 text-gray-400" />
+                        <p>No projects with work in the selected date range</p>
+                        <p className="text-xs">Please select a different date range or check if there are KPIs Actual for this period</p>
+                  </div>
+                </td>
+                  </tr>
+                ) : (
+                  projectsWithWorkInRange.map((analytics: any) => {
+                    const project = analytics.project
+                    
+                    // Calculate Total Contract Amount (Contract Amount + Variations)
+                    const contractAmt = analytics.totalContractValue || 
+                                      parseFloat(String(project.contract_amount || '0').replace(/,/g, '')) || 0
+                    const variationsAmt = parseFloat(String(
+                      (project as any).raw?.['Variations Amount'] || 
+                      (project as any).raw?.['Variations'] || 
+                      '0'
+                    ).replace(/,/g, '')) || 0
+                    const totalContractAmount = contractAmt + variationsAmt
+                    
+                    // Get Division Contract Amount data (same format as ProjectsTableWithCustomization)
+                    const divisionsData = divisionsDataMap.get(project.id)
+                    const divisionAmounts = divisionsData?.divisionAmounts || {}
+                    const divisionNames = divisionsData?.divisionNames || {}
+                    
+                    // Build divisions list sorted by amount (descending)
+                    const divisionsList = Object.keys(divisionAmounts)
+                      .map(key => ({
+                        key: key.toLowerCase().trim(),
+                        name: divisionNames[key] || key,
+                        amount: divisionAmounts[key] || 0
+                      }))
+                      .sort((a, b) => b.amount - a.amount)
+                    
+                    // Calculate total
+                    const divisionContractAmount = divisionsList.reduce((sum, div) => sum + div.amount, 0)
+                    
+                    // Get Workmanship
+                    const workmanship = project.workmanship_only || 
+                                      (project as any).raw?.['Workmanship only?'] || 
+                                      (project as any).raw?.['Workmanship?'] || 
+                                      'No'
+                    const isWorkmanship = workmanship === 'Yes' || workmanship === 'TRUE' || workmanship === true
+                    
+                    // ✅ PERFORMANCE: Get weekly values from cache
+                    const cachedValues = weeklyValuesCache.get(project.id)
+                    const weeklyValues = cachedValues?.earned || []
+                    const weeklyPlannedValues = viewPlannedValue ? (cachedValues?.planned || []) : []
+                    const grandTotal = weeklyValues.reduce((sum, val) => sum + val, 0)
+                    const grandTotalPlanned = viewPlannedValue ? weeklyPlannedValues.reduce((sum, val) => sum + val, 0) : 0
+                    return (
+                      <tr key={project.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3" style={{ width: '200px', overflow: 'hidden' }}>
+                          <div className="min-w-0">
+                            <p className="font-semibold text-gray-900 dark:text-white truncate">
+                              {project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">{project.project_name}</p>
+                  </div>
+                </td>
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3" style={{ width: '180px', overflow: 'hidden' }}>
+                          {divisionsList.length === 0 ? (
+                            <span className="text-sm text-gray-400 dark:text-gray-500 truncate block">{project.responsible_division || 'N/A'}</span>
+                          ) : (
+                            <div className="space-y-1 min-w-0">
+                              {divisionsList.map((division, index) => (
+                                <div 
+                                  key={`${project.id}-div-${division.key}-${index}`} 
+                                  className="text-xs text-gray-700 dark:text-gray-300 truncate"
+                                >
+                                  {division.name}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                </td>
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center" style={{ width: '120px' }}>
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${
+                            isWorkmanship 
+                              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' 
+                              : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                          }`}>
+                            {isWorkmanship ? 'Yes' : 'No'}
+                  </span>
+                </td>
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '180px' }}>
+                          <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(totalContractAmount, project.currency)}</span>
+                </td>
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3" style={{ width: '220px', overflow: 'hidden' }}>
+                          {divisionsList.length === 0 ? (
+                            <span className="text-xs text-gray-400 dark:text-gray-500 italic">No data available</span>
+                          ) : (
+                            <div className="space-y-1.5">
+                              {/* Show all divisions with their amounts */}
+                              {divisionsList.map((division, index) => (
+                                <div 
+                                  key={`${project.id}-${division.key}-${index}`} 
+                                  className="flex items-center justify-between text-xs py-0.5"
+                                >
+                                  <span className="text-gray-600 dark:text-gray-400 truncate flex-1 min-w-0 mr-2">
+                                    {division.name}:
+                                  </span>
+                                  <span className="font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                                    {formatCurrency(division.amount, project.currency)}
+                                  </span>
+                                </div>
+                              ))}
+                              {/* Show total */}
+                              {divisionsList.length > 1 && (
+                                <div className="flex items-center justify-between text-xs font-semibold pt-1 border-t border-gray-200 dark:border-gray-700 mt-1">
+                                  <span className="text-gray-900 dark:text-white">Total:</span>
+                                  <span className="text-gray-900 dark:text-white">
+                                    {formatCurrency(divisionContractAmount, project.currency)}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                </td>
+                        {weeklyValues.map((value: number, index: number) => {
+                          const plannedValue = viewPlannedValue ? (weeklyPlannedValues[index] || 0) : 0
+                          return (
+                            <td key={index} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: viewPlannedValue ? '200px' : '140px' }}>
+                              {viewPlannedValue ? (
+                                <div className="space-y-1">
+                            {value > 0 ? (
+                                    <div className="font-medium text-green-600 dark:text-green-400">{formatCurrency(value, project.currency)}</div>
+                                  ) : (
+                                    <div className="text-gray-400">-</div>
+                                  )}
+                                  {plannedValue > 0 ? (
+                                    <div className="text-xs text-blue-600 dark:text-blue-400">{formatCurrency(plannedValue, project.currency)}</div>
+                                  ) : (
+                                    <div className="text-xs text-gray-400">-</div>
+                                  )}
+                                </div>
+                              ) : (
+                                value > 0 ? (
+                              <span className="font-medium text-green-600 dark:text-green-400">{formatCurrency(value, project.currency)}</span>
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                                )
+                            )}
+                </td>
+                          )
+                        })}
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '150px' }}>
+                          {viewPlannedValue ? (
+                            <div className="space-y-1">
+                              <div className="font-bold text-gray-900 dark:text-white">{formatCurrency(grandTotal, project.currency)}</div>
+                              {grandTotalPlanned > 0 && (
+                                <div className="text-xs text-blue-600 dark:text-blue-400">{formatCurrency(grandTotalPlanned, project.currency)}</div>
+                              )}
+                            </div>
+                          ) : (
+                          <span className="font-bold text-gray-900 dark:text-white">{formatCurrency(grandTotal, project.currency)}</span>
+                          )}
+                </td>
+              </tr>
+                    )
+                  })
+                )}
+          </tbody>
+              {projectsWithWorkInRange.length > 0 && (
+                <tfoot>
+                  <tr className="bg-gray-100 dark:bg-gray-800 font-bold border-t-2 border-gray-300 dark:border-gray-600">
+                    <td colSpan={5} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right">Total:</td>
+                    {totals.weeklyEarnedValueTotals.map((value, index) => {
+                      const plannedValue = viewPlannedValue ? (totals.weeklyPlannedValueTotals[index] || 0) : 0
+                      return (
+                        <td key={index} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: viewPlannedValue ? '200px' : '140px' }}>
+                          {viewPlannedValue ? (
+                            <div className="space-y-1">
+                              <div className="text-green-600 dark:text-green-400 font-bold">{formatCurrency(value)}</div>
+                              {plannedValue > 0 && (
+                                <div className="text-xs text-blue-600 dark:text-blue-400">{formatCurrency(plannedValue)}</div>
+                              )}
+                            </div>
+                          ) : (
+                        <span className="text-green-600 dark:text-green-400">{formatCurrency(value)}</span>
+                          )}
+                      </td>
+                      )
+                    })}
+                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '150px' }}>
+                      {viewPlannedValue ? (
+                        <div className="space-y-1">
+                          <div className="text-gray-900 dark:text-white font-bold">{formatCurrency(totals.grandTotalEarnedValue)}</div>
+                          {totals.grandTotalPlannedValue > 0 && (
+                            <div className="text-xs text-blue-600 dark:text-blue-400">{formatCurrency(totals.grandTotalPlannedValue)}</div>
+                          )}
+                        </div>
+                      ) : (
+                      <span className="text-gray-900 dark:text-white">{formatCurrency(totals.grandTotalEarnedValue)}</span>
+                      )}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+        </table>
+      </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}

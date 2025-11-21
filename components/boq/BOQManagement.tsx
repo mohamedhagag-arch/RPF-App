@@ -10,6 +10,7 @@ import { BOQActivity, Project, TABLES } from '@/lib/supabase'
 import { mapBOQFromDB, mapProjectFromDB, mapKPIFromDB } from '@/lib/dataMappers'
 import { calculateActivityRate, ActivityRate } from '@/lib/rateCalculator'
 import { calculateActivityProgress, ActivityProgress } from '@/lib/progressCalculator'
+import { calculateWorkValueStatus } from '@/lib/workValueCalculator'
 import { autoSaveActivityCalculations, autoSaveOnBOQUpdate } from '@/lib/autoCalculationSaver'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -2667,19 +2668,31 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     }
     
     // Get activity rate (from BOQ activity)
+    // ✅ FIXED: Calculate rate using EXACT SAME LOGIC as KPI page and Work Value Status
+    // Priority: 1) Total Value / Total Units (SAME AS TABLE), 2) Rate directly from activity
     const getActivityRate = (activity: BOQActivity, kpi: any): number => {
-      // Try rate directly from activity
+      const rawActivity = (activity as any).raw || {}
+      
+      // ✅ PRIORITY 1: Calculate Rate = Total Value / Total Units (SAME AS TABLE)
+      const totalValueFromActivity = activity.total_value || 
+                                   parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                   0
+      
+      const totalUnits = activity.total_units || 
+                      activity.planned_units ||
+                      parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                      0
+      
+      if (totalUnits > 0 && totalValueFromActivity > 0) {
+        return totalValueFromActivity / totalUnits
+      }
+      
+      // ✅ PRIORITY 2: Use rate directly from activity (fallback)
       if (activity.rate && activity.rate > 0) {
         return activity.rate
       }
       
-      // Calculate from total_value / total_units
-      if (activity.total_value && activity.total_units && activity.total_units > 0) {
-        return activity.total_value / activity.total_units
-      }
-      
-      // Try to get from raw data
-      const rawActivity = (activity as any).raw || {}
+      // ✅ PRIORITY 3: Try to get from raw data
       const rateFromRaw = parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
       if (rateFromRaw > 0) return rateFromRaw
       
@@ -2779,68 +2792,108 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       return true
     }
     
-    // Helper: Check if KPI date is until yesterday
+    // ✅ FIXED: Check if KPI date is until yesterday - Use EXACT SAME LOGIC as Work Value Status
+    // Priority: activity_date > target_date > raw['Activity Date'] > raw['Target Date'] > raw['Day'] > kpi.day
     const isKPIUntilYesterday = (kpi: any, inputType: 'planned' | 'actual'): boolean => {
       const yesterday = new Date()
       yesterday.setDate(yesterday.getDate() - 1)
       yesterday.setHours(23, 59, 59, 999)
       
-      const raw = (kpi as any).raw || {}
+      const rawKpi = (kpi as any).raw || {}
       let kpiDateStr = ''
       
       if (inputType === 'planned') {
-        // ✅ Priority: Date column > target_date > activity_date > created_at
-        kpiDateStr = raw['Date'] ||
-                    kpi.date ||
-                    kpi.target_date || 
-                    kpi.activity_date || 
-                    raw['Target Date'] || 
-                    raw['Activity Date'] ||
-                    kpi['Target Date'] || 
-                    kpi['Activity Date'] ||
-                    kpi.created_at ||
+        // ✅ Use EXACT SAME LOGIC as workValueCalculator.ts
+        // Priority: activity_date > target_date > raw['Activity Date'] > raw['Target Date'] > raw['Day'] > kpi.day
+        kpiDateStr = kpi.activity_date ||
+                    kpi.target_date ||
+                    rawKpi['Activity Date'] ||
+                    rawKpi['Target Date'] ||
+                    rawKpi['Day'] ||
+                    kpi.day ||
                     ''
       } else {
-        kpiDateStr = kpi.actual_date || 
-                    kpi.activity_date || 
-                    kpi['Actual Date'] || 
-                    kpi['Activity Date'] || 
-                    raw['Actual Date'] || 
-                    raw['Activity Date'] ||
-                    kpi.created_at ||
+        // ✅ Use EXACT SAME LOGIC as workValueCalculator.ts
+        // Priority: activity_date > actual_date > raw['Activity Date'] > raw['Actual Date'] > raw['Day'] > kpi.day
+        kpiDateStr = kpi.activity_date ||
+                    kpi.actual_date ||
+                    rawKpi['Activity Date'] ||
+                    rawKpi['Actual Date'] ||
+                    rawKpi['Day'] ||
+                    kpi.day ||
                     ''
       }
       
-      // If no date, include it (treat as valid)
+      // If no date, include it (treat as valid) - SAME AS workValueCalculator.ts
       if (!kpiDateStr) return true
       
       try {
-        const kpiDate = new Date(kpiDateStr)
-        if (isNaN(kpiDate.getTime())) return true // Invalid date, include it
+        const kpiDate = parseDateString(kpiDateStr)
+        if (!kpiDate) return true // Invalid date, include it
         return kpiDate <= yesterday
       } catch {
         return true // Error, include it
       }
     }
     
-    // Calculate value from KPI (priority: k.value > rate * quantity > planned_value/actual_value)
+    // Helper: Parse date string (same as workValueCalculator.ts)
+    const parseDateString = (dateStr: string | null | undefined): Date | null => {
+      if (!dateStr) return null
+      try {
+        const date = new Date(dateStr)
+        if (isNaN(date.getTime())) return null
+        return date
+      } catch {
+        return null
+      }
+    }
+    
+    // ✅ FIXED: Calculate value from KPI using EXACT SAME LOGIC as KPI page and Work Value Status
+    // Priority: 1) Rate × Quantity (SAME AS TABLE), 2) Value directly from KPI, 3) Planned/Actual Value
     const getKPIValue = (kpi: any, activity: BOQActivity): number => {
       const rawKPI = (kpi as any).raw || {}
       
-      // Priority 1: Use value directly from KPI if available (most accurate)
-      const kpiValue = parseFloat(String(kpi.value || rawKPI['Value'] || '0').replace(/,/g, '')) || 0
+      // Get Quantity
+      const quantity = parseFloat(String(kpi.quantity || rawKPI['Quantity'] || '0').replace(/,/g, '')) || 0
+      
+      // ✅ PRIORITY 1: Calculate from Rate × Quantity (SAME AS TABLE COLUMN)
+      // This is how Value is calculated in the table: Quantity × Rate
+      const rate = getActivityRate(activity, kpi)
+      let calculatedValue = 0
+      if (rate > 0 && quantity > 0) {
+        calculatedValue = rate * quantity
+        if (calculatedValue > 0) {
+          return calculatedValue
+        }
+      }
+      
+      // ✅ PRIORITY 2: Use Value directly from KPI (fallback if calculated value is 0)
+      // Check raw['Value'] first (from database), then k.value
+      let kpiValue = 0
+      
+      // Try raw['Value'] (from database with capital V) - MOST RELIABLE
+      if (rawKPI['Value'] !== undefined && rawKPI['Value'] !== null) {
+        const val = rawKPI['Value']
+        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+      }
+      
+      // Try raw.value (from database with lowercase v)
+      if (kpiValue === 0 && rawKPI.value !== undefined && rawKPI.value !== null) {
+        const val = rawKPI.value
+        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+      }
+      
+      // Try k.value (direct property from ProcessedKPI)
+      if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
+        const val = kpi.value
+        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+      }
+      
       if (kpiValue > 0) {
         return kpiValue
       }
       
-      // Priority 2: Calculate from rate * quantity
-      const rate = getActivityRate(activity, kpi)
-      const quantity = parseFloat(String(kpi.quantity || rawKPI['Quantity'] || '0').replace(/,/g, '')) || 0
-      if (rate > 0 && quantity > 0) {
-        return rate * quantity
-      }
-      
-      // Priority 3: Fallback to planned_value or actual_value
+      // ✅ PRIORITY 3: Fallback to planned_value or actual_value
       const inputType = (kpi.input_type || rawKPI['Input Type'] || '').toString().toLowerCase().trim()
       if (inputType === 'planned') {
         const plannedValue = parseFloat(String(kpi.planned_value || rawKPI['Planned Value'] || '0').replace(/,/g, '')) || 0
@@ -2896,18 +2949,29 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       return sum + quantity
     }, 0)
     
-    // Planned Value: Sum of values from Planned KPIs until yesterday (matching activities)
-    // ✅ EXACT SAME LOGIC AS QUANTITIES COLUMN - Filter until yesterday and use strict matching
-    const totalPlannedValue = plannedKPIs
-      .filter((kpi: any) => isKPIUntilYesterday(kpi, 'planned'))
-      .reduce((sum, kpi) => {
-        // Find matching activity for this KPI
-        const matchingActivity = filteredActivities.find(activity => kpiMatchesActivity(kpi, activity))
-        if (!matchingActivity) return sum
-        
-        const value = getKPIValue(kpi, matchingActivity)
-        return sum + value
-      }, 0)
+    // ✅ FIXED: Planned Value - Use EXACT SAME LOGIC as Projects page (calculateWorkValueStatus)
+    // Calculate Planned Value for each unique project from filtered activities, then sum
+    const projectMap = new Map<string, Project>()
+    filteredActivities.forEach((activity: BOQActivity) => {
+      const projectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim()
+      if (projectFullCode) {
+        const project = projects.find(p => {
+          const pFullCode = (p.project_full_code || `${p.project_code}${p.project_sub_code ? `-${p.project_sub_code}` : ''}`).toString().trim()
+          return pFullCode.toUpperCase() === projectFullCode.toUpperCase() || 
+                 p.project_code?.toUpperCase() === projectFullCode.toUpperCase()
+        })
+        if (project && !projectMap.has(project.id)) {
+          projectMap.set(project.id, project)
+        }
+      }
+    })
+    const uniqueProjects = Array.from(projectMap.values())
+    
+    // ✅ Use calculateWorkValueStatus for each project (SAME AS PROJECTS PAGE)
+    const totalPlannedValue = uniqueProjects.reduce((sum, project) => {
+      const workValueStatus = calculateWorkValueStatus(project, filteredActivities, allKPIs)
+      return sum + workValueStatus.planned
+    }, 0)
     
     // Actual Value: Sum of values from Actual KPIs until yesterday (matching activities)
     // ✅ EXACT SAME LOGIC AS QUANTITIES COLUMN - Filter until yesterday and use strict matching
@@ -2963,7 +3027,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       achievementRateByValue,
       actualToTotalValueRate
     }
-  }, [filteredActivities, allKPIs])
+  }, [filteredActivities, allKPIs, projects])
 
   // Don't show full-page loading spinner - show skeleton instead
   const isInitialLoad = loading && activities.length === 0
@@ -3180,55 +3244,58 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
 
       {/* ✅ BOQ Statistics - Show if Activities are loaded */}
       {filteredActivities.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-8 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-4 gap-5">
           <Card className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900 dark:to-purple-800 border-purple-200 dark:border-purple-700">
-            <CardContent className="p-6">
+            <CardContent className="p-7">
               <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-purple-600 dark:text-purple-300">Total Records</p>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-purple-600 dark:text-purple-300 mb-2">Total Records</p>
                   <p className="text-3xl font-bold text-purple-900 dark:text-purple-100">{boqSummaryStats.totalRecords}</p>
                 </div>
-                <BarChart3 className="h-10 w-10 text-purple-500" />
+                <BarChart3 className="h-12 w-12 text-purple-500 flex-shrink-0 ml-3" />
               </div>
             </CardContent>
           </Card>
 
           <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900 dark:to-blue-800 border-blue-200 dark:border-blue-700">
-            <CardContent className="p-6">
+            <CardContent className="p-7">
               <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-blue-600 dark:text-blue-300">🎯 Planned Targets</p>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-blue-600 dark:text-blue-300 mb-2">🎯 Planned Targets</p>
                   <p className="text-3xl font-bold text-blue-900 dark:text-blue-100">{boqSummaryStats.plannedCount}</p>
-                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-2">
                     {boqSummaryStats.totalPlannedQty.toLocaleString()} total qty
                   </p>
                 </div>
-                <Target className="h-10 w-10 text-blue-500" />
+                <Target className="h-12 w-12 text-blue-500 flex-shrink-0 ml-3" />
               </div>
             </CardContent>
           </Card>
 
           <Card className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900 dark:to-green-800 border-green-200 dark:border-green-700">
-            <CardContent className="p-6">
+            <CardContent className="p-7">
               <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-green-600 dark:text-green-300">✓ Actual Achieved</p>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-green-600 dark:text-green-300 mb-2">✓ Actual Achieved</p>
                   <p className="text-3xl font-bold text-green-900 dark:text-green-100">{boqSummaryStats.actualCount}</p>
-                  <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                  <p className="text-xs text-green-600 dark:text-green-400 mt-2">
                     {boqSummaryStats.totalActualQty.toLocaleString()} total qty
                   </p>
                 </div>
-                <CheckCircle className="h-10 w-10 text-green-500" />
+                <CheckCircle className="h-12 w-12 text-green-500 flex-shrink-0 ml-3" />
               </div>
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-indigo-50 to-indigo-100 dark:from-indigo-900 dark:to-indigo-800 border-indigo-200 dark:border-indigo-700">
-            <CardContent className="p-6">
+          <Card className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900 dark:to-purple-800 border-purple-200 dark:border-purple-700">
+            <CardContent className="p-7">
               <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-indigo-600 dark:text-indigo-300">Planned Value</p>
-                  <p className="text-3xl font-bold text-indigo-900 dark:text-indigo-100">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Target className="h-4 w-4 text-purple-600 dark:text-purple-300 flex-shrink-0" />
+                    <p className="text-sm font-medium text-purple-600 dark:text-purple-300">Planned Value</p>
+                  </div>
+                  <p className="text-2xl font-bold text-purple-900 dark:text-purple-100 break-words">
                     {(() => {
                       // Get currency from first selected project or default
                       const firstProject = selectedProjects.length > 0 
@@ -3238,21 +3305,23 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
                       return formatCurrencyByCodeSync(boqSummaryStats.totalPlannedValue, currencyCode)
                     })()}
                   </p>
-                  <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-1">
-                    Across {boqSummaryStats.plannedCount.toLocaleString()} planned activities
+                  <p className="text-xs text-purple-600 dark:text-purple-400 mt-3">
+                    From {boqSummaryStats.plannedCount.toLocaleString()} planned activities
                   </p>
                 </div>
-                <Coins className="h-10 w-10 text-indigo-500" />
+                <div className="ml-4 flex-shrink-0">
+                  <Target className="h-12 w-12 text-purple-500 dark:text-purple-400 opacity-60" />
+                </div>
               </div>
             </CardContent>
           </Card>
 
           <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-emerald-900 dark:to-emerald-800 border-emerald-200 dark:border-emerald-700">
-            <CardContent className="p-6">
+            <CardContent className="p-7">
               <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-emerald-600 dark:text-emerald-300">Actual Value</p>
-                  <p className="text-3xl font-bold text-emerald-900 dark:text-emerald-100">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-emerald-600 dark:text-emerald-300 mb-2">Actual Value</p>
+                  <p className="text-2xl font-bold text-emerald-900 dark:text-emerald-100 break-words">
                     {(() => {
                       // Get currency from first selected project or default
                       const firstProject = selectedProjects.length > 0 
@@ -3262,24 +3331,24 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
                       return formatCurrencyByCodeSync(boqSummaryStats.totalActualValue, currencyCode)
                     })()}
                   </p>
-                  <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1">
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-2">
                     {boqSummaryStats.valueAchievementRate.toFixed(1)}% of planned value
                   </p>
                 </div>
-                <DollarSign className="h-10 w-10 text-emerald-500" />
+                <DollarSign className="h-12 w-12 text-emerald-500 flex-shrink-0 ml-3" />
               </div>
             </CardContent>
           </Card>
 
           <Card className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900 dark:to-orange-800 border-orange-200 dark:border-orange-700">
-            <CardContent className="p-6">
+            <CardContent className="p-7">
               <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-orange-600 dark:text-orange-300">Achievement Rate</p>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-orange-600 dark:text-orange-300 mb-2">Achievement Rate</p>
                   <p className="text-3xl font-bold text-orange-900 dark:text-orange-100">
                     {boqSummaryStats.achievementRateByValue.toFixed(1)}%
                   </p>
-                  <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
+                  <p className="text-xs text-orange-600 dark:text-orange-400 mt-2 break-words">
                     {(() => {
                       // Get currency from first selected project or default
                       const firstProject = selectedProjects.length > 0 
@@ -3289,25 +3358,25 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
                       return `${formatCurrencyByCodeSync(boqSummaryStats.totalActualValue, currencyCode)} / ${formatCurrencyByCodeSync(boqSummaryStats.totalPlannedValue, currencyCode)}`
                     })()}
                   </p>
-                  <p className="text-[11px] text-orange-500 dark:text-orange-300">
+                  <p className="text-[11px] text-orange-500 dark:text-orange-300 mt-1">
                     {boqSummaryStats.actualCount.toLocaleString()} / {boqSummaryStats.plannedCount.toLocaleString()} activities
                   </p>
                 </div>
-                <div className="relative w-10 h-10">
-                  <svg className="transform -rotate-90 w-10 h-10">
+                <div className="relative w-12 h-12 flex-shrink-0 ml-3">
+                  <svg className="transform -rotate-90 w-12 h-12">
                     <circle
-                      cx="20"
-                      cy="20"
-                      r="16"
+                      cx="24"
+                      cy="24"
+                      r="18"
                       stroke="currentColor"
                       strokeWidth="3"
                       fill="transparent"
                       className="text-orange-200 dark:text-orange-950"
                     />
                     <circle
-                      cx="20"
-                      cy="20"
-                      r="16"
+                      cx="24"
+                      cy="24"
+                      r="18"
                       stroke="currentColor"
                       strokeWidth="3"
                       fill="transparent"
@@ -3321,11 +3390,11 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
           </Card>
 
           <Card className="bg-gradient-to-br from-cyan-50 to-cyan-100 dark:from-cyan-900 dark:to-cyan-800 border-cyan-200 dark:border-cyan-700">
-            <CardContent className="p-6">
+            <CardContent className="p-7">
               <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-cyan-600 dark:text-cyan-300">Total Value</p>
-                  <p className="text-3xl font-bold text-cyan-900 dark:text-cyan-100">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-cyan-600 dark:text-cyan-300 mb-2">Total Value</p>
+                  <p className="text-2xl font-bold text-cyan-900 dark:text-cyan-100 break-words">
                     {(() => {
                       // Get currency from first selected project or default
                       const firstProject = selectedProjects.length > 0 
@@ -3335,24 +3404,24 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
                       return formatCurrencyByCodeSync(boqSummaryStats.totalValue, currencyCode)
                     })()}
                   </p>
-                  <p className="text-xs text-cyan-600 dark:text-cyan-400 mt-1">
+                  <p className="text-xs text-cyan-600 dark:text-cyan-400 mt-2">
                     Across {boqSummaryStats.totalRecords.toLocaleString()} activities
                   </p>
                 </div>
-                <Building2 className="h-10 w-10 text-cyan-500" />
+                <Building2 className="h-12 w-12 text-cyan-500 flex-shrink-0 ml-3" />
               </div>
             </CardContent>
           </Card>
 
           <Card className="bg-gradient-to-br from-teal-50 to-teal-100 dark:from-teal-900 dark:to-teal-800 border-teal-200 dark:border-teal-700">
-            <CardContent className="p-6">
+            <CardContent className="p-7">
               <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-teal-600 dark:text-teal-300">Actual / Total Value</p>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-teal-600 dark:text-teal-300 mb-2">Actual / Total Value</p>
                   <p className="text-3xl font-bold text-teal-900 dark:text-teal-100">
                     {boqSummaryStats.actualToTotalValueRate.toFixed(1)}%
                   </p>
-                  <p className="text-xs text-teal-600 dark:text-teal-400 mt-1">
+                  <p className="text-xs text-teal-600 dark:text-teal-400 mt-2 break-words">
                     {(() => {
                       // Get currency from first selected project or default
                       const firstProject = selectedProjects.length > 0 
@@ -3363,21 +3432,21 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
                     })()}
                   </p>
                 </div>
-                <div className="relative w-10 h-10">
-                  <svg className="transform -rotate-90 w-10 h-10">
+                <div className="relative w-12 h-12 flex-shrink-0 ml-3">
+                  <svg className="transform -rotate-90 w-12 h-12">
                     <circle
-                      cx="20"
-                      cy="20"
-                      r="16"
+                      cx="24"
+                      cy="24"
+                      r="18"
                       stroke="currentColor"
                       strokeWidth="3"
                       fill="transparent"
                       className="text-teal-200 dark:text-teal-950"
                     />
                     <circle
-                      cx="20"
-                      cy="20"
-                      r="16"
+                      cx="24"
+                      cy="24"
+                      r="18"
                       stroke="currentColor"
                       strokeWidth="3"
                       fill="transparent"

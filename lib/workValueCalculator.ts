@@ -171,45 +171,162 @@ export function calculateWorkValueStatus(
           const rawKpi = (kpi as any).raw || {}
           const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
           
-          // Find related activity to get rate
+          // ✅ IMPROVED: Find related activity with Zone matching (SAME AS KPI PAGE)
+          // This matches the logic in KPITracking.tsx getActivityRate function
           let rate = 0
           if (allActivities.length > 0) {
-            const relatedActivity = allActivities.find((activity: any) => {
-              if (!matchesProject(activity, project)) return false
-              const kpiActivityName = kpi.activity_name || kpi['Activity Name'] || ''
-              const activityName = activity.activity_name || activity['Activity Name'] || ''
-              return kpiActivityName && activityName && kpiActivityName.toLowerCase() === activityName.toLowerCase()
-            })
+            const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || '').toLowerCase().trim()
+            const kpiProjectFullCode = (kpi.project_full_code || kpi.project_code || '').toLowerCase().trim()
+            const kpiProjectCode = (kpi.project_code || '').toLowerCase().trim()
+            
+            // Extract KPI Zone (same logic as KPI page)
+            const rawKpiForZone = (kpi as any).raw || {}
+            const kpiZoneRaw = (kpi.zone || rawKpiForZone['Zone'] || rawKpiForZone['Zone Number'] || '').toString().trim()
+            let kpiZone = kpiZoneRaw.toLowerCase().trim()
+            if (kpiZone && kpiProjectCode) {
+              const projectCodeUpper = kpiProjectCode.toUpperCase()
+              kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+              kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
+              kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
+            }
+            if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
+            
+            // Try multiple matching strategies (with Zone priority) - SAME AS KPI PAGE
+            let relatedActivity: any = null
+            
+            // Try 1: activity_name + project_full_code + zone (most precise)
+            if (kpiActivityName && kpiProjectFullCode && kpiZone) {
+              relatedActivity = allActivities.find((activity: any) => {
+                if (!matchesProject(activity, project)) return false
+                const activityName = (activity.activity_name || activity['Activity Name'] || '').toLowerCase().trim()
+                const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toLowerCase().trim()
+                const rawActivity = (activity as any).raw || {}
+                const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+                return activityName === kpiActivityName && 
+                       activityProjectFullCode === kpiProjectFullCode &&
+                       (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
+              })
+            }
+            
+            // Try 2: activity_name + project_full_code (without zone - fallback)
+            if (!relatedActivity && kpiActivityName && kpiProjectFullCode) {
+              relatedActivity = allActivities.find((activity: any) => {
+                if (!matchesProject(activity, project)) return false
+                const activityName = (activity.activity_name || activity['Activity Name'] || '').toLowerCase().trim()
+                const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toLowerCase().trim()
+                return activityName === kpiActivityName && activityProjectFullCode === kpiProjectFullCode
+              })
+            }
+            
+            // Try 3: activity_name + project_code + zone (if not found and project_code exists)
+            if (!relatedActivity && kpiActivityName && kpiProjectCode && kpiZone) {
+              relatedActivity = allActivities.find((activity: any) => {
+                if (!matchesProject(activity, project)) return false
+                const activityName = (activity.activity_name || activity['Activity Name'] || '').toLowerCase().trim()
+                const activityProjectCode = (activity.project_code || '').toLowerCase().trim()
+                const rawActivity = (activity as any).raw || {}
+                const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+                return activityName === kpiActivityName && 
+                       activityProjectCode === kpiProjectCode &&
+                       (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
+              })
+            }
+            
+            // Try 4: activity_name + project_code (without zone - fallback)
+            if (!relatedActivity && kpiActivityName && kpiProjectCode) {
+              relatedActivity = allActivities.find((activity: any) => {
+                if (!matchesProject(activity, project)) return false
+                const activityName = (activity.activity_name || activity['Activity Name'] || '').toLowerCase().trim()
+                const activityProjectCode = (activity.project_code || '').toLowerCase().trim()
+                return activityName === kpiActivityName && activityProjectCode === kpiProjectCode
+              })
+            }
+            
+            // Try 5: activity_name only (last resort)
+            if (!relatedActivity && kpiActivityName) {
+              relatedActivity = allActivities.find((activity: any) => {
+                if (!matchesProject(activity, project)) return false
+                const activityName = (activity.activity_name || activity['Activity Name'] || '').toLowerCase().trim()
+                return activityName === kpiActivityName
+              })
+            }
             
             if (relatedActivity) {
               const rawActivity = (relatedActivity as any).raw || {}
-              rate = relatedActivity.rate || 
-                    parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
-                    0
               
-              if (rate === 0) {
-                const totalValue = relatedActivity.total_value || 
-                                 parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
-                                 0
-                const totalUnits = relatedActivity.total_units || 
-                                parseFloat(String(rawActivity['Total Units'] || '0').replace(/,/g, '')) || 
-                                0
-                if (totalUnits > 0 && totalValue > 0) {
-                  rate = totalValue / totalUnits
-                }
+              // ✅ PRIORITY 1: Calculate Rate = Total Value / Total Units (SAME AS TABLE)
+              const totalValueFromActivity = relatedActivity.total_value || 
+                                           parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                           0
+              
+              const totalUnits = relatedActivity.total_units || 
+                              relatedActivity.planned_units ||
+                              parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                              0
+              
+              if (totalUnits > 0 && totalValueFromActivity > 0) {
+                rate = totalValueFromActivity / totalUnits
+              } else {
+                // ✅ PRIORITY 2: Use rate directly from activity (fallback)
+                rate = relatedActivity.rate || 
+                      parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+                      0
               }
             }
           }
           
-          // Calculate value: rate × quantity or use kpi.value
+          // ✅ FIXED: Calculate value using EXACT SAME LOGIC as KPI table Value column
+          // Priority: 1) Rate × Quantity, 2) Value directly from KPI, 3) Planned Value
           let kpiValue = 0
+          
+          // ✅ PRIORITY 1: Calculate from Rate × Quantity (SAME AS TABLE COLUMN)
           if (rate > 0 && quantity > 0) {
             kpiValue = rate * quantity
-          } else {
-            kpiValue = parseFloat(String(kpi.value || rawKpi['Value'] || '0').replace(/,/g, '')) || 0
+            if (kpiValue > 0) {
+              totalValue += kpiValue
+              return // Move to next KPI
+            }
           }
           
-          totalValue += kpiValue
+          // ✅ PRIORITY 2: Use Value directly from KPI (fallback if calculated value is 0)
+          // Check raw['Value'] first (from database), then k.value
+          if (kpiValue === 0) {
+            // Try raw['Value'] (from database with capital V) - MOST RELIABLE
+            if (rawKpi['Value'] !== undefined && rawKpi['Value'] !== null) {
+              const val = rawKpi['Value']
+              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+            }
+            
+            // Try raw.value (from database with lowercase v)
+            if (kpiValue === 0 && rawKpi.value !== undefined && rawKpi.value !== null) {
+              const val = rawKpi.value
+              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+            }
+            
+            // Try k.value (direct property from ProcessedKPI)
+            if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
+              const val = kpi.value
+              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+            }
+            
+            if (kpiValue > 0) {
+              totalValue += kpiValue
+              return // Move to next KPI
+            }
+          }
+          
+          // ✅ PRIORITY 3: Use Planned Value from KPI (same as table fallback)
+          if (kpiValue === 0) {
+            const plannedValueFromKPI = kpi.planned_value || parseFloat(String(rawKpi['Planned Value'] || '0').replace(/,/g, '')) || 0
+            if (plannedValueFromKPI > 0) {
+              kpiValue = plannedValueFromKPI
+              totalValue += kpiValue
+              return // Move to next KPI
+            }
+          }
+          
+          // ✅ CRITICAL: If no value found and no rate, skip (NEVER use quantity as value!)
+          // This KPI will not contribute to total value
         })
       }
     }
@@ -257,45 +374,162 @@ export function calculateWorkValueStatus(
           const rawKpi = (kpi as any).raw || {}
           const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
           
-          // Find related activity to get rate
+          // ✅ IMPROVED: Find related activity with Zone matching (SAME AS KPI PAGE)
+          // This matches the logic in KPITracking.tsx getActivityRate function
           let rate = 0
           if (allActivities.length > 0) {
-            const relatedActivity = allActivities.find((activity: any) => {
-              if (!matchesProject(activity, project)) return false
-              const kpiActivityName = kpi.activity_name || kpi['Activity Name'] || ''
-              const activityName = activity.activity_name || activity['Activity Name'] || ''
-              return kpiActivityName && activityName && kpiActivityName.toLowerCase() === activityName.toLowerCase()
-            })
+            const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || '').toLowerCase().trim()
+            const kpiProjectFullCode = (kpi.project_full_code || kpi.project_code || '').toLowerCase().trim()
+            const kpiProjectCode = (kpi.project_code || '').toLowerCase().trim()
+            
+            // Extract KPI Zone (same logic as KPI page)
+            const rawKpiForZone = (kpi as any).raw || {}
+            const kpiZoneRaw = (kpi.zone || rawKpiForZone['Zone'] || rawKpiForZone['Zone Number'] || '').toString().trim()
+            let kpiZone = kpiZoneRaw.toLowerCase().trim()
+            if (kpiZone && kpiProjectCode) {
+              const projectCodeUpper = kpiProjectCode.toUpperCase()
+              kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+              kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
+              kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
+            }
+            if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
+            
+            // Try multiple matching strategies (with Zone priority) - SAME AS KPI PAGE
+            let relatedActivity: any = null
+            
+            // Try 1: activity_name + project_full_code + zone (most precise)
+            if (kpiActivityName && kpiProjectFullCode && kpiZone) {
+              relatedActivity = allActivities.find((activity: any) => {
+                if (!matchesProject(activity, project)) return false
+                const activityName = (activity.activity_name || activity['Activity Name'] || '').toLowerCase().trim()
+                const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toLowerCase().trim()
+                const rawActivity = (activity as any).raw || {}
+                const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+                return activityName === kpiActivityName && 
+                       activityProjectFullCode === kpiProjectFullCode &&
+                       (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
+              })
+            }
+            
+            // Try 2: activity_name + project_full_code (without zone - fallback)
+            if (!relatedActivity && kpiActivityName && kpiProjectFullCode) {
+              relatedActivity = allActivities.find((activity: any) => {
+                if (!matchesProject(activity, project)) return false
+                const activityName = (activity.activity_name || activity['Activity Name'] || '').toLowerCase().trim()
+                const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toLowerCase().trim()
+                return activityName === kpiActivityName && activityProjectFullCode === kpiProjectFullCode
+              })
+            }
+            
+            // Try 3: activity_name + project_code + zone (if not found and project_code exists)
+            if (!relatedActivity && kpiActivityName && kpiProjectCode && kpiZone) {
+              relatedActivity = allActivities.find((activity: any) => {
+                if (!matchesProject(activity, project)) return false
+                const activityName = (activity.activity_name || activity['Activity Name'] || '').toLowerCase().trim()
+                const activityProjectCode = (activity.project_code || '').toLowerCase().trim()
+                const rawActivity = (activity as any).raw || {}
+                const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+                return activityName === kpiActivityName && 
+                       activityProjectCode === kpiProjectCode &&
+                       (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
+              })
+            }
+            
+            // Try 4: activity_name + project_code (without zone - fallback)
+            if (!relatedActivity && kpiActivityName && kpiProjectCode) {
+              relatedActivity = allActivities.find((activity: any) => {
+                if (!matchesProject(activity, project)) return false
+                const activityName = (activity.activity_name || activity['Activity Name'] || '').toLowerCase().trim()
+                const activityProjectCode = (activity.project_code || '').toLowerCase().trim()
+                return activityName === kpiActivityName && activityProjectCode === kpiProjectCode
+              })
+            }
+            
+            // Try 5: activity_name only (last resort)
+            if (!relatedActivity && kpiActivityName) {
+              relatedActivity = allActivities.find((activity: any) => {
+                if (!matchesProject(activity, project)) return false
+                const activityName = (activity.activity_name || activity['Activity Name'] || '').toLowerCase().trim()
+                return activityName === kpiActivityName
+              })
+            }
             
             if (relatedActivity) {
               const rawActivity = (relatedActivity as any).raw || {}
-              rate = relatedActivity.rate || 
-                    parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
-                    0
               
-              if (rate === 0) {
-                const totalValue = relatedActivity.total_value || 
-                                 parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
-                                 0
-                const totalUnits = relatedActivity.total_units || 
-                                parseFloat(String(rawActivity['Total Units'] || '0').replace(/,/g, '')) || 
-                                0
-                if (totalUnits > 0 && totalValue > 0) {
-                  rate = totalValue / totalUnits
-                }
+              // ✅ PRIORITY 1: Calculate Rate = Total Value / Total Units (SAME AS TABLE)
+              const totalValueFromActivity = relatedActivity.total_value || 
+                                           parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                           0
+              
+              const totalUnits = relatedActivity.total_units || 
+                              relatedActivity.planned_units ||
+                              parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                              0
+              
+              if (totalUnits > 0 && totalValueFromActivity > 0) {
+                rate = totalValueFromActivity / totalUnits
+              } else {
+                // ✅ PRIORITY 2: Use rate directly from activity (fallback)
+                rate = relatedActivity.rate || 
+                      parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+                      0
               }
             }
           }
           
-          // Calculate value: rate × quantity or use kpi.value
+          // ✅ FIXED: Calculate value using EXACT SAME LOGIC as KPI table Value column
+          // Priority: 1) Rate × Quantity, 2) Value directly from KPI, 3) Planned Value
           let kpiValue = 0
+          
+          // ✅ PRIORITY 1: Calculate from Rate × Quantity (SAME AS TABLE COLUMN)
           if (rate > 0 && quantity > 0) {
             kpiValue = rate * quantity
-          } else {
-            kpiValue = parseFloat(String(kpi.value || rawKpi['Value'] || '0').replace(/,/g, '')) || 0
+            if (kpiValue > 0) {
+              plannedValue += kpiValue
+              return // Move to next KPI
+            }
           }
           
-          plannedValue += kpiValue
+          // ✅ PRIORITY 2: Use Value directly from KPI (fallback if calculated value is 0)
+          // Check raw['Value'] first (from database), then k.value
+          if (kpiValue === 0) {
+            // Try raw['Value'] (from database with capital V) - MOST RELIABLE
+            if (rawKpi['Value'] !== undefined && rawKpi['Value'] !== null) {
+              const val = rawKpi['Value']
+              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+            }
+            
+            // Try raw.value (from database with lowercase v)
+            if (kpiValue === 0 && rawKpi.value !== undefined && rawKpi.value !== null) {
+              const val = rawKpi.value
+              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+            }
+            
+            // Try k.value (direct property from ProcessedKPI)
+            if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
+              const val = kpi.value
+              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+            }
+            
+            if (kpiValue > 0) {
+              plannedValue += kpiValue
+              return // Move to next KPI
+            }
+          }
+          
+          // ✅ PRIORITY 3: Use Planned Value from KPI (same as table fallback)
+          if (kpiValue === 0) {
+            const plannedValueFromKPI = kpi.planned_value || parseFloat(String(rawKpi['Planned Value'] || '0').replace(/,/g, '')) || 0
+            if (plannedValueFromKPI > 0) {
+              kpiValue = plannedValueFromKPI
+              plannedValue += kpiValue
+              return // Move to next KPI
+            }
+          }
+          
+          // ✅ CRITICAL: If no value found and no rate, skip (NEVER use quantity as value!)
+          // This KPI will not contribute to planned value
         })
       }
     }
@@ -343,45 +577,164 @@ export function calculateWorkValueStatus(
           const rawKpi = (kpi as any).raw || {}
           const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
           
-          // Find related activity to get rate
+          // ✅ IMPROVED: Find related activity with Zone matching (SAME AS KPI PAGE)
+          // This matches the logic in KPITracking.tsx getActivityRate function
           let rate = 0
           if (allActivities.length > 0) {
-            const relatedActivity = allActivities.find((activity: any) => {
-              if (!matchesProject(activity, project)) return false
-              const kpiActivityName = kpi.activity_name || kpi['Activity Name'] || ''
-              const activityName = activity.activity_name || activity['Activity Name'] || ''
-              return kpiActivityName && activityName && kpiActivityName.toLowerCase() === activityName.toLowerCase()
-            })
+            const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || '').toLowerCase().trim()
+            const kpiProjectFullCode = (kpi.project_full_code || kpi.project_code || '').toLowerCase().trim()
+            const kpiProjectCode = (kpi.project_code || '').toLowerCase().trim()
+            
+            // Extract KPI Zone (same logic as KPI page)
+            const rawKpiForZone = (kpi as any).raw || {}
+            const kpiZoneRaw = (kpi.zone || rawKpiForZone['Zone'] || rawKpiForZone['Zone Number'] || '').toString().trim()
+            let kpiZone = kpiZoneRaw.toLowerCase().trim()
+            if (kpiZone && kpiProjectCode) {
+              const projectCodeUpper = kpiProjectCode.toUpperCase()
+              kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+              kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
+              kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
+            }
+            if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
+            
+            // Try multiple matching strategies (with Zone priority) - SAME AS KPI PAGE
+            let relatedActivity: any = null
+            
+            // Try 1: activity_name + project_full_code + zone (most precise)
+            if (kpiActivityName && kpiProjectFullCode && kpiZone) {
+              relatedActivity = allActivities.find((activity: any) => {
+                if (!matchesProject(activity, project)) return false
+                const activityName = (activity.activity_name || activity['Activity Name'] || '').toLowerCase().trim()
+                const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toLowerCase().trim()
+                const rawActivity = (activity as any).raw || {}
+                const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+                return activityName === kpiActivityName && 
+                       activityProjectFullCode === kpiProjectFullCode &&
+                       (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
+              })
+            }
+            
+            // Try 2: activity_name + project_full_code (without zone - fallback)
+            if (!relatedActivity && kpiActivityName && kpiProjectFullCode) {
+              relatedActivity = allActivities.find((activity: any) => {
+                if (!matchesProject(activity, project)) return false
+                const activityName = (activity.activity_name || activity['Activity Name'] || '').toLowerCase().trim()
+                const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toLowerCase().trim()
+                return activityName === kpiActivityName && activityProjectFullCode === kpiProjectFullCode
+              })
+            }
+            
+            // Try 3: activity_name + project_code + zone (if not found and project_code exists)
+            if (!relatedActivity && kpiActivityName && kpiProjectCode && kpiZone) {
+              relatedActivity = allActivities.find((activity: any) => {
+                if (!matchesProject(activity, project)) return false
+                const activityName = (activity.activity_name || activity['Activity Name'] || '').toLowerCase().trim()
+                const activityProjectCode = (activity.project_code || '').toLowerCase().trim()
+                const rawActivity = (activity as any).raw || {}
+                const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+                return activityName === kpiActivityName && 
+                       activityProjectCode === kpiProjectCode &&
+                       (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
+              })
+            }
+            
+            // Try 4: activity_name + project_code (without zone - fallback)
+            if (!relatedActivity && kpiActivityName && kpiProjectCode) {
+              relatedActivity = allActivities.find((activity: any) => {
+                if (!matchesProject(activity, project)) return false
+                const activityName = (activity.activity_name || activity['Activity Name'] || '').toLowerCase().trim()
+                const activityProjectCode = (activity.project_code || '').toLowerCase().trim()
+                return activityName === kpiActivityName && activityProjectCode === kpiProjectCode
+              })
+            }
+            
+            // Try 5: activity_name only (last resort)
+            if (!relatedActivity && kpiActivityName) {
+              relatedActivity = allActivities.find((activity: any) => {
+                if (!matchesProject(activity, project)) return false
+                const activityName = (activity.activity_name || activity['Activity Name'] || '').toLowerCase().trim()
+                return activityName === kpiActivityName
+              })
+            }
             
             if (relatedActivity) {
               const rawActivity = (relatedActivity as any).raw || {}
-              rate = relatedActivity.rate || 
-                    parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
-                    0
               
-              if (rate === 0) {
-                const totalValue = relatedActivity.total_value || 
-                                 parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
-                                 0
-                const totalUnits = relatedActivity.total_units || 
-                                parseFloat(String(rawActivity['Total Units'] || '0').replace(/,/g, '')) || 
-                                0
-                if (totalUnits > 0 && totalValue > 0) {
-                  rate = totalValue / totalUnits
-                }
+              // ✅ PRIORITY 1: Calculate Rate = Total Value / Total Units (SAME AS TABLE)
+              const totalValueFromActivity = relatedActivity.total_value || 
+                                           parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                           0
+              
+              const totalUnits = relatedActivity.total_units || 
+                              relatedActivity.planned_units ||
+                              parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                              0
+              
+              if (totalUnits > 0 && totalValueFromActivity > 0) {
+                rate = totalValueFromActivity / totalUnits
+              } else {
+                // ✅ PRIORITY 2: Use rate directly from activity (fallback)
+                rate = relatedActivity.rate || 
+                      parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+                      0
               }
             }
           }
           
-          // Calculate value: rate × quantity or use kpi.value
-          let kpiValue = 0
+          // ✅ FIXED: Calculate value using EXACT SAME LOGIC as KPI page Actual Value
+          // Priority: 1) Rate × Quantity (SAME AS TABLE), 2) Value directly from KPI, 3) Actual Value
+          // This MUST match the logic in KPITracking.tsx totalActualValue calculation
+          
+          // ✅ PRIORITY 1: Calculate from Rate × Quantity (SAME AS TABLE COLUMN)
+          // This is how Value is calculated in the table: Quantity × Rate
+          let calculatedValue = 0
           if (rate > 0 && quantity > 0) {
-            kpiValue = rate * quantity
-          } else {
-            kpiValue = parseFloat(String(kpi.value || rawKpi['Value'] || '0').replace(/,/g, '')) || 0
+            calculatedValue = rate * quantity
+            if (calculatedValue > 0) {
+              earnedValue += calculatedValue
+              return // Move to next KPI
+            }
           }
           
-          earnedValue += kpiValue
+          // ✅ PRIORITY 2: Use Value directly from KPI (fallback if calculated value is 0)
+          // Check raw['Value'] first (from database), then k.value
+          let kpiValue = 0
+          
+          // Try raw['Value'] (from database with capital V) - MOST RELIABLE
+          if (rawKpi['Value'] !== undefined && rawKpi['Value'] !== null) {
+            const val = rawKpi['Value']
+            kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+          }
+          
+          // Try raw.value (from database with lowercase v)
+          if (kpiValue === 0 && rawKpi.value !== undefined && rawKpi.value !== null) {
+            const val = rawKpi.value
+            kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+          }
+          
+          // Try k.value (direct property from ProcessedKPI)
+          if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
+            const val = kpi.value
+            kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+          }
+          
+          if (kpiValue > 0) {
+            earnedValue += kpiValue
+            return // Move to next KPI
+          }
+          
+          // ✅ PRIORITY 3: Try Actual Value (fallback if calculated value and Value are both 0)
+          const actualValue = (kpi.actual_value ?? 
+                             parseFloat(String(rawKpi['Actual Value'] || '0').replace(/,/g, ''))) || 
+                             0
+          
+          if (actualValue > 0) {
+            earnedValue += actualValue
+            return // Move to next KPI
+          }
+          
+          // ✅ CRITICAL: If no value found and no rate, skip (NEVER use quantity as value!)
+          // This KPI will not contribute to earned value
         })
       }
     }

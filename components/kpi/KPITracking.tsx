@@ -2023,18 +2023,62 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         }
       }
       
-      // Date range filter
+      // ✅ FIXED: Date range filter - Use EXACT SAME LOGIC as Date column in table
+      // Priority: Day, Actual Date (for Actual), Target Date (for Planned), Activity Date
       if (dateRange.from || dateRange.to) {
-        const kpiDate = new Date(kpi.target_date || kpi.activity_date || kpi.created_at)
-        if (dateRange.from) {
-          const fromDate = new Date(dateRange.from)
-          fromDate.setHours(0, 0, 0, 0)
-          if (kpiDate < fromDate) return false
+        const rawKPIDate = (kpi as any).raw || {}
+        
+        // Priority 1: Day column (if available and formatted)
+        const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
+        
+        // Priority 2: Actual Date (for Actual KPIs) or Target Date (for Planned KPIs)
+        const actualDateValue = (kpi as any).actual_date || rawKPIDate['Actual Date'] || ''
+        const targetDateValue = kpi.target_date || rawKPIDate['Target Date'] || ''
+        
+        // Priority 3: Activity Date
+        const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
+        
+        // Determine which date to use based on Input Type (SAME AS TABLE COLUMN)
+        let dateToUse = ''
+        if (kpi.input_type === 'Actual' && actualDateValue) {
+          dateToUse = actualDateValue
+        } else if (kpi.input_type === 'Planned' && targetDateValue) {
+          dateToUse = targetDateValue
+        } else if (dayValue) {
+          // If Day is available, try to use it or fallback to Activity Date
+          dateToUse = activityDateValue || dayValue
+        } else {
+          dateToUse = activityDateValue || actualDateValue || targetDateValue
         }
-        if (dateRange.to) {
-          const toDate = new Date(dateRange.to)
-          toDate.setHours(23, 59, 59, 999)
-          if (kpiDate > toDate) return false
+        
+        // If no date found, skip this KPI (don't include it in filtered results)
+        if (!dateToUse) {
+          return false
+        }
+        
+        // Parse the date and compare with filter range
+        try {
+          const kpiDate = new Date(dateToUse)
+          if (isNaN(kpiDate.getTime())) {
+            return false // Invalid date, skip this KPI
+          }
+          
+          kpiDate.setHours(0, 0, 0, 0) // Normalize to start of day
+          
+          if (dateRange.from) {
+            const fromDate = new Date(dateRange.from)
+            fromDate.setHours(0, 0, 0, 0)
+            if (kpiDate < fromDate) return false
+          }
+          
+          if (dateRange.to) {
+            const toDate = new Date(dateRange.to)
+            toDate.setHours(23, 59, 59, 999) // End of day
+            if (kpiDate > toDate) return false
+          }
+        } catch (error) {
+          console.warn('[Date Range Filter] Error parsing date:', dateToUse, error)
+          return false // Skip this KPI if date parsing fails
         }
       }
       
@@ -2195,11 +2239,43 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     }
     
     if (relatedActivity) {
+      const rawActivity = (relatedActivity as any).raw || {}
+      
+      // ✅ PRIORITY 1: Calculate Rate = Total Value / Total Units (SAME AS TABLE)
+      // This matches the table's logic exactly
+      const totalValueFromActivity = relatedActivity.total_value || 
+                                   parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                   0
+      
+      const totalUnits = relatedActivity.total_units || 
+                       relatedActivity.planned_units ||
+                       parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                       0
+      
+      if (totalUnits > 0 && totalValueFromActivity > 0) {
+        const calculatedRate = totalValueFromActivity / totalUnits
+        // ✅ DEBUG: Log calculated rate for first few KPIs
+        if (process.env.NODE_ENV === 'development' && Math.random() < 0.01) { // Log 1% randomly
+          const aZone = (relatedActivity.zone_ref || relatedActivity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+          console.log(`✅ [getActivityRate] Calculated rate for ${activityName}:`, {
+            kpiZone: kpiZone || 'N/A',
+            activityZone: aZone || 'N/A',
+            calculatedRate,
+            totalValue: totalValueFromActivity,
+            totalUnits,
+            calculation: `${totalValueFromActivity} / ${totalUnits} = ${calculatedRate}`,
+            projectFullCode,
+            projectCode
+          })
+        }
+        return calculatedRate
+      }
+      
+      // ✅ PRIORITY 2: Use rate directly from activity (fallback)
       if (relatedActivity.rate && relatedActivity.rate > 0) {
         // ✅ DEBUG: Log successful rate match for first few KPIs
         if (process.env.NODE_ENV === 'development' && Math.random() < 0.01) { // Log 1% randomly
-          const rawA = (relatedActivity as any).raw || {}
-          const aZone = (relatedActivity.zone_ref || relatedActivity.zone_number || rawA['Zone Ref'] || rawA['Zone Number'] || '').toString().toLowerCase().trim()
+          const aZone = (relatedActivity.zone_ref || relatedActivity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
           console.log(`✅ [getActivityRate] Found rate for ${activityName}:`, {
             kpiZone: kpiZone || 'N/A',
             activityZone: aZone || 'N/A',
@@ -2209,23 +2285,12 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           })
         }
         return relatedActivity.rate
-      } else if (relatedActivity.total_value && relatedActivity.total_units && relatedActivity.total_units > 0) {
-        const calculatedRate = relatedActivity.total_value / relatedActivity.total_units
-        // ✅ DEBUG: Log calculated rate for first few KPIs
-        if (process.env.NODE_ENV === 'development' && Math.random() < 0.01) { // Log 1% randomly
-          const rawA = (relatedActivity as any).raw || {}
-          const aZone = (relatedActivity.zone_ref || relatedActivity.zone_number || rawA['Zone Ref'] || rawA['Zone Number'] || '').toString().toLowerCase().trim()
-          console.log(`✅ [getActivityRate] Calculated rate for ${activityName}:`, {
-            kpiZone: kpiZone || 'N/A',
-            activityZone: aZone || 'N/A',
-            calculatedRate,
-            totalValue: relatedActivity.total_value,
-            totalUnits: relatedActivity.total_units,
-            projectFullCode,
-            projectCode
-          })
-        }
-        return calculatedRate
+      }
+      
+      // ✅ PRIORITY 3: Try to get rate from raw activity data
+      const rateFromRaw = parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
+      if (rateFromRaw > 0) {
+        return rateFromRaw
       }
     }
     
@@ -2243,7 +2308,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   }, [activityIndexMap])
   
   // ✅ FIXED: Calculate Planned Value using EXACT SAME LOGIC as table Value column
-  // Priority: 1) Calculate from Rate × Quantity (same as table), 2) Use Value directly from KPI
+  // Priority: 1) Calculate from Rate × Quantity (same as table), 2) Use Value directly from KPI, 3) Use Planned Value
   const totalPlannedValue = useMemo(() => {
     if (plannedKPIs.length === 0) {
       return 0
@@ -2252,6 +2317,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     let total = 0
     let fromCalculated = 0
     let fromValue = 0
+    let fromPlannedValue = 0
     let skipped = 0
     
     plannedKPIs.forEach((kpi: ProcessedKPI) => {
@@ -2265,14 +2331,17 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       // ✅ PRIORITY 1: Calculate from Rate × Quantity (SAME AS TABLE COLUMN)
       // This is how Value is calculated in the table: Quantity × Rate
       const rate = getActivityRate(kpi)
+      let calculatedValue = 0
       if (rate > 0 && quantity > 0) {
-        const calculatedValue = rate * quantity
-        total += calculatedValue
-        fromCalculated++
-        return
+        calculatedValue = rate * quantity
+        if (calculatedValue > 0) {
+          total += calculatedValue
+          fromCalculated++
+          return
+        }
       }
       
-      // ✅ PRIORITY 2: Use Value directly from KPI (fallback if no rate)
+      // ✅ PRIORITY 2: Use Value directly from KPI (fallback if calculated value is 0)
       // Check raw['Value'] first (from database), then k.value
       let kpiValue = 0
       
@@ -2288,7 +2357,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
       }
       
-      // Try k.value (direct property from ProcessedKPI) - LAST RESORT
+      // Try k.value (direct property from ProcessedKPI)
       if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
         const val = kpi.value
         kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
@@ -2299,6 +2368,16 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         total += kpiValue
         fromValue++
         return
+      }
+      
+      // ✅ PRIORITY 3: Use Planned Value from KPI (same as table fallback)
+      if (kpiValue === 0) {
+        const plannedValue = kpi.planned_value || parseFloat(String(rawKPI['Planned Value'] || '0').replace(/,/g, '')) || 0
+        if (plannedValue > 0) {
+          total += plannedValue
+          fromPlannedValue++
+          return
+        }
       }
       
       // ✅ CRITICAL: If no value found and no rate, skip (NEVER use quantity as value!)
@@ -2318,15 +2397,17 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       totalPlannedQty,
       fromCalculated,
       fromValue,
+      fromPlannedValue,
       skipped,
       percentages: {
         fromCalculated: plannedKPIs.length > 0 ? ((fromCalculated / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%',
         fromValue: plannedKPIs.length > 0 ? ((fromValue / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%',
+        fromPlannedValue: plannedKPIs.length > 0 ? ((fromPlannedValue / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%',
         skipped: plannedKPIs.length > 0 ? ((skipped / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%'
       },
       warning: seemsWrong ? '⚠️ Total equals quantity - values may not be calculated correctly!' : 
               (total === 0 ? '⚠️ Total is 0 - no values found!' : null),
-      note: 'Total is VALUE (not quantity) - using Rate × Quantity (same as table)'
+      note: 'Total is VALUE (not quantity) - Priority: 1) Rate × Quantity, 2) Value from KPI, 3) Planned Value'
     })
     
     // Log sample KPIs for debugging
@@ -2359,7 +2440,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     return total
   }, [plannedKPIs, getActivityRate])
   
-  // ✅ IMPROVED: Calculate Actual Value with priority: 1) KPI.value, 2) Rate × Quantity, 3) actual_value
+  // ✅ FIXED: Calculate Actual Value using EXACT SAME LOGIC as table Value column
+  // Priority: 1) Rate × Quantity (SAME AS TABLE), 2) Value directly from KPI, 3) Actual Value
   // ✅ IMPORTANT: Always calculate VALUE, never use quantity directly
   const totalActualValue = useMemo(() => {
     let total = 0
@@ -2371,39 +2453,60 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     actualKPIs.forEach((k: ProcessedKPI) => {
       const rawKPI = (k as any).raw || {}
       
-      // ✅ PRIORITY 1: Use value directly from KPI if available (most accurate)
-      // Check multiple sources: k.value, raw['Value'], k.actual_value, raw['Actual Value']
-      let kpiValue = (k.value ?? 
-                     parseFloat(String(rawKPI['Value'] || '0').replace(/,/g, ''))) || 
-                     0
-      
-      // If value is 0, try actual_value
-      if (kpiValue === 0) {
-        kpiValue = (k.actual_value ?? 
-                   parseFloat(String(rawKPI['Actual Value'] || '0').replace(/,/g, ''))) || 
-                   0
-      }
-      
-      if (kpiValue > 0) {
-        total += kpiValue
-        if (k.value || rawKPI['Value']) {
-          fromValue++
-        } else {
-          fromActualValue++
-        }
-        return
-      }
-      
-      // ✅ PRIORITY 2: Calculate from Rate × Quantity (VALUE = Rate × Quantity)
-      const rate = getActivityRate(k)
+      // Get Quantity
       const quantity = (k.quantity ?? 
                       parseFloat(String(rawKPI['Quantity'] || '0').replace(/,/g, ''))) || 
                       0
       
+      // ✅ PRIORITY 1: Calculate from Rate × Quantity (SAME AS TABLE COLUMN)
+      // This is how Value is calculated in the table: Quantity × Rate
+      const rate = getActivityRate(k)
+      let calculatedValue = 0
       if (rate > 0 && quantity > 0) {
-        const calculatedValue = rate * quantity
-        total += calculatedValue
-        fromRate++
+        calculatedValue = rate * quantity
+        if (calculatedValue > 0) {
+          total += calculatedValue
+          fromRate++
+          return
+        }
+      }
+      
+      // ✅ PRIORITY 2: Use Value directly from KPI (fallback if calculated value is 0)
+      // Check raw['Value'] first (from database), then k.value
+      let kpiValue = 0
+      
+      // Try raw['Value'] (from database with capital V) - MOST RELIABLE
+      if (rawKPI['Value'] !== undefined && rawKPI['Value'] !== null) {
+        const val = rawKPI['Value']
+        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+      }
+      
+      // Try raw.value (from database with lowercase v)
+      if (kpiValue === 0 && rawKPI.value !== undefined && rawKPI.value !== null) {
+        const val = rawKPI.value
+        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+      }
+      
+      // Try k.value (direct property from ProcessedKPI)
+      if (kpiValue === 0 && k.value !== undefined && k.value !== null) {
+        const val = k.value
+        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+      }
+      
+      if (kpiValue > 0) {
+        total += kpiValue
+        fromValue++
+        return
+      }
+      
+      // ✅ PRIORITY 3: Try Actual Value (fallback if calculated value and Value are both 0)
+      const actualValue = (k.actual_value ?? 
+                         parseFloat(String(rawKPI['Actual Value'] || '0').replace(/,/g, ''))) || 
+                         0
+      
+      if (actualValue > 0) {
+        total += actualValue
+        fromActualValue++
         return
       }
       

@@ -2,6 +2,8 @@
 
 import React from 'react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
+import { useAuth } from '@/app/providers'
+import { LoadingSpinner } from './LoadingSpinner'
 import { Alert } from './Alert'
 import { Lock, Shield, AlertTriangle } from 'lucide-react'
 
@@ -37,6 +39,19 @@ export function PermissionPage({
   accessDeniedMessage = 'You do not have permission to access this page.'
 }: PermissionPageProps) {
   const guard = usePermissionGuard()
+  const { loading } = useAuth()
+  
+  // ✅ Wait for authentication to load before checking permissions
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="text-center">
+          <LoadingSpinner size="lg" />
+          <p className="mt-4 text-gray-600 dark:text-gray-400">Loading...</p>
+        </div>
+      </div>
+    )
+  }
   
   let hasAccess = false
   

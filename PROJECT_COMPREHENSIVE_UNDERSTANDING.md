@@ -1,24 +1,45 @@
-# فهم شامل لمشروع AlRabat RPF - نظام إدارة المشاريع والمؤشرات
+# 📚 فهم شامل ومفصل لمشروع AlRabat RPF
 
-## 📋 نظرة عامة على المشروع
+## 🎯 نظرة عامة على المشروع
 
-**AlRabat RPF** هو نظام متقدم لإدارة المشاريع الإنشائية يتخصص في:
-- إدارة مشاريع البنية التحتية والأساسات
-- تتبع مؤشرات الأداء الرئيسية (KPI)
-- إدارة كشوف الكميات (BOQ)
-- تتبع التقدم المالي والزمني للمشاريع
-- إدارة الصلاحيات والأدوار المتقدمة
+**AlRabat RPF** هو نظام متقدم ومتكامل لإدارة المشاريع الإنشائية، مصمم خصيصاً لشركات البناء وإدارة المشاريع. النظام مبني على أحدث التقنيات ويوفر حلولاً شاملة لإدارة دورة حياة المشاريع من البداية حتى النهاية.
 
 **الرابط المباشر:** https://alrabat-rpf.vercel.app  
-**التقنيات المستخدمة:** Next.js 14, React 18, TypeScript, Supabase (PostgreSQL), Tailwind CSS
+**الإصدار الحالي:** 3.0.14  
+**تاريخ آخر تحديث:** ديسمبر 2024  
+**الحالة:** جاهز للإنتاج ✅
 
 ---
 
-## 🗄️ قاعدة بيانات Supabase - البنية الكاملة
+## 🛠️ التقنيات المستخدمة
 
-### الجداول الرئيسية (Main Tables)
+### Frontend
+- **Next.js 14** (App Router) - إطار عمل React الحديث
+- **React 18** - مكتبة واجهة المستخدم
+- **TypeScript** - للتحقق من الأنواع
+- **Tailwind CSS** - للتصميم والتنسيق
+- **Lucide React** - للأيقونات
+- **Recharts** - للرسوم البيانية
+- **React Hook Form** - لإدارة النماذج
 
-#### 1. **Planning Database - ProjectsList** (جدول المشاريع)
+### Backend & Database
+- **Supabase** (PostgreSQL) - قاعدة البيانات الرئيسية
+- **Supabase Auth** - نظام المصادقة
+- **Row Level Security (RLS)** - أمان على مستوى الصفوف
+- **PostgreSQL Functions & Triggers** - للعمليات التلقائية
+
+### Infrastructure
+- **Vercel** - الاستضافة والنشر
+- **Supabase Cloud** - قاعدة البيانات السحابية
+- **Google Drive API** - للنسخ الاحتياطي (اختياري)
+
+---
+
+## 🗄️ بنية قاعدة البيانات
+
+### الجداول الرئيسية
+
+#### 1. **Planning Database - ProjectsList** (المشاريع)
 ```sql
 الغرض: تخزين جميع معلومات المشاريع
 
@@ -28,8 +49,7 @@
 - Project Name: اسم المشروع
 - Project Type: نوع المشروع
 - Responsible Division: القسم المسؤول
-- Project Status: حالة المشروع
-  (upcoming, site-preparation, on-going, completed, on-hold, cancelled)
+- Project Status: حالة المشروع (8 حالات)
 - Contract Amount: قيمة العقد
 - Currency: العملة (افتراضي: AED)
 - Client Name: اسم العميل
@@ -42,7 +62,7 @@
 - Contract Status: حالة العقد
 ```
 
-**حالات المشروع المتاحة:**
+**حالات المشروع:**
 - `upcoming`: قادم
 - `site-preparation`: إعداد الموقع
 - `on-going`: جاري
@@ -52,9 +72,7 @@
 - `on-hold`: متوقف
 - `cancelled`: ملغي
 
----
-
-#### 2. **Planning Database - BOQ Rates** (جدول أنشطة BOQ)
+#### 2. **Planning Database - BOQ Rates** (أنشطة BOQ)
 ```sql
 الغرض: تخزين جميع أنشطة كشوف الكميات وتتبع تقدمها
 
@@ -62,7 +80,7 @@
 - Activity: اسم النشاط
 - Activity Name: اسم النشاط (معياري)
 - Activity Division: قسم النشاط
-- Unit: وحدة القياس (Cu.M, Running Meter, etc.)
+- Unit: وحدة القياس
 - Zone Ref: مرجع المنطقة
 - Zone Number: رقم المنطقة
 
@@ -103,18 +121,13 @@
 - Activity Planned Status: حالة النشاط المخطط
 - Activity Actual Status: حالة النشاط الفعلي
 
-🎯 Activity Timing (توقيت النشاط):
+🎯 Activity Timing:
 - pre-commencement: قبل البدء
 - post-commencement: بعد البدء
 - post-completion: بعد الإنجاز
-
-- Has Value: له قيمة مالية؟
-- Affects Timeline: يؤثر على الجدول الزمني؟
 ```
 
----
-
-#### 3. **Planning Database - KPI** (جدول موحد للمؤشرات)
+#### 3. **Planning Database - KPI** (جدول موحد للمؤشرات) ⭐
 ```sql
 الغرض: جدول واحد لجميع مؤشرات الأداء (المخططة والفعلية)
 
@@ -138,8 +151,7 @@
 - Drilled Meters: أمتار الحفر (للحفر)
 
 💰 القيمة المالية:
-- Value: القيمة المالية للنشاط
-  (يتم حسابها تلقائياً: Quantity × Rate)
+- Value: القيمة المالية للنشاط (يتم حسابها تلقائياً: Quantity × Rate)
 
 📅 التواريخ:
 - Target Date: التاريخ المستهدف (للمخططة)
@@ -160,29 +172,7 @@
 - Approved By: وافق عليه
 ```
 
-**كيف يعمل الجدول الموحد:**
-```typescript
-// KPI مخططة
-{
-  "Input Type": "Planned",
-  "Target Date": "2025-10-15",
-  "Quantity": "100",
-  "Value": "15000"
-}
-
-// KPI فعلية
-{
-  "Input Type": "Actual",
-  "Actual Date": "2025-10-16",
-  "Quantity": "95",
-  "Value": "14250",
-  "Recorded By": "engineer@company.com"
-}
-```
-
----
-
-#### 4. **users** (جدول المستخدمين)
+#### 4. **users** (المستخدمين)
 ```sql
 الغرض: إدارة المستخدمين والصلاحيات
 
@@ -204,106 +194,29 @@
 ```
 
 **الأدوار المتاحة:**
-- `admin`: مدير النظام - كل الصلاحيات
-- `manager`: مدير - إدارة المشاريع والأنشطة (بدون إدارة المستخدمين)
-- `engineer`: مهندس - إنشاء وتعديل الأنشطة والمؤشرات
-- `viewer`: مشاهد - عرض فقط
-- `planner`: مخطط - يمكنه الموافقة على Planned KPIs
+- `admin`: مدير النظام - كل الصلاحيات (54 صلاحية)
+- `manager`: مدير - إدارة المشاريع والأنشطة (~45 صلاحية)
+- `engineer`: مهندس - إنشاء وتعديل الأنشطة والمؤشرات (~30 صلاحية)
+- `viewer`: مشاهد - عرض فقط (~20 صلاحية)
+- `planner`: مخطط - يمكنه الموافقة على Planned KPIs (~25 صلاحية)
 
----
-
-#### 5. **divisions** (جدول الأقسام)
-```sql
-الغرض: إدارة أقسام الشركة
-
-- name: اسم القسم
-- code: رمز القسم
-- description: الوصف
-- is_active: نشط؟
-- usage_count: عدد مرات الاستخدام
-```
-
----
-
-#### 6. **project_types** (أنواع المشاريع)
-```sql
-الغرض: أنواع المشاريع المتاحة
-
-- name: اسم النوع
-- code: الرمز
-- description: الوصف
-- is_active: نشط؟
-- usage_count: عدد مرات الاستخدام
-```
-
----
-
-#### 7. **currencies** (العملات)
-```sql
-الغرض: العملات المدعومة
-
-- code: رمز العملة (AED, USD, EUR)
-- name: اسم العملة
-- symbol: الرمز ($, €, د.إ)
-- exchange_rate: سعر الصرف
-- is_default: افتراضي؟
-- is_active: نشط؟
-```
-
----
-
-#### 8. **holidays** (العطلات)
-```sql
-الغرض: إدارة العطلات وأيام العمل
-
-- date: تاريخ العطلة
-- name: اسم العطلة
-- description: الوصف
-- is_recurring: متكررة؟
-- is_active: نشط؟
-- created_by: منشئ السجل
-```
-
----
-
-#### 9. **company_settings** (إعدادات الشركة)
-```sql
-الغرض: إعدادات الشركة العامة
-
-- key: المفتاح
-- value: القيمة
-- description: الوصف
-```
-
----
-
-#### 10. **departments** (الأقسام)
-```sql
-الغرض: أقسام الشركة
-
-- name: الاسم (عربي/إنجليزي)
-- name_arabic: الاسم العربي
-- code: الرمز
-- is_active: نشط؟
-```
-
----
-
-#### 11. **job_titles** (المسميات الوظيفية)
-```sql
-الغرض: المسميات الوظيفية
-
-- name: الاسم (عربي/إنجليزي)
-- name_arabic: الاسم العربي
-- department_id: معرف القسم
-- is_active: نشط؟
-```
+#### 5. **الجداول الإضافية**
+- `divisions`: الأقسام
+- `project_types`: أنواع المشاريع
+- `currencies`: العملات
+- `holidays`: العطلات
+- `company_settings`: إعدادات الشركة
+- `departments`: الأقسام
+- `job_titles`: المسميات الوظيفية
+- `audit_log`: سجلات التدقيق
+- `user_activities`: أنشطة المستخدمين
+- `saved_views`: المشاهدات المحفوظة
 
 ---
 
 ## 🔐 نظام الصلاحيات المتقدم
 
-### الصلاحيات المتاحة (54 صلاحية في 8 فئات)
+### الصلاحيات المتاحة (200+ صلاحية في 8 فئات)
 
 #### 1. **Dashboard Permissions**
 - `dashboard.view`: عرض لوحة التحكم
@@ -314,6 +227,9 @@
 - `projects.edit`: تعديل المشاريع
 - `projects.delete`: حذف المشاريع
 - `projects.export`: تصدير بيانات المشاريع
+- `projects.import`: استيراد المشاريع
+- `projects.print`: طباعة المشاريع
+- `projects.zones`: إدارة المناطق
 
 #### 3. **BOQ Permissions**
 - `boq.view`: عرض الأنشطة
@@ -322,6 +238,8 @@
 - `boq.delete`: حذف الأنشطة
 - `boq.approve`: الموافقة على الأنشطة
 - `boq.export`: تصدير بيانات BOQ
+- `boq.import`: استيراد BOQ
+- `boq.print`: طباعة BOQ
 
 #### 4. **KPI Permissions**
 - `kpi.view`: عرض المؤشرات
@@ -329,7 +247,10 @@
 - `kpi.edit`: تعديل المؤشرات
 - `kpi.delete`: حذف المؤشرات
 - `kpi.export`: تصدير بيانات KPI
+- `kpi.import`: استيراد KPIs
+- `kpi.print`: طباعة KPIs
 - `kpi.approve`: الموافقة على المؤشرات الفعلية
+- `kpi.need_to_submit`: الوصول إلى KPIs المعلقة
 
 #### 5. **Reports Permissions**
 - `reports.view`: عرض التقارير
@@ -363,11 +284,7 @@
 - `settings.project_types`: إدارة أنواع المشاريع
 - `settings.currencies`: إدارة العملات
 - `settings.activities`: إدارة قوالب الأنشطة
-- `settings.holidays`: إدارة العطلات
-  - `settings.holidays.view`
-  - `settings.holidays.create`
-  - `settings.holidays.edit`
-  - `settings.holidays.delete`
+- `settings.holidays`: إدارة العطلات (view, create, edit, delete)
 
 #### 8. **System Permissions**
 - `system.import`: استيراد البيانات
@@ -375,31 +292,16 @@
 - `system.backup`: النسخ الاحتياطي
 - `system.audit`: عرض سجلات التدقيق
 - `system.search`: البحث الشامل
-
-### الصلاحيات الافتراضية للأدوار
-
-#### **Admin (كل الصلاحيات - 54)**
-- جميع الصلاحيات في النظام
-
-#### **Manager (~45 صلاحية)**
-- كل شيء عدا:
-  - إدارة المستخدمين الكاملة
-  - العمليات الخطيرة على قاعدة البيانات
-
-#### **Engineer (~30 صلاحية)**
-- عرض المشاريع
-- إنشاء وتعديل BOQ و KPI
-- عرض التقارير
-- لا يمكنه حذف المشاريع
-
-#### **Viewer (~20 صلاحية)**
-- عرض فقط (read-only)
-- لا يمكنه إنشاء/تعديل/حذف
-
-#### **Planner (~25 صلاحية)**
-- عرض المشاريع والأنشطة
-- الموافقة على Planned KPIs
-- عرض التقارير
+- `audit_log.view`: عرض سجلات التدقيق
+- `audit_log.export`: تصدير سجلات التدقيق
+- `activity_log.view`: عرض سجلات الأنشطة
+- `activity_log.export`: تصدير سجلات الأنشطة
+- `database.view`: عرض إحصائيات قاعدة البيانات
+- `database.backup`: إنشاء نسخ احتياطية
+- `database.restore`: استعادة النسخ الاحتياطية
+- `database.export`: تصدير الجداول
+- `database.import`: استيراد الجداول
+- `database.manage`: إدارة قاعدة البيانات الكاملة
 
 ### نظام الصلاحيات المخصصة
 
@@ -431,11 +333,14 @@ return DEFAULT_ROLE_PERMISSIONS[user.role]
 - ✅ تتبع الموقع الجغرافي (GPS)
 - ✅ إدارة فريق المشروع (PM, Area Manager)
 - ✅ عرض قائمة المشاريع مع تصفية وفرز متقدم
+- ✅ إدارة المناطق (Zones) للمشاريع
+- ✅ تخصيص الأعمدة المعروضة في الجداول
 
 #### المكونات الرئيسية:
 - `IntelligentProjectForm.tsx`: نموذج ذكي لإنشاء/تعديل المشاريع
 - `ProjectsTableWithCustomization.tsx`: جدول المشاريع مع تخصيص الأعمدة
 - `ProjectsList.tsx`: قائمة المشاريع
+- `ProjectZonesManager.tsx`: إدارة المناطق
 
 ---
 
@@ -452,11 +357,15 @@ return DEFAULT_ROLE_PERMISSIONS[user.role]
 - ✅ حساب الإنتاجية اليومية
 - ✅ تتبع الحفر (Drilled Meters)
 - ✅ **توليد KPI تلقائياً** من أنشطة BOQ
+- ✅ حساب Activity Start Date من أول KPI مخططة
+- ✅ عرض Day Order للأنشطة
+- ✅ مزامنة تلقائية بين BOQ و KPI
 
 #### المكونات الرئيسية:
 - `IntelligentBOQForm.tsx`: نموذج ذكي لأنشطة BOQ
 - `BOQTableWithCustomization.tsx`: جدول الأنشطة
 - `BOQManagement.tsx`: إدارة BOQ
+- `BOQWithKPIStatus.tsx`: عرض BOQ مع حالة KPI
 
 #### توليد KPI التلقائي:
 ```typescript
@@ -486,12 +395,20 @@ return DEFAULT_ROLE_PERMISSIONS[user.role]
 - ✅ **نموذج ذكي** مع اختيار تاريخ شامل
 - ✅ **عرض Day Order** (ترتيب الأيام)
 - ✅ **حساب Activity Start Date** من أول KPI مخططة
+- ✅ **Batch Submission** - إرسال مجمع
+- ✅ **Preview قبل الإرسال**
+- ✅ **Pending Approval** - KPIs معلقة تحتاج موافقة
+- ✅ **Smart Date Calculation** - حساب التواريخ التلقائي
 
 #### المكونات الرئيسية:
 - `KPITracking.tsx`: صفحة تتبع KPI الرئيسية
 - `KPITableWithCustomization.tsx`: جدول KPIs
 - `SmartKPIForm.tsx`: نموذج ذكي لإنشاء KPIs
+- `SmartActualKPIForm.tsx`: نموذج ذكي للـ KPIs الفعلية
+- `EnhancedSmartActualKPIForm.tsx`: نموذج محسّن
 - `KPITable.tsx`: عرض KPIs
+- `KPIEditModal.tsx`: تعديل KPIs
+- `BulkEditKPIModal.tsx`: تعديل مجمع
 
 #### كيفية عمل النظام:
 ```typescript
@@ -552,6 +469,8 @@ return DEFAULT_ROLE_PERMISSIONS[user.role]
 - `DashboardCharts.tsx`: الرسوم البيانية
 - `SmartAlerts.tsx`: التنبيهات الذكية
 - `AdvancedAnalytics.tsx`: التحليلات المتقدمة
+- `ProjectProgressDashboard.tsx`: تقدم المشاريع
+- `ZoneIntegrationDashboard.tsx`: تكامل المناطق
 
 ---
 
@@ -566,12 +485,21 @@ return DEFAULT_ROLE_PERMISSIONS[user.role]
 - ✅ **تقارير المسار الحرج**: الأنشطة الحرجة
 - ✅ **تقارير الأداء**: مقارنة المخطط مقابل الفعلي
 - ✅ **تقارير مخصصة**: تقارير مخصصة حسب الحاجة
+- ✅ **تقارير الإيرادات الشهرية**: تحليل الإيرادات
 
 #### الوظائف:
 - ✅ تصدير PDF
 - ✅ تصدير Excel
 - ✅ طباعة التقارير
 - ✅ تصدير JSON/CSV
+- ✅ تصفية متقدمة (حسب المشروع، القسم، التاريخ)
+- ✅ Cache للبيانات (تحسين الأداء)
+- ✅ تقارير قابلة للطباعة
+
+#### المكونات الرئيسية:
+- `ModernReportsManager.tsx`: مدير التقارير الحديث
+- `ReportsManager.tsx`: مدير التقارير
+- `PrintableReport.tsx`: تقارير قابلة للطباعة
 
 ---
 
@@ -587,12 +515,15 @@ return DEFAULT_ROLE_PERMISSIONS[user.role]
 - ✅ **المستخدمين**: إدارة المستخدمين والصلاحيات
 - ✅ **الأقسام**: إدارة أقسام الشركة
 - ✅ **المسميات الوظيفية**: إدارة المسميات
+- ✅ **النسخ الاحتياطي**: إعدادات النسخ الاحتياطي
+- ✅ **Google Drive**: تكامل Google Drive
 
 #### وظائف إضافية:
 - ✅ استيراد/تصدير البيانات
 - ✅ إدارة الصلاحيات المخصصة
 - ✅ إدارة الأدوار
 - ✅ النسخ الاحتياطي
+- ✅ إعدادات الأمان
 
 ---
 
@@ -609,6 +540,14 @@ return DEFAULT_ROLE_PERMISSIONS[user.role]
 - ✅ مزامنة المستخدمين مع Supabase Auth
 - ✅ دليل المستخدمين (Directory)
 - ✅ ملفات تعريف المستخدمين مع QR Codes
+- ✅ رفع الصور الشخصية
+- ✅ إكمال الملف الشخصي (Profile Completion)
+
+#### المكونات الرئيسية:
+- `UserManagement.tsx`: إدارة المستخدمين
+- `IntegratedUserManager.tsx`: مدير المستخدمين المتكامل
+- `UserDirectory.tsx`: دليل المستخدمين
+- `QRCodeGenerator.tsx`: توليد QR Codes
 
 ---
 
@@ -623,11 +562,70 @@ return DEFAULT_ROLE_PERMISSIONS[user.role]
 - ✅ العملات
 - ✅ المستخدمين
 - ✅ العطلات
+- ✅ الأقسام والمسميات الوظيفية
 
 #### الصيغ المدعومة:
 - ✅ CSV
 - ✅ Excel (XLSX)
 - ✅ JSON
+
+#### الميزات:
+- ✅ Bulk operations - عمليات مجمعة
+- ✅ Data validation - التحقق من البيانات
+- ✅ Error handling - معالجة الأخطاء
+- ✅ Templates - قوالب جاهزة
+- ✅ Preview قبل الاستيراد
+
+---
+
+### 9. **النسخ الاحتياطي (Backup System)**
+
+#### الميزات:
+- ✅ **Full Database Backup** - نسخة احتياطية كاملة
+- ✅ **Table-specific Backup** - نسخة احتياطية لجدول محدد
+- ✅ **Google Drive Integration** - رفع تلقائي لـ Google Drive
+- ✅ **Local Storage** - حفظ محلي
+- ✅ **Automatic Backups** - نسخ احتياطية تلقائية (Cron Jobs)
+- ✅ **Backup Validation** - التحقق من صحة النسخ
+- ✅ **Restore Functionality** - استعادة البيانات
+- ✅ **Backup History** - سجل النسخ الاحتياطية
+
+#### المكونات:
+- `backupManager.ts`: مدير النسخ الاحتياطي
+- `googleDriveBackup.ts`: تكامل Google Drive
+- `databaseManager.ts`: إدارة قاعدة البيانات
+
+---
+
+### 10. **نظام البحث الشامل**
+
+#### الميزات:
+- ✅ **Global Search** - بحث شامل في جميع البيانات
+- ✅ **Advanced Filters** - تصفية متقدمة
+- ✅ **Saved Views** - حفظ المشاهدات
+- ✅ **Quick Search** - بحث سريع
+- ✅ **Search History** - سجل البحث
+
+---
+
+### 11. **نظام الإشعارات والتنبيهات**
+
+#### الميزات:
+- ✅ **KPI Notifications** - إشعارات KPIs
+- ✅ **Approval Notifications** - إشعارات الموافقة
+- ✅ **Smart Alerts** - تنبيهات ذكية
+- ✅ **Activity Tracking** - تتبع الأنشطة
+- ✅ **Audit Logs** - سجلات التدقيق
+
+---
+
+### 12. **نظام إكمال الملف الشخصي**
+
+#### الميزات:
+- ✅ **Profile Completion Modal** - نافذة إكمال الملف
+- ✅ **Required Fields Check** - فحص الحقول المطلوبة
+- ✅ **Progress Tracking** - تتبع التقدم
+- ✅ **Guided Setup** - إعداد موجه
 
 ---
 
@@ -704,18 +702,23 @@ return DEFAULT_ROLE_PERMISSIONS[user.role]
 - ✅ حماية على مستوى الصفوف في قاعدة البيانات
 - ✅ كل مستخدم يرى فقط البيانات المسموح له برؤيتها
 - ✅ سياسات أمان لكل جدول
+- ✅ دعم الصلاحيات المخصصة
 
 ### 2. **Connection Management**
 - ✅ إدارة اتصالات Supabase محسّنة
 - ✅ حل مشكلة فقدان الاتصال
 - ✅ Connection pooling
 - ✅ Fast query executor
+- ✅ Connection recovery
+- ✅ Connection heartbeat
 
 ### 3. **Caching System**
 - ✅ تخزين مؤقت للبيانات المتكررة
 - ✅ KPI Cache
 - ✅ Projects Cache
+- ✅ Analytics Cache
 - ✅ Smart cache invalidation
+- ✅ Cache expiration (30 minutes)
 
 ### 4. **Auto Calculations**
 - ✅ حساب التقدم تلقائياً
@@ -723,70 +726,147 @@ return DEFAULT_ROLE_PERMISSIONS[user.role]
 - ✅ حساب النسب المئوية
 - ✅ حساب الفروقات
 - ✅ حساب الإنتاجية
+- ✅ حساب Earned Value
+- ✅ حساب Planned Value
+- ✅ حساب Variance
 
 ### 5. **Smart Date Calculations**
 - ✅ حساب أيام العمل (استثناء العطلات)
 - ✅ حساب Activity Start Date من أول KPI
 - ✅ حساب المدد والجداول الزمنية
 - ✅ عرض Day Order
+- ✅ حساب Working Days
+- ✅ حساب Calendar Duration
 
 ### 6. **Data Mappers**
 - ✅ تحويل البيانات بين قاعدة البيانات والتطبيق
 - ✅ معالجة أسماء الأعمدة (مع المسافات)
 - ✅ تحويل الأنواع (TEXT إلى NUMERIC)
 - ✅ معالجة القيم الفارغة
+- ✅ Normalization
 
 ### 7. **Permission Guards**
 - ✅ حماية المكونات حسب الصلاحيات
 - ✅ إخفاء/إظهار العناصر حسب الدور
 - ✅ منع الوصول غير المصرح به
+- ✅ Client-side & Server-side guards
+
+### 8. **Smart Loading**
+- ✅ نظام تحميل ذكي
+- ✅ Loading states محسّنة
+- ✅ Progress indicators
+- ✅ Error handling
+
+### 9. **Performance Optimizations**
+- ✅ Lazy loading
+- ✅ Pagination
+- ✅ Query optimization
+- ✅ Code splitting
+- ✅ Image optimization
+- ✅ Debouncing
+- ✅ Memoization
+
+### 10. **Error Handling**
+- ✅ Comprehensive error handling
+- ✅ User-friendly error messages
+- ✅ Error logging
+- ✅ Error recovery
 
 ---
 
 ## 📊 البنية التقنية
 
-### Frontend
-- **Framework**: Next.js 14 (App Router)
-- **UI Library**: React 18
-- **Language**: TypeScript
-- **Styling**: Tailwind CSS
-- **Icons**: Lucide React
-- **Charts**: Recharts
-- **Forms**: React Hook Form
-- **State Management**: React Hooks + Context
+### Frontend Architecture
+```
+app/
+├── (authenticated)/        # Routes محمية
+│   ├── dashboard/          # لوحة التحكم
+│   ├── projects/           # المشاريع
+│   ├── kpi/                # KPIs
+│   ├── boq/                # BOQ
+│   ├── reports/            # التقارير
+│   ├── settings/           # الإعدادات
+│   └── ...
+├── api/                    # API Routes
+│   ├── backup/             # النسخ الاحتياطي
+│   ├── cron/               # Cron Jobs
+│   └── ...
+└── ...
 
-### Backend
-- **Database**: Supabase (PostgreSQL)
-- **Authentication**: Supabase Auth
-- **API**: Supabase REST API
-- **Real-time**: Supabase Realtime (يمكن تفعيله)
+components/
+├── auth/                   # المصادقة
+├── dashboard/              # لوحة التحكم
+├── projects/               # المشاريع
+├── boq/                    # BOQ
+├── kpi/                    # KPIs
+├── reports/                # التقارير
+├── settings/               # الإعدادات
+├── users/                  # المستخدمين
+└── ui/                     # مكونات UI مشتركة
 
-### Infrastructure
-- **Hosting**: Vercel
-- **Database**: Supabase Cloud
-- **File Storage**: Supabase Storage (للصور والملفات)
+lib/
+├── supabase.ts             # تعريفات Supabase
+├── dataMappers.ts          # محولات البيانات
+├── permissionsSystem.ts    # نظام الصلاحيات
+├── autoKPIGenerator.ts     # توليد KPI تلقائياً
+├── projectAnalytics.ts     # تحليلات المشاريع
+├── backupManager.ts        # النسخ الاحتياطي
+└── ...
+```
+
+### Database Architecture
+```
+Supabase (PostgreSQL)
+├── Planning Database - ProjectsList
+├── Planning Database - BOQ Rates
+├── Planning Database - KPI
+├── users
+├── divisions
+├── project_types
+├── currencies
+├── holidays
+├── company_settings
+├── departments
+├── job_titles
+├── audit_log
+└── ...
+```
 
 ---
 
-## 🎨 واجهة المستخدم
+## 🚀 سير العمل اليومي
 
-### المكونات UI الأساسية:
-- ✅ Cards: بطاقات المعلومات
-- ✅ Tables: جداول قابلة للتخصيص
-- ✅ Forms: نماذج ذكية
-- ✅ Modals: نوافذ منبثقة
-- ✅ Buttons: أزرار بألوان متعددة
-- ✅ Inputs: حقول إدخال
-- ✅ Selects: قوائم منسدلة
-- ✅ Date Pickers: منتقي التواريخ
-- ✅ Charts: رسوم بيانية
-- ✅ Alerts: تنبيهات
-- ✅ Loading Spinners: مؤشرات التحميل
+### للمهندس (Engineer):
+1. تسجيل الدخول
+2. عرض المشاريع المخصصة له
+3. إنشاء/تعديل أنشطة BOQ
+4. تسجيل KPIs فعلية يومياً
+5. عرض التقارير اليومية
+6. إكمال الملف الشخصي (إذا لزم الأمر)
 
-### السمات (Themes):
-- ✅ Dark Mode: وضع مظلم
-- ✅ Light Mode: وضع فاتح
-- ✅ Responsive: متجاوب مع جميع الشاشات
+### للمدير (Manager):
+1. تسجيل الدخول
+2. عرض لوحة التحكم الشاملة
+3. مراقبة تقدم جميع المشاريع
+4. الموافقة على KPIs فعلية
+5. إنشاء/تعديل المشاريع
+6. عرض التقارير الشاملة
+7. إدارة الإعدادات
+8. إدارة المستخدمين (محدود)
+
+### للمشاهد (Viewer):
+1. تسجيل الدخول
+2. عرض لوحة التحكم (قراءة فقط)
+3. عرض المشاريع والأنشطة
+4. عرض التقارير
+5. لا يمكنه التعديل
+
+### للمخطط (Planner):
+1. تسجيل الدخول
+2. عرض المشاريع والأنشطة
+3. الموافقة على Planned KPIs
+4. عرض التقارير
+5. مراقبة التقدم
 
 ---
 
@@ -797,26 +877,30 @@ return DEFAULT_ROLE_PERMISSIONS[user.role]
 - ✅ Pagination: ترقيم الصفحات
 - ✅ Query Optimization: تحسين الاستعلامات
 - ✅ Connection Pooling: تجميع الاتصالات
-- ✅ Caching: التخزين المؤقت
+- ✅ Caching: التخزين المؤقت (30 دقيقة)
 - ✅ Code Splitting: تقسيم الكود
 - ✅ Image Optimization: تحسين الصور
+- ✅ Debouncing: تقليل الطلبات
+- ✅ Memoization: حفظ النتائج
 
 ### المراقبة:
 - ✅ Performance Monitoring
 - ✅ Error Tracking
 - ✅ Usage Analytics
+- ✅ Connection Monitoring
 
 ---
 
 ## 🔒 الأمان
 
 ### طبقات الأمان:
-1. **Authentication**: مصادقة المستخدمين
-2. **Authorization**: التحقق من الصلاحيات
-3. **Row Level Security**: أمان على مستوى الصفوف
+1. **Authentication**: مصادقة المستخدمين (Supabase Auth)
+2. **Authorization**: التحقق من الصلاحيات (Permission System)
+3. **Row Level Security**: أمان على مستوى الصفوف (RLS)
 4. **Data Validation**: التحقق من صحة البيانات
 5. **Input Sanitization**: تنظيف المدخلات
 6. **HTTPS**: تشفير الاتصالات
+7. **Service Role Key**: للعمليات الحساسة فقط
 
 ---
 
@@ -829,59 +913,10 @@ return DEFAULT_ROLE_PERMISSIONS[user.role]
 - ✅ `fix-permissions-flag.js`: إصلاح صلاحيات المستخدمين
 - ✅ `test-kpi-generation-math.js`: اختبار حساب KPIs
 - ✅ `performance-monitor.js`: مراقبة الأداء
+- ✅ `run-auto-calculations.js`: تشغيل الحسابات التلقائية
+- ✅ `test-backup-simple.mjs`: اختبار النسخ الاحتياطي
+- ✅ `get-google-drive-token.js`: الحصول على Google Drive Token
 - ✅ وعدة سكربتات أخرى للإدارة والصيانة
-
----
-
-## 🚀 سير العمل اليومي
-
-### للمهندس (Engineer):
-1. تسجيل الدخول
-2. عرض المشاريع المخصصة له
-3. إنشاء/تعديل أنشطة BOQ
-4. تسجيل KPIs فعلية يومياً
-5. عرض التقارير اليومية
-
-### للمدير (Manager):
-1. تسجيل الدخول
-2. عرض لوحة التحكم الشاملة
-3. مراقبة تقدم جميع المشاريع
-4. الموافقة على KPIs فعلية
-5. إنشاء/تعديل المشاريع
-6. عرض التقارير الشاملة
-7. إدارة الإعدادات
-
-### للمشاهد (Viewer):
-1. تسجيل الدخول
-2. عرض لوحة التحكم (قراءة فقط)
-3. عرض المشاريع والأنشطة
-4. عرض التقارير
-5. لا يمكنه التعديل
-
----
-
-## 📚 الملفات المهمة
-
-### المكونات الرئيسية:
-- `components/projects/`: مكونات إدارة المشاريع
-- `components/boq/`: مكونات BOQ
-- `components/kpi/`: مكونات KPI
-- `components/dashboard/`: مكونات لوحة التحكم
-- `components/settings/`: مكونات الإعدادات
-- `components/auth/`: مكونات المصادقة
-
-### المكتبات:
-- `lib/supabase.ts`: تعريفات Supabase والأنواع
-- `lib/dataMappers.ts`: محولات البيانات
-- `lib/permissionsSystem.ts`: نظام الصلاحيات
-- `lib/autoKPIGenerator.ts`: توليد KPI تلقائياً
-- `lib/stableConnection.ts`: إدارة الاتصالات
-- `lib/boqKpiSync.ts`: مزامنة BOQ و KPI
-
-### قاعدة البيانات:
-- `Database/`: جميع ملفات SQL والهجرات
-- `Database/PRODUCTION_SCHEMA_COMPLETE.sql`: البنية الكاملة
-- `Database/COMPLETE_SCHEMA_DOCUMENTATION.md`: توثيق شامل
 
 ---
 
@@ -893,10 +928,14 @@ return DEFAULT_ROLE_PERMISSIONS[user.role]
 ✅ **نظام BOQ متقدم** مع توليد KPI تلقائي  
 ✅ **تتبع KPI دقيق** مع مقارنة المخطط مقابل الفعلي  
 ✅ **لوحة تحكم ذكية** مع تحليلات ورسوم بيانية  
-✅ **نظام صلاحيات متقدم** مع 54 صلاحية قابلة للتخصيص  
+✅ **نظام صلاحيات متقدم** مع 200+ صلاحية قابلة للتخصيص  
 ✅ **تقارير شاملة** بمختلف الأنواع  
 ✅ **أمان متعدد الطبقات** مع RLS و Permission Guards  
 ✅ **أداء محسّن** مع caching و query optimization  
+✅ **نظام نسخ احتياطي** متكامل مع Google Drive  
+✅ **استيراد/تصدير** شامل للبيانات  
+✅ **نظام إشعارات** ذكي  
+✅ **واجهة مستخدم** حديثة ومتجاوبة  
 
 النظام مصمم خصيصاً لشركات البناء وإدارة المشاريع مع مراعاة أفضل الممارسات في الصناعة.
 
@@ -904,17 +943,6 @@ return DEFAULT_ROLE_PERMISSIONS[user.role]
 
 **الإصدار الحالي:** 3.0.14  
 **تاريخ آخر تحديث:** ديسمبر 2024  
-**الحالة:** جاهز للإنتاج ✅
-
-
-
-
-
-
-
-
-
-
-
-
+**الحالة:** جاهز للإنتاج ✅  
+**المطور:** AlRabat RPF Development Team
 

@@ -481,41 +481,165 @@ export function calculateProjectAnalytics(
     }
     
     const quantityValue = parseFloat(kpi.quantity?.toString() || '0') || 0
+    const rawKpi = (kpi as any).raw || {}
     
-    // ✅ FIXED: Always calculate Planned Value = Rate × Quantity (not from kpi.value)
-    // Find the related activity to get the rate
-    const relatedActivity = projectActivities.find(a => {
-      // Match by activity name and project code
-      const activityMatch = a.activity_name === kpi.activity_name
-      if (!activityMatch) return false
-      
-      // Match project codes - support both project_code and project_full_code
-      const kpiProjectCode = kpi.project_code || kpi.project_full_code
-      return (
-        a.project_code === kpiProjectCode ||
-        a.project_full_code === kpiProjectCode ||
-        a.project_code === kpi.project_full_code ||
-        a.project_full_code === kpi.project_full_code
-      )
-    })
-    
+    // ✅ FIXED: Calculate value using EXACT SAME LOGIC as KPI page
+    // Priority: 1) Rate × Quantity (SAME AS TABLE), 2) Value directly from KPI, 3) Actual/Planned Value
     let financialValue = 0
-    if (relatedActivity) {
-      // ✅ Use calculateActivityRate for consistent rate calculation
-      const activityRate = calculateActivityRate(relatedActivity)
-      const rate = activityRate.rate
+    
+    // ✅ PRIORITY 1: Calculate from Rate × Quantity (SAME AS TABLE COLUMN)
+    // This is how Value is calculated in the table: Quantity × Rate
+    if (quantityValue > 0) {
+      // ✅ IMPROVED: Find related activity with Zone matching (SAME AS KPI PAGE)
+      const kpiActivityName = (kpi.activity_name || '').toLowerCase().trim()
+      const kpiProjectFullCode = (kpi.project_full_code || kpi.project_code || '').toLowerCase().trim()
+      const kpiProjectCode = (kpi.project_code || '').toLowerCase().trim()
       
-      // Calculate value = rate × quantity
-      if (rate > 0) {
-        financialValue = quantityValue * rate
-      } else {
-        // Last fallback: use existing value if rate not found
-        financialValue = parseFloat(kpi.value?.toString() || '0') || 0
+      // Extract KPI Zone (same logic as KPI page)
+      const kpiZoneRaw = (kpi.zone || rawKpi['Zone'] || rawKpi['Zone Number'] || '').toString().trim()
+      let kpiZone = kpiZoneRaw.toLowerCase().trim()
+      if (kpiZone && kpiProjectCode) {
+        const projectCodeUpper = kpiProjectCode.toUpperCase()
+        kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+        kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
+        kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
       }
-    } else {
-      // If no activity found, use existing value as fallback
-      financialValue = parseFloat(kpi.value?.toString() || '0') || 0
+      if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
+      
+      // Try multiple matching strategies (with Zone priority) - SAME AS KPI PAGE
+      let relatedActivity: BOQActivity | undefined = undefined
+      
+      // Try 1: activity_name + project_full_code + zone (most precise)
+      if (kpiActivityName && kpiProjectFullCode && kpiZone) {
+        relatedActivity = projectActivities.find((a: BOQActivity) => {
+          const activityName = (a.activity_name || '').toLowerCase().trim()
+          const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
+          const rawActivity = (a as any).raw || {}
+          const activityZone = (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+          return activityName === kpiActivityName && 
+                 activityProjectFullCode === kpiProjectFullCode &&
+                 (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
+        })
+      }
+      
+      // Try 2: activity_name + project_full_code (without zone - fallback)
+      if (!relatedActivity && kpiActivityName && kpiProjectFullCode) {
+        relatedActivity = projectActivities.find((a: BOQActivity) => {
+          const activityName = (a.activity_name || '').toLowerCase().trim()
+          const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
+          return activityName === kpiActivityName && activityProjectFullCode === kpiProjectFullCode
+        })
+      }
+      
+      // Try 3: activity_name + project_code + zone (if not found and project_code exists)
+      if (!relatedActivity && kpiActivityName && kpiProjectCode && kpiZone) {
+        relatedActivity = projectActivities.find((a: BOQActivity) => {
+          const activityName = (a.activity_name || '').toLowerCase().trim()
+          const activityProjectCode = (a.project_code || '').toLowerCase().trim()
+          const rawActivity = (a as any).raw || {}
+          const activityZone = (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+          return activityName === kpiActivityName && 
+                 activityProjectCode === kpiProjectCode &&
+                 (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
+        })
+      }
+      
+      // Try 4: activity_name + project_code (without zone - fallback)
+      if (!relatedActivity && kpiActivityName && kpiProjectCode) {
+        relatedActivity = projectActivities.find((a: BOQActivity) => {
+          const activityName = (a.activity_name || '').toLowerCase().trim()
+          const activityProjectCode = (a.project_code || '').toLowerCase().trim()
+          return activityName === kpiActivityName && activityProjectCode === kpiProjectCode
+        })
+      }
+      
+      // Try 5: activity_name only (last resort)
+      if (!relatedActivity && kpiActivityName) {
+        relatedActivity = projectActivities.find((a: BOQActivity) => {
+          const activityName = (a.activity_name || '').toLowerCase().trim()
+          return activityName === kpiActivityName
+        })
+      }
+      
+      if (relatedActivity) {
+        const rawActivity = (relatedActivity as any).raw || {}
+        
+        // ✅ PRIORITY 1: Calculate Rate = Total Value / Total Units (SAME AS TABLE)
+        const totalValueFromActivity = relatedActivity.total_value || 
+                                     parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                     0
+        
+        const totalUnits = relatedActivity.total_units || 
+                        relatedActivity.planned_units ||
+                        parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                        0
+        
+        let rate = 0
+        if (totalUnits > 0 && totalValueFromActivity > 0) {
+          rate = totalValueFromActivity / totalUnits
+        } else {
+          // ✅ PRIORITY 2: Use rate directly from activity (fallback)
+          rate = relatedActivity.rate || 
+                parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+                0
+        }
+        
+        // Calculate value = rate × quantity
+        if (rate > 0 && quantityValue > 0) {
+          financialValue = quantityValue * rate
+        }
+      }
     }
+    
+    // ✅ PRIORITY 2: Use Value directly from KPI (fallback if calculated value is 0)
+    // Check raw['Value'] first (from database), then k.value
+    if (financialValue === 0) {
+      let kpiValue = 0
+      
+      // Try raw['Value'] (from database with capital V) - MOST RELIABLE
+      if (rawKpi['Value'] !== undefined && rawKpi['Value'] !== null) {
+        const val = rawKpi['Value']
+        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+      }
+      
+      // Try raw.value (from database with lowercase v)
+      if (kpiValue === 0 && rawKpi.value !== undefined && rawKpi.value !== null) {
+        const val = rawKpi.value
+        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+      }
+      
+      // Try k.value (direct property from ProcessedKPI)
+      if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
+        const val = kpi.value
+        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+      }
+      
+      if (kpiValue > 0) {
+        financialValue = kpiValue
+      }
+    }
+    
+    // ✅ PRIORITY 3: Try Actual Value or Planned Value (fallback if calculated value and Value are both 0)
+    if (financialValue === 0) {
+      if (kpi.input_type === 'Actual') {
+        const actualValue = (kpi.actual_value ?? 
+                           parseFloat(String(rawKpi['Actual Value'] || '0').replace(/,/g, ''))) || 
+                           0
+        if (actualValue > 0) {
+          financialValue = actualValue
+        }
+      } else if (kpi.input_type === 'Planned') {
+        const plannedValue = (kpi.planned_value ?? 
+                           parseFloat(String(rawKpi['Planned Value'] || '0').replace(/,/g, ''))) || 
+                           0
+        if (plannedValue > 0) {
+          financialValue = plannedValue
+        }
+      }
+    }
+    
+    // ✅ CRITICAL: If no value found and no rate, skip (NEVER use quantity as value!)
+    // financialValue will remain 0, and this KPI won't contribute to totals
 
     if (kpi.input_type === 'Actual') {
       kpiData[key].totalActual += quantityValue
