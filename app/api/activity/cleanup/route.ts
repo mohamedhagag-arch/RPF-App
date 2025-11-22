@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseServiceClient } from '@/lib/backupManager'
 
 export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
 /**
  * API endpoint to cleanup old user activities (older than 7 days)

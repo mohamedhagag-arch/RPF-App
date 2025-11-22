@@ -46,6 +46,21 @@ const CONNECTION_CONFIG = {
  * الحصول على عميل Supabase مستقر
  */
 export function getStableSupabaseClient(): AppSupabaseClient {
+  // ✅ Check if we're in build time - should not create client during build
+  const isBuildTime = process.env.NEXT_PHASE === 'phase-production-build'
+  
+  if (isBuildTime) {
+    // During build, return a proxy that will throw if actually used
+    // This prevents errors during static page generation
+    console.warn('⚠️ [StableConnection] Called during build time - returning proxy')
+    return new Proxy({} as AppSupabaseClient, {
+      get: (target, prop) => {
+        // If someone tries to use the client during build, throw a clear error
+        throw new Error('Cannot use Supabase client during build time. This should only be called at runtime.')
+      },
+    })
+  }
+  
   // إذا كان العميل موجود بالفعل، نعيده مباشرة
   if (supabaseInstance) {
     return supabaseInstance

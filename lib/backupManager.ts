@@ -14,16 +14,22 @@ import { createClient } from '@supabase/supabase-js'
  * This bypasses RLS policies to ensure all data is accessible
  */
 export function getSupabaseServiceClient() {
-  // ✅ التحقق من أننا في runtime وليس build time
-  if (typeof window === 'undefined' && process.env.NEXT_PHASE === 'phase-production-build') {
-    throw new Error('Cannot create Supabase client during build time. This function should only be called at runtime.')
-  }
-  
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   
+  // ✅ Check if credentials are available
+  // During build time, these might not be available, but with force-dynamic routes should not be called during build
   if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error('Missing Supabase credentials')
+    // Only throw if we're definitely in runtime (not build)
+    // During build, Next.js might try to collect page data, but force-dynamic should prevent this
+    const isBuildTime = process.env.NEXT_PHASE === 'phase-production-build'
+    
+    if (isBuildTime) {
+      // During build, we should not reach here with force-dynamic, but if we do, throw a clear error
+      throw new Error('Cannot create Supabase client during build time. Ensure route has export const dynamic = "force-dynamic"')
+    }
+    
+    throw new Error('Missing Supabase credentials. Please check NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables.')
   }
   
   return createClient(supabaseUrl, serviceRoleKey, {
