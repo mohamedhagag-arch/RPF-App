@@ -317,7 +317,9 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       }
 
       try {
-        console.log('🔄 Loading zones for project:', projectCode)
+        // ✅ FIX: Use project.project_code (base code) for database lookup, not projectCode (which may be full_code)
+        const baseProjectCode = project?.project_code || projectCode
+        console.log('🔄 Loading zones for project:', baseProjectCode)
         const supabase = getSupabaseClient()
         
         // Load zones from project_zones table
@@ -325,7 +327,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
           supabase
             .from('project_zones')
             .select('zones')
-            .eq('project_code', projectCode)
+            .eq('project_code', baseProjectCode)
             .single()
         )
         
@@ -365,11 +367,15 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   const handleProjectSelect = (selectedProject: Project) => {
     console.log('🎯 Project selected:', selectedProject.project_code)
     
-    setProjectCode(selectedProject.project_code)
+    // ✅ FIX: Use project_full_code if available (e.g., "P4110-P"), otherwise use project_code
+    // This ensures that when user selects "P4110-P", we use "P4110-P" and not just "P4110"
+    const projectCodeToUse = selectedProject.project_full_code || selectedProject.project_code
+    setProjectCode(projectCodeToUse)
     setProject(selectedProject)
     setShowProjectDropdown(false)
     setProjectSearch('')
     console.log('✅ Project loaded:', selectedProject.project_name)
+    console.log('✅ Using project code:', projectCodeToUse, '(full_code:', selectedProject.project_full_code, ', code:', selectedProject.project_code, ')')
     
     // Activities will be loaded automatically by useEffect that watches project.project_type
   }
@@ -749,10 +755,14 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
     try {
       setKpiGenerationStatus('loading')
       
+      // ✅ FIX: Use correct project codes - project_code is base code, project_full_code is full code
+      const baseProjectCode = project?.project_code || projectCode
+      const fullProjectCode = project?.project_full_code || projectCode
+      
       const tempActivity = {
         id: activity?.id || 'temp',
-        project_code: projectCode,
-        project_full_code: project?.project_code || projectCode,
+        project_code: baseProjectCode, // ✅ Base code (e.g., "P4110")
+        project_full_code: fullProjectCode, // ✅ Full code (e.g., "P4110-P")
         project_sub_code: project?.project_sub_code || '',
         activity_name: activityName,
         activity_division: activityDivision || project?.responsible_division || '', // ✅ Division field
@@ -1025,10 +1035,12 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
             final: allScopes
           })
           
+          // ✅ FIX: Use project.project_code (base code) for database lookup, not projectCode (which may be full_code)
+          const baseProjectCode = project?.project_code || projectCode
           const { error: updateError } = await (supabase as any)
             .from(TABLES.PROJECTS)
             .update({ 'Project Type': updatedScopes })
-            .eq('Project Code', projectCode)
+            .eq('Project Code', baseProjectCode)
           
           if (updateError) {
             console.error('⚠️ Failed to update project scopes:', updateError)
@@ -1065,9 +1077,13 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         }
       }
       
+      // ✅ FIX: Use project_full_code as project_code if project has sub_code
+      // This ensures "P4110-P" is saved as project_code, not just "P4110"
+      const finalProjectCode = projectFullCode || projectCode
+      
       const activityData = {
         ...(activity?.id && { id: activity.id }), // Include ID if editing
-        project_code: projectCode,
+        project_code: finalProjectCode, // ✅ Use project_full_code if available
         project_sub_code: project?.project_sub_code || '',
         project_full_code: projectFullCode, // ✅ Use properly built project_full_code
         activity_name: activityName,

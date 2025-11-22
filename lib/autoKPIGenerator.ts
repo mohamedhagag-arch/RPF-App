@@ -115,6 +115,11 @@ export async function generateKPIsFromBOQ(
     console.log(`📊 Quantity distribution: ${totalQuantity} total → ${baseQuantityPerDay} per day (base) + ${remainder} remainder`)
     console.log(`✅ Verification: ${baseQuantityPerDay} × ${workdays.length} + ${remainder} = ${(baseQuantityPerDay * workdays.length) + remainder} (should equal ${totalQuantity})`)
     
+    // ✅ FIX: Use project_full_code as project_code if available (e.g., "P4110-P")
+    // This ensures KPIs are created with the correct project code when project has sub_code
+    const projectFullCode = activity.project_full_code || activity.project_code || ''
+    const projectCode = projectFullCode || activity.project_code || '' // Use full_code as code if available
+    
     // Generate KPIs with proper distribution
     const kpis: GeneratedKPI[] = workdays.map((date, index) => {
       // Add remainder to first few days to ensure total matches
@@ -127,9 +132,9 @@ export async function generateKPIsFromBOQ(
         unit: activity.unit || '',
         target_date: date.toISOString().split('T')[0],
         activity_date: date.toISOString().split('T')[0],
-        project_code: activity.project_code || '',
+        project_code: projectCode, // ✅ Use project_full_code if available
         project_sub_code: activity.project_sub_code || '',
-        project_full_code: activity.project_full_code || activity.project_code || '',
+        project_full_code: projectFullCode, // ✅ Use project_full_code
         section: activity.zone_ref || '',
         day: `Day ${index + 1} - ${date.toLocaleDateString('en-US', { weekday: 'long' })}`,
         activity_division: activity.activity_division || '', // ✅ Division field
@@ -268,9 +273,10 @@ export async function saveGeneratedKPIs(kpis: GeneratedKPI[], cleanupFirst: bool
     
     // Convert to database format
     // ✅ AUTO-APPROVE: All Planned KPIs are automatically approved on creation
+    // ✅ FIX: Use project_full_code as Project Code if available (e.g., "P4110-P")
     const dbKPIs = kpis.map(kpi => ({
       'Project Full Code': kpi.project_full_code,
-      'Project Code': kpi.project_code,
+      'Project Code': kpi.project_full_code || kpi.project_code, // ✅ Use full_code as code if available
       'Project Sub Code': kpi.project_sub_code,
       'Activity Name': kpi.activity_name,
       'Activity Division': kpi.activity_division || '', // ✅ Division field
