@@ -92,7 +92,7 @@ export function ActiveUsersManager() {
           `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
         sessionStorage.setItem('session_id', sessionId)
 
-        await fetch('/api/users/activity', {
+        const response = await fetch('/api/users/activity', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -103,8 +103,20 @@ export function ActiveUsersManager() {
             user_agent: navigator.userAgent
           })
         })
+        
+        // Silently handle heartbeat responses - errors are non-critical
+        if (!response.ok && response.status !== 401) {
+          // Only log non-401 errors in development
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('⚠️ Heartbeat response not OK:', response.status)
+          }
+        }
       } catch (error) {
-        console.error('Error sending heartbeat:', error)
+        // Silently handle heartbeat errors - they're not critical
+        // Only log in development
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('⚠️ Heartbeat error (non-critical):', error)
+        }
       }
     }
 

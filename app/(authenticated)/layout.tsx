@@ -91,11 +91,14 @@ export default function AuthenticatedLayout({
 
     const sendHeartbeat = async () => {
       try {
+        // Double-check user exists before sending heartbeat
+        if (!user) return
+        
         const sessionId = sessionStorage.getItem('session_id') || 
           `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
         sessionStorage.setItem('session_id', sessionId)
 
-        await fetch('/api/users/activity', {
+        const response = await fetch('/api/users/activity', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -106,8 +109,20 @@ export default function AuthenticatedLayout({
             user_agent: navigator.userAgent
           })
         })
+        
+        // Only log errors if it's not a successful response (including silent success)
+        if (!response.ok && response.status !== 401) {
+          // Don't log 401 errors - they're expected during session initialization
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('⚠️ Heartbeat response not OK:', response.status)
+          }
+        }
       } catch (error) {
-        console.error('Error sending heartbeat from layout:', error)
+        // Silently handle heartbeat errors - they're not critical
+        // Only log in development
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('⚠️ Heartbeat error (non-critical):', error)
+        }
       }
     }
 
