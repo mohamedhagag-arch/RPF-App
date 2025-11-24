@@ -2307,45 +2307,33 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     return 0
   }, [activityIndexMap])
   
-  // ✅ FIXED: Calculate Planned Value using EXACT SAME LOGIC as table Value column
-  // Priority: 1) Calculate from Rate × Quantity (same as table), 2) Use Value directly from KPI, 3) Use Planned Value
+  // ✅ FIXED: Calculate Planned Value - Use Planned Value directly from database
+  // For Planned KPIs, we should use the Planned Value field directly, not calculate from Rate × Quantity
   const totalPlannedValue = useMemo(() => {
     if (plannedKPIs.length === 0) {
       return 0
     }
 
     let total = 0
-    let fromCalculated = 0
-    let fromValue = 0
     let fromPlannedValue = 0
+    let fromValue = 0
     let skipped = 0
     
     plannedKPIs.forEach((kpi: ProcessedKPI) => {
       const rawKPI = (kpi as any).raw || {}
       
-      // Get Quantity
-      const quantity = (kpi.quantity ?? 
-                       parseFloat(String(rawKPI['Quantity'] || '0').replace(/,/g, ''))) || 
-                       0
-      
-      // ✅ PRIORITY 1: Calculate from Rate × Quantity (SAME AS TABLE COLUMN)
-      // This is how Value is calculated in the table: Quantity × Rate
-      const rate = getActivityRate(kpi)
-      let calculatedValue = 0
-      if (rate > 0 && quantity > 0) {
-        calculatedValue = rate * quantity
-        if (calculatedValue > 0) {
-          total += calculatedValue
-          fromCalculated++
-          return
-        }
+      // ✅ PRIORITY 1: Use Planned Value directly from KPI (most accurate for Planned KPIs)
+      const plannedValue = kpi.planned_value || parseFloat(String(rawKPI['Planned Value'] || '0').replace(/,/g, '')) || 0
+      if (plannedValue > 0) {
+        total += plannedValue
+        fromPlannedValue++
+        return
       }
       
-      // ✅ PRIORITY 2: Use Value directly from KPI (fallback if calculated value is 0)
-      // Check raw['Value'] first (from database), then k.value
+      // ✅ PRIORITY 2: Fallback to Value field if Planned Value is not available
       let kpiValue = 0
       
-      // Try raw['Value'] (from database with capital V) - MOST RELIABLE
+      // Try raw['Value'] (from database with capital V)
       if (rawKPI['Value'] !== undefined && rawKPI['Value'] !== null) {
         const val = rawKPI['Value']
         kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
@@ -2363,119 +2351,62 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
       }
       
-      // If we found a value, use it
       if (kpiValue > 0) {
         total += kpiValue
         fromValue++
         return
       }
       
-      // ✅ PRIORITY 3: Use Planned Value from KPI (same as table fallback)
-      if (kpiValue === 0) {
-        const plannedValue = kpi.planned_value || parseFloat(String(rawKPI['Planned Value'] || '0').replace(/,/g, '')) || 0
-        if (plannedValue > 0) {
-          total += plannedValue
-          fromPlannedValue++
-          return
-        }
-      }
-      
-      // ✅ CRITICAL: If no value found and no rate, skip (NEVER use quantity as value!)
+      // If no value found, skip this KPI
       skipped++
     })
     
-    // Calculate total quantity for comparison
-    const totalPlannedQty = plannedKPIs.reduce((sum: number, k: ProcessedKPI) => {
-      const rawKPI = (k as any).raw || {}
-      return sum + ((k.quantity ?? parseFloat(String(rawKPI['Quantity'] || '0').replace(/,/g, ''))) || 0)
-    }, 0)
-    
-    // ✅ ALWAYS LOG: To help debug the issue
-    const seemsWrong = total === totalPlannedQty && total > 0
-    console.log(`📊 [Planned Value] Calculated for ${plannedKPIs.length} Planned KPIs:`, {
-      total,
-      totalPlannedQty,
-      fromCalculated,
-      fromValue,
-      fromPlannedValue,
-      skipped,
-      percentages: {
-        fromCalculated: plannedKPIs.length > 0 ? ((fromCalculated / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%',
-        fromValue: plannedKPIs.length > 0 ? ((fromValue / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%',
-        fromPlannedValue: plannedKPIs.length > 0 ? ((fromPlannedValue / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%',
-        skipped: plannedKPIs.length > 0 ? ((skipped / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%'
-      },
-      warning: seemsWrong ? '⚠️ Total equals quantity - values may not be calculated correctly!' : 
-              (total === 0 ? '⚠️ Total is 0 - no values found!' : null),
-      note: 'Total is VALUE (not quantity) - Priority: 1) Rate × Quantity, 2) Value from KPI, 3) Planned Value'
-    })
-    
-    // Log sample KPIs for debugging
-    if (plannedKPIs.length > 0) {
-      console.log('🔍 Sample Planned KPIs (first 5):', plannedKPIs.slice(0, 5).map((k: ProcessedKPI) => {
-        const rawKPI = (k as any).raw || {}
-        const qty = (k.quantity ?? parseFloat(String(rawKPI['Quantity'] || '0').replace(/,/g, ''))) || 0
-        const r = getActivityRate(k)
-        return {
-          id: k.id,
-          activity_name: k.activity_name,
-          quantity: qty,
-          value_direct: k.value,
-          value_raw: rawKPI['Value'],
-          value_raw_lowercase: rawKPI.value,
-          rate: r,
-          calculated_from_rate: r > 0 ? (r * qty) : 0
-        }
-      }))
-    }
-    
-    if (total === 0 && totalPlannedQty > 0) {
-      console.warn('⚠️ [Planned Value] Total is 0 but quantity is', totalPlannedQty, '- values may not be calculated correctly!')
-    }
-    
-    if (seemsWrong) {
-      console.error('❌ [Planned Value] CRITICAL ERROR: Total equals quantity! This means values are not being calculated correctly.')
+    // Log calculation summary for debugging
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`📊 [Planned Value] Calculated for ${plannedKPIs.length} Planned KPIs:`, {
+        total,
+        fromPlannedValue,
+        fromValue,
+        skipped,
+        percentages: {
+          fromPlannedValue: plannedKPIs.length > 0 ? ((fromPlannedValue / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%',
+          fromValue: plannedKPIs.length > 0 ? ((fromValue / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%',
+          skipped: plannedKPIs.length > 0 ? ((skipped / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%'
+        },
+        note: 'Using Planned Value directly from database (Priority: 1) Planned Value, 2) Value field)'
+      })
     }
     
     return total
-  }, [plannedKPIs, getActivityRate])
+  }, [plannedKPIs])
   
-  // ✅ FIXED: Calculate Actual Value using EXACT SAME LOGIC as table Value column
-  // Priority: 1) Rate × Quantity (SAME AS TABLE), 2) Value directly from KPI, 3) Actual Value
-  // ✅ IMPORTANT: Always calculate VALUE, never use quantity directly
+  // ✅ FIXED: Calculate Actual Value - Use Actual Value directly from database
+  // For Actual KPIs, we should use the Actual Value field directly, not calculate from Rate × Quantity
   const totalActualValue = useMemo(() => {
+    if (actualKPIs.length === 0) {
+      return 0
+    }
+
     let total = 0
-    let fromValue = 0
-    let fromRate = 0
     let fromActualValue = 0
+    let fromValue = 0
     let skipped = 0
     
     actualKPIs.forEach((k: ProcessedKPI) => {
       const rawKPI = (k as any).raw || {}
       
-      // Get Quantity
-      const quantity = (k.quantity ?? 
-                      parseFloat(String(rawKPI['Quantity'] || '0').replace(/,/g, ''))) || 
-                      0
-      
-      // ✅ PRIORITY 1: Calculate from Rate × Quantity (SAME AS TABLE COLUMN)
-      // This is how Value is calculated in the table: Quantity × Rate
-      const rate = getActivityRate(k)
-      let calculatedValue = 0
-      if (rate > 0 && quantity > 0) {
-        calculatedValue = rate * quantity
-        if (calculatedValue > 0) {
-          total += calculatedValue
-          fromRate++
-          return
-        }
+      // ✅ PRIORITY 1: Use Actual Value directly from KPI (most accurate for Actual KPIs)
+      const actualValue = k.actual_value || parseFloat(String(rawKPI['Actual Value'] || '0').replace(/,/g, '')) || 0
+      if (actualValue > 0) {
+        total += actualValue
+        fromActualValue++
+        return
       }
       
-      // ✅ PRIORITY 2: Use Value directly from KPI (fallback if calculated value is 0)
-      // Check raw['Value'] first (from database), then k.value
+      // ✅ PRIORITY 2: Fallback to Value field if Actual Value is not available
       let kpiValue = 0
       
-      // Try raw['Value'] (from database with capital V) - MOST RELIABLE
+      // Try raw['Value'] (from database with capital V)
       if (rawKPI['Value'] !== undefined && rawKPI['Value'] !== null) {
         const val = rawKPI['Value']
         kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
@@ -2499,37 +2430,28 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         return
       }
       
-      // ✅ PRIORITY 3: Try Actual Value (fallback if calculated value and Value are both 0)
-      const actualValue = (k.actual_value ?? 
-                         parseFloat(String(rawKPI['Actual Value'] || '0').replace(/,/g, ''))) || 
-                         0
-      
-      if (actualValue > 0) {
-        total += actualValue
-        fromActualValue++
-        return
-      }
-      
-      // ✅ If no value found and no rate, skip (don't add quantity!)
+      // If no value found, skip this KPI
       skipped++
     })
     
-    // ✅ DEBUG: Log calculation summary
-    if (process.env.NODE_ENV === 'development' && actualKPIs.length > 0) {
+    // Log calculation summary for debugging
+    if (process.env.NODE_ENV === 'development') {
       console.log(`📊 [Actual Value] Calculated for ${actualKPIs.length} Actual KPIs:`, {
         total,
-        fromValue,
-        fromRate,
         fromActualValue,
+        fromValue,
         skipped,
-        percentageFromValue: actualKPIs.length > 0 ? ((fromValue / actualKPIs.length) * 100).toFixed(1) + '%' : '0%',
-        percentageFromRate: actualKPIs.length > 0 ? ((fromRate / actualKPIs.length) * 100).toFixed(1) + '%' : '0%',
-        note: 'Total is VALUE (not quantity)'
+        percentages: {
+          fromActualValue: actualKPIs.length > 0 ? ((fromActualValue / actualKPIs.length) * 100).toFixed(1) + '%' : '0%',
+          fromValue: actualKPIs.length > 0 ? ((fromValue / actualKPIs.length) * 100).toFixed(1) + '%' : '0%',
+          skipped: actualKPIs.length > 0 ? ((skipped / actualKPIs.length) * 100).toFixed(1) + '%' : '0%'
+        },
+        note: 'Using Actual Value directly from database (Priority: 1) Actual Value, 2) Value field)'
       })
     }
     
     return total
-  }, [actualKPIs, getActivityRate])
+  }, [actualKPIs])
   // Calculate achievement rates
   const valueAchievementRate = totalPlannedValue > 0 ? (totalActualValue / totalPlannedValue) * 100 : 0
   const quantityAchievementRate = totalPlannedQty > 0 ? (totalActualQty / totalPlannedQty) * 100 : 0

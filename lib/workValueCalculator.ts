@@ -19,21 +19,40 @@ interface WorkValueStatus {
 
 /**
  * Helper function to extract project codes from any item
+ * ✅ PRIORITY: project_full_code first (most specific), then project_code (fallback)
  */
 function extractProjectCodes(item: any): string[] {
   const codes: string[] = []
   const raw = (item as any).raw || {}
   
-  const sources = [
+  // ✅ PRIORITY 1: Extract project_full_code (most specific - distinguishes P4110 from P4110-P)
+  const fullCodeSources = [
     item.project_full_code,
     (item as any)['Project Full Code'],
-    raw['Project Full Code'],
+    raw['Project Full Code']
+  ]
+  
+  for (const source of fullCodeSources) {
+    if (source) {
+      const code = source.toString().trim()
+      if (code) {
+        codes.push(code)
+        codes.push(code.toUpperCase())
+        // If we have a full code, return immediately (don't add project_code)
+        // This ensures P4110-P and P4110 are treated as different projects
+        return Array.from(new Set(codes))
+      }
+    }
+  }
+  
+  // ✅ PRIORITY 2: Extract project_code (fallback if no full code exists)
+  const codeSources = [
     item.project_code,
     (item as any)['Project Code'],
     raw['Project Code']
   ]
   
-  for (const source of sources) {
+  for (const source of codeSources) {
     if (source) {
       const code = source.toString().trim()
       if (code) {
@@ -48,20 +67,41 @@ function extractProjectCodes(item: any): string[] {
 
 /**
  * Helper function to check if codes match
+ * ✅ CRITICAL: Use exact match for project_full_code to distinguish P4110 from P4110-P
  */
 function codesMatch(itemCodes: string[], targetCodes: string[]): boolean {
   const targetCodesUpper = targetCodes.map(c => c.toUpperCase().trim())
-  for (const itemCode of itemCodes) {
-    const itemCodeUpper = itemCode.toUpperCase().trim()
-    if (targetCodesUpper.includes(itemCodeUpper)) {
+  const itemCodesUpper = itemCodes.map(c => c.toUpperCase().trim())
+  
+  // ✅ First, try exact match (most important for project_full_code)
+  for (const itemCode of itemCodesUpper) {
+    if (targetCodesUpper.includes(itemCode)) {
       return true
     }
+  }
+  
+  // ✅ Only if no exact match, check if one is a prefix of another
+  // But ONLY if both don't have a dash (to avoid matching P4110 with P4110-P)
+  for (const itemCode of itemCodesUpper) {
     for (const targetCode of targetCodesUpper) {
-      if (itemCodeUpper.startsWith(targetCode) || targetCode.startsWith(itemCodeUpper)) {
-        return true
+      // If both codes contain a dash, require exact match
+      const itemHasDash = itemCode.includes('-')
+      const targetHasDash = targetCode.includes('-')
+      
+      if (itemHasDash || targetHasDash) {
+        // If either has a dash, only exact match is allowed
+        if (itemCode === targetCode) {
+          return true
+        }
+      } else {
+        // If neither has a dash, allow prefix matching (for backward compatibility)
+        if (itemCode.startsWith(targetCode) || targetCode.startsWith(itemCode)) {
+          return true
+        }
       }
     }
   }
+  
   return false
 }
 
@@ -151,8 +191,10 @@ export function calculateWorkValueStatus(
       }
     }
 
-    // ✅ STEP 2: If Total Value from BOQ is 0, calculate from all KPI Planned (not filtered by date)
-    if (totalValue === 0 && allKPIs.length > 0) {
+    // ✅ STEP 2: Calculate Total Value from ALL Planned KPIs (not filtered by date)
+    // Total Value = مجموع جميع Planned KPIs للمشروع بدون فلترة بالتاريخ
+    // This should be calculated regardless of BOQ total value
+    if (allKPIs.length > 0) {
       const projectKPIs = allKPIs.filter((kpi: any) => matchesProject(kpi, project))
       
       const plannedKPIs = projectKPIs.filter((kpi: any) => {
@@ -165,168 +207,47 @@ export function calculateWorkValueStatus(
         ).trim().toLowerCase()
         return inputType === 'planned'
       })
-
+      
+      // ✅ If we have Planned KPIs, use them for Total Value (override BOQ if exists)
+      // Total Value = مجموع جميع Planned KPIs للمشروع بدون فلترة بالتاريخ
       if (plannedKPIs.length > 0) {
+        // Reset totalValue to calculate from Planned KPIs
+        totalValue = 0
+        
         plannedKPIs.forEach((kpi: any) => {
           const rawKpi = (kpi as any).raw || {}
-          const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
           
-          // ✅ IMPROVED: Find related activity with Zone matching (SAME AS KPI PAGE)
-          // This matches the logic in KPITracking.tsx getActivityRate function
-          let rate = 0
-          if (allActivities.length > 0) {
-            const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || '').toLowerCase().trim()
-            const kpiProjectFullCode = (kpi.project_full_code || kpi.project_code || '').toLowerCase().trim()
-            const kpiProjectCode = (kpi.project_code || '').toLowerCase().trim()
-            
-            // Extract KPI Zone (same logic as KPI page)
-            const rawKpiForZone = (kpi as any).raw || {}
-            const kpiZoneRaw = (kpi.zone || rawKpiForZone['Zone'] || rawKpiForZone['Zone Number'] || '').toString().trim()
-            let kpiZone = kpiZoneRaw.toLowerCase().trim()
-            if (kpiZone && kpiProjectCode) {
-              const projectCodeUpper = kpiProjectCode.toUpperCase()
-              kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
-              kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
-              kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
-            }
-            if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
-            
-            // Try multiple matching strategies (with Zone priority) - SAME AS KPI PAGE
-            let relatedActivity: any = null
-            
-            // Try 1: activity_name + project_full_code + zone (most precise)
-            if (kpiActivityName && kpiProjectFullCode && kpiZone) {
-              relatedActivity = allActivities.find((activity: any) => {
-                if (!matchesProject(activity, project)) return false
-                const activityName = (activity.activity_name || activity['Activity Name'] || '').toLowerCase().trim()
-                const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toLowerCase().trim()
-                const rawActivity = (activity as any).raw || {}
-                const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
-                return activityName === kpiActivityName && 
-                       activityProjectFullCode === kpiProjectFullCode &&
-                       (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
-              })
-            }
-            
-            // Try 2: activity_name + project_full_code (without zone - fallback)
-            if (!relatedActivity && kpiActivityName && kpiProjectFullCode) {
-              relatedActivity = allActivities.find((activity: any) => {
-                if (!matchesProject(activity, project)) return false
-                const activityName = (activity.activity_name || activity['Activity Name'] || '').toLowerCase().trim()
-                const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toLowerCase().trim()
-                return activityName === kpiActivityName && activityProjectFullCode === kpiProjectFullCode
-              })
-            }
-            
-            // Try 3: activity_name + project_code + zone (if not found and project_code exists)
-            if (!relatedActivity && kpiActivityName && kpiProjectCode && kpiZone) {
-              relatedActivity = allActivities.find((activity: any) => {
-                if (!matchesProject(activity, project)) return false
-                const activityName = (activity.activity_name || activity['Activity Name'] || '').toLowerCase().trim()
-                const activityProjectCode = (activity.project_code || '').toLowerCase().trim()
-                const rawActivity = (activity as any).raw || {}
-                const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
-                return activityName === kpiActivityName && 
-                       activityProjectCode === kpiProjectCode &&
-                       (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
-              })
-            }
-            
-            // Try 4: activity_name + project_code (without zone - fallback)
-            if (!relatedActivity && kpiActivityName && kpiProjectCode) {
-              relatedActivity = allActivities.find((activity: any) => {
-                if (!matchesProject(activity, project)) return false
-                const activityName = (activity.activity_name || activity['Activity Name'] || '').toLowerCase().trim()
-                const activityProjectCode = (activity.project_code || '').toLowerCase().trim()
-                return activityName === kpiActivityName && activityProjectCode === kpiProjectCode
-              })
-            }
-            
-            // Try 5: activity_name only (last resort)
-            if (!relatedActivity && kpiActivityName) {
-              relatedActivity = allActivities.find((activity: any) => {
-                if (!matchesProject(activity, project)) return false
-                const activityName = (activity.activity_name || activity['Activity Name'] || '').toLowerCase().trim()
-                return activityName === kpiActivityName
-              })
-            }
-            
-            if (relatedActivity) {
-              const rawActivity = (relatedActivity as any).raw || {}
-              
-              // ✅ PRIORITY 1: Calculate Rate = Total Value / Total Units (SAME AS TABLE)
-              const totalValueFromActivity = relatedActivity.total_value || 
-                                           parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
-                                           0
-              
-              const totalUnits = relatedActivity.total_units || 
-                              relatedActivity.planned_units ||
-                              parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
-                              0
-              
-              if (totalUnits > 0 && totalValueFromActivity > 0) {
-                rate = totalValueFromActivity / totalUnits
-              } else {
-                // ✅ PRIORITY 2: Use rate directly from activity (fallback)
-                rate = relatedActivity.rate || 
-                      parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
-                      0
-              }
-            }
+          // ✅ PRIORITY 1: Use Planned Value directly from KPI (most accurate for Total Value)
+          const plannedValue = kpi.planned_value || parseFloat(String(rawKpi['Planned Value'] || '0').replace(/,/g, '')) || 0
+          if (plannedValue > 0) {
+            totalValue += plannedValue
+            return
           }
           
-          // ✅ FIXED: Calculate value using EXACT SAME LOGIC as KPI table Value column
-          // Priority: 1) Rate × Quantity, 2) Value directly from KPI, 3) Planned Value
+          // ✅ PRIORITY 2: Fallback to Value field if Planned Value is not available
           let kpiValue = 0
           
-          // ✅ PRIORITY 1: Calculate from Rate × Quantity (SAME AS TABLE COLUMN)
-          if (rate > 0 && quantity > 0) {
-            kpiValue = rate * quantity
-            if (kpiValue > 0) {
-              totalValue += kpiValue
-              return // Move to next KPI
-            }
+          // Try raw['Value'] (from database with capital V)
+          if (rawKpi['Value'] !== undefined && rawKpi['Value'] !== null) {
+            const val = rawKpi['Value']
+            kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
           }
           
-          // ✅ PRIORITY 2: Use Value directly from KPI (fallback if calculated value is 0)
-          // Check raw['Value'] first (from database), then k.value
-          if (kpiValue === 0) {
-            // Try raw['Value'] (from database with capital V) - MOST RELIABLE
-            if (rawKpi['Value'] !== undefined && rawKpi['Value'] !== null) {
-              const val = rawKpi['Value']
-              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
-            }
-            
-            // Try raw.value (from database with lowercase v)
-            if (kpiValue === 0 && rawKpi.value !== undefined && rawKpi.value !== null) {
-              const val = rawKpi.value
-              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
-            }
-            
-            // Try k.value (direct property from ProcessedKPI)
-            if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
-              const val = kpi.value
-              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
-            }
-            
-            if (kpiValue > 0) {
-              totalValue += kpiValue
-              return // Move to next KPI
-            }
+          // Try raw.value (from database with lowercase v)
+          if (kpiValue === 0 && rawKpi.value !== undefined && rawKpi.value !== null) {
+            const val = rawKpi.value
+            kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
           }
           
-          // ✅ PRIORITY 3: Use Planned Value from KPI (same as table fallback)
-          if (kpiValue === 0) {
-            const plannedValueFromKPI = kpi.planned_value || parseFloat(String(rawKpi['Planned Value'] || '0').replace(/,/g, '')) || 0
-            if (plannedValueFromKPI > 0) {
-              kpiValue = plannedValueFromKPI
-              totalValue += kpiValue
-              return // Move to next KPI
-            }
+          // Try k.value (direct property from ProcessedKPI)
+          if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
+            const val = kpi.value
+            kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
           }
           
-          // ✅ CRITICAL: If no value found and no rate, skip (NEVER use quantity as value!)
-          // This KPI will not contribute to total value
+          if (kpiValue > 0) {
+            totalValue += kpiValue
+          }
         })
       }
     }
@@ -478,57 +399,41 @@ export function calculateWorkValueStatus(
             }
           }
           
-          // ✅ FIXED: Calculate value using EXACT SAME LOGIC as KPI table Value column
-          // Priority: 1) Rate × Quantity, 2) Value directly from KPI, 3) Planned Value
+          // ✅ FIXED: Calculate Planned Value from KPI Planned until yesterday - Use Planned Value directly from database
+          // Priority: 1) Planned Value directly from KPI, 2) Value field as fallback
           let kpiValue = 0
-          
-          // ✅ PRIORITY 1: Calculate from Rate × Quantity (SAME AS TABLE COLUMN)
-          if (rate > 0 && quantity > 0) {
-            kpiValue = rate * quantity
-            if (kpiValue > 0) {
-              plannedValue += kpiValue
-              return // Move to next KPI
-            }
+          const plannedValueFromKPI = kpi.planned_value || parseFloat(String(rawKpi['Planned Value'] || '0').replace(/,/g, '')) || 0
+          if (plannedValueFromKPI > 0) {
+            kpiValue = plannedValueFromKPI
+            plannedValue += kpiValue
+            return
           }
           
-          // ✅ PRIORITY 2: Use Value directly from KPI (fallback if calculated value is 0)
-          // Check raw['Value'] first (from database), then k.value
-          if (kpiValue === 0) {
-            // Try raw['Value'] (from database with capital V) - MOST RELIABLE
-            if (rawKpi['Value'] !== undefined && rawKpi['Value'] !== null) {
-              const val = rawKpi['Value']
-              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
-            }
-            
-            // Try raw.value (from database with lowercase v)
-            if (kpiValue === 0 && rawKpi.value !== undefined && rawKpi.value !== null) {
-              const val = rawKpi.value
-              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
-            }
-            
-            // Try k.value (direct property from ProcessedKPI)
-            if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
-              const val = kpi.value
-              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
-            }
-            
-            if (kpiValue > 0) {
-              plannedValue += kpiValue
-              return // Move to next KPI
-            }
+          // Fallback to Value field
+          // Try raw['Value'] (from database with capital V)
+          if (rawKpi['Value'] !== undefined && rawKpi['Value'] !== null) {
+            const val = rawKpi['Value']
+            kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
           }
           
-          // ✅ PRIORITY 3: Use Planned Value from KPI (same as table fallback)
-          if (kpiValue === 0) {
-            const plannedValueFromKPI = kpi.planned_value || parseFloat(String(rawKpi['Planned Value'] || '0').replace(/,/g, '')) || 0
-            if (plannedValueFromKPI > 0) {
-              kpiValue = plannedValueFromKPI
-              plannedValue += kpiValue
-              return // Move to next KPI
-            }
+          // Try raw.value (from database with lowercase v)
+          if (kpiValue === 0 && rawKpi.value !== undefined && rawKpi.value !== null) {
+            const val = rawKpi.value
+            kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
           }
           
-          // ✅ CRITICAL: If no value found and no rate, skip (NEVER use quantity as value!)
+          // Try k.value (direct property from ProcessedKPI)
+          if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
+            const val = kpi.value
+            kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+          }
+          
+          if (kpiValue > 0) {
+            plannedValue += kpiValue
+            return
+          }
+          
+          // ✅ CRITICAL: If no value found, skip (NEVER use quantity as value!)
           // This KPI will not contribute to planned value
         })
       }
@@ -681,26 +586,18 @@ export function calculateWorkValueStatus(
             }
           }
           
-          // ✅ FIXED: Calculate value using EXACT SAME LOGIC as KPI page Actual Value
-          // Priority: 1) Rate × Quantity (SAME AS TABLE), 2) Value directly from KPI, 3) Actual Value
-          // This MUST match the logic in KPITracking.tsx totalActualValue calculation
-          
-          // ✅ PRIORITY 1: Calculate from Rate × Quantity (SAME AS TABLE COLUMN)
-          // This is how Value is calculated in the table: Quantity × Rate
-          let calculatedValue = 0
-          if (rate > 0 && quantity > 0) {
-            calculatedValue = rate * quantity
-            if (calculatedValue > 0) {
-              earnedValue += calculatedValue
-              return // Move to next KPI
-            }
+          // ✅ FIXED: Calculate Earned Value from KPI Actual until yesterday - Use Actual Value directly from database
+          // Priority: 1) Actual Value directly from KPI, 2) Value field as fallback
+          let kpiValue = 0
+          const actualValueFromKPI = kpi.actual_value || parseFloat(String(rawKpi['Actual Value'] || '0').replace(/,/g, '')) || 0
+          if (actualValueFromKPI > 0) {
+            kpiValue = actualValueFromKPI
+            earnedValue += kpiValue
+            return
           }
           
-          // ✅ PRIORITY 2: Use Value directly from KPI (fallback if calculated value is 0)
-          // Check raw['Value'] first (from database), then k.value
-          let kpiValue = 0
-          
-          // Try raw['Value'] (from database with capital V) - MOST RELIABLE
+          // Fallback to Value field
+          // Try raw['Value'] (from database with capital V)
           if (rawKpi['Value'] !== undefined && rawKpi['Value'] !== null) {
             const val = rawKpi['Value']
             kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
@@ -720,20 +617,10 @@ export function calculateWorkValueStatus(
           
           if (kpiValue > 0) {
             earnedValue += kpiValue
-            return // Move to next KPI
+            return
           }
           
-          // ✅ PRIORITY 3: Try Actual Value (fallback if calculated value and Value are both 0)
-          const actualValue = (kpi.actual_value ?? 
-                             parseFloat(String(rawKpi['Actual Value'] || '0').replace(/,/g, ''))) || 
-                             0
-          
-          if (actualValue > 0) {
-            earnedValue += actualValue
-            return // Move to next KPI
-          }
-          
-          // ✅ CRITICAL: If no value found and no rate, skip (NEVER use quantity as value!)
+          // ✅ CRITICAL: If no value found, skip (NEVER use quantity as value!)
           // This KPI will not contribute to earned value
         })
       }

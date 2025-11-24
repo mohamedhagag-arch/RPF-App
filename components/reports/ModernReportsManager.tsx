@@ -52,6 +52,9 @@ import {
   Line,
   BarChart,
   Bar,
+  AreaChart,
+  Area,
+  ComposedChart,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -117,9 +120,457 @@ export function ModernReportsManager() {
   }
   const CACHE_EXPIRATION_MS = 30 * 60 * 1000 // 30 minutes
 
-  // Handle Print
+  // Handle Print - Open in new tab with only printable content
   const handlePrint = useCallback(() => {
-    window.print()
+    // Create a new tab
+    const printWindow = window.open('', '_blank')
+    
+    if (!printWindow) {
+      alert('Please allow popups to print the report')
+      return
+    }
+
+    // Get the printable content
+    const printableContent = document.querySelector('.printable-report')
+    
+    if (!printableContent) {
+      alert('Printable content not found')
+      return
+    }
+
+    // Clone the content to avoid modifying the original
+    const clonedContent = printableContent.cloneNode(true) as HTMLElement
+    
+    // Remove all elements with .no-print class
+    const noPrintElements = clonedContent.querySelectorAll('.no-print')
+    noPrintElements.forEach(el => el.remove())
+    
+    // CRITICAL: Remove all inline styles from tables and cells that prevent proper printing
+    const allTables = clonedContent.querySelectorAll('table')
+    allTables.forEach(table => {
+      // Remove inline styles from table
+      if (table.hasAttribute('style')) {
+        const style = table.getAttribute('style') || ''
+        // Remove width, tableLayout, table-layout, minWidth, maxWidth
+        const newStyle = style
+          .replace(/width[^;]*;?/gi, '')
+          .replace(/table-layout[^;]*;?/gi, '')
+          .replace(/tableLayout[^;]*;?/gi, '')
+          .replace(/min-width[^;]*;?/gi, '')
+          .replace(/max-width[^;]*;?/gi, '')
+        if (newStyle.trim()) {
+          table.setAttribute('style', newStyle)
+        } else {
+          table.removeAttribute('style')
+        }
+      }
+      
+      // Remove inline width styles from all th and td
+      const allCells = table.querySelectorAll('th, td')
+      allCells.forEach(cell => {
+        if (cell.hasAttribute('style')) {
+          const style = cell.getAttribute('style') || ''
+          // Remove width, minWidth, maxWidth
+          const newStyle = style
+            .replace(/width[^;]*;?/gi, '')
+            .replace(/min-width[^;]*;?/gi, '')
+            .replace(/max-width[^;]*;?/gi, '')
+          if (newStyle.trim()) {
+            cell.setAttribute('style', newStyle)
+          } else {
+            cell.removeAttribute('style')
+          }
+        }
+      })
+    })
+    
+    // Remove all overflow restrictions from containers
+    const overflowContainers = clonedContent.querySelectorAll('[class*="overflow"], .print-table-container')
+    overflowContainers.forEach(container => {
+      if (container instanceof HTMLElement) {
+        container.style.overflow = 'visible'
+        container.style.maxHeight = 'none'
+        container.style.height = 'auto'
+        container.style.width = '100%'
+      }
+    })
+    
+    // Get all stylesheets
+    const styles = Array.from(document.styleSheets)
+      .map(styleSheet => {
+        try {
+          return Array.from(styleSheet.cssRules)
+            .map(rule => rule.cssText)
+            .join('\n')
+        } catch (e) {
+          return ''
+        }
+      })
+      .join('\n')
+
+    // Get inline styles
+    const inlineStyles = Array.from(document.querySelectorAll('style'))
+      .map(style => style.innerHTML)
+      .join('\n')
+
+    // Create comprehensive print CSS - COMPLETE REWRITE
+    const printCSS = `
+      @media print {
+        /* ========== PAGE SETUP ========== */
+        @page {
+          size: A4 landscape !important;
+          margin: 0.8cm !important;
+        }
+
+        * {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+
+        body {
+          background: white !important;
+          color: #000 !important;
+          font-family: Arial, sans-serif !important;
+          font-size: 9pt !important;
+          margin: 0 auto !important;
+          padding: 0 !important;
+          line-height: 1.4 !important;
+          text-align: center !important;
+        }
+
+        /* ========== HIDE NON-PRINTABLE ========== */
+        .no-print,
+        button:not(.print-button),
+        .print-button,
+        svg,
+        [class*="icon"] {
+          display: none !important;
+        }
+
+        /* ========== TABLES - CRITICAL ========== */
+        /* Remove ALL overflow restrictions */
+        .print-table-container,
+        [class*="overflow"] {
+          overflow: visible !important;
+          max-height: none !important;
+          height: auto !important;
+          width: 100% !important;
+        }
+
+        /* Force table to use auto layout and show all columns */
+        table,
+        .print-table,
+        table[style],
+        table[style*="width"],
+        table[style*="tableLayout"],
+        table[style*="table-layout"] {
+          width: 100% !important;
+          table-layout: auto !important;
+          border-collapse: collapse !important;
+          font-size: 6pt !important;
+          margin: 5px auto !important;
+        }
+
+        /* Table cells - flexible widths, allow text wrapping */
+        th,
+        td,
+        th[style],
+        td[style],
+        th[style*="width"],
+        td[style*="width"],
+        .print-table th,
+        .print-table td,
+        .print-table th[style],
+        .print-table td[style] {
+          padding: 3px 4px !important;
+          border: 0.5px solid #000 !important;
+          font-size: 6pt !important;
+          white-space: normal !important;
+          word-wrap: break-word !important;
+          word-break: break-word !important;
+          overflow: visible !important;
+          width: auto !important;
+          min-width: auto !important;
+          max-width: none !important;
+          line-height: 1.3 !important;
+        }
+
+        /* Table headers */
+        th {
+          background: #f0f0f0 !important;
+          font-weight: bold !important;
+          text-align: center !important;
+        }
+
+        /* Table body cells */
+        td {
+          text-align: center !important;
+        }
+
+        /* Remove sticky positioning */
+        .sticky,
+        [class*="sticky"] {
+          position: static !important;
+          z-index: auto !important;
+        }
+
+        /* Table structure */
+        thead {
+          display: table-header-group !important;
+        }
+
+        tbody {
+          display: table-row-group !important;
+        }
+
+        tr {
+          page-break-inside: avoid !important;
+        }
+
+        /* ========== CARDS & SECTIONS ========== */
+        [class*="Card"] {
+          border: 1px solid #000 !important;
+          border-radius: 0 !important;
+          padding: 8px !important;
+          margin: 5px auto !important;
+          background: white !important;
+          page-break-inside: avoid !important;
+          text-align: center !important;
+        }
+
+        /* ========== TEXT SIZES ========== */
+        p, span, div {
+          font-size: 8pt !important;
+          line-height: 1.4 !important;
+          text-align: center !important;
+        }
+
+        .text-3xl { font-size: 14pt !important; text-align: center !important; }
+        .text-2xl { font-size: 12pt !important; text-align: center !important; }
+        .text-xl { font-size: 10pt !important; text-align: center !important; }
+        .text-sm { font-size: 8pt !important; text-align: center !important; }
+        .text-xs { font-size: 7pt !important; text-align: center !important; }
+
+        h1 { font-size: 14pt !important; text-align: center !important; }
+        h2 { font-size: 12pt !important; text-align: center !important; }
+        h3 { font-size: 10pt !important; text-align: center !important; }
+        h4 { font-size: 9pt !important; text-align: center !important; }
+
+        /* ========== CLEANUP ========== */
+        * {
+          box-shadow: none !important;
+          text-shadow: none !important;
+          border-radius: 0 !important;
+        }
+
+        .bg-gradient-to-br,
+        [class*="gradient"],
+        [class*="bg-blue"],
+        [class*="bg-green"] {
+          background: white !important;
+          color: #000 !important;
+          border: 1px solid #000 !important;
+        }
+
+        .space-y-6 > * { margin: 3px 0 !important; }
+        .gap-4, .gap-6 { gap: 3px !important; }
+        .p-6, .p-4 { padding: 5px !important; }
+
+        /* ========== REPORT HEADER/FOOTER ========== */
+        .report-header {
+          display: block !important;
+          margin-bottom: 10px !important;
+        }
+
+        .report-footer {
+          position: fixed !important;
+          bottom: 0 !important;
+          left: 0 !important;
+          right: 0 !important;
+          padding: 5px 1cm !important;
+          border-top: 1px solid #000 !important;
+          background: white !important;
+          font-size: 7pt !important;
+        }
+      }
+
+      /* Screen preview styles - Better formatting */
+      @media screen {
+        * {
+          box-sizing: border-box;
+        }
+
+        body {
+          margin: 0;
+          padding: 0;
+          background: #f5f5f5;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+          font-size: 14px;
+          line-height: 1.5;
+        }
+        
+        .print-button {
+          position: fixed;
+          top: 20px;
+          right: 20px;
+          padding: 12px 24px;
+          background: #3b82f6;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 14px;
+          font-weight: 500;
+          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+          z-index: 1000;
+        }
+        
+        .print-button:hover {
+          background: #2563eb;
+        }
+        
+        .print-content {
+          background: white;
+          padding: 30px;
+          margin: 20px;
+          border-radius: 8px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+          max-width: 100%;
+          overflow-x: auto;
+          min-height: 100vh;
+        }
+
+        .print-content > * {
+          margin: 0;
+          padding: 0;
+        }
+
+        .print-content > div {
+          width: 100%;
+          max-width: 100%;
+        }
+
+        /* Tables in screen preview */
+        table {
+          width: 100%;
+          border-collapse: separate;
+          border-spacing: 0;
+          margin: 15px 0;
+          font-size: 12px;
+          table-layout: auto;
+        }
+
+        th, td {
+          padding: 10px 12px;
+          border: 1px solid #ddd;
+          text-align: left;
+          vertical-align: top;
+          word-wrap: break-word;
+          overflow-wrap: break-word;
+        }
+
+        th {
+          background: #f8f9fa;
+          font-weight: 600;
+          position: relative;
+        }
+
+        /* Prevent table cells from overlapping */
+        tr {
+          display: table-row;
+        }
+
+        tbody tr:hover {
+          background: #f8f9fa;
+        }
+
+        /* Cards in screen preview */
+        [class*="Card"] {
+          margin: 15px 0;
+          padding: 15px;
+          border: 1px solid #e0e0e0;
+          border-radius: 8px;
+          background: white;
+        }
+
+        /* Grid layouts */
+        .grid {
+          display: grid;
+          gap: 15px;
+        }
+
+        /* Spacing */
+        .space-y-6 > * {
+          margin-top: 20px;
+          margin-bottom: 20px;
+        }
+
+        .gap-4 {
+          gap: 15px;
+        }
+
+        .gap-6 {
+          gap: 20px;
+        }
+
+        /* Text sizes */
+        h1 { font-size: 24px; margin: 20px 0; }
+        h2 { font-size: 20px; margin: 18px 0; }
+        h3 { font-size: 18px; margin: 16px 0; }
+        h4 { font-size: 16px; margin: 14px 0; }
+
+        .text-3xl { font-size: 30px; }
+        .text-2xl { font-size: 24px; }
+        .text-xl { font-size: 20px; }
+        .text-sm { font-size: 14px; }
+        .text-xs { font-size: 12px; }
+
+        /* Remove overflow restrictions for screen */
+        .print-table-container,
+        [class*="overflow"] {
+          overflow-x: auto;
+          overflow-y: visible;
+        }
+
+        /* Ensure tables are visible */
+        .print-table {
+          width: 100%;
+          min-width: 100%;
+        }
+      }
+    `
+
+    // Create the print HTML
+    const printHTML = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Reports & Analytics - Print</title>
+          <style>
+            ${styles}
+            ${inlineStyles}
+            ${printCSS}
+          </style>
+        </head>
+        <body>
+          <button class="print-button" onclick="window.print()">🖨️ Print</button>
+          <div class="print-content">
+            <div style="max-width: 100%; overflow-x: auto;">
+              ${clonedContent.innerHTML}
+            </div>
+          </div>
+        </body>
+      </html>
+    `
+
+    // Write to the new tab
+    printWindow.document.write(printHTML)
+    printWindow.document.close()
+    
+    // Focus the new tab
+    printWindow.focus()
   }, [])
 
   // ✅ Close dropdown when clicking outside
@@ -547,12 +998,316 @@ export function ModernReportsManager() {
     const plannedKPIs = filteredKPIs.filter(k => k.input_type === 'Planned').length
     const actualKPIs = filteredKPIs.filter(k => k.input_type === 'Actual').length
 
-    // Financial stats (using pre-calculated analytics)
-    const totalValue = allAnalytics.reduce((sum, a) => sum + a.totalValue, 0)
-    const earnedValue = allAnalytics.reduce((sum, a) => sum + a.totalEarnedValue, 0)
-    const plannedValue = allAnalytics.reduce((sum, a) => sum + a.totalPlannedValue, 0)
-    const variance = earnedValue - plannedValue
-    const overallProgress = totalValue > 0 ? (earnedValue / totalValue) * 100 : 0
+    // ✅ FIXED: Calculate Financial stats directly from KPIs
+    // This prevents double-counting when multiple projects share KPIs
+    
+    // ✅ Calculate yesterday date (end of yesterday) for Planned Value filtering
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const yesterday = new Date(today)
+    yesterday.setDate(yesterday.getDate() - 1)
+    yesterday.setHours(23, 59, 59, 999)
+    
+    // Helper function to parse date string
+    const parseDateString = (dateStr: string | null | undefined): Date | null => {
+      if (!dateStr || dateStr === '' || dateStr === 'N/A' || dateStr === 'null') {
+        return null
+      }
+      try {
+        const date = new Date(dateStr)
+        return isNaN(date.getTime()) ? null : date
+      } catch {
+        return null
+      }
+    }
+    
+    // ✅ Helper function to extract project codes (same logic as workValueCalculator.ts)
+    const extractProjectCodes = (item: any): string[] => {
+      const codes: string[] = []
+      const raw = (item as any).raw || {}
+      
+      // ✅ PRIORITY 1: Extract project_full_code (most specific - distinguishes P4110 from P4110-P)
+      const fullCodeSources = [
+        item.project_full_code,
+        (item as any)['Project Full Code'],
+        raw['Project Full Code']
+      ]
+      
+      for (const source of fullCodeSources) {
+        if (source) {
+          const code = source.toString().trim()
+          if (code) {
+            codes.push(code)
+            codes.push(code.toUpperCase())
+            // If we have a full code, return immediately (don't add project_code)
+            // This ensures P4110-P and P4110 are treated as different projects
+            return Array.from(new Set(codes))
+          }
+        }
+      }
+      
+      // ✅ PRIORITY 2: Extract project_code (fallback if no full code exists)
+      const codeSources = [
+        item.project_code,
+        (item as any)['Project Code'],
+        raw['Project Code']
+      ]
+      
+      for (const source of codeSources) {
+        if (source) {
+          const code = source.toString().trim()
+          if (code) {
+            codes.push(code)
+            codes.push(code.toUpperCase())
+          }
+        }
+      }
+      
+      return Array.from(new Set(codes))
+    }
+    
+    // ✅ Helper function to check if codes match (same logic as workValueCalculator.ts)
+    const codesMatch = (itemCodes: string[], targetCodes: string[]): boolean => {
+      const targetCodesUpper = targetCodes.map(c => c.toUpperCase().trim())
+      const itemCodesUpper = itemCodes.map(c => c.toUpperCase().trim())
+      
+      // ✅ First, try exact match (most important for project_full_code)
+      for (const itemCode of itemCodesUpper) {
+        if (targetCodesUpper.includes(itemCode)) {
+          return true
+        }
+      }
+      
+      // ✅ Only if no exact match, check if one is a prefix of another
+      // But ONLY if both don't have a dash (to avoid matching P4110 with P4110-P)
+      for (const itemCode of itemCodesUpper) {
+        for (const targetCode of targetCodesUpper) {
+          // If both codes contain a dash, require exact match
+          const itemHasDash = itemCode.includes('-')
+          const targetHasDash = targetCode.includes('-')
+          
+          if (itemHasDash || targetHasDash) {
+            // If either has a dash, only exact match is allowed
+            if (itemCode === targetCode) {
+              return true
+            }
+          } else {
+            // If neither has a dash, allow prefix matching (for backward compatibility)
+            if (itemCode.startsWith(targetCode) || targetCode.startsWith(itemCode)) {
+              return true
+            }
+          }
+        }
+      }
+      
+      return false
+    }
+    
+    // ✅ Get selected project codes for filtering KPIs (using extractProjectCodes)
+    const selectedProjectCodesList: string[] = []
+    filteredProjects.forEach((project: Project) => {
+      const projectCodes = extractProjectCodes(project)
+      selectedProjectCodesList.push(...projectCodes)
+    })
+    const selectedProjectCodes = Array.from(new Set(selectedProjectCodesList))
+    
+    // Helper function to check if KPI matches selected projects
+    // ✅ CRITICAL: Use same logic as workValueCalculator.ts to distinguish P4110 from P4110-P
+    const kpiMatchesProjects = (kpi: any): boolean => {
+      if (selectedProjectCodes.length === 0) {
+        return true // No project filter, include all
+      }
+      
+      const kpiCodes = extractProjectCodes(kpi)
+      return codesMatch(kpiCodes, selectedProjectCodes)
+    }
+    
+    // ✅ Calculate Total Value from ALL Planned KPIs (NO date filter, but with project filter)
+    // Total Value = مجموع جميع Planned KPIs للمشاريع المختارة بدون فلترة بالتاريخ
+    let totalValue = 0
+    
+    // Filter all Planned KPIs that match selected projects (NO date filter)
+    const allPlannedKPIs = kpis.filter((k: any) => {
+      // Check input type (case-insensitive)
+      const inputType = String(k.input_type || (k as any).raw?.['Input Type'] || (k as any).raw?.['input_type'] || '').trim().toLowerCase()
+      if (inputType !== 'planned') {
+        return false
+      }
+      
+      // Check if KPI matches selected projects
+      return kpiMatchesProjects(k)
+    })
+    
+    // Calculate Total Value from all Planned KPIs (no date filtering)
+    allPlannedKPIs.forEach((kpi: any) => {
+      const rawKPI = (kpi as any).raw || {}
+      
+      // ✅ PRIORITY 1: Use Planned Value directly from KPI (most accurate)
+      const plannedValue = kpi.planned_value || parseFloat(String(rawKPI['Planned Value'] || '0').replace(/,/g, '')) || 0
+      if (plannedValue > 0) {
+        totalValue += plannedValue
+        return
+      }
+      
+      // ✅ PRIORITY 2: Fallback to Value field if Planned Value is not available
+      let kpiValue = 0
+      
+      // Try raw['Value'] (from database with capital V)
+      if (rawKPI['Value'] !== undefined && rawKPI['Value'] !== null) {
+        const val = rawKPI['Value']
+        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+      }
+      
+      // Try raw.value (from database with lowercase v)
+      if (kpiValue === 0 && rawKPI.value !== undefined && rawKPI.value !== null) {
+        const val = rawKPI.value
+        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+      }
+      
+      // Try k.value (direct property from ProcessedKPI)
+      if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
+        const val = kpi.value
+        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+      }
+      
+      if (kpiValue > 0) {
+        totalValue += kpiValue
+      }
+    })
+    
+    // ✅ Calculate Planned Value from Planned KPIs UNTIL YESTERDAY (with date filter)
+    // Planned Value = مجموع Planned KPIs للمشاريع المختارة حتى أمس (مع فلترة بالتاريخ)
+    let totalPlannedValue = 0
+    
+    // Filter Planned KPIs that match selected projects AND are until yesterday
+    const plannedKPIsList = kpis.filter((k: any) => {
+      // First check if it's Planned (case-insensitive)
+      const inputType = String(k.input_type || (k as any).raw?.['Input Type'] || (k as any).raw?.['input_type'] || '').trim().toLowerCase()
+      if (inputType !== 'planned') {
+        return false
+      }
+      
+      // Check if KPI matches selected projects
+      if (!kpiMatchesProjects(k)) {
+        return false
+      }
+      
+      // ✅ Filter by date: only KPIs until yesterday
+      const rawKPI = (k as any).raw || {}
+      const kpiDateStr = k.activity_date ||
+                        k.target_date ||
+                        rawKPI['Activity Date'] ||
+                        rawKPI['Target Date'] ||
+                        rawKPI['Day'] ||
+                        k.day ||
+                        ''
+      
+      if (kpiDateStr) {
+        const kpiDate = parseDateString(kpiDateStr)
+        if (kpiDate && kpiDate > yesterday) {
+          return false // Skip KPIs after yesterday
+        }
+      }
+      
+      return true
+    })
+    
+    // Debug log
+    if (process.env.NODE_ENV === 'development') {
+      console.log('📊 [Financial Stats Calculation]', {
+        totalKPIs: kpis.length,
+        filteredKPIsCount: filteredKPIs.length,
+        allPlannedKPIsCount: allPlannedKPIs.length,
+        plannedKPIsUntilYesterdayCount: plannedKPIsList.length,
+        totalValue,
+        totalPlannedValue: 0, // Will be calculated below
+        selectedProjectsCount: filteredProjects.length,
+        selectedProjectCodes: Array.from(selectedProjectCodes)
+      })
+    }
+    
+    plannedKPIsList.forEach((kpi: any) => {
+      const rawKPI = (kpi as any).raw || {}
+      
+      // ✅ PRIORITY 1: Use Planned Value directly from KPI (most accurate)
+      const plannedValue = kpi.planned_value || parseFloat(String(rawKPI['Planned Value'] || '0').replace(/,/g, '')) || 0
+      if (plannedValue > 0) {
+        totalPlannedValue += plannedValue
+        return
+      }
+      
+      // ✅ PRIORITY 2: Fallback to Value field if Planned Value is not available
+      let kpiValue = 0
+      
+      // Try raw['Value'] (from database with capital V)
+      if (rawKPI['Value'] !== undefined && rawKPI['Value'] !== null) {
+        const val = rawKPI['Value']
+        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+      }
+      
+      // Try raw.value (from database with lowercase v)
+      if (kpiValue === 0 && rawKPI.value !== undefined && rawKPI.value !== null) {
+        const val = rawKPI.value
+        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+      }
+      
+      // Try k.value (direct property from ProcessedKPI)
+      if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
+        const val = kpi.value
+        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+      }
+      
+      if (kpiValue > 0) {
+        totalPlannedValue += kpiValue
+      }
+    })
+    
+    // Calculate Earned Value from ALL Actual KPIs
+    let totalEarnedValue = 0
+    const actualKPIsList = filteredKPIs.filter(k => k.input_type === 'Actual')
+    
+    actualKPIsList.forEach((kpi: any) => {
+      const rawKPI = (kpi as any).raw || {}
+      
+      // ✅ PRIORITY 1: Use Actual Value directly from KPI (most accurate)
+      const actualValue = kpi.actual_value || parseFloat(String(rawKPI['Actual Value'] || '0').replace(/,/g, '')) || 0
+      if (actualValue > 0) {
+        totalEarnedValue += actualValue
+        return
+      }
+      
+      // ✅ PRIORITY 2: Fallback to Value field if Actual Value is not available
+      let kpiValue = 0
+      
+      // Try raw['Value'] (from database with capital V)
+      if (rawKPI['Value'] !== undefined && rawKPI['Value'] !== null) {
+        const val = rawKPI['Value']
+        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+      }
+      
+      // Try raw.value (from database with lowercase v)
+      if (kpiValue === 0 && rawKPI.value !== undefined && rawKPI.value !== null) {
+        const val = rawKPI.value
+        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+      }
+      
+      // Try k.value (direct property from ProcessedKPI)
+      if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
+        const val = kpi.value
+        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+      }
+      
+      if (kpiValue > 0) {
+        totalEarnedValue += kpiValue
+      }
+    })
+    
+    // ✅ Total Value = Sum of ALL Planned KPIs (NO date filter)
+    // Planned Value = Sum of Planned KPIs UNTIL YESTERDAY (with date filter)
+    // Total Value represents the total planned value from all Planned KPIs without date filtering
+    
+    const variance = totalEarnedValue - totalPlannedValue
+    const overallProgress = totalValue > 0 ? (totalEarnedValue / totalValue) * 100 : 0
 
     return {
       totalProjects,
@@ -565,12 +1320,12 @@ export function ModernReportsManager() {
       plannedKPIs,
       actualKPIs,
     totalValue,
-      earnedValue,
-      plannedValue,
+      earnedValue: totalEarnedValue,
+      plannedValue: totalPlannedValue,
     variance,
       overallProgress
     }
-  }, [filteredData, allAnalytics])
+  }, [filteredData])
 
   // Get unique divisions
   const divisions = useMemo(() => {
@@ -1176,16 +1931,16 @@ function ProjectsReport({ projects, activities, kpis, formatCurrency }: any) {
         <CardTitle>Projects Report</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: '70vh' }}>
           <table className="w-full border-collapse">
-            <thead>
-              <tr className="bg-gray-100 dark:bg-gray-800">
-                <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Project</th>
-                <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Status</th>
-                <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Contract Value</th>
-                <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Earned Value</th>
-                <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Progress</th>
-                <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Variance</th>
+            <thead className="sticky top-0 z-10">
+              <tr className="bg-gradient-to-r from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-700 border-b-2 border-gray-300 dark:border-gray-600">
+                <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800">Project</th>
+                <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800">Status</th>
+                <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800">Contract Value</th>
+                <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800">Earned Value</th>
+                <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800">Progress</th>
+                <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800">Variance</th>
               </tr>
             </thead>
             <tbody>
@@ -1194,7 +1949,7 @@ function ProjectsReport({ projects, activities, kpis, formatCurrency }: any) {
                 const progress = analytics.actualProgress || 0
                 const variance = analytics.variance || 0
               return (
-                <tr key={project.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                <tr key={project.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                     <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">
                       <div>
                         <p className="font-medium">{project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`}</p>
@@ -1234,6 +1989,41 @@ function ProjectsReport({ projects, activities, kpis, formatCurrency }: any) {
               )
             })}
             </tbody>
+            {allAnalytics.length > 0 && (
+              <tfoot className="sticky bottom-0 z-10">
+                <tr className="bg-gray-100 dark:bg-gray-800 font-bold border-t-2 border-gray-300 dark:border-gray-600">
+                  <td colSpan={2} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold bg-gray-100 dark:bg-gray-800">Total:</td>
+                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold bg-gray-100 dark:bg-gray-800">
+                    {formatCurrency(
+                      allAnalytics.reduce((sum: number, a: any) => {
+                        const contractAmt = a.project?.contract_amount || 0
+                        return sum + contractAmt
+                      }, 0),
+                      allAnalytics[0]?.project?.currency || 'AED'
+                    )}
+                  </td>
+                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold bg-gray-100 dark:bg-gray-800">
+                    {formatCurrency(
+                      allAnalytics.reduce((sum: number, a: any) => sum + (a.totalEarnedValue || 0), 0),
+                      allAnalytics[0]?.project?.currency || 'AED'
+                    )}
+                  </td>
+                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold bg-gray-100 dark:bg-gray-800">
+                    {allAnalytics.length > 0 ? (
+                      (allAnalytics.reduce((sum: number, a: any) => sum + (a.actualProgress || 0), 0) / allAnalytics.length).toFixed(1)
+                    ) : '0.0'}%
+                  </td>
+                  <td className={`border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold bg-gray-100 dark:bg-gray-800 ${
+                    allAnalytics.reduce((sum: number, a: any) => sum + (a.variance || 0), 0) >= 0 ? 'text-green-600' : 'text-red-600'
+                  }`}>
+                    {formatCurrency(
+                      allAnalytics.reduce((sum: number, a: any) => sum + (a.variance || 0), 0),
+                      allAnalytics[0]?.project?.currency || 'AED'
+                    )}
+                  </td>
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
           </CardContent>
@@ -2788,15 +3578,15 @@ function KPIsReport({ kpis, formatCurrency }: any) {
           <CardTitle>KPI Records</CardTitle>
           </CardHeader>
           <CardContent>
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: '70vh' }}>
             <table className="w-full border-collapse">
-              <thead>
+              <thead className="sticky top-0 z-10">
                 <tr className="bg-gray-100 dark:bg-gray-800">
-                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Activity</th>
-                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Project</th>
-                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Type</th>
-                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Quantity</th>
-                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Date</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left bg-gray-100 dark:bg-gray-800">Activity</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left bg-gray-100 dark:bg-gray-800">Project</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left bg-gray-100 dark:bg-gray-800">Type</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-gray-100 dark:bg-gray-800">Quantity</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-gray-100 dark:bg-gray-800">Date</th>
             </tr>
           </thead>
               <tbody>
@@ -2905,22 +3695,22 @@ function FinancialReport({ stats, filteredData, formatCurrency }: any) {
           <CardTitle>Financial Summary by Project</CardTitle>
         </CardHeader>
         <CardContent>
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: '70vh' }}>
             <table className="w-full border-collapse">
-              <thead>
-                <tr className="bg-gray-100 dark:bg-gray-800">
-                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Project</th>
-                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Contract Value</th>
-                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Earned Value</th>
-                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Planned Value</th>
-                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Variance</th>
+              <thead className="sticky top-0 z-10">
+                <tr className="bg-gradient-to-r from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-700 border-b-2 border-gray-300 dark:border-gray-600">
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800">Project</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800">Contract Value</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800">Earned Value</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800">Planned Value</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800">Variance</th>
             </tr>
           </thead>
               <tbody>
                 {allAnalytics.map((analytics: any) => {
                   const project = analytics.project
               return (
-                <tr key={project.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                <tr key={project.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                       <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">
                         {project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`}
                   </td>
@@ -2940,6 +3730,39 @@ function FinancialReport({ stats, filteredData, formatCurrency }: any) {
               )
             })}
           </tbody>
+            {allAnalytics.length > 0 && (
+              <tfoot className="sticky bottom-0 z-10">
+                <tr className="bg-gray-100 dark:bg-gray-800 font-bold border-t-2 border-gray-300 dark:border-gray-600">
+                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold bg-gray-100 dark:bg-gray-800">Total:</td>
+                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold bg-gray-100 dark:bg-gray-800">
+                    {formatCurrency(
+                      allAnalytics.reduce((sum: number, a: any) => sum + (a.totalContractValue || 0), 0),
+                      allAnalytics[0]?.project?.currency || 'AED'
+                    )}
+                  </td>
+                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold bg-gray-100 dark:bg-gray-800">
+                    {formatCurrency(
+                      allAnalytics.reduce((sum: number, a: any) => sum + (a.totalEarnedValue || 0), 0),
+                      allAnalytics[0]?.project?.currency || 'AED'
+                    )}
+                  </td>
+                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold bg-gray-100 dark:bg-gray-800">
+                    {formatCurrency(
+                      allAnalytics.reduce((sum: number, a: any) => sum + (a.totalPlannedValue || 0), 0),
+                      allAnalytics[0]?.project?.currency || 'AED'
+                    )}
+                  </td>
+                  <td className={`border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold bg-gray-100 dark:bg-gray-800 ${
+                    allAnalytics.reduce((sum: number, a: any) => sum + (a.variance || 0), 0) >= 0 ? 'text-green-600' : 'text-red-600'
+                  }`}>
+                    {formatCurrency(
+                      allAnalytics.reduce((sum: number, a: any) => sum + (a.variance || 0), 0),
+                      allAnalytics[0]?.project?.currency || 'AED'
+                    )}
+                  </td>
+                </tr>
+              </tfoot>
+            )}
         </table>
       </div>
         </CardContent>
@@ -3003,15 +3826,15 @@ function PerformanceReport({ filteredData, formatCurrency, formatPercentage }: a
           <CardTitle>Performance by Project</CardTitle>
         </CardHeader>
         <CardContent>
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: '70vh' }}>
             <table className="w-full border-collapse">
-              <thead>
-                <tr className="bg-gray-100 dark:bg-gray-800">
-                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Project</th>
-                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Progress</th>
-                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Planned Progress</th>
-                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right">Variance</th>
-                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Status</th>
+              <thead className="sticky top-0 z-10">
+                <tr className="bg-gradient-to-r from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-700 border-b-2 border-gray-300 dark:border-gray-600">
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800">Project</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800">Progress</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800">Planned Progress</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800">Variance</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800">Status</th>
             </tr>
           </thead>
               <tbody>
@@ -3021,7 +3844,7 @@ function PerformanceReport({ filteredData, formatCurrency, formatPercentage }: a
                   const plannedProgress = analytics.plannedProgress || 0
                   const variance = progress - plannedProgress
               return (
-                <tr key={project.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                <tr key={project.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                       <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">
                         {project.project_full_code || project.project_code}
                 </td>
@@ -3048,6 +3871,40 @@ function PerformanceReport({ filteredData, formatCurrency, formatPercentage }: a
               )
             })}
           </tbody>
+            {allAnalytics.length > 0 && (
+              <tfoot className="sticky bottom-0 z-10">
+                <tr className="bg-gray-100 dark:bg-gray-800 font-bold border-t-2 border-gray-300 dark:border-gray-600">
+                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold bg-gray-100 dark:bg-gray-800">Total:</td>
+                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold bg-gray-100 dark:bg-gray-800">
+                    {allAnalytics.length > 0 ? (
+                      formatPercentage(allAnalytics.reduce((sum: number, a: any) => sum + (a.actualProgress || 0), 0) / allAnalytics.length)
+                    ) : '0.0%'}
+                  </td>
+                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold bg-gray-100 dark:bg-gray-800">
+                    {allAnalytics.length > 0 ? (
+                      formatPercentage(allAnalytics.reduce((sum: number, a: any) => sum + (a.plannedProgress || 0), 0) / allAnalytics.length)
+                    ) : '0.0%'}
+                  </td>
+                  <td className={`border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold bg-gray-100 dark:bg-gray-800 ${
+                    allAnalytics.reduce((sum: number, a: any) => {
+                      const progress = a.actualProgress || 0
+                      const plannedProgress = a.plannedProgress || 0
+                      return sum + (progress - plannedProgress)
+                    }, 0) >= 0 ? 'text-green-600' : 'text-red-600'
+                  }`}>
+                    {(() => {
+                      const totalVariance = allAnalytics.reduce((sum: number, a: any) => {
+                        const progress = a.actualProgress || 0
+                        const plannedProgress = a.plannedProgress || 0
+                        return sum + (progress - plannedProgress)
+                      }, 0) / allAnalytics.length
+                      return (totalVariance >= 0 ? '+' : '') + formatPercentage(totalVariance)
+                    })()}
+                  </td>
+                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold bg-gray-100 dark:bg-gray-800">-</td>
+                </tr>
+              </tfoot>
+            )}
         </table>
       </div>
         </CardContent>
@@ -3101,15 +3958,15 @@ function LookaheadReportView({ activities, projects, formatCurrency }: any) {
   // ✅ PERFORMANCE: Memoize filtered projects
   const filteredProjects = useMemo(() => {
     let filtered = selectedDivision 
-      ? projects.filter((p: Project) => p.responsible_division === selectedDivision)
-      : projects
-    
-    // Filter only active projects (on-going, upcoming, or site-preparation)
+    ? projects.filter((p: Project) => p.responsible_division === selectedDivision)
+    : projects
+  
+  // Filter only active projects (on-going, upcoming, or site-preparation)
     return filtered.filter((p: Project) => 
-      p.project_status === 'on-going' || 
-      p.project_status === 'upcoming' || 
-      p.project_status === 'site-preparation'
-    )
+    p.project_status === 'on-going' || 
+    p.project_status === 'upcoming' || 
+    p.project_status === 'site-preparation'
+  )
   }, [projects, selectedDivision])
 
   const divisions = useMemo(() => {
@@ -3465,16 +4322,30 @@ function LookaheadReportView({ activities, projects, formatCurrency }: any) {
 }
 
 // Monthly Work Revenue Report Component - ما تم تنفيذه حتى الآن
+type PeriodType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
+
 function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurrency }: any) {
   const [selectedDivision, setSelectedDivision] = useState<string>('')
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ 
     start: '', 
     end: '' 
   })
+  const [periodType, setPeriodType] = useState<PeriodType>('weekly')
   const [viewPlannedValue, setViewPlannedValue] = useState<boolean>(false)
+  const [hideZeroProjects, setHideZeroProjects] = useState<boolean>(false)
+  const [hideDivisionsColumn, setHideDivisionsColumn] = useState<boolean>(false)
+  const [hideTotalContractColumn, setHideTotalContractColumn] = useState<boolean>(false)
+  const [chartType, setChartType] = useState<'line' | 'bar' | 'area' | 'composed'>('line')
   const [showChartExportMenu, setShowChartExportMenu] = useState<boolean>(false)
   const chartRef = useRef<HTMLDivElement>(null)
   const chartExportMenuRef = useRef<HTMLDivElement>(null)
+
+  // ✅ PERFORMANCE: Memoize today's date to avoid recalculating in every period
+  const today = useMemo(() => {
+    const date = new Date()
+    date.setHours(23, 59, 59, 999)
+    return date
+  }, [])
 
   const divisions = useMemo(() => {
     return Array.from(new Set(projects.map((p: Project) => p.responsible_division).filter(Boolean))).sort()
@@ -3617,26 +4488,93 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
     return map
   }, [projects, activities])
 
-  // Get weeks in date range - تقسيم المدة إلى أسابيع
-  const getWeeksInRange = useMemo(() => {
+  // Get periods in date range - تقسيم المدة حسب النوع المختار (يومي، أسبوعي، شهري، ربع سنوي، سنوي)
+  const getPeriodsInRange = useMemo(() => {
+    const periods: Array<{ label: string; start: Date; end: Date }> = []
+    
     if (!dateRange.start || !dateRange.end) {
-      // Default: last 4 weeks
-      const weeks: Array<{ label: string; start: Date; end: Date }> = []
+      // Default: last 4 periods based on periodType
       const now = new Date()
-      for (let i = 3; i >= 0; i--) {
-        const weekStart = new Date(now)
-        weekStart.setDate(now.getDate() - (i * 7) - (now.getDay() === 0 ? 6 : now.getDay() - 1))
-        weekStart.setHours(0, 0, 0, 0)
-        const weekEnd = new Date(weekStart)
-        weekEnd.setDate(weekStart.getDate() + 6)
-        weekEnd.setHours(23, 59, 59, 999)
-        weeks.push({
-          label: `Week ${4 - i}`,
-          start: weekStart,
-          end: weekEnd
-        })
+      const defaultCount = periodType === 'daily' ? 30 : periodType === 'weekly' ? 4 : periodType === 'monthly' ? 6 : periodType === 'quarterly' ? 4 : 2
+      
+      for (let i = defaultCount - 1; i >= 0; i--) {
+        let periodStart = new Date(now)
+        let periodEnd = new Date(now)
+        
+        switch (periodType) {
+          case 'daily':
+            periodStart.setDate(now.getDate() - i)
+            periodStart.setHours(0, 0, 0, 0)
+            periodEnd = new Date(periodStart)
+            periodEnd.setHours(23, 59, 59, 999)
+            periods.push({
+              label: periodStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+              start: periodStart,
+              end: periodEnd
+            })
+            break
+          case 'weekly':
+            periodStart.setDate(now.getDate() - (i * 7) - (now.getDay() === 0 ? 6 : now.getDay() - 1))
+            periodStart.setHours(0, 0, 0, 0)
+            periodEnd = new Date(periodStart)
+            periodEnd.setDate(periodStart.getDate() + 6)
+            periodEnd.setHours(23, 59, 59, 999)
+            periods.push({
+              label: `Week ${defaultCount - i}`,
+              start: periodStart,
+              end: periodEnd
+            })
+            break
+          case 'monthly':
+            periodStart.setMonth(now.getMonth() - i)
+            periodStart.setDate(1)
+            periodStart.setHours(0, 0, 0, 0)
+            periodEnd = new Date(periodStart)
+            periodEnd.setMonth(periodStart.getMonth() + 1)
+            periodEnd.setDate(0)
+            periodEnd.setHours(23, 59, 59, 999)
+            periods.push({
+              label: periodStart.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+              start: periodStart,
+              end: periodEnd
+            })
+            break
+          case 'quarterly':
+            const quarterMonth = Math.floor((now.getMonth() - (i * 3)) / 3) * 3
+            periodStart.setMonth(quarterMonth)
+            periodStart.setDate(1)
+            periodStart.setFullYear(now.getFullYear() + Math.floor((now.getMonth() - (i * 3)) / 12))
+            periodStart.setHours(0, 0, 0, 0)
+            periodEnd = new Date(periodStart)
+            periodEnd.setMonth(periodStart.getMonth() + 3)
+            periodEnd.setDate(0)
+            periodEnd.setHours(23, 59, 59, 999)
+            const quarter = Math.floor(periodStart.getMonth() / 3) + 1
+            periods.push({
+              label: `Q${quarter} ${periodStart.getFullYear()}`,
+              start: periodStart,
+              end: periodEnd
+            })
+            break
+          case 'yearly':
+            periodStart.setFullYear(now.getFullYear() - i)
+            periodStart.setMonth(0)
+            periodStart.setDate(1)
+            periodStart.setHours(0, 0, 0, 0)
+            periodEnd = new Date(periodStart)
+            periodEnd.setFullYear(periodStart.getFullYear() + 1)
+            periodEnd.setMonth(0)
+            periodEnd.setDate(0)
+            periodEnd.setHours(23, 59, 59, 999)
+            periods.push({
+              label: periodStart.getFullYear().toString(),
+              start: periodStart,
+              end: periodEnd
+            })
+            break
+        }
       }
-      return weeks
+      return periods
     }
 
     const start = new Date(dateRange.start)
@@ -3644,39 +4582,116 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
     start.setHours(0, 0, 0, 0)
     end.setHours(23, 59, 59, 999)
     
-    const weeks: Array<{ label: string; start: Date; end: Date }> = []
     const current = new Date(start)
-    
+    let periodNumber = 1
+
+    switch (periodType) {
+      case 'daily':
+        while (current <= end) {
+          const periodStart = new Date(current)
+          periodStart.setHours(0, 0, 0, 0)
+          const periodEnd = new Date(periodStart)
+          periodEnd.setHours(23, 59, 59, 999)
+          periods.push({
+            label: periodStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            start: periodStart,
+            end: periodEnd
+          })
+          current.setDate(current.getDate() + 1)
+        }
+        break
+      case 'weekly':
     // Start from the beginning of the week (Monday)
     const dayOfWeek = current.getDay()
     const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1
     current.setDate(current.getDate() - diff)
     current.setHours(0, 0, 0, 0)
-
-    let weekNumber = 1
     while (current <= end) {
-      const weekStart = new Date(current)
-      const weekEnd = new Date(current)
-      weekEnd.setDate(weekStart.getDate() + 6)
-      weekEnd.setHours(23, 59, 59, 999)
-      
-      // Only add week if it overlaps with the date range
-      if (weekStart <= end && weekEnd >= start) {
-        weeks.push({
-          label: `Week ${weekNumber}`,
-          start: weekStart,
-          end: weekEnd
-        })
-        weekNumber++
-      }
-      
+          const periodStart = new Date(current)
+          const periodEnd = new Date(current)
+          periodEnd.setDate(periodStart.getDate() + 6)
+          periodEnd.setHours(23, 59, 59, 999)
+          if (periodStart <= end && periodEnd >= start) {
+            periods.push({
+              label: `Week ${periodNumber}`,
+              start: periodStart,
+              end: periodEnd
+            })
+            periodNumber++
+          }
       current.setDate(current.getDate() + 7)
+        }
+        break
+      case 'monthly':
+        current.setDate(1)
+        current.setHours(0, 0, 0, 0)
+        while (current <= end) {
+          const periodStart = new Date(current)
+          const periodEnd = new Date(periodStart)
+          periodEnd.setMonth(periodStart.getMonth() + 1)
+          periodEnd.setDate(0)
+          periodEnd.setHours(23, 59, 59, 999)
+          if (periodStart <= end && periodEnd >= start) {
+            periods.push({
+              label: periodStart.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+              start: periodStart,
+              end: periodEnd
+            })
+          }
+          current.setMonth(current.getMonth() + 1)
+        }
+        break
+      case 'quarterly':
+        const startQuarter = Math.floor(start.getMonth() / 3)
+        current.setMonth(startQuarter * 3)
+        current.setDate(1)
+        current.setHours(0, 0, 0, 0)
+        while (current <= end) {
+          const periodStart = new Date(current)
+          const periodEnd = new Date(periodStart)
+          periodEnd.setMonth(periodStart.getMonth() + 3)
+          periodEnd.setDate(0)
+          periodEnd.setHours(23, 59, 59, 999)
+          if (periodStart <= end && periodEnd >= start) {
+            const quarter = Math.floor(periodStart.getMonth() / 3) + 1
+            periods.push({
+              label: `Q${quarter} ${periodStart.getFullYear()}`,
+              start: periodStart,
+              end: periodEnd
+            })
+          }
+          current.setMonth(current.getMonth() + 3)
+        }
+        break
+      case 'yearly':
+        current.setMonth(0)
+        current.setDate(1)
+        current.setHours(0, 0, 0, 0)
+        while (current <= end) {
+          const periodStart = new Date(current)
+          const periodEnd = new Date(periodStart)
+          periodEnd.setFullYear(periodStart.getFullYear() + 1)
+          periodEnd.setMonth(0)
+          periodEnd.setDate(0)
+          periodEnd.setHours(23, 59, 59, 999)
+          if (periodStart <= end && periodEnd >= start) {
+            periods.push({
+              label: periodStart.getFullYear().toString(),
+              start: periodStart,
+              end: periodEnd
+            })
+          }
+          current.setFullYear(current.getFullYear() + 1)
+        }
+        break
     }
 
-    return weeks
-  }, [dateRange])
+    return periods
+  }, [dateRange, periodType])
 
-  const weeks = getWeeksInRange
+  const periods = getPeriodsInRange
+  // Keep 'weeks' alias for backward compatibility
+  const weeks = periods
 
   const getKPIValue = (kpi: any, relatedActivity: BOQActivity | null): number => {
     try {
@@ -3775,32 +4790,61 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
     return false
   }
 
-  // Calculate weekly earned value per project - حساب القيمة المنجزة لكل أسبوع
-  // Calculate Weekly Planned Value (same logic as calculateWeeklyEarnedValue but for Planned KPIs)
-  // ✅ PERFORMANCE: Memoize calculateWeeklyPlannedValue to avoid recalculations
-  const calculateWeeklyPlannedValue = useCallback((project: Project, analytics: any): number[] => {
-    // Use ALL KPIs and filter them ourselves to ensure we get all Planned KPIs
-    const allProjectKPIs = kpis.filter((kpi: any) => {
-      try {
-        return matchesProject(kpi, project)
-      } catch (error) {
-        return false
-      }
+  // ✅ PERFORMANCE: Pre-filter KPIs by project to avoid repeated filtering
+  const projectKPIsMap = useMemo(() => {
+    const map = new Map<string, { planned: any[], actual: any[] }>()
+    projects.forEach((project: Project) => {
+      const projectId = project.id
+      const plannedKPIs: any[] = []
+      const actualKPIs: any[] = []
+      
+      kpis.forEach((kpi: any) => {
+        try {
+          if (matchesProject(kpi, project)) {
+            const inputType = String(
+              kpi.input_type || 
+              kpi['Input Type'] || 
+              (kpi as any).raw?.['Input Type'] || 
+              (kpi as any).raw?.['input_type'] ||
+              ''
+            ).trim().toLowerCase()
+            
+            if (inputType === 'planned') {
+              plannedKPIs.push(kpi)
+            } else if (inputType === 'actual') {
+              actualKPIs.push(kpi)
+            }
+          }
+        } catch (error) {
+          // Skip invalid KPIs
+        }
+      })
+      
+      map.set(projectId, { planned: plannedKPIs, actual: actualKPIs })
     })
     
-    // ✅ Get today's date (end of today) for filtering current week
-    const today = new Date()
-    today.setHours(23, 59, 59, 999) // End of day
+    return map
+  }, [kpis, projects])
+
+  // Calculate period earned value per project - حساب القيمة المنجزة لكل فترة
+  // Calculate Period Planned Value (same logic as calculatePeriodEarnedValue but for Planned KPIs)
+  // ✅ PERFORMANCE: Memoize calculatePeriodPlannedValue to avoid recalculations
+  const calculatePeriodPlannedValue = useCallback((project: Project, analytics: any): number[] => {
+    // ✅ PERFORMANCE: Use pre-filtered KPIs instead of filtering every time
+    const projectKPIs = projectKPIsMap.get(project.id)
+    const allProjectKPIs = projectKPIs?.planned || []
     
-    return weeks.map((week) => {
-      const weekStart = week.start
-      const weekEnd = week.end
+    // ✅ PERFORMANCE: Use memoized today date
+    
+    return periods.map((period) => {
+      const periodStart = period.start
+      const periodEnd = period.end
 
-      // ✅ For current/future weeks, use today as the end date instead of weekEnd
-      const effectiveWeekEnd = weekEnd > today ? today : weekEnd
+      // ✅ For current/future periods, use today as the end date instead of periodEnd
+      const effectivePeriodEnd = periodEnd > today ? today : periodEnd
 
-      // Get KPI Planned for this week
-      const plannedKPIsInWeek = allProjectKPIs.filter((kpi: any) => {
+      // Get KPI Planned for this period
+      const plannedKPIsInPeriod = allProjectKPIs.filter((kpi: any) => {
         const inputType = String(
           kpi.input_type || 
           kpi['Input Type'] || 
@@ -3841,15 +4885,15 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
           
           kpiDate.setHours(0, 0, 0, 0) // Normalize to start of day
           
-          // Normalize weekStart and effectiveWeekEnd for comparison
-          const normalizedWeekStart = new Date(weekStart)
-          normalizedWeekStart.setHours(0, 0, 0, 0)
+          // Normalize periodStart and effectivePeriodEnd for comparison
+          const normalizedPeriodStart = new Date(periodStart)
+          normalizedPeriodStart.setHours(0, 0, 0, 0)
           
-          const normalizedWeekEnd = new Date(effectiveWeekEnd)
-          normalizedWeekEnd.setHours(23, 59, 59, 999) // End of day
+          const normalizedPeriodEnd = new Date(effectivePeriodEnd)
+          normalizedPeriodEnd.setHours(23, 59, 59, 999) // End of day
           
           // Check if KPI date is within range
-          const inRange = kpiDate >= normalizedWeekStart && kpiDate <= normalizedWeekEnd
+          const inRange = kpiDate >= normalizedPeriodStart && kpiDate <= normalizedPeriodEnd
           
           return inRange
         } catch {
@@ -3857,21 +4901,11 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
         }
       })
 
-      // Get project activities for rate calculation
-      const projectActivities = activities.filter((activity: BOQActivity) => {
-        const activityFullCode = (activity.project_full_code || '').toString().trim().toUpperCase()
-        const projectFullCode = (project.project_full_code || '').toString().trim().toUpperCase()
-        if (activityFullCode && activityFullCode === projectFullCode) {
-          return true
-        }
-        if (activity.project_id === project.id) {
-          return true
-        }
-        return false
-      })
+      // ✅ PERFORMANCE: Use cached project activities from analytics instead of filtering every time
+      const projectActivities = analytics.activities || []
 
-      // Calculate Planned Value using same logic as calculateWeeklyEarnedValue
-      return plannedKPIsInWeek.reduce((sum: number, kpi: any) => {
+      // Calculate Planned Value using same logic as calculatePeriodEarnedValue
+      return plannedKPIsInPeriod.reduce((sum: number, kpi: any) => {
         try {
           const rawKpi = (kpi as any).raw || {}
           const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
@@ -3879,7 +4913,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
           
           let financialValue = 0
           
-          // Find related activity for rate calculation (same logic as calculateWeeklyEarnedValue)
+          // Find related activity for rate calculation (same logic as calculatePeriodEarnedValue)
           let relatedActivity: BOQActivity | undefined = undefined
           const kpiActivityName = (kpi.activity_name || rawKpi['Activity Name'] || '').toLowerCase().trim()
           const kpiProjectCode = (kpi.project_code || rawKpi['Project Code'] || '').toString().trim().toLowerCase()
@@ -3980,46 +5014,25 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
     })
   }, [kpis, weeks, activities])
 
-  // ✅ PERFORMANCE: Memoize calculateWeeklyEarnedValue to avoid recalculations
-  const calculateWeeklyEarnedValue = useCallback((project: Project, analytics: any): number[] => {
-    // Use ALL KPIs and filter them ourselves to ensure we get all Actual KPIs
-    // analytics.kpis may be filtered by date (till yesterday), but we need future dates too
-    const allProjectKPIs = kpis.filter((kpi: any) => {
-      try {
-        return matchesProject(kpi, project)
-      } catch (error) {
-        return false
-      }
-    })
+  // ✅ PERFORMANCE: Memoize calculatePeriodEarnedValue to avoid recalculations
+  const calculatePeriodEarnedValue = useCallback((project: Project, analytics: any): number[] => {
+    // ✅ PERFORMANCE: Use pre-filtered KPIs instead of filtering every time
+    const projectKPIs = projectKPIsMap.get(project.id)
+    const allProjectKPIs = projectKPIs?.actual || []
     
-    // Debug: Log KPIs for this project
-    if (allProjectKPIs.length > 0) {
-      const actualKPIs = allProjectKPIs.filter((k: any) => {
-        const inputType = String(k.input_type || k['Input Type'] || '').trim().toLowerCase()
-        return inputType === 'actual'
-      })
-      console.log(`[Monthly Revenue] Project ${project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`}:`, {
-        totalKPIs: allProjectKPIs.length,
-        actualKPIs: actualKPIs.length,
-        sampleDates: actualKPIs.slice(0, 3).map((k: any) => k.activity_date || k.target_date || k.day)
-      })
-    }
+    // ✅ PERFORMANCE: Removed debug logging for production
+    // ✅ PERFORMANCE: Use memoized today date
     
-    // ✅ Get today's date (end of today) for filtering current week
-    // Use EXACT SAME LOGIC as KPI page date range filter
-    const today = new Date()
-    today.setHours(23, 59, 59, 999) // End of day (SAME AS KPI PAGE)
-    
-    return weeks.map((week) => {
-      const weekStart = week.start
-      const weekEnd = week.end
+    return periods.map((period) => {
+      const periodStart = period.start
+      const periodEnd = period.end
 
-      // ✅ For current/future weeks, use today as the end date instead of weekEnd
+      // ✅ For current/future periods, use today as the end date instead of periodEnd
       // This ensures we only show KPIs up to today, not future dates
-      const effectiveWeekEnd = weekEnd > today ? today : weekEnd
+      const effectivePeriodEnd = periodEnd > today ? today : periodEnd
 
-      // Get KPI Actual for this week (ما تم تنفيذه في هذا الأسبوع حتى تاريخ اليوم)
-      const actualKPIsInWeek = allProjectKPIs.filter((kpi: any) => {
+      // Get KPI Actual for this period (ما تم تنفيذه في هذه الفترة حتى تاريخ اليوم)
+      const actualKPIsInPeriod = allProjectKPIs.filter((kpi: any) => {
         const inputType = String(
           kpi.input_type || 
           kpi['Input Type'] || 
@@ -4065,47 +5078,32 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
           kpiDate.setHours(0, 0, 0, 0) // Normalize to start of day (SAME AS KPI PAGE)
           
           // ✅ Use EXACT SAME LOGIC as KPI page date range filter
-          // Normalize weekStart and effectiveWeekEnd for comparison
-          const normalizedWeekStart = new Date(weekStart)
-          normalizedWeekStart.setHours(0, 0, 0, 0)
+          // Normalize periodStart and effectivePeriodEnd for comparison
+          const normalizedPeriodStart = new Date(periodStart)
+          normalizedPeriodStart.setHours(0, 0, 0, 0)
           
-          const normalizedWeekEnd = new Date(effectiveWeekEnd)
-          normalizedWeekEnd.setHours(23, 59, 59, 999) // End of day (SAME AS KPI PAGE)
+          const normalizedPeriodEnd = new Date(effectivePeriodEnd)
+          normalizedPeriodEnd.setHours(23, 59, 59, 999) // End of day (SAME AS KPI PAGE)
           
           // Check if KPI date is within range (SAME AS KPI PAGE)
-          const inRange = kpiDate >= normalizedWeekStart && kpiDate <= normalizedWeekEnd
+          const inRange = kpiDate >= normalizedPeriodStart && kpiDate <= normalizedPeriodEnd
           
-          // Debug: Log date matching for first few KPIs
-          if (inRange && allProjectKPIs.indexOf(kpi) < 3) {
-            console.log(`[Monthly Revenue] KPI date match:`, {
-              project: project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`,
-              week: week.label,
-              kpiDate: kpiDateStr,
-              parsedDate: kpiDate.toLocaleDateString(),
-              weekStart: weekStart.toLocaleDateString(),
-              weekEnd: weekEnd.toLocaleDateString(),
-              effectiveWeekEnd: effectiveWeekEnd.toLocaleDateString(),
-              isCurrentWeek: weekEnd > today,
-              inRange
-            })
-          }
+          // ✅ PERFORMANCE: Removed debug logging for production
           
           return inRange
         } catch (error) {
-          console.warn('[Monthly Revenue] Error parsing KPI date:', kpiDateStr, error)
+          // ✅ PERFORMANCE: Removed console.warn for production
+          if (false) console.warn('[Monthly Revenue] Error parsing KPI date:', kpiDateStr, error)
           return false
         }
       })
       
-      // Debug: Log KPIs found in this week
-      if (actualKPIsInWeek.length > 0) {
-        console.log(`[Monthly Revenue] Found ${actualKPIsInWeek.length} Actual KPIs in ${week.label} for ${project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`}`)
-      }
+      // ✅ PERFORMANCE: Removed debug logging for production
 
       // ✅ FIXED: Calculate value using EXACT SAME LOGIC as KPI page Actual Value
       // Priority: 1) Rate × Quantity (SAME AS TABLE), 2) Value directly from KPI, 3) Actual Value
       // This MUST match the logic in KPITracking.tsx totalActualValue calculation
-      return actualKPIsInWeek.reduce((sum: number, kpi: any) => {
+      return actualKPIsInPeriod.reduce((sum: number, kpi: any) => {
         try {
           const rawKpi = (kpi as any).raw || {}
           
@@ -4116,12 +5114,8 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
           // This is how Value is calculated in the table: Quantity × Rate
           let financialValue = 0
           
-          // ✅ IMPROVED: Find related activity with Zone matching (SAME AS KPI PAGE)
-          const projectActivities = analytics.activities || activities.filter((a: BOQActivity) => {
-            const activityFullCode = (a.project_full_code || '').toString().trim()
-            const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim()
-            return activityFullCode.toUpperCase() === projectFullCode.toUpperCase()
-          })
+          // ✅ PERFORMANCE: Use cached project activities from analytics (already filtered)
+          const projectActivities = analytics.activities || []
           
           const kpiActivityName = (kpi.activity_name || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
           const kpiProjectFullCode = (kpi.project_full_code || kpi.project_code || '').toLowerCase().trim()
@@ -4267,184 +5261,58 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
           }
           
           // ✅ CRITICAL: If no value found and no rate, skip (NEVER use quantity as value!)
-          // This KPI will not contribute to weekly revenue
+          // This KPI will not contribute to period revenue
           return sum
         } catch (error) {
-          console.error('[Monthly Revenue] Error calculating KPI value:', error, { kpi, project })
+          // ✅ PERFORMANCE: Only log critical errors
+          if (process.env.NODE_ENV === 'development') console.error('[Monthly Revenue] Error calculating KPI value:', error, { kpi, project })
           return sum
         }
       }, 0)
     })
-  }, [kpis, weeks, activities])
+  }, [kpis, periods, activities])
 
   const allAnalytics = useMemo(() => {
     return getAllProjectsAnalytics(filteredProjects, activities, kpis)
   }, [filteredProjects, activities, kpis])
 
-  // Filter projects that have KPIs Actual in the selected date range
-  const projectsWithWorkInRange = useMemo(() => {
-    if (!dateRange.start || !dateRange.end) {
-      // If no date range, return ALL projects (not just those with KPIs)
-      // This allows users to see all projects even if they don't have KPIs yet
-      return allAnalytics
-    }
-
-    const rangeStart = new Date(dateRange.start)
-    const rangeEnd = new Date(dateRange.end)
-    rangeStart.setHours(0, 0, 0, 0)
-    rangeEnd.setHours(23, 59, 59, 999)
-
-    const filtered = allAnalytics.filter((analytics: any) => {
-      const project = analytics.project
-      
-      // Find KPIs that match this project
-      const projectKPIs = kpis.filter((kpi: any) => matchesProject(kpi, project))
-      
-      // Check if there are any Actual KPIs in the date range
-      const hasActualKPIsInRange = projectKPIs.some((kpi: any) => {
-        const inputType = String(
-          kpi.input_type || 
-          kpi['Input Type'] || 
-          (kpi as any).raw?.['Input Type'] || 
-          (kpi as any).raw?.['input_type'] ||
-          ''
-        ).trim().toLowerCase()
-        
-        if (inputType !== 'actual') return false
-        
-        // Try multiple date fields
-        const kpiDateStr = kpi.activity_date || 
-                          kpi.target_date || 
-                          kpi.actual_date || 
-                          (kpi as any).raw?.['Activity Date'] ||
-                          (kpi as any).raw?.['Target Date'] ||
-                          (kpi as any).raw?.['Actual Date'] ||
-                          (kpi as any).raw?.['Day'] ||
-                          kpi.day ||
-                          ''
-        
-        if (!kpiDateStr) return false
-        
-        try {
-          const kpiDate = new Date(kpiDateStr)
-          kpiDate.setHours(0, 0, 0, 0)
-          const inRange = kpiDate >= rangeStart && kpiDate <= rangeEnd
-          return inRange
-        } catch {
-          return false
-        }
-      })
-      
-      return hasActualKPIsInRange
-    })
-
-    // Debug logging
-    console.log('[Monthly Revenue] Date Range Filter:', {
-      rangeStart: rangeStart.toLocaleDateString(),
-      rangeEnd: rangeEnd.toLocaleDateString(),
-      totalProjects: allAnalytics.length,
-      filteredProjects: filtered.length,
-      totalKPIs: kpis.length,
-      actualKPIs: kpis.filter((k: any) => {
-        const inputType = String(k.input_type || k['Input Type'] || '').trim().toLowerCase()
-        return inputType === 'actual'
-      }).length
-    })
-
-    return filtered
-  }, [allAnalytics, kpis, dateRange])
-
-  // ✅ PERFORMANCE: Pre-calculate weekly values for all projects once
-  const weeklyValuesCache = useMemo(() => {
+  // ✅ PERFORMANCE: Pre-calculate period values for all projects once
+  const periodValuesCache = useMemo(() => {
     const cache = new Map<string, { earned: number[], planned: number[] }>()
     
-    projectsWithWorkInRange.forEach((analytics: any) => {
+    allAnalytics.forEach((analytics: any) => {
       const projectId = analytics.project.id
-      const earnedValues = calculateWeeklyEarnedValue(analytics.project, analytics)
-      const plannedValues = viewPlannedValue ? calculateWeeklyPlannedValue(analytics.project, analytics) : []
+      const earnedValues = calculatePeriodEarnedValue(analytics.project, analytics)
+      const plannedValues = viewPlannedValue ? calculatePeriodPlannedValue(analytics.project, analytics) : []
       cache.set(projectId, { earned: earnedValues, planned: plannedValues })
     })
     
     return cache
-  }, [projectsWithWorkInRange, calculateWeeklyEarnedValue, calculateWeeklyPlannedValue, viewPlannedValue])
+  }, [allAnalytics, calculatePeriodEarnedValue, calculatePeriodPlannedValue, viewPlannedValue])
 
-  // Debug: Log KPIs count and sample data
-  useEffect(() => {
-    if (kpis.length > 0) {
-      const actualKPIs = kpis.filter((kpi: any) => {
-        const inputType = String(
-          kpi.input_type || 
-          kpi['Input Type'] || 
-          (kpi as any).raw?.['Input Type'] || 
-          (kpi as any).raw?.['input_type'] ||
-          ''
-        ).trim().toLowerCase()
-        return inputType === 'actual'
+  // ✅ FIX: Show ALL projects from allAnalytics, regardless of date range or KPIs
+  // The date range filter only affects which weeks show data in the table, not which projects are displayed
+  // This ensures projects like P5066-R3 and P5066-R4 always appear, even when date range changes
+  const projectsWithWorkInRange = useMemo(() => {
+    // Always return ALL projects from allAnalytics
+    // The date range is only used for calculating weekly values, not for filtering projects
+    let filtered = allAnalytics
+    
+    // ✅ Filter out projects with Grand Total = 0 if checkbox is checked
+    if (hideZeroProjects) {
+      filtered = filtered.filter((analytics: any) => {
+        const projectId = analytics.project.id
+        const cachedValues = periodValuesCache.get(projectId)
+        const periodValues = cachedValues?.earned || []
+        const grandTotal = periodValues.reduce((sum: number, val: number) => sum + val, 0)
+        return grandTotal > 0
       })
-      
-      console.log('[Monthly Revenue Report] ========== DEBUG ==========')
-      console.log('Total KPIs:', kpis.length, 'Actual KPIs:', actualKPIs.length)
-      console.log('Filtered Projects:', filteredProjects.length)
-      console.log('Projects with Work in Range:', projectsWithWorkInRange.length)
-      console.log('Date Range:', dateRange.start, 'to', dateRange.end)
-      console.log('Weeks:', weeks.length)
-      
-      if (weeks.length > 0) {
-        console.log('Week 1:', weeks[0]?.start?.toLocaleDateString(), 'to', weeks[0]?.end?.toLocaleDateString())
-        console.log('Last Week:', weeks[weeks.length - 1]?.start?.toLocaleDateString(), 'to', weeks[weeks.length - 1]?.end?.toLocaleDateString())
-      }
-      
-      // Check matching for first few projects
-      if (filteredProjects.length > 0 && actualKPIs.length > 0) {
-        const sampleProjects = filteredProjects.slice(0, 3)
-        sampleProjects.forEach((project: Project) => {
-          const matchingKPIs = actualKPIs.filter((kpi: any) => matchesProject(kpi, project))
-          console.log(`Project ${project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`}:`, matchingKPIs.length, 'matching Actual KPIs')
-          
-          if (matchingKPIs.length > 0 && dateRange.start && dateRange.end) {
-            const rangeStart = new Date(dateRange.start)
-            const rangeEnd = new Date(dateRange.end)
-            rangeStart.setHours(0, 0, 0, 0)
-            rangeEnd.setHours(23, 59, 59, 999)
-            
-            const kpisInRange = matchingKPIs.filter((kpi: any) => {
-              const kpiDateStr = kpi.activity_date || kpi.target_date || kpi.actual_date || ''
-              if (!kpiDateStr) return false
-              try {
-                const kpiDate = new Date(kpiDateStr)
-                kpiDate.setHours(0, 0, 0, 0)
-                return kpiDate >= rangeStart && kpiDate <= rangeEnd
-              } catch {
-                return false
-              }
-            })
-            console.log(`  → KPIs in date range:`, kpisInRange.length)
-            if (kpisInRange.length > 0) {
-              console.log(`  → Sample KPI:`, {
-                date: kpisInRange[0].activity_date || kpisInRange[0].target_date,
-                quantity: kpisInRange[0].quantity,
-                value: kpisInRange[0].value,
-                activity: kpisInRange[0].activity_name
-              })
-            }
-          }
-        })
-      }
-      
-      if (actualKPIs.length > 0) {
-        const sampleKPIs = actualKPIs.slice(0, 5).map((k: any) => ({
-          date: k.activity_date || k.target_date || k.actual_date || (k as any).raw?.['Activity Date'],
-          project: k.project_full_code || k.project_code,
-          activity: k.activity_name || (k as any)['Activity Name'],
-          quantity: k.quantity,
-          value: k.value,
-          inputType: k.input_type || k['Input Type']
-        }))
-        console.log('Sample Actual KPIs (first 5):', sampleKPIs)
-      }
-      console.log('[Monthly Revenue Report] =========================')
     }
-  }, [kpis, weeks, filteredProjects, projectsWithWorkInRange, dateRange])
+    
+    return filtered
+  }, [allAnalytics, hideZeroProjects, periodValuesCache])
+
+  // ✅ PERFORMANCE: Removed debug logging useEffect for production
 
 
   // Close chart export menu when clicking outside
@@ -4563,47 +5431,101 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
     }
   }, [dateRange])
 
-  // ✅ PERFORMANCE: Calculate totals from cached values
+  // ✅ FIXED: Calculate totals directly from filteredProjects and kpis (same as stats)
+  // This prevents double-counting when multiple projects share KPIs
   const totals = useMemo(() => {
-    const totalContractValue = projectsWithWorkInRange.reduce((sum: number, a: any) => sum + (a.totalContractValue || 0), 0)
-    const totalEarnedValue = projectsWithWorkInRange.reduce((sum: number, a: any) => sum + (a.totalEarnedValue || 0), 0)
+    // ✅ Total Contract Value = Sum of contract_amount from all filtered projects
+    const totalContractValue = filteredProjects.reduce((sum: number, project: Project) => {
+      const contractAmount = parseFloat(String(project.contract_amount || '0').replace(/,/g, '')) || 0
+      return sum + contractAmount
+    }, 0)
     
-    // Calculate weekly earned value totals from cache
-    const weeklyEarnedValueTotals = weeks.map((_, weekIndex) => {
+    // ✅ Total Earned Value = Sum of Actual Value from ALL Actual KPIs (no date filter)
+    // Calculate directly from kpis (same logic as stats)
+    let totalEarnedValue = 0
+    const actualKPIsList = kpis.filter((k: any) => {
+      const inputType = String(
+        k.input_type || 
+        k['Input Type'] || 
+        (k as any).raw?.['Input Type'] || 
+        (k as any).raw?.['input_type'] ||
+        ''
+      ).trim().toLowerCase()
+      return inputType === 'actual'
+    })
+    
+    actualKPIsList.forEach((kpi: any) => {
+      const rawKPI = (kpi as any).raw || {}
+      
+      // ✅ PRIORITY 1: Use Actual Value directly from KPI (most accurate)
+      const actualValue = kpi.actual_value || parseFloat(String(rawKPI['Actual Value'] || '0').replace(/,/g, '')) || 0
+      if (actualValue > 0) {
+        totalEarnedValue += actualValue
+        return
+      }
+      
+      // ✅ PRIORITY 2: Fallback to Value field if Actual Value is not available
+      let kpiValue = 0
+      
+      // Try raw['Value'] (from database with capital V)
+      if (rawKPI['Value'] !== undefined && rawKPI['Value'] !== null) {
+        const val = rawKPI['Value']
+        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+      }
+      
+      // Try raw.value (from database with lowercase v)
+      if (kpiValue === 0 && rawKPI.value !== undefined && rawKPI.value !== null) {
+        const val = rawKPI.value
+        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+      }
+      
+      // Try k.value (direct property from ProcessedKPI)
+      if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
+        const val = kpi.value
+        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+      }
+      
+      if (kpiValue > 0) {
+        totalEarnedValue += kpiValue
+      }
+    })
+    
+    // Calculate period earned value totals from cache
+    const periodEarnedValueTotals = periods.map((_, periodIndex) => {
       let sum = 0
       projectsWithWorkInRange.forEach((analytics: any) => {
-        const cachedValues = weeklyValuesCache.get(analytics.project.id)
-        const weeklyValues = cachedValues?.earned || []
-        sum += weeklyValues[weekIndex] || 0
+        const cachedValues = periodValuesCache.get(analytics.project.id)
+        const periodValues = cachedValues?.earned || []
+        sum += periodValues[periodIndex] || 0
       })
       return sum
     })
     
-    // Calculate weekly planned value totals from cache
-    const weeklyPlannedValueTotals = weeks.map((_, weekIndex) => {
+    // Calculate period planned value totals from cache
+    const periodPlannedValueTotals = periods.map((_, periodIndex) => {
       let sum = 0
       projectsWithWorkInRange.forEach((analytics: any) => {
-        const cachedValues = weeklyValuesCache.get(analytics.project.id)
-        const weeklyValues = cachedValues?.planned || []
-        sum += weeklyValues[weekIndex] || 0
+        const cachedValues = periodValuesCache.get(analytics.project.id)
+        const periodValues = cachedValues?.planned || []
+        sum += periodValues[periodIndex] || 0
       })
       return sum
     })
     
-    const grandTotalEarnedValue = weeklyEarnedValueTotals.reduce((sum, val) => sum + val, 0)
-    const grandTotalPlannedValue = weeklyPlannedValueTotals.reduce((sum, val) => sum + val, 0)
+    const grandTotalEarnedValue = periodEarnedValueTotals.reduce((sum, val) => sum + val, 0)
+    const grandTotalPlannedValue = periodPlannedValueTotals.reduce((sum, val) => sum + val, 0)
     return { 
       totalContractValue, 
       totalEarnedValue, 
-      weeklyEarnedValueTotals, 
-      weeklyPlannedValueTotals,
+      periodEarnedValueTotals, 
+      periodPlannedValueTotals,
       grandTotalEarnedValue,
       grandTotalPlannedValue
     }
-  }, [projectsWithWorkInRange, weeks, weeklyValuesCache])
+  }, [filteredProjects, kpis, periods, periodValuesCache])
 
   // Export to Excel function with advanced formatting
-  const handleExportWeeklyRevenue = useCallback(async () => {
+  const handleExportPeriodRevenue = useCallback(async () => {
     if (projectsWithWorkInRange.length === 0) {
       alert('No data to export')
       return
@@ -4625,12 +5547,12 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
         'Division Contract Amount': 'Division Contract Amount'
       }
       
-      // Add week columns
-      const weekHeaders: string[] = []
-      weeks.forEach((week, index) => {
-        const weekLabel = `Week ${index + 1} (${week.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${week.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })})`
-        weekHeaders.push(weekLabel)
-        headerRow[weekLabel] = `Week ${index + 1}`
+      // Add period columns
+      const periodHeaders: string[] = []
+      periods.forEach((period, index) => {
+        const periodLabel = period.label || `${periodType.charAt(0).toUpperCase() + periodType.slice(1)} ${index + 1} (${period.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${period.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })})`
+        periodHeaders.push(periodLabel)
+        headerRow[periodLabel] = period.label || `${periodType.charAt(0).toUpperCase() + periodType.slice(1)} ${index + 1}`
       })
       
       headerRow['Grand Total'] = 'Grand Total'
@@ -4676,10 +5598,10 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                           'No'
         const isWorkmanship = workmanship === 'Yes' || workmanship === 'TRUE' || workmanship === true
         
-        // ✅ PERFORMANCE: Get weekly values from cache
-        const cachedValues = weeklyValuesCache.get(project.id)
-        const weeklyValues = cachedValues?.earned || []
-        const grandTotal = weeklyValues.reduce((sum, val) => sum + val, 0)
+        // ✅ PERFORMANCE: Get period values from cache
+        const cachedValues = periodValuesCache.get(project.id)
+        const periodValues = cachedValues?.earned || []
+        const grandTotal = periodValues.reduce((sum: number, val: number) => sum + val, 0)
         
         const projectFullCode = project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`
         const projectDisplayName = `${projectFullCode} - ${project.project_name}`
@@ -4693,9 +5615,9 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
           'Division Contract Amount': divisionContractAmount
         }
         
-        // Add weekly values
-        weekHeaders.forEach((weekLabel, index) => {
-          row[weekLabel] = weeklyValues[index] || 0
+        // Add period values
+        periodHeaders.forEach((periodLabel, index) => {
+          row[periodLabel] = periodValues[index] || 0
         })
         
         row['Grand Total'] = grandTotal
@@ -4711,8 +5633,8 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
         'Division Contract Amount': 0 // Will be replaced with formula
       }
       
-      weekHeaders.forEach((weekLabel, index) => {
-        totalsRow[weekLabel] = 0 // Will be replaced with formula
+      periodHeaders.forEach((periodLabel, index) => {
+        totalsRow[periodLabel] = 0 // Will be replaced with formula
       })
       
       totalsRow['Grand Total'] = 0 // Will be replaced with formula
@@ -4769,21 +5691,21 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
         }
       }
       
-      // Week columns (starting from column 5, F column)
-      weekHeaders.forEach((_, weekIndex) => {
-        const weekCol = getColLetter(5 + weekIndex)
-        const weekCell = `${weekCol}${totalsRowNum}`
-        if (ws[weekCell]) {
-          ws[weekCell] = {
-            ...ws[weekCell],
-            f: `SUM(${weekCol}${dataStartRow}:${weekCol}${dataEndRow})`,
+      // Period columns (starting from column 5, F column)
+      periodHeaders.forEach((_, periodIndex) => {
+        const periodCol = getColLetter(5 + periodIndex)
+        const periodCell = `${periodCol}${totalsRowNum}`
+        if (ws[periodCell]) {
+          ws[periodCell] = {
+            ...ws[periodCell],
+            f: `SUM(${periodCol}${dataStartRow}:${periodCol}${dataEndRow})`,
             t: 'n'
           }
         }
       })
       
       // Grand Total column (last column)
-      const grandTotalCol = getColLetter(5 + weekHeaders.length)
+      const grandTotalCol = getColLetter(5 + periodHeaders.length)
       const grandTotalCell = `${grandTotalCol}${totalsRowNum}`
       if (ws[grandTotalCell]) {
         ws[grandTotalCell] = {
@@ -4799,13 +5721,13 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
         const grandTotalCellAddr = `${grandTotalCol}${rowNum}`
         
         if (ws[grandTotalCellAddr]) {
-          // Build SUM formula for all week columns in this row
-          const firstWeekCol = getColLetter(5)
-          const lastWeekCol = getColLetter(5 + weekHeaders.length - 1)
+          // Build SUM formula for all period columns in this row
+          const firstPeriodCol = getColLetter(5)
+          const lastPeriodCol = getColLetter(5 + periodHeaders.length - 1)
           
           ws[grandTotalCellAddr] = {
             ...ws[grandTotalCellAddr],
-            f: `SUM(${firstWeekCol}${rowNum}:${lastWeekCol}${rowNum})`,
+            f: `SUM(${firstPeriodCol}${rowNum}:${lastPeriodCol}${rowNum})`,
             t: 'n'
           }
         }
@@ -4948,7 +5870,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
       console.error('Error exporting to Excel:', error)
       alert('Failed to export data. Please try again.')
     }
-  }, [projectsWithWorkInRange, weeks, totals, divisionsDataMap, dateRange, formatCurrency, kpis, calculateWeeklyEarnedValue, calculateWeeklyPlannedValue, viewPlannedValue])
+  }, [projectsWithWorkInRange, periods, totals, divisionsDataMap, dateRange, formatCurrency, kpis, calculatePeriodEarnedValue, calculatePeriodPlannedValue, viewPlannedValue, periodType])
 
   return (
     <div className="space-y-6">
@@ -4994,21 +5916,79 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
             <label htmlFor="viewPlannedValue" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
               View Planned Value
             </label>
-                  </div>
-                  </div>
-                </div>
+          </div>
+          <select
+            value={periodType}
+            onChange={(e) => setPeriodType(e.target.value as PeriodType)}
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+          >
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+            <option value="quarterly">Quarterly</option>
+            <option value="yearly">Yearly</option>
+          </select>
+          <select
+            value={chartType}
+            onChange={(e) => setChartType(e.target.value as 'line' | 'bar' | 'area' | 'composed')}
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+            title="Chart Type"
+          >
+            <option value="line">Line Chart</option>
+            <option value="bar">Bar Chart</option>
+            <option value="area">Area Chart</option>
+            <option value="composed">Composed Chart</option>
+          </select>
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="hideZeroProjects"
+              checked={hideZeroProjects}
+              onChange={(e) => setHideZeroProjects(e.target.checked)}
+              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+            />
+            <label htmlFor="hideZeroProjects" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
+              Hide projects with 0 AED Grand Total
+            </label>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="hideDivisionsColumn"
+              checked={hideDivisionsColumn}
+              onChange={(e) => setHideDivisionsColumn(e.target.checked)}
+              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+            />
+            <label htmlFor="hideDivisionsColumn" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
+              Hide Divisions Column
+            </label>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="hideTotalContractColumn"
+              checked={hideTotalContractColumn}
+              onChange={(e) => setHideTotalContractColumn(e.target.checked)}
+              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+            />
+            <label htmlFor="hideTotalContractColumn" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
+              Hide Total Contract Amount Column
+            </label>
+          </div>
+        </div>
+      </div>
 
-      {/* Weekly Revenue Chart */}
+      {/* Period Revenue Chart */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="flex items-center gap-2">
                 <TrendingUp className="h-5 w-5 text-blue-500" />
-                Weekly Revenue Trend
+                {periodType.charAt(0).toUpperCase() + periodType.slice(1)} Revenue Trend
               </CardTitle>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                {viewPlannedValue ? 'Earned vs Planned Value per Week' : 'Earned Value per Week'}
+                {viewPlannedValue ? `Earned vs Planned Value per ${periodType.charAt(0).toUpperCase() + periodType.slice(1)}` : `Earned Value per ${periodType.charAt(0).toUpperCase() + periodType.slice(1)}`}
               </p>
             </div>
             <div className="relative" ref={chartExportMenuRef}>
@@ -5062,70 +6042,220 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
         <CardContent>
           <div ref={chartRef} className="h-80 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={weeks.map((week, index) => ({
-                  week: week.label,
-                  weekShort: `W${index + 1}`,
-                  earned: totals.weeklyEarnedValueTotals[index] || 0,
-                  planned: viewPlannedValue ? (totals.weeklyPlannedValueTotals[index] || 0) : undefined
-                }))}
-                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" className="stroke-gray-300 dark:stroke-gray-700" />
-                <XAxis 
-                  dataKey="weekShort" 
-                  className="text-xs"
-                  tick={{ fill: 'currentColor' }}
-                />
-                <YAxis 
-                  className="text-xs"
-                  tick={{ fill: 'currentColor' }}
-                  tickFormatter={(value) => {
-                    if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`
-                    if (value >= 1000) return `${(value / 1000).toFixed(1)}K`
-                    return value.toString()
-                  }}
-                />
-                <Tooltip 
-                  contentStyle={{
-                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '8px',
-                    padding: '12px'
-                  }}
-                  formatter={(value: number, name: string) => {
-                    const currency = projectsWithWorkInRange.length > 0 
-                      ? (projectsWithWorkInRange[0]?.project?.currency || 'AED')
-                      : 'AED'
-                    return [formatCurrency(value, currency), name === 'earned' ? 'Earned Value' : 'Planned Value']
-                  }}
-                  labelFormatter={(label) => `Week: ${label}`}
-                />
-                <Legend 
-                  formatter={(value) => value === 'earned' ? 'Earned Value' : 'Planned Value'}
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="earned" 
-                  stroke="#10b981" 
-                  strokeWidth={3}
-                  dot={{ fill: '#10b981', r: 5 }}
-                  activeDot={{ r: 7 }}
-                  name="earned"
-                />
-                {viewPlannedValue && (
-                  <Line 
-                    type="monotone" 
-                    dataKey="planned" 
-                    stroke="#3b82f6" 
-                    strokeWidth={3}
-                    strokeDasharray="5 5"
-                    dot={{ fill: '#3b82f6', r: 5 }}
-                    activeDot={{ r: 7 }}
-                    name="planned"
-                  />
-                )}
-              </LineChart>
+              {(() => {
+                // ✅ Generate chart data once
+                const chartData = periods.map((period, index) => {
+                  let periodShort = period.label
+                  if (periodType === 'daily') {
+                    periodShort = `D${index + 1}`
+                  } else if (periodType === 'weekly') {
+                    periodShort = `W${index + 1}`
+                  } else if (periodType === 'monthly') {
+                    periodShort = period.start.toLocaleDateString('en-US', { month: 'short' })
+                  } else if (periodType === 'quarterly') {
+                    periodShort = period.label
+                  } else if (periodType === 'yearly') {
+                    periodShort = period.start.getFullYear().toString()
+                  }
+                  
+                  return {
+                    period: period.label,
+                    periodShort: periodShort,
+                    earned: totals.periodEarnedValueTotals[index] || 0,
+                    planned: viewPlannedValue ? (totals.periodPlannedValueTotals[index] || 0) : undefined
+                  }
+                })
+
+                // ✅ Common chart props
+                const commonProps = {
+                  data: chartData,
+                  margin: { top: 5, right: 30, left: 20, bottom: 5 }
+                }
+
+                // ✅ Common axis and tooltip components
+                const commonAxis = (
+                  <>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-gray-300 dark:stroke-gray-700" />
+                    <XAxis 
+                      dataKey="periodShort" 
+                      className="text-xs"
+                      tick={{ fill: 'currentColor' }}
+                      angle={periodType === 'daily' ? -45 : 0}
+                      textAnchor={periodType === 'daily' ? 'end' : 'middle'}
+                      height={periodType === 'daily' ? 80 : 30}
+                    />
+                    <YAxis 
+                      className="text-xs"
+                      tick={{ fill: 'currentColor' }}
+                      tickFormatter={(value) => {
+                        if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`
+                        if (value >= 1000) return `${(value / 1000).toFixed(1)}K`
+                        return value.toString()
+                      }}
+                    />
+                    <Tooltip 
+                      contentStyle={{
+                        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '8px',
+                        padding: '12px'
+                      }}
+                      formatter={(value: number, name: string) => {
+                        const currency = projectsWithWorkInRange.length > 0 
+                          ? (projectsWithWorkInRange[0]?.project?.currency || 'AED')
+                          : 'AED'
+                        return [formatCurrency(value, currency), name === 'earned' ? 'Earned Value' : 'Planned Value']
+                      }}
+                      labelFormatter={(label) => {
+                        if (periodType === 'daily') return `Day: ${label}`
+                        if (periodType === 'weekly') return `Week: ${label}`
+                        if (periodType === 'monthly') return `Month: ${label}`
+                        if (periodType === 'quarterly') return `Quarter: ${label}`
+                        if (periodType === 'yearly') return `Year: ${label}`
+                        return label
+                      }}
+                    />
+                    <Legend 
+                      formatter={(value) => value === 'earned' ? 'Earned Value' : 'Planned Value'}
+                    />
+                  </>
+                )
+
+                // ✅ Render chart based on type
+                if (chartType === 'line') {
+                  return (
+                    <LineChart {...commonProps}>
+                      {commonAxis}
+                      <Line 
+                        type="monotone" 
+                        dataKey="earned" 
+                        stroke="#10b981" 
+                        strokeWidth={3}
+                        dot={{ fill: '#10b981', r: 5 }}
+                        activeDot={{ r: 7 }}
+                        name="earned"
+                      />
+                      {viewPlannedValue && (
+                        <Line 
+                          type="monotone" 
+                          dataKey="planned" 
+                          stroke="#3b82f6" 
+                          strokeWidth={3}
+                          strokeDasharray="5 5"
+                          dot={{ fill: '#3b82f6', r: 5 }}
+                          activeDot={{ r: 7 }}
+                          name="planned"
+                        />
+                      )}
+                    </LineChart>
+                  )
+                }
+
+                if (chartType === 'bar') {
+                  return (
+                    <BarChart {...commonProps}>
+                      {commonAxis}
+                      <Bar 
+                        dataKey="earned" 
+                        fill="#10b981" 
+                        name="earned"
+                        radius={[4, 4, 0, 0]}
+                      />
+                      {viewPlannedValue && (
+                        <Bar 
+                          dataKey="planned" 
+                          fill="#3b82f6" 
+                          name="planned"
+                          radius={[4, 4, 0, 0]}
+                        />
+                      )}
+                    </BarChart>
+                  )
+                }
+
+                if (chartType === 'area') {
+                  return (
+                    <AreaChart {...commonProps}>
+                      {commonAxis}
+                      <Area 
+                        type="monotone" 
+                        dataKey="earned" 
+                        stroke="#10b981" 
+                        fill="#10b981"
+                        fillOpacity={0.6}
+                        strokeWidth={3}
+                        name="earned"
+                      />
+                      {viewPlannedValue && (
+                        <Area 
+                          type="monotone" 
+                          dataKey="planned" 
+                          stroke="#3b82f6" 
+                          fill="#3b82f6"
+                          fillOpacity={0.4}
+                          strokeWidth={3}
+                          strokeDasharray="5 5"
+                          name="planned"
+                        />
+                      )}
+                    </AreaChart>
+                  )
+                }
+
+                if (chartType === 'composed') {
+                  return (
+                    <ComposedChart {...commonProps}>
+                      {commonAxis}
+                      <Bar 
+                        dataKey="earned" 
+                        fill="#10b981" 
+                        name="earned"
+                        radius={[4, 4, 0, 0]}
+                      />
+                      {viewPlannedValue && (
+                        <Line 
+                          type="monotone" 
+                          dataKey="planned" 
+                          stroke="#3b82f6" 
+                          strokeWidth={3}
+                          strokeDasharray="5 5"
+                          dot={{ fill: '#3b82f6', r: 5 }}
+                          activeDot={{ r: 7 }}
+                          name="planned"
+                        />
+                      )}
+                    </ComposedChart>
+                  )
+                }
+
+                // Default to LineChart if unknown type
+                return (
+                  <LineChart {...commonProps}>
+                    {commonAxis}
+                    <Line 
+                      type="monotone" 
+                      dataKey="earned" 
+                      stroke="#10b981" 
+                      strokeWidth={3}
+                      dot={{ fill: '#10b981', r: 5 }}
+                      activeDot={{ r: 7 }}
+                      name="earned"
+                    />
+                    {viewPlannedValue && (
+                      <Line 
+                        type="monotone" 
+                        dataKey="planned" 
+                        stroke="#3b82f6" 
+                        strokeWidth={3}
+                        strokeDasharray="5 5"
+                        dot={{ fill: '#3b82f6', r: 5 }}
+                        activeDot={{ r: 7 }}
+                        name="planned"
+                      />
+                    )}
+                  </LineChart>
+                )
+              })()}
             </ResponsiveContainer>
           </div>
         </CardContent>
@@ -5171,7 +6301,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Revenue earned per week based on KPI Actual values</p>
             </div>
             <Button
-              onClick={handleExportWeeklyRevenue}
+              onClick={handleExportPeriodRevenue}
               variant="outline"
               size="sm"
               className="flex items-center gap-2"
@@ -5182,20 +6312,24 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
           </div>
         </CardHeader>
         <CardContent>
-      <div className="overflow-x-auto">
-            <table className="border-collapse text-sm" style={{ tableLayout: 'fixed', minWidth: '100%', width: `${200 + 180 + 120 + 180 + 220 + (weeks.length * 140) + 150}px` }}>
-              <thead>
+      <div className="overflow-x-auto overflow-y-auto print-table-container" style={{ maxHeight: '70vh' }}>
+            <table className="border-collapse text-sm print-table" style={{ tableLayout: 'fixed', minWidth: '100%', width: `${200 + (hideDivisionsColumn ? 0 : 180) + 120 + (hideTotalContractColumn ? 0 : 180) + 220 + (periods.length * 140) + 150}px` }}>
+              <thead className="sticky top-0 z-20">
                 <tr className="bg-gray-100 dark:bg-gray-800 border-b-2 border-gray-300 dark:border-gray-600">
-                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold" style={{ width: '200px' }}>Project Full Name</th>
-                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold" style={{ width: '180px' }}>Divisions</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold sticky left-0 z-30 bg-gray-100 dark:bg-gray-800" style={{ width: '200px' }}>Project Full Name</th>
+                  {!hideDivisionsColumn && (
+                    <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold" style={{ width: '180px' }}>Divisions</th>
+                  )}
                   <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: '120px' }}>Workmanship?</th>
-                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '180px' }}>Total Contract Amount</th>
+                  {!hideTotalContractColumn && (
+                    <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '180px' }}>Total Contract Amount</th>
+                  )}
                   <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '220px' }}>Division Contract Amount</th>
-                  {weeks.map((week, index) => (
+                  {periods.map((period, index) => (
                     <th key={index} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '140px' }}>
-                      <div>{week.label}</div>
+                      <div>{period.label}</div>
                       <div className="text-xs font-normal text-gray-500 dark:text-gray-400">
-                        {week.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {week.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        {period.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {period.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </div>
                     </th>
                   ))}
@@ -5205,7 +6339,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
               <tbody>
                 {projectsWithWorkInRange.length === 0 ? (
                   <tr>
-                    <td colSpan={5 + weeks.length + 1} className="border border-gray-300 dark:border-gray-600 px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                    <td colSpan={3 + (hideDivisionsColumn ? 0 : 1) + (hideTotalContractColumn ? 0 : 1) + periods.length + 1} className="border border-gray-300 dark:border-gray-600 px-4 py-8 text-center text-gray-500 dark:text-gray-400">
                       <div className="flex flex-col items-center gap-2">
                         <AlertTriangle className="h-8 w-8 text-gray-400" />
                         <p>No projects with work in the selected date range</p>
@@ -5251,15 +6385,15 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                                       'No'
                     const isWorkmanship = workmanship === 'Yes' || workmanship === 'TRUE' || workmanship === true
                     
-                    // ✅ PERFORMANCE: Get weekly values from cache
-                    const cachedValues = weeklyValuesCache.get(project.id)
-                    const weeklyValues = cachedValues?.earned || []
-                    const weeklyPlannedValues = viewPlannedValue ? (cachedValues?.planned || []) : []
-                    const grandTotal = weeklyValues.reduce((sum, val) => sum + val, 0)
-                    const grandTotalPlanned = viewPlannedValue ? weeklyPlannedValues.reduce((sum, val) => sum + val, 0) : 0
+                    // ✅ PERFORMANCE: Get period values from cache
+                    const cachedValues = periodValuesCache.get(project.id)
+                    const periodValues = cachedValues?.earned || []
+                    const periodPlannedValues = viewPlannedValue ? (cachedValues?.planned || []) : []
+                    const grandTotal = periodValues.reduce((sum: number, val: number) => sum + val, 0)
+                    const grandTotalPlanned = viewPlannedValue ? periodPlannedValues.reduce((sum: number, val: number) => sum + val, 0) : 0
                     return (
                       <tr key={project.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3" style={{ width: '200px', overflow: 'hidden' }}>
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 sticky left-0 z-10 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800" style={{ width: '200px', overflow: 'hidden' }}>
                           <div className="min-w-0">
                             <p className="font-semibold text-gray-900 dark:text-white truncate">
                               {project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`}
@@ -5267,22 +6401,24 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                             <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">{project.project_name}</p>
                   </div>
                 </td>
-                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3" style={{ width: '180px', overflow: 'hidden' }}>
-                          {divisionsList.length === 0 ? (
-                            <span className="text-sm text-gray-400 dark:text-gray-500 truncate block">{project.responsible_division || 'N/A'}</span>
-                          ) : (
-                            <div className="space-y-1 min-w-0">
-                              {divisionsList.map((division, index) => (
-                                <div 
-                                  key={`${project.id}-div-${division.key}-${index}`} 
-                                  className="text-xs text-gray-700 dark:text-gray-300 truncate"
-                                >
-                                  {division.name}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                </td>
+                        {!hideDivisionsColumn && (
+                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-3" style={{ width: '180px', overflow: 'hidden' }}>
+                            {divisionsList.length === 0 ? (
+                              <span className="text-sm text-gray-400 dark:text-gray-500 truncate block">{project.responsible_division || 'N/A'}</span>
+                            ) : (
+                              <div className="space-y-1 min-w-0">
+                                {divisionsList.map((division, index) => (
+                                  <div 
+                                    key={`${project.id}-div-${division.key}-${index}`} 
+                                    className="text-xs text-gray-700 dark:text-gray-300 truncate"
+                                  >
+                                    {division.name}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                        )}
                         <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center" style={{ width: '120px' }}>
                           <span className={`px-2 py-1 rounded text-xs font-medium ${
                             isWorkmanship 
@@ -5290,11 +6426,13 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                               : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
                           }`}>
                             {isWorkmanship ? 'Yes' : 'No'}
-                  </span>
-                </td>
-                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '180px' }}>
-                          <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(totalContractAmount, project.currency)}</span>
-                </td>
+                          </span>
+                        </td>
+                        {!hideTotalContractColumn && (
+                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '180px' }}>
+                            <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(totalContractAmount, project.currency)}</span>
+                          </td>
+                        )}
                         <td className="border border-gray-300 dark:border-gray-600 px-4 py-3" style={{ width: '220px', overflow: 'hidden' }}>
                           {divisionsList.length === 0 ? (
                             <span className="text-xs text-gray-400 dark:text-gray-500 italic">No data available</span>
@@ -5326,8 +6464,8 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                             </div>
                           )}
                 </td>
-                        {weeklyValues.map((value: number, index: number) => {
-                          const plannedValue = viewPlannedValue ? (weeklyPlannedValues[index] || 0) : 0
+                        {periodValues.map((value: number, index: number) => {
+                          const plannedValue = viewPlannedValue ? (periodPlannedValues[index] || 0) : 0
                           return (
                             <td key={index} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: viewPlannedValue ? '200px' : '140px' }}>
                               {viewPlannedValue ? (
@@ -5373,9 +6511,9 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
               {projectsWithWorkInRange.length > 0 && (
                 <tfoot>
                   <tr className="bg-gray-100 dark:bg-gray-800 font-bold border-t-2 border-gray-300 dark:border-gray-600">
-                    <td colSpan={5} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right">Total:</td>
-                    {totals.weeklyEarnedValueTotals.map((value, index) => {
-                      const plannedValue = viewPlannedValue ? (totals.weeklyPlannedValueTotals[index] || 0) : 0
+                    <td colSpan={3 + (hideDivisionsColumn ? 0 : 1) + (hideTotalContractColumn ? 0 : 1)} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right">Total:</td>
+                    {totals.periodEarnedValueTotals.map((value: number, index: number) => {
+                      const plannedValue = viewPlannedValue ? (totals.periodPlannedValueTotals[index] || 0) : 0
                       return (
                         <td key={index} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: viewPlannedValue ? '200px' : '140px' }}>
                           {viewPlannedValue ? (

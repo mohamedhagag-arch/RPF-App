@@ -2848,30 +2848,25 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       }
     }
     
-    // ✅ FIXED: Calculate value from KPI using EXACT SAME LOGIC as KPI page and Work Value Status
-    // Priority: 1) Rate × Quantity (SAME AS TABLE), 2) Value directly from KPI, 3) Planned/Actual Value
+    // ✅ FIXED: Calculate value from KPI - Use Planned/Actual Value directly from database
+    // Priority: 1) Planned/Actual Value directly from KPI, 2) Value field as fallback
     const getKPIValue = (kpi: any, activity: BOQActivity): number => {
       const rawKPI = (kpi as any).raw || {}
-      
-      // Get Quantity
-      const quantity = parseFloat(String(kpi.quantity || rawKPI['Quantity'] || '0').replace(/,/g, '')) || 0
-      
-      // ✅ PRIORITY 1: Calculate from Rate × Quantity (SAME AS TABLE COLUMN)
-      // This is how Value is calculated in the table: Quantity × Rate
-      const rate = getActivityRate(activity, kpi)
-      let calculatedValue = 0
-      if (rate > 0 && quantity > 0) {
-        calculatedValue = rate * quantity
-        if (calculatedValue > 0) {
-          return calculatedValue
-        }
+      const inputType = (kpi.input_type || rawKPI['Input Type'] || '').toString().toLowerCase().trim()
+
+      // ✅ PRIORITY 1: Use Planned/Actual Value directly from KPI (most accurate)
+      if (inputType === 'planned') {
+        const plannedValue = kpi.planned_value || parseFloat(String(rawKPI['Planned Value'] || '0').replace(/,/g, '')) || 0
+        if (plannedValue > 0) return plannedValue
+      } else if (inputType === 'actual') {
+        const actualValue = kpi.actual_value || parseFloat(String(rawKPI['Actual Value'] || '0').replace(/,/g, '')) || 0
+        if (actualValue > 0) return actualValue
       }
-      
-      // ✅ PRIORITY 2: Use Value directly from KPI (fallback if calculated value is 0)
-      // Check raw['Value'] first (from database), then k.value
+
+      // ✅ PRIORITY 2: Fallback to Value field if Planned/Actual Value is not available
       let kpiValue = 0
       
-      // Try raw['Value'] (from database with capital V) - MOST RELIABLE
+      // Try raw['Value'] (from database with capital V)
       if (rawKPI['Value'] !== undefined && rawKPI['Value'] !== null) {
         const val = rawKPI['Value']
         kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
@@ -2891,16 +2886,6 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       
       if (kpiValue > 0) {
         return kpiValue
-      }
-      
-      // ✅ PRIORITY 3: Fallback to planned_value or actual_value
-      const inputType = (kpi.input_type || rawKPI['Input Type'] || '').toString().toLowerCase().trim()
-      if (inputType === 'planned') {
-        const plannedValue = parseFloat(String(kpi.planned_value || rawKPI['Planned Value'] || '0').replace(/,/g, '')) || 0
-        if (plannedValue > 0) return plannedValue
-      } else if (inputType === 'actual') {
-        const actualValue = parseFloat(String(kpi.actual_value || rawKPI['Actual Value'] || '0').replace(/,/g, '')) || 0
-        if (actualValue > 0) return actualValue
       }
       
       return 0
@@ -2949,29 +2934,18 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       return sum + quantity
     }, 0)
     
-    // ✅ FIXED: Planned Value - Use EXACT SAME LOGIC as Projects page (calculateWorkValueStatus)
-    // Calculate Planned Value for each unique project from filtered activities, then sum
-    const projectMap = new Map<string, Project>()
-    filteredActivities.forEach((activity: BOQActivity) => {
-      const projectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim()
-      if (projectFullCode) {
-        const project = projects.find(p => {
-          const pFullCode = (p.project_full_code || `${p.project_code}${p.project_sub_code ? `-${p.project_sub_code}` : ''}`).toString().trim()
-          return pFullCode.toUpperCase() === projectFullCode.toUpperCase() || 
-                 p.project_code?.toUpperCase() === projectFullCode.toUpperCase()
-        })
-        if (project && !projectMap.has(project.id)) {
-          projectMap.set(project.id, project)
-        }
-      }
-    })
-    const uniqueProjects = Array.from(projectMap.values())
-    
-    // ✅ Use calculateWorkValueStatus for each project (SAME AS PROJECTS PAGE)
-    const totalPlannedValue = uniqueProjects.reduce((sum, project) => {
-      const workValueStatus = calculateWorkValueStatus(project, filteredActivities, allKPIs)
-      return sum + workValueStatus.planned
-    }, 0)
+    // ✅ Planned Value: Sum of values from Planned KPIs until yesterday (matching activities)
+    // ✅ SAME LOGIC AS BOQ PAGE - Calculate directly from Planned KPIs in BOQ
+    const totalPlannedValue = plannedKPIs
+      .filter((kpi: any) => isKPIUntilYesterday(kpi, 'planned'))
+      .reduce((sum, kpi) => {
+        // Find matching activity for this KPI
+        const matchingActivity = filteredActivities.find(activity => kpiMatchesActivity(kpi, activity))
+        if (!matchingActivity) return sum
+        
+        const value = getKPIValue(kpi, matchingActivity)
+        return sum + value
+      }, 0)
     
     // Actual Value: Sum of values from Actual KPIs until yesterday (matching activities)
     // ✅ EXACT SAME LOGIC AS QUANTITIES COLUMN - Filter until yesterday and use strict matching
@@ -2999,14 +2973,18 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     // Achievement Rate (by value): Use valueAchievementRate as the main achievement rate
     const achievementRateByValue = valueAchievementRate
     
-    // Total Value: Sum of total_value from all filtered activities
-    const totalValue = filteredActivities.reduce((sum, activity) => {
-      const rawActivity = (activity as any).raw || {}
-      const activityTotalValue = activity.total_value || 
-                                parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
-                                0
-      return sum + activityTotalValue
-    }, 0)
+    // Total Value: Sum of ALL Planned KPIs (NO date filter) - SAME AS KPI PAGE AND PROJECTS PAGE
+    // Total Value = مجموع جميع Planned KPIs للمشاريع المفلترة بدون فلترة بالتاريخ
+    // This is different from Planned Value which is filtered until yesterday
+    const totalValue = plannedKPIs
+      .reduce((sum, kpi) => {
+        // Find matching activity for this KPI
+        const matchingActivity = filteredActivities.find(activity => kpiMatchesActivity(kpi, activity))
+        if (!matchingActivity) return sum
+        
+        const value = getKPIValue(kpi, matchingActivity)
+        return sum + value
+      }, 0)
     
     // Actual Value / Total Value Rate: (Actual Value / Total Value) * 100
     const actualToTotalValueRate = totalValue > 0 

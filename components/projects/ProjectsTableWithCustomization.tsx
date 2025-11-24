@@ -2402,52 +2402,64 @@ export function ProjectsTableWithCustomization({
     }
     
     projects.forEach((project) => {
-      // Step 1: Build project codes (EXACT COPY from projectAnalytics.ts)
-      const projectCode = (project.project_code || '').toString().trim()
-      const projectSubCode = (project.project_sub_code || '').toString().trim()
-      const projectCodeUpper = projectCode.toUpperCase()
-      const projectSubCodeUpper = projectSubCode.toUpperCase()
-      
-      // Build project_full_code
-      let projectFullCode = projectCode
-      if (projectSubCode) {
-        if (projectSubCodeUpper.startsWith(projectCodeUpper)) {
-          projectFullCode = projectSubCode
-        } else if (projectSubCode.startsWith('-')) {
-          projectFullCode = `${projectCode}${projectSubCode}`
+      // ✅ FIX: Use project_full_code as primary identifier (SAME AS workValueCalculator.ts)
+      // This ensures P4110 and P4110-P are treated as separate projects
+      let projectFullCode = (project.project_full_code || '').toString().trim()
+      if (!projectFullCode) {
+        // Build from project_code + project_sub_code if not available
+        const projectCode = (project.project_code || '').toString().trim()
+        const projectSubCode = (project.project_sub_code || '').toString().trim()
+        if (projectSubCode) {
+          if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+            projectFullCode = projectSubCode
+          } else if (projectSubCode.startsWith('-')) {
+            projectFullCode = `${projectCode}${projectSubCode}`
+          } else {
+            projectFullCode = `${projectCode}-${projectSubCode}`
+          }
         } else {
-          projectFullCode = `${projectCode}-${projectSubCode}`
+          projectFullCode = projectCode
         }
       }
       const projectFullCodeUpper = projectFullCode.toUpperCase()
       
-      // Build project code variations (EXACT COPY from projectAnalytics.ts)
-      const projectCodeVariations = new Set<string>()
-      projectCodeVariations.add(projectCodeUpper)
-      projectCodeVariations.add(projectFullCodeUpper)
-      if (projectSubCode) {
-        projectCodeVariations.add(projectSubCodeUpper)
-        if (projectSubCodeUpper.includes(projectCodeUpper)) {
-          projectCodeVariations.add(projectSubCodeUpper)
-        } else {
-          projectCodeVariations.add(`${projectCodeUpper}${projectSubCodeUpper}`)
-          projectCodeVariations.add(`${projectCodeUpper}-${projectSubCodeUpper}`)
-        }
-      }
+      const projectCode = (project.project_code || '').toString().trim()
+      const projectCodeUpper = projectCode.toUpperCase()
       
-      // Step 2: Helper to extract project code (EXACT COPY from projectAnalytics.ts)
-      const extractProjectCode = (item: any): string[] => {
+      // ✅ Step 2: Helper to extract project codes (SAME AS workValueCalculator.ts)
+      // Priority: project_full_code first (most specific), then project_code (fallback)
+      const extractProjectCodes = (item: any): string[] => {
         const codes: string[] = []
         const raw = (item as any).raw || {}
-        const sources = [
+        
+        // ✅ PRIORITY 1: Extract project_full_code (most specific - distinguishes P4110 from P4110-P)
+        const fullCodeSources = [
           item.project_full_code,
           (item as any)['Project Full Code'],
-          raw['Project Full Code'],
+          raw['Project Full Code']
+        ]
+        
+        for (const source of fullCodeSources) {
+          if (source) {
+            const code = source.toString().trim()
+            if (code) {
+              codes.push(code)
+              codes.push(code.toUpperCase())
+              // If we have a full code, return immediately (don't add project_code)
+              // This ensures P4110-P and P4110 are treated as different projects
+              return Array.from(new Set(codes))
+            }
+          }
+        }
+        
+        // ✅ PRIORITY 2: Extract project_code (fallback if no full code exists)
+        const codeSources = [
           item.project_code,
           (item as any)['Project Code'],
           raw['Project Code']
         ]
-        for (const source of sources) {
+        
+        for (const source of codeSources) {
           if (source) {
             const code = source.toString().trim()
             if (code) {
@@ -2456,65 +2468,111 @@ export function ProjectsTableWithCustomization({
             }
           }
         }
+        
         return Array.from(new Set(codes))
       }
       
-      // Step 3: Helper to check if codes match (EXACT COPY from projectAnalytics.ts)
-      const codesMatch = (itemCodes: string[], projectCodes: Set<string>): boolean => {
-        for (const itemCode of itemCodes) {
-          const itemCodeUpper = itemCode.toUpperCase().trim()
-          
-          // Priority 1: Exact match on project_full_code
-          if (projectFullCodeUpper && itemCodeUpper === projectFullCodeUpper) {
-            return true
-          }
-          
-          // Priority 2: Item code starts with project_full_code (for sub-projects)
-          if (projectSubCode && projectFullCodeUpper && itemCodeUpper.startsWith(projectFullCodeUpper)) {
-            return true
-          }
-          
-          // Priority 3: Match by project_code only if project has no sub_code
-          if (!projectSubCode && itemCodeUpper === projectCodeUpper) {
+      // ✅ Step 3: Helper to check if codes match (SAME AS workValueCalculator.ts)
+      // CRITICAL: Use exact match for project_full_code to distinguish P4110 from P4110-P
+      const codesMatch = (itemCodes: string[], targetCodes: string[]): boolean => {
+        const targetCodesUpper = targetCodes.map(c => c.toUpperCase().trim())
+        const itemCodesUpper = itemCodes.map(c => c.toUpperCase().trim())
+        
+        // ✅ First, try exact match (most important for project_full_code)
+        for (const itemCode of itemCodesUpper) {
+          if (targetCodesUpper.includes(itemCode)) {
             return true
           }
         }
+        
+        // ✅ Only if no exact match, check if one is a prefix of another
+        // But ONLY if both don't have a dash (to avoid matching P4110 with P4110-P)
+        for (const itemCode of itemCodesUpper) {
+          for (const targetCode of targetCodesUpper) {
+            // If both codes contain a dash, require exact match
+            const itemHasDash = itemCode.includes('-')
+            const targetHasDash = targetCode.includes('-')
+            
+            if (itemHasDash || targetHasDash) {
+              // If either has a dash, only exact match is allowed
+              if (itemCode === targetCode) {
+                return true
+              }
+            } else {
+              // If neither has a dash, allow prefix matching (for backward compatibility)
+              if (itemCode.startsWith(targetCode) || targetCode.startsWith(itemCode)) {
+                return true
+              }
+            }
+          }
+        }
+        
         return false
       }
       
-      // ✅ FIX: Calculate division amounts from BOQ Activities directly (not from KPIs)
-      // ✅ This is more accurate because BOQ Activities contain Total Value directly
-      // Step 4: Filter Activities for this project
-      const projectActivities = allActivities.filter((activity: any) => {
-        const activityCodes = extractProjectCode(activity)
-        if (activityCodes.length === 0) {
+      // Build target codes for matching
+      // ✅ CRITICAL: If project has project_full_code, use ONLY that (don't add project_code)
+      // This ensures P4110 and P4110-P are treated as completely separate projects
+      const targetCodes: string[] = []
+      if (projectFullCodeUpper) {
+        targetCodes.push(projectFullCodeUpper)
+        // ✅ Only add project_code if it's different AND project_full_code was built from project_code + project_sub_code
+        // If project_full_code exists directly in DB, don't add project_code to avoid false matches
+        const hasDirectFullCode = project.project_full_code && project.project_full_code.toString().trim() !== ''
+        if (!hasDirectFullCode && projectCodeUpper && projectCodeUpper !== projectFullCodeUpper) {
+          // Only add project_code if we built project_full_code ourselves (fallback case)
+          targetCodes.push(projectCodeUpper)
+        }
+      } else if (projectCodeUpper) {
+        // If no project_full_code at all, use project_code
+        targetCodes.push(projectCodeUpper)
+      }
+      
+      // ✅ FIX: Calculate division amounts from KPIs Planned (as requested by user)
+      // Step 4: Filter KPIs Planned for this project
+      const projectKPIs = allKPIs.filter((kpi: any) => {
+        const kpiCodes = extractProjectCodes(kpi)
+        if (kpiCodes.length === 0) {
           return false
         }
-        return codesMatch(activityCodes, projectCodeVariations)
+        return codesMatch(kpiCodes, targetCodes)
       })
       
-      // ✅ DEBUG: Log activity matching for first few projects
+      // Filter only Planned KPIs
+      const plannedKPIs = projectKPIs.filter((kpi: any) => {
+        const inputType = String(
+          kpi.input_type || 
+          kpi['Input Type'] || 
+          (kpi as any).raw?.['Input Type'] || 
+          (kpi as any).raw?.['input_type'] ||
+          ''
+        ).trim().toLowerCase()
+        return inputType === 'planned'
+      })
+      
+      // ✅ DEBUG: Log KPI matching for first few projects
       if (process.env.NODE_ENV === 'development' && projects.indexOf(project) < 5) {
-        console.log(`🔍 [${project.project_code}] Activity filtering:`, {
+        console.log(`🔍 [${project.project_code}] KPI filtering:`, {
           projectFullCode,
-          projectCodeVariations: Array.from(projectCodeVariations),
-          allActivitiesCount: allActivities.length,
-          matchedActivitiesCount: projectActivities.length
+          targetCodes: targetCodes,
+          allKPIsCount: allKPIs.length,
+          matchedKPIsCount: projectKPIs.length,
+          plannedKPIsCount: plannedKPIs.length
         })
       }
       
-      // Step 5: Calculate division amounts from BOQ Activities (Total Value)
+      // Step 5: Calculate division amounts from KPIs Planned
       const divisionAmounts: Record<string, number> = {}
       const divisionNames: Record<string, string> = {}
       
-      projectActivities.forEach((activity: any) => {
-        const rawActivity = (activity as any).raw || {}
+      plannedKPIs.forEach((kpi: any) => {
+        const rawKPI = (kpi as any).raw || {}
         
-        // ✅ Get division from activity
-        const division = activity.activity_division || 
-                       activity['Activity Division'] || 
-                       rawActivity['Activity Division'] || 
-                       rawActivity['activity_division'] || ''
+        // ✅ Get division from KPI - Use "Activity Division" (same as KPITracking.tsx)
+        const division = kpi.activity_division || 
+                        kpi['Activity Division'] || 
+                        rawKPI['Activity Division'] || 
+                        rawKPI['activity_division'] || ''
         
         // Skip if no division found
         if (!division || division.trim() === '') {
@@ -2524,38 +2582,40 @@ export function ProjectsTableWithCustomization({
         const divisionKey = division.trim().toLowerCase()
         const divisionName = division.trim()
         
-        // ✅ Get Total Value directly from BOQ Activity (this is the correct value)
-        let activityValue = 0
+        // ✅ Get Planned Value from KPI (SAME LOGIC AS KPI PAGE)
+        let kpiValue = 0
         
-        // Priority 1: Use Total Value from activity
-        const totalValue = activity.total_value || parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 0
-        if (totalValue > 0) {
-          activityValue = totalValue
-        }
-        
-        // Priority 2: Calculate from Rate × Total Units if Total Value not available
-        if (activityValue === 0) {
-          const rate = activity.rate || parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
-          const totalUnits = activity.total_units || parseFloat(String(rawActivity['Total Units'] || '0').replace(/,/g, '')) || 0
-          if (rate > 0 && totalUnits > 0) {
-            activityValue = rate * totalUnits
+        // ✅ PRIORITY 1: Use Planned Value directly from KPI (most accurate)
+        const plannedValue = kpi.planned_value || parseFloat(String(rawKPI['Planned Value'] || '0').replace(/,/g, '')) || 0
+        if (plannedValue > 0) {
+          kpiValue = plannedValue
+        } else {
+          // ✅ PRIORITY 2: Fallback to Value field if Planned Value is not available
+          // Try raw['Value'] (from database with capital V)
+          if (rawKPI['Value'] !== undefined && rawKPI['Value'] !== null) {
+            const val = rawKPI['Value']
+            kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
           }
-        }
-        
-        // Priority 3: Use Activity Value if available
-        if (activityValue === 0) {
-          const activityValueField = activity.activity_value || parseFloat(String(rawActivity['Activity Value'] || '0').replace(/,/g, '')) || 0
-          if (activityValueField > 0) {
-            activityValue = activityValueField
+          
+          // Try raw.value (from database with lowercase v)
+          if (kpiValue === 0 && rawKPI.value !== undefined && rawKPI.value !== null) {
+            const val = rawKPI.value
+            kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+          }
+          
+          // Try k.value (direct property from ProcessedKPI)
+          if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
+            const val = kpi.value
+            kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
           }
         }
         
         // Sum values for this division (only if we have a value)
-        if (activityValue > 0) {
+        if (kpiValue > 0) {
           if (!divisionNames[divisionKey]) {
             divisionNames[divisionKey] = divisionName
           }
-          divisionAmounts[divisionKey] = (divisionAmounts[divisionKey] || 0) + activityValue
+          divisionAmounts[divisionKey] = (divisionAmounts[divisionKey] || 0) + kpiValue
         }
       })
       
@@ -2583,7 +2643,7 @@ export function ProjectsTableWithCustomization({
     }
     
     return map
-  }, [projects, allActivities]) // ✅ FIX: Removed allKPIs dependency since we now use BOQ Activities directly
+  }, [projects, allKPIs]) // ✅ FIX: Changed to use allKPIs since we now calculate from KPIs Planned
 
   // ✅ Render cell content - OPTIMIZED with useCallback
   // All calculated columns use analytics from calculateProjectAnalytics (same as Cards)
