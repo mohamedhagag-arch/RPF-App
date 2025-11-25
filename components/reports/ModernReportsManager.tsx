@@ -14,6 +14,8 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Alert } from '@/components/ui/Alert'
 import { PrintableReport } from './PrintableReport'
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
+import { calculateProjectLookAhead, ProjectLookAhead } from './LookAheadHelper'
+import { KPICChartReportView } from './KPICChartReportView'
 import {
   FileText,
   Download,
@@ -63,7 +65,7 @@ import {
   ResponsiveContainer
 } from 'recharts'
 
-type ReportType = 'overview' | 'projects' | 'activities' | 'kpis' | 'financial' | 'performance' | 'lookahead' | 'monthly-revenue'
+type ReportType = 'overview' | 'projects' | 'activities' | 'kpis' | 'financial' | 'performance' | 'lookahead' | 'monthly-revenue' | 'kpi-chart'
 
 interface ReportStats {
   totalProjects: number
@@ -1747,6 +1749,7 @@ export function ModernReportsManager() {
             { id: 'projects', label: 'Projects', icon: Building2 },
             { id: 'activities', label: 'Activities', icon: Target },
             { id: 'kpis', label: 'KPIs', icon: TrendingUp },
+            { id: 'kpi-chart', label: 'KPI Chart', icon: BarChart3 },
             { id: 'financial', label: 'Financial', icon: DollarSign },
             { id: 'performance', label: 'Performance', icon: Activity },
             { id: 'lookahead', label: 'LookAhead', icon: FastForward },
@@ -1792,6 +1795,14 @@ export function ModernReportsManager() {
           )}
           {activeReport === 'monthly-revenue' && (
             <MonthlyWorkRevenueReportView 
+              activities={filteredData.filteredActivities} 
+              projects={filteredData.filteredProjects} 
+              kpis={filteredData.filteredKPIs}
+              formatCurrency={formatCurrency} 
+            />
+          )}
+          {activeReport === 'kpi-chart' && (
+            <KPICChartReportView 
               activities={filteredData.filteredActivities} 
               projects={filteredData.filteredProjects} 
               kpis={filteredData.filteredKPIs}
@@ -3913,11 +3924,16 @@ function PerformanceReport({ filteredData, formatCurrency, formatPercentage }: a
   )
 }
 
-// LookAhead Report Component - Rebuilt from scratch
+// LookAhead Report Component - Rebuilt from scratch based on Remaining Quantity / Actual Productivity
 function LookaheadReportView({ activities, projects, formatCurrency }: any) {
   const [selectedDivision, setSelectedDivision] = useState<string>('')
   const [kpis, setKpis] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [lookAheadPeriodType, setLookAheadPeriodType] = useState<'days' | 'weeks' | 'months'>('months')
+  const [lookAheadPeriodCount, setLookAheadPeriodCount] = useState<number>(3)
+  const [lookAheadDateMode, setLookAheadDateMode] = useState<'period' | 'dates'>('period')
+  const [lookAheadStartDate, setLookAheadStartDate] = useState<string>('')
+  const [lookAheadEndDate, setLookAheadEndDate] = useState<string>('')
   const supabase = getSupabaseClient()
 
   useEffect(() => {
@@ -3944,16 +3960,6 @@ function LookaheadReportView({ activities, projects, formatCurrency }: any) {
     fetchKPIs()
   }, [])
 
-  // Get next 3 months (current month + next 2 months)
-  const lookAheadMonths = useMemo(() => {
-    const months: string[] = []
-    const now = new Date()
-    for (let i = 0; i < 3; i++) {
-      const date = new Date(now.getFullYear(), now.getMonth() + i, 1)
-      months.push(date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }))
-    }
-    return months
-  }, [])
   
   // ✅ PERFORMANCE: Memoize filtered projects
   const filteredProjects = useMemo(() => {
@@ -3973,107 +3979,361 @@ function LookaheadReportView({ activities, projects, formatCurrency }: any) {
     return Array.from(new Set(projects.map((p: Project) => p.responsible_division).filter(Boolean))).sort()
   }, [projects])
 
-  // Calculate analytics for all filtered projects
-  const allAnalytics = useMemo(() => {
-    return getAllProjectsAnalytics(filteredProjects, activities, kpis)
+  // ✅ Calculate LookAhead for each project based on Remaining Quantity / Actual Productivity
+  const projectsLookAhead = useMemo(() => {
+    return filteredProjects.map((project: Project) => {
+      // Get all activities for this project
+      const projectActivities = activities.filter((a: BOQActivity) => {
+        const activityFullCode = (a.project_full_code || a.project_code || '').toString().trim().toUpperCase()
+        const projectFullCode = (project.project_full_code || project.project_code || '').toString().trim().toUpperCase()
+        return activityFullCode === projectFullCode
+      })
+      
+      // Calculate LookAhead for this project
+      return calculateProjectLookAhead(project, projectActivities, kpis)
+    })
   }, [filteredProjects, activities, kpis])
 
-  // ✅ PERFORMANCE: Memoize getKPIValue
-  const getKPIValue = useCallback((kpi: any, relatedActivity: BOQActivity | null): number => {
-    const rawKpi = (kpi as any).raw || {}
-    const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
-    
-    // Try to get rate
-    let rate = 0
-    
-    // Priority 1: Use KPI value directly if available
-    if (kpi.value && kpi.value > 0 && quantity > 0) {
-      rate = kpi.value / quantity
-    } 
-    // Priority 2: Use KPI planned_value
-    else if (kpi.planned_value && kpi.planned_value > 0 && quantity > 0) {
-      rate = kpi.planned_value / quantity
+  // ✅ Calculate future date range based on period type and count OR custom dates
+  const futureDateRange = useMemo(() => {
+    if (lookAheadDateMode === 'dates') {
+      // Use custom dates
+      const startDate = lookAheadStartDate ? new Date(lookAheadStartDate) : new Date()
+      const endDate = lookAheadEndDate ? new Date(lookAheadEndDate) : new Date()
+      
+      startDate.setHours(0, 0, 0, 0)
+      endDate.setHours(23, 59, 59, 999)
+      
+      return {
+        start: startDate,
+        end: endDate
+      }
+    } else {
+      // Use period count
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      
+      const endDate = new Date(today)
+      
+      switch (lookAheadPeriodType) {
+        case 'days':
+          endDate.setDate(today.getDate() + lookAheadPeriodCount)
+          break
+        case 'weeks':
+          endDate.setDate(today.getDate() + (lookAheadPeriodCount * 7))
+          break
+        case 'months':
+          endDate.setMonth(today.getMonth() + lookAheadPeriodCount)
+          break
+      }
+      
+      endDate.setHours(23, 59, 59, 999)
+      
+      return {
+        start: today,
+        end: endDate
+      }
     }
-    // Priority 3: Get rate from related activity
-    else if (relatedActivity) {
-      if (relatedActivity.rate && relatedActivity.rate > 0) {
-        rate = relatedActivity.rate
-      } else if (relatedActivity.total_value && relatedActivity.planned_units && relatedActivity.planned_units > 0) {
-        rate = relatedActivity.total_value / relatedActivity.planned_units
+  }, [lookAheadDateMode, lookAheadPeriodType, lookAheadPeriodCount, lookAheadStartDate, lookAheadEndDate])
+
+  // ✅ Generate periods (columns) based on selected period type and count
+  const lookAheadPeriods = useMemo(() => {
+    const periods: Array<{ label: string; start: Date; end: Date; shortLabel: string }> = []
+    
+    if (lookAheadDateMode === 'dates') {
+      // For custom dates, determine period type based on date range
+      const daysDiff = Math.ceil((futureDateRange.end.getTime() - futureDateRange.start.getTime()) / (1000 * 60 * 60 * 24))
+      
+      if (daysDiff <= 30) {
+        // Daily periods
+        const current = new Date(futureDateRange.start)
+        let dayNum = 1
+        while (current <= futureDateRange.end) {
+          const periodStart = new Date(current)
+          periodStart.setHours(0, 0, 0, 0)
+          const periodEnd = new Date(periodStart)
+          periodEnd.setHours(23, 59, 59, 999)
+          
+          periods.push({
+            label: periodStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            shortLabel: `D${dayNum}`,
+            start: periodStart,
+            end: periodEnd
+          })
+          
+          current.setDate(current.getDate() + 1)
+          dayNum++
+        }
+      } else if (daysDiff <= 90) {
+        // Weekly periods
+        const current = new Date(futureDateRange.start)
+        let weekNum = 1
+        while (current <= futureDateRange.end) {
+          const periodStart = new Date(current)
+          // Start from Monday
+          const dayOfWeek = periodStart.getDay()
+          const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1
+          periodStart.setDate(periodStart.getDate() - diff)
+          periodStart.setHours(0, 0, 0, 0)
+          
+          const periodEnd = new Date(periodStart)
+          periodEnd.setDate(periodStart.getDate() + 6)
+          periodEnd.setHours(23, 59, 59, 999)
+          
+          if (periodStart <= futureDateRange.end && periodEnd >= futureDateRange.start) {
+            periods.push({
+              label: `Week ${weekNum} (${periodStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${periodEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`,
+              shortLabel: `W${weekNum}`,
+              start: periodStart,
+              end: periodEnd
+            })
+            weekNum++
+          }
+          
+          current.setDate(current.getDate() + 7)
+        }
+      } else {
+        // Monthly periods
+        const current = new Date(futureDateRange.start)
+        current.setDate(1)
+        current.setHours(0, 0, 0, 0)
+        let monthNum = 1
+        
+        while (current <= futureDateRange.end) {
+          const periodStart = new Date(current)
+          const periodEnd = new Date(periodStart)
+          periodEnd.setMonth(periodStart.getMonth() + 1)
+          periodEnd.setDate(0)
+          periodEnd.setHours(23, 59, 59, 999)
+          
+          if (periodStart <= futureDateRange.end && periodEnd >= futureDateRange.start) {
+            periods.push({
+              label: periodStart.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+              shortLabel: periodStart.toLocaleDateString('en-US', { month: 'short' }),
+              start: periodStart,
+              end: periodEnd
+            })
+            monthNum++
+          }
+          
+          current.setMonth(current.getMonth() + 1)
+        }
+      }
+    } else {
+      // Period count mode
+      const startDate = new Date()
+      startDate.setHours(0, 0, 0, 0)
+      
+      switch (lookAheadPeriodType) {
+        case 'days':
+          for (let i = 0; i < lookAheadPeriodCount; i++) {
+            const periodStart = new Date(startDate)
+            periodStart.setDate(startDate.getDate() + i)
+            periodStart.setHours(0, 0, 0, 0)
+            const periodEnd = new Date(periodStart)
+            periodEnd.setHours(23, 59, 59, 999)
+            
+            periods.push({
+              label: periodStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+              shortLabel: `D${i + 1}`,
+              start: periodStart,
+              end: periodEnd
+            })
+          }
+          break
+        case 'weeks':
+          for (let i = 0; i < lookAheadPeriodCount; i++) {
+            const periodStart = new Date(startDate)
+            // Start from Monday
+            const dayOfWeek = periodStart.getDay()
+            const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1
+            periodStart.setDate(startDate.getDate() - diff + (i * 7))
+            periodStart.setHours(0, 0, 0, 0)
+            
+            const periodEnd = new Date(periodStart)
+            periodEnd.setDate(periodStart.getDate() + 6)
+            periodEnd.setHours(23, 59, 59, 999)
+            
+            periods.push({
+              label: `Week ${i + 1} (${periodStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${periodEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`,
+              shortLabel: `W${i + 1}`,
+              start: periodStart,
+              end: periodEnd
+            })
+          }
+          break
+        case 'months':
+          for (let i = 0; i < lookAheadPeriodCount; i++) {
+            const periodStart = new Date(startDate)
+            periodStart.setMonth(startDate.getMonth() + i)
+            periodStart.setDate(1)
+            periodStart.setHours(0, 0, 0, 0)
+            
+            const periodEnd = new Date(periodStart)
+            periodEnd.setMonth(periodStart.getMonth() + 1)
+            periodEnd.setDate(0)
+            periodEnd.setHours(23, 59, 59, 999)
+            
+            periods.push({
+              label: periodStart.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+              shortLabel: periodStart.toLocaleDateString('en-US', { month: 'short' }),
+              start: periodStart,
+              end: periodEnd
+            })
+          }
+          break
       }
     }
     
-    return quantity * rate
-  }, [])
+    return periods
+  }, [lookAheadDateMode, lookAheadPeriodType, lookAheadPeriodCount, futureDateRange])
 
-  // ✅ PERFORMANCE: Memoize calculateKPIPlannedValuePerMonth
-  const calculateKPIPlannedValuePerMonth = useCallback((project: Project, analytics: any): number[] => {
-      const projectKPIs = analytics.kpis || []
-      
-      return lookAheadMonths.map((_, monthIndex) => {
-        const monthDate = new Date()
-        monthDate.setMonth(monthDate.getMonth() + monthIndex)
-        const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1)
-        const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0)
-        monthEnd.setHours(23, 59, 59, 999)
-
-        // Get KPI Planned for this month
-        const plannedKPIsInMonth = projectKPIs.filter((kpi: any) => {
-          // Check if it's Planned
-          const inputType = String(
-            kpi.input_type || 
-            kpi['Input Type'] || 
-            (kpi as any).raw?.['Input Type'] || 
-            (kpi as any).raw?.['input_type'] ||
-            ''
-          ).trim().toLowerCase()
-          
-          if (inputType !== 'planned') {
-            return false
-          }
-          
-          // Check if date is in this month
-          const kpiDateStr = kpi.activity_date || kpi.target_date || ''
-          if (!kpiDateStr) return false
-          
-          try {
-            const kpiDate = new Date(kpiDateStr)
-            return kpiDate >= monthStart && kpiDate <= monthEnd
-          } catch {
-            return false
-          }
-        })
-
-        // Calculate value from KPI Planned
-        return plannedKPIsInMonth.reduce((sum: number, kpi: any) => {
-          // Find related activity for rate calculation
-          const relatedActivity = activities.find((a: BOQActivity) => {
-            const activityFullCode = (a.project_full_code || '').toString().trim()
-            const projectFullCode = (project.project_full_code || '').toString().trim()
-            const activityName = (a.activity_name || a.activity || '').toString().trim()
-            const kpiActivityName = (kpi.activity_name || '').toString().trim()
-            
-            return activityFullCode === projectFullCode && 
-                   activityName === kpiActivityName
-          })
-          
-          const value = getKPIValue(kpi, relatedActivity)
-          return sum + value
-        }, 0)
-      })
-  }, [lookAheadMonths, activities, getKPIValue])
-
-  // Filter projects with Remaining Value > 0
-  const projectsWithRemainingValue = useMemo(() => {
-    return allAnalytics.filter((analytics: any) => {
-      const totalValue = analytics.totalValue || 0
-      const earnedValue = analytics.totalEarnedValue || 0
-      const remainingValue = totalValue - earnedValue
-      return remainingValue > 0
+  // ✅ Calculate forecast value per period for each project
+  const calculateForecastValuePerPeriod = useCallback((lookAhead: ProjectLookAhead, period: { start: Date; end: Date }): number => {
+    let totalForecastValue = 0
+    
+    // Get project activities
+    const project = filteredProjects.find((p: Project) => p.id === lookAhead.projectId)
+    if (!project) return 0
+    
+    const projectActivities = activities.filter((a: BOQActivity) => {
+      const activityFullCode = (a.project_full_code || a.project_code || '').toString().trim().toUpperCase()
+      const projectFullCode = (project.project_full_code || project.project_code || '').toString().trim().toUpperCase()
+      return activityFullCode === projectFullCode
     })
+    
+    // Calculate working days in period (excluding Friday and Saturday)
+    const periodStart = new Date(period.start)
+    const periodEnd = new Date(period.end)
+    let workingDays = 0
+    const current = new Date(periodStart)
+    
+    while (current <= periodEnd) {
+      const dayOfWeek = current.getDay()
+      if (dayOfWeek !== 5 && dayOfWeek !== 6) { // Exclude Friday (5) and Saturday (6)
+        workingDays++
+      }
+      current.setDate(current.getDate() + 1)
+    }
+    
+    // For each activity, calculate forecast value for this period
+    lookAhead.activities.forEach((activityLookAhead) => {
+      const activity = activityLookAhead.activity
+      const rawActivity = (activity as any).raw || {}
+      
+      // Skip if activity is already completed
+      if (activityLookAhead.isCompleted) return
+      
+      // Skip if activity completion date is before period start
+      if (activityLookAhead.completionDate && activityLookAhead.completionDate < periodStart) return
+      
+      // Get productivity (Actual or Planned)
+      const productivity = activityLookAhead.actualProductivity > 0 
+        ? activityLookAhead.actualProductivity 
+        : activityLookAhead.plannedProductivity
+      
+      if (productivity <= 0) return
+      
+      // Calculate working days for this activity in this period
+      // If activity completes during this period, only count days until completion
+      let activityWorkingDays = workingDays
+      if (activityLookAhead.completionDate && activityLookAhead.completionDate <= periodEnd) {
+        // Activity completes during this period - count only days until completion
+        activityWorkingDays = 0
+        const current = new Date(periodStart)
+        const completionDate = new Date(activityLookAhead.completionDate)
+        completionDate.setHours(23, 59, 59, 999)
+        
+        while (current <= completionDate && current <= periodEnd) {
+          const dayOfWeek = current.getDay()
+          if (dayOfWeek !== 5 && dayOfWeek !== 6) { // Exclude Friday (5) and Saturday (6)
+            activityWorkingDays++
+          }
+          current.setDate(current.getDate() + 1)
+        }
+      } else if (activityLookAhead.completionDate && activityLookAhead.completionDate > periodEnd) {
+        // Activity continues beyond this period - use full period working days
+        activityWorkingDays = workingDays
+      }
+      
+      // Calculate forecast quantity for this period
+      let forecastQuantity = productivity * activityWorkingDays
+      
+      // Cap forecast quantity to remaining units
+      if (forecastQuantity > activityLookAhead.remainingUnits) {
+        forecastQuantity = activityLookAhead.remainingUnits
+      }
+      
+      // Get activity rate
+      let rate = 0
+      const totalValueFromActivity = activity.total_value || 
+                                   parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                   0
+      const totalUnits = activity.total_units || 
+                      activity.planned_units ||
+                      parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                      0
+      
+      if (totalUnits > 0 && totalValueFromActivity > 0) {
+        rate = totalValueFromActivity / totalUnits
+      } else {
+        rate = activity.rate || 
+              parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+              0
+      }
+      
+      // Calculate forecast value
+      if (rate > 0 && forecastQuantity > 0) {
+        totalForecastValue += forecastQuantity * rate
+      }
+    })
+    
+    return totalForecastValue
+  }, [filteredProjects, activities])
+
+  // ✅ Filter projects that will complete within the future date range
+  // ✅ IMPORTANT: Only show projects with remaining work (not completed)
+  // ✅ Principle: Projects are shown based on remaining quantities and actual productivity
+  // ✅ Completed projects (no remaining work) should NOT appear
+  const filteredProjectsLookAhead = useMemo(() => {
+    return projectsLookAhead.filter((lookAhead: ProjectLookAhead) => {
+      // ✅ CRITICAL CHECK: Project must have at least one activity with remaining work
+      // This ensures completed projects (all activities finished) are excluded
+      const hasRemainingWork = lookAhead.activities.some((activity) => {
+        return activity.remainingUnits > 0 && !activity.isCompleted
+      })
+      
+      // ✅ Exclude completed projects (no remaining work)
+      if (!hasRemainingWork) return false
+      
+      // ✅ Date range filter: Show projects completing within the selected period
+      // If project has completion date, it should be within the future date range
+      if (lookAhead.latestCompletionDate) {
+        return lookAhead.latestCompletionDate >= futureDateRange.start && 
+               lookAhead.latestCompletionDate <= futureDateRange.end
+      }
+      
+      // ✅ If no completion date but has remaining work, include it (project is still active)
+      // This handles cases where productivity calculation hasn't determined a completion date yet
+      return true
+    })
+  }, [projectsLookAhead, futureDateRange])
+
+
+  // ✅ Get analytics for summary cards
+  const allAnalytics = useMemo(() => {
+    return getAllProjectsAnalytics(filteredProjects, activities, kpis)
+  }, [filteredProjects, activities, kpis])
+  
+  // ✅ Show all active projects (not just those with Remaining Value > 0)
+  // This ensures all active projects are visible, even if they have 0 remaining value
+  const projectsWithRemainingValue = useMemo(() => {
+    // Return all analytics (all active projects from filteredProjects)
+    // The Remaining Value calculation will show 0 for completed projects, which is correct
+    return allAnalytics
   }, [allAnalytics])
 
-  // Calculate totals
+  // Calculate totals for summary cards
   const totals = useMemo(() => {
     const totalContractValue = projectsWithRemainingValue.reduce((sum: number, a: any) => sum + (a.totalContractValue || 0), 0)
     const totalEarnedValue = projectsWithRemainingValue.reduce((sum: number, a: any) => sum + (a.totalEarnedValue || 0), 0)
@@ -4083,24 +4343,12 @@ function LookaheadReportView({ activities, projects, formatCurrency }: any) {
       return sum + (totalValue - earnedValue)
     }, 0)
 
-    // Calculate Look Ahead Revenue from KPI Planned per month
-    const lookAheadRevenueByMonth = lookAheadMonths.map((_: string, monthIndex: number) => {
-      return projectsWithRemainingValue.reduce((sum: number, analytics: any) => {
-        const project = analytics.project
-        const kpiPlannedValues = calculateKPIPlannedValuePerMonth(project, analytics)
-        return sum + kpiPlannedValues[monthIndex]
-      }, 0)
-    })
-    const totalLookAheadRevenue = lookAheadRevenueByMonth.reduce((sum: number, val: number) => sum + val, 0)
-
     return {
       totalContractValue,
       totalEarnedValue,
-      totalRemainingValue,
-      lookAheadRevenueByMonth,
-      totalLookAheadRevenue
+      totalRemainingValue
     }
-  }, [projectsWithRemainingValue, lookAheadMonths, calculateKPIPlannedValuePerMonth])
+  }, [projectsWithRemainingValue])
 
   if (loading) {
     return (
@@ -4113,23 +4361,121 @@ function LookaheadReportView({ activities, projects, formatCurrency }: any) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-2xl font-bold text-gray-900 dark:text-white">LookAhead Planning Report</h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            Data Range: {lookAheadMonths[0]} - {lookAheadMonths[lookAheadMonths.length - 1]}
-          </p>
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-2xl font-bold text-gray-900 dark:text-white">LookAhead Planning Report</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              Project completion forecast based on Actual Productivity (Remaining Quantity ÷ Actual Productivity)
+            </p>
+          </div>
+          <select
+            value={selectedDivision}
+            onChange={(e) => setSelectedDivision(e.target.value)}
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+          >
+            <option value="">All Divisions</option>
+            {(divisions as string[]).map((div: string) => (
+              <option key={div} value={div}>{div}</option>
+            ))}
+          </select>
         </div>
-        <select
-          value={selectedDivision}
-          onChange={(e) => setSelectedDivision(e.target.value)}
-          className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-        >
-          <option value="">All Divisions</option>
-          {(divisions as string[]).map((div: string) => (
-            <option key={div} value={div}>{div}</option>
-          ))}
-        </select>
+        
+        {/* Future Period Selection */}
+        <div className="flex flex-col gap-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+          {/* Mode Selection */}
+          <div className="flex items-center gap-4">
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">
+              Filter by:
+            </label>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setLookAheadDateMode('period')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  lookAheadDateMode === 'period'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600'
+                }`}
+              >
+                Period Count
+              </button>
+              <button
+                type="button"
+                onClick={() => setLookAheadDateMode('dates')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  lookAheadDateMode === 'dates'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600'
+                }`}
+              >
+                Custom Dates
+              </button>
+            </div>
+          </div>
+
+          {/* Period Count Mode */}
+          {lookAheadDateMode === 'period' && (
+            <div className="flex items-center gap-4">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                Show projects completing in the next:
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  value={lookAheadPeriodCount}
+                  onChange={(e) => {
+                    const value = parseInt(e.target.value) || 1
+                    setLookAheadPeriodCount(Math.max(1, Math.min(100, value)))
+                  }}
+                  className="w-20 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-center"
+                />
+                <select
+                  value={lookAheadPeriodType}
+                  onChange={(e) => setLookAheadPeriodType(e.target.value as 'days' | 'weeks' | 'months')}
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                >
+                  <option value="days">Days</option>
+                  <option value="weeks">Weeks</option>
+                  <option value="months">Months</option>
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* Custom Dates Mode */}
+          {lookAheadDateMode === 'dates' && (
+            <div className="flex items-center gap-4">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                Show projects completing between:
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={lookAheadStartDate}
+                  onChange={(e) => setLookAheadStartDate(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                />
+                <span className="text-sm text-gray-600 dark:text-gray-400">and</span>
+                <input
+                  type="date"
+                  value={lookAheadEndDate}
+                  onChange={(e) => setLookAheadEndDate(e.target.value)}
+                  min={lookAheadStartDate || undefined}
+                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Date Range Display */}
+          <div className="text-sm text-gray-600 dark:text-gray-400 pt-2 border-t border-gray-200 dark:border-gray-700">
+            <span className="font-medium">Date Range:</span>{' '}
+            {futureDateRange.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - {futureDateRange.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+          </div>
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -4184,68 +4530,80 @@ function LookaheadReportView({ activities, projects, formatCurrency }: any) {
         </Card>
       </div>
 
-      {/* Projects Forecast Table */}
+      {/* Projects LookAhead Table - Based on Remaining Quantity / Actual Productivity */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <BarChart3 className="h-5 w-5 text-blue-500" />
-            SUM of Forecast Value - Active Projects (Next 3 Months)
+            Project Completion Forecast - Based on Actual Productivity
           </CardTitle>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            Projects that are on-going or upcoming with remaining value. Values are based on KPI Planned for each month.
+            Completion dates calculated from: Remaining Quantity ÷ Actual Productivity (Actual Quantity / Actual Days). For each activity, then the latest activity completion date determines the project completion date.
           </p>
         </CardHeader>
         <CardContent>
-      <div className="overflow-x-auto">
+          <div className="overflow-x-auto">
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr className="bg-gray-100 dark:bg-gray-800 border-b-2 border-gray-300 dark:border-gray-600">
-                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold">Project Full Name</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold sticky left-0 bg-gray-100 dark:bg-gray-800 z-10">Project Full Name</th>
                   <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold">Project Status</th>
                   <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold">Contract Value</th>
                   <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold">Earned Value</th>
                   <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold">Remaining Value</th>
-                  {lookAheadMonths.map(month => (
-                    <th key={month} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold">{month}</th>
+                  {lookAheadPeriods.map((period, index) => (
+                    <th key={index} className="border border-gray-300 dark:border-gray-600 px-3 py-3 text-center font-semibold min-w-[120px]">
+                      <div className="flex flex-col">
+                        <span className="text-xs font-bold">{period.shortLabel}</span>
+                        <span className="text-xs font-normal mt-1">{period.label}</span>
+                      </div>
+                    </th>
                   ))}
-                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold">Grand Total</th>
-            </tr>
-          </thead>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold">Completion Date</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold">Remaining Days</th>
+                </tr>
+              </thead>
               <tbody>
-                {projectsWithRemainingValue.length === 0 ? (
+                {filteredProjectsLookAhead.length === 0 ? (
                   <tr>
-                    <td colSpan={7 + lookAheadMonths.length} className="border border-gray-300 dark:border-gray-600 px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                    <td colSpan={6 + lookAheadPeriods.length + 2} className="border border-gray-300 dark:border-gray-600 px-4 py-8 text-center text-gray-500 dark:text-gray-400">
                       <div className="flex flex-col items-center gap-2">
                         <AlertTriangle className="h-8 w-8 text-gray-400" />
-                        <p>No active projects with remaining value found</p>
-                        <p className="text-xs">Projects with Remaining Value = 0 are not displayed</p>
+                        <p>No projects found completing in the selected period</p>
+                        <p className="text-xs">
+                          Showing projects completing between {futureDateRange.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} and {futureDateRange.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </p>
                       </div>
                     </td>
                   </tr>
                 ) : (
-                  projectsWithRemainingValue.map((analytics: any) => {
-                    const project = analytics.project
-                    // Remaining Value = Total Value - Earned Value (من KPIs)
-                    const totalValue = analytics.totalValue || 0
-                    const earnedValue = analytics.totalEarnedValue || 0
-                    const remainingValue = totalValue - earnedValue
-                    const contractValue = analytics.totalContractValue || project.contract_amount || 0
+                  filteredProjectsLookAhead.map((lookAhead: ProjectLookAhead) => {
+                    // Find project from filteredProjects
+                    const project = filteredProjects.find((p: Project) => p.id === lookAhead.projectId)
+                    if (!project) return null
                     
-                    // Get KPI Planned values per month
-                    const kpiPlannedValues = calculateKPIPlannedValuePerMonth(project, analytics)
-
-              return (
+                    // Get analytics for this project
+                    const analytics = allAnalytics.find((a: any) => a.project.id === project.id)
+                    const totalValue = analytics?.totalValue || 0
+                    const earnedValue = analytics?.totalEarnedValue || 0
+                    const remainingValue = totalValue - earnedValue
+                    const contractValue = analytics?.totalContractValue || project.contract_amount || 0
+                    
+                    // Calculate total remaining days (max from all activities)
+                    const totalRemainingDays = Math.max(...lookAhead.activities.map(a => a.remainingDays), 0)
+                    
+                    return (
                       <tr key={project.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3">
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 sticky left-0 bg-white dark:bg-gray-900 z-10">
                           <div>
                             <p className="font-semibold text-gray-900 dark:text-white">
-                              {project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`}
+                              {lookAhead.projectCode}
                             </p>
                             <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                              {project.project_name}
+                              {lookAhead.projectName}
                             </p>
                           </div>
-                  </td>
+                        </td>
                         <td className="border border-gray-300 dark:border-gray-600 px-4 py-3">
                           <span className={`px-2 py-1 rounded text-xs font-medium ${
                             project.project_status === 'on-going' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
@@ -4255,66 +4613,157 @@ function LookaheadReportView({ activities, projects, formatCurrency }: any) {
                           }`}>
                             {project.project_status?.replace('-', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()) || 'N/A'}
                           </span>
-                  </td>
+                        </td>
                         <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right">
                           <span className="font-medium text-gray-900 dark:text-white">
                             {formatCurrency(contractValue, project.currency)}
                           </span>
-                  </td>
+                        </td>
                         <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right">
                           <span className="font-medium text-green-600 dark:text-green-400">
                             {formatCurrency(earnedValue, project.currency)}
-                      </span>
+                          </span>
                         </td>
                         <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right">
                           <span className="font-semibold text-blue-600 dark:text-blue-400">
                             {formatCurrency(remainingValue, project.currency)}
                           </span>
                         </td>
-                        {kpiPlannedValues.map((value: number, index: number) => (
-                          <td key={index} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right">
-                            {value > 0 ? (
-                              <span className="font-medium text-blue-600 dark:text-blue-400">
-                                {formatCurrency(value, project.currency)}
-                              </span>
-                            ) : (
-                              <span className="text-gray-400">-</span>
-                            )}
-                          </td>
-                        ))}
-                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right">
-                          <span className="font-bold text-gray-900 dark:text-white">
-                            {formatCurrency(remainingValue, project.currency)}
-                          </span>
-                  </td>
-                </tr>
-              )
+                        {lookAheadPeriods.map((period, index) => {
+                          // Calculate forecast value for this period
+                          const forecastValue = calculateForecastValuePerPeriod(lookAhead, period)
+                          
+                          // Check if project completion date falls within this period
+                          const isInPeriod = lookAhead.latestCompletionDate && 
+                            lookAhead.latestCompletionDate >= period.start && 
+                            lookAhead.latestCompletionDate <= period.end
+                          
+                          return (
+                            <td key={index} className="border border-gray-300 dark:border-gray-600 px-3 py-3 text-center">
+                              {forecastValue > 0 ? (
+                                <div className="flex flex-col items-center gap-1">
+                                  <span className="font-semibold text-blue-600 dark:text-blue-400 text-sm">
+                                    {formatCurrency(forecastValue, project.currency)}
+                                  </span>
+                                  {isInPeriod && (
+                                    <div className="flex items-center gap-1 mt-0.5">
+                                      <span className="text-xs text-green-600 dark:text-green-400">✓</span>
+                                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                                        {lookAhead.latestCompletionDate?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-gray-300 dark:text-gray-600">-</span>
+                              )}
+                            </td>
+                          )
+                        })}
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center">
+                          {lookAhead.latestCompletionDate ? (
+                            <span className="font-medium text-blue-600 dark:text-blue-400">
+                              {lookAhead.latestCompletionDate.toLocaleDateString('en-US', { 
+                                year: 'numeric', 
+                                month: 'short', 
+                                day: 'numeric' 
+                              })}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )}
+                        </td>
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center">
+                          {totalRemainingDays > 0 ? (
+                            <span className="font-medium text-orange-600 dark:text-orange-400">
+                              {totalRemainingDays} days
+                            </span>
+                          ) : (
+                            <span className="text-green-600 dark:text-green-400 font-medium">Completed</span>
+                          )}
+                        </td>
+                      </tr>
+                    )
                   })
                 )}
-          </tbody>
-              {projectsWithRemainingValue.length > 0 && (
-                <tfoot>
-                  <tr className="bg-gray-100 dark:bg-gray-800 font-bold border-t-2 border-gray-300 dark:border-gray-600">
-                    <td colSpan={5} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right">
-                      Total:
+                {/* Grand Total Row */}
+                {filteredProjectsLookAhead.length > 0 && (
+                  <tr className="bg-gray-100 dark:bg-gray-800 font-bold border-t-2 border-gray-400 dark:border-gray-500">
+                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 sticky left-0 bg-gray-100 dark:bg-gray-800 z-10">
+                      <span className="text-gray-900 dark:text-white">Grand Total</span>
                     </td>
-                    {totals.lookAheadRevenueByMonth.map((value, index) => (
-                      <td key={index} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right">
-                        <span className="text-blue-600 dark:text-blue-400">
-                          {formatCurrency(value)}
-                        </span>
-                      </td>
-                    ))}
+                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-3">
+                      <span className="text-gray-500 dark:text-gray-400">-</span>
+                    </td>
                     <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right">
                       <span className="text-gray-900 dark:text-white">
-                        {formatCurrency(totals.totalRemainingValue)}
+                        {formatCurrency(
+                          filteredProjectsLookAhead.reduce((sum: number, lookAhead: ProjectLookAhead) => {
+                            const project = filteredProjects.find((p: Project) => p.id === lookAhead.projectId)
+                            if (!project) return sum
+                            const analytics = allAnalytics.find((a: any) => a.project.id === project.id)
+                            return sum + (analytics?.totalContractValue || project.contract_amount || 0)
+                          }, 0)
+                        )}
                       </span>
                     </td>
+                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right">
+                      <span className="text-green-600 dark:text-green-400">
+                        {formatCurrency(
+                          filteredProjectsLookAhead.reduce((sum: number, lookAhead: ProjectLookAhead) => {
+                            const project = filteredProjects.find((p: Project) => p.id === lookAhead.projectId)
+                            if (!project) return sum
+                            const analytics = allAnalytics.find((a: any) => a.project.id === project.id)
+                            const totalValue = analytics?.totalValue || 0
+                            const earnedValue = analytics?.totalEarnedValue || 0
+                            return sum + earnedValue
+                          }, 0)
+                        )}
+                      </span>
+                    </td>
+                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right">
+                      <span className="text-blue-600 dark:text-blue-400">
+                        {formatCurrency(
+                          filteredProjectsLookAhead.reduce((sum: number, lookAhead: ProjectLookAhead) => {
+                            const project = filteredProjects.find((p: Project) => p.id === lookAhead.projectId)
+                            if (!project) return sum
+                            const analytics = allAnalytics.find((a: any) => a.project.id === project.id)
+                            const totalValue = analytics?.totalValue || 0
+                            const earnedValue = analytics?.totalEarnedValue || 0
+                            return sum + (totalValue - earnedValue)
+                          }, 0)
+                        )}
+                      </span>
+                    </td>
+                    {lookAheadPeriods.map((period, index) => {
+                      // Calculate total forecast value for this period across all projects
+                      const totalForecastValue = filteredProjectsLookAhead.reduce((sum: number, lookAhead: ProjectLookAhead) => {
+                        return sum + calculateForecastValuePerPeriod(lookAhead, period)
+                      }, 0)
+                      
+                      return (
+                        <td key={index} className="border border-gray-300 dark:border-gray-600 px-3 py-3 text-center">
+                          {totalForecastValue > 0 ? (
+                            <span className="font-bold text-blue-600 dark:text-blue-400">
+                              {formatCurrency(totalForecastValue)}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )}
+                        </td>
+                      )
+                    })}
+                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center">
+                      <span className="text-gray-500 dark:text-gray-400">-</span>
+                    </td>
+                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center">
+                      <span className="text-gray-500 dark:text-gray-400">-</span>
+                    </td>
                   </tr>
-                </tfoot>
-              )}
-        </table>
-      </div>
+                )}
+              </tbody>
+            </table>
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -4335,8 +4784,12 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
   const [hideZeroProjects, setHideZeroProjects] = useState<boolean>(false)
   const [hideDivisionsColumn, setHideDivisionsColumn] = useState<boolean>(false)
   const [hideTotalContractColumn, setHideTotalContractColumn] = useState<boolean>(false)
+  const [hideVirtualMaterialColumn, setHideVirtualMaterialColumn] = useState<boolean>(false)
   const [chartType, setChartType] = useState<'line' | 'bar' | 'area' | 'composed'>('line')
   const [showChartExportMenu, setShowChartExportMenu] = useState<boolean>(false)
+  // ✅ Outer Range: للفترة قبل الفترة المحددة (مثال: من 1/1 إلى بداية الفترة المحددة)
+  const [outerRangeStart, setOuterRangeStart] = useState<string>('')
+  const [showOuterRangeColumn, setShowOuterRangeColumn] = useState<boolean>(false)
   const chartRef = useRef<HTMLDivElement>(null)
   const chartExportMenuRef = useRef<HTMLDivElement>(null)
 
@@ -5277,18 +5730,226 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
   }, [filteredProjects, activities, kpis])
 
   // ✅ PERFORMANCE: Pre-calculate period values for all projects once
+  // ✅ Calculate value before the selected date range (Outer Range)
+  const calculateOuterRangeValue = useCallback((project: Project, analytics: any): number => {
+    // If outer range is not configured, return 0
+    if (!outerRangeStart) return 0
+    
+    // ✅ Get periods to use first period start as fallback if dateRange.start is not set
+    const periods = getPeriodsInRange
+    const outerRangeEndDate = dateRange.start || (periods.length > 0 ? periods[0].start.toISOString().split('T')[0] : null)
+    
+    if (!outerRangeEndDate) return 0
+    
+    // ✅ PERFORMANCE: Use pre-filtered KPIs instead of filtering every time
+    const projectKPIs = projectKPIsMap.get(project.id)
+    const allProjectKPIs = projectKPIs?.actual || []
+    
+    try {
+      const outerStart = new Date(outerRangeStart)
+      const outerEnd = new Date(outerRangeEndDate)
+      outerStart.setHours(0, 0, 0, 0)
+      outerEnd.setHours(23, 59, 59, 999)
+      
+      // ✅ For current/future periods, use today as the end date instead of outerEnd
+      const effectiveOuterEnd = outerEnd > today ? today : outerEnd
+      
+      // Get KPI Actual for outer range period
+      const actualKPIsInOuterRange = allProjectKPIs.filter((kpi: any) => {
+        const inputType = String(
+          kpi.input_type || 
+          kpi['Input Type'] || 
+          (kpi as any).raw?.['Input Type'] || 
+          (kpi as any).raw?.['input_type'] ||
+          ''
+        ).trim().toLowerCase()
+        
+        if (inputType !== 'actual') return false
+        
+        // ✅ Use EXACT SAME LOGIC as calculatePeriodEarnedValue
+        const rawKPIDate = (kpi as any).raw || {}
+        const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
+        const actualDateValue = (kpi as any).actual_date || rawKPIDate['Actual Date'] || ''
+        const targetDateValue = kpi.target_date || rawKPIDate['Target Date'] || ''
+        const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
+        
+        let kpiDateStr = ''
+        if (kpi.input_type === 'Actual' && actualDateValue) {
+          kpiDateStr = actualDateValue
+        } else if (kpi.input_type === 'Planned' && targetDateValue) {
+          kpiDateStr = targetDateValue
+        } else if (dayValue) {
+          kpiDateStr = activityDateValue || dayValue
+        } else {
+          kpiDateStr = activityDateValue || actualDateValue || targetDateValue
+        }
+        
+        if (!kpiDateStr) return false
+        
+        try {
+          const kpiDate = new Date(kpiDateStr)
+          if (isNaN(kpiDate.getTime())) return false
+          
+          kpiDate.setHours(0, 0, 0, 0)
+          
+          const normalizedOuterStart = new Date(outerStart)
+          normalizedOuterStart.setHours(0, 0, 0, 0)
+          
+          const normalizedOuterEnd = new Date(effectiveOuterEnd)
+          normalizedOuterEnd.setHours(23, 59, 59, 999)
+          
+          // Check if KPI date is within outer range
+          const inRange = kpiDate >= normalizedOuterStart && kpiDate <= normalizedOuterEnd
+          
+          return inRange
+        } catch {
+          return false
+        }
+      })
+      
+      // ✅ Calculate value using EXACT SAME LOGIC as calculatePeriodEarnedValue
+      const projectActivities = analytics.activities || []
+      
+      return actualKPIsInOuterRange.reduce((sum: number, kpi: any) => {
+        try {
+          const rawKpi = (kpi as any).raw || {}
+          const quantityValue = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
+          
+          let financialValue = 0
+          
+          const kpiActivityName = (kpi.activity_name || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
+          const kpiProjectFullCode = (kpi.project_full_code || kpi.project_code || '').toLowerCase().trim()
+          const kpiProjectCode = (kpi.project_code || '').toLowerCase().trim()
+          
+          const kpiZoneRaw = (kpi.zone || rawKpi['Zone'] || rawKpi['Zone Number'] || '').toString().trim()
+          let kpiZone = kpiZoneRaw.toLowerCase().trim()
+          if (kpiZone && kpiProjectCode) {
+            const projectCodeUpper = kpiProjectCode.toUpperCase()
+            kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+            kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
+            kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
+          }
+          if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
+          
+          let relatedActivity: BOQActivity | undefined = undefined
+          
+          if (kpiActivityName && kpiProjectFullCode && kpiZone) {
+            relatedActivity = projectActivities.find((a: BOQActivity) => {
+              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
+              const rawActivity = (a as any).raw || {}
+              const activityZone = (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+              return activityName === kpiActivityName && 
+                     activityProjectFullCode === kpiProjectFullCode &&
+                     (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
+            })
+          }
+          
+          if (!relatedActivity && kpiActivityName && kpiProjectFullCode) {
+            relatedActivity = projectActivities.find((a: BOQActivity) => {
+              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
+              return activityName === kpiActivityName && activityProjectFullCode === kpiProjectFullCode
+            })
+          }
+          
+          if (!relatedActivity && kpiActivityName && kpiProjectCode) {
+            relatedActivity = projectActivities.find((a: BOQActivity) => {
+              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+              const activityProjectCode = (a.project_code || '').toLowerCase().trim()
+              return activityName === kpiActivityName && activityProjectCode === kpiProjectCode
+            })
+          }
+          
+          if (relatedActivity) {
+            const rawActivity = (relatedActivity as any).raw || {}
+            
+            const totalValueFromActivity = relatedActivity.total_value || 
+                                         parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                         0
+            
+            const totalUnits = relatedActivity.total_units || 
+                            relatedActivity.planned_units ||
+                            parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                            0
+            
+            let rate = 0
+            if (totalUnits > 0 && totalValueFromActivity > 0) {
+              rate = totalValueFromActivity / totalUnits
+            } else {
+              rate = relatedActivity.rate || 
+                    parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+                    0
+            }
+            
+            if (rate > 0 && quantityValue > 0) {
+              financialValue = quantityValue * rate
+              if (financialValue > 0) {
+                return sum + financialValue
+              }
+            }
+          }
+          
+          if (financialValue === 0) {
+            let kpiValue = 0
+            
+            if (rawKpi['Value'] !== undefined && rawKpi['Value'] !== null) {
+              const val = rawKpi['Value']
+              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+            }
+            
+            if (kpiValue === 0 && rawKpi.value !== undefined && rawKpi.value !== null) {
+              const val = rawKpi.value
+              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+            }
+            
+            if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
+              const val = kpi.value
+              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+            }
+            
+            if (kpiValue > 0) {
+              financialValue = kpiValue
+              return sum + financialValue
+            }
+          }
+          
+          if (financialValue === 0) {
+            const actualValue = (kpi.actual_value ?? 
+                               parseFloat(String(rawKpi['Actual Value'] || '0').replace(/,/g, ''))) || 
+                               0
+            
+            if (actualValue > 0) {
+              financialValue = actualValue
+              return sum + financialValue
+            }
+          }
+          
+          return sum
+        } catch (error) {
+          console.error('[Outer Range] Error calculating KPI value:', error, { kpi, project })
+          return sum
+        }
+      }, 0)
+    } catch (error) {
+      console.error('[Outer Range] Error calculating outer range value:', error)
+      return 0
+    }
+  }, [outerRangeStart, dateRange.start, today, projectKPIsMap, getPeriodsInRange])
+
   const periodValuesCache = useMemo(() => {
-    const cache = new Map<string, { earned: number[], planned: number[] }>()
+    const cache = new Map<string, { earned: number[], planned: number[], outerRangeValue: number }>()
     
     allAnalytics.forEach((analytics: any) => {
       const projectId = analytics.project.id
       const earnedValues = calculatePeriodEarnedValue(analytics.project, analytics)
       const plannedValues = viewPlannedValue ? calculatePeriodPlannedValue(analytics.project, analytics) : []
-      cache.set(projectId, { earned: earnedValues, planned: plannedValues })
+      const outerRangeValue = showOuterRangeColumn ? calculateOuterRangeValue(analytics.project, analytics) : 0
+      cache.set(projectId, { earned: earnedValues, planned: plannedValues, outerRangeValue })
     })
     
     return cache
-  }, [allAnalytics, calculatePeriodEarnedValue, calculatePeriodPlannedValue, viewPlannedValue])
+  }, [allAnalytics, calculatePeriodEarnedValue, calculatePeriodPlannedValue, viewPlannedValue, showOuterRangeColumn, calculateOuterRangeValue])
 
   // ✅ FIX: Show ALL projects from allAnalytics, regardless of date range or KPIs
   // The date range filter only affects which weeks show data in the table, not which projects are displayed
@@ -5514,15 +6175,53 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
     
     const grandTotalEarnedValue = periodEarnedValueTotals.reduce((sum, val) => sum + val, 0)
     const grandTotalPlannedValue = periodPlannedValueTotals.reduce((sum, val) => sum + val, 0)
+    
+    // Calculate total Virtual Material Amount from all projects
+    const totalVirtualMaterialAmount = projectsWithWorkInRange.reduce((sum: number, analytics: any) => {
+      const project = analytics.project
+      const cachedValues = periodValuesCache.get(project.id)
+      const periodValues = cachedValues?.earned || []
+      const grandTotal = periodValues.reduce((s: number, val: number) => s + val, 0)
+      
+      // Get Virtual Material Value from project (as PERCENTAGE)
+      let virtualMaterialPercentage = 0
+      const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
+      
+      if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
+        // Clean the value (remove %, commas, spaces)
+        let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
+        
+        // Parse as number
+        const parsedValue = parseFloat(cleanedValue)
+        if (!isNaN(parsedValue)) {
+          // If value is between 0 and 1, treat as decimal (0.15 = 15%)
+          // Otherwise, treat as percentage (15 = 15%)
+          if (parsedValue > 0 && parsedValue <= 1) {
+            virtualMaterialPercentage = parsedValue * 100
+          } else {
+            virtualMaterialPercentage = parsedValue
+          }
+        }
+      }
+      
+      // Calculate Virtual Material Amount from Grand Total
+      if (grandTotal > 0 && virtualMaterialPercentage > 0) {
+        return sum + (grandTotal * (virtualMaterialPercentage / 100))
+      }
+      
+      return sum
+    }, 0)
+    
     return { 
       totalContractValue, 
       totalEarnedValue, 
       periodEarnedValueTotals, 
       periodPlannedValueTotals,
       grandTotalEarnedValue,
-      grandTotalPlannedValue
+      grandTotalPlannedValue,
+      totalVirtualMaterialAmount
     }
-  }, [filteredProjects, kpis, periods, periodValuesCache])
+  }, [filteredProjects, kpis, periods, periodValuesCache, projectsWithWorkInRange])
 
   // Export to Excel function with advanced formatting
   const handleExportPeriodRevenue = useCallback(async () => {
@@ -5544,7 +6243,17 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
         'Divisions': 'Divisions',
         'Workmanship?': 'Workmanship?',
         'Total Contract Amount': 'Total Contract Amount',
-        'Division Contract Amount': 'Division Contract Amount'
+        'Division Contract Amount': 'Division Contract Amount',
+        'Virtual Material': 'Virtual Material'
+      }
+      
+      // ✅ Add Outer Range column if enabled
+      if (showOuterRangeColumn && outerRangeStart) {
+        const outerRangeEndDate = dateRange.start || (periods.length > 0 ? periods[0].start.toISOString().split('T')[0] : null)
+        const outerRangeLabel = outerRangeEndDate 
+          ? `Outer Range (${new Date(outerRangeStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${new Date(outerRangeEndDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
+          : 'Outer Range (Before Period)'
+        headerRow['Outer Range'] = outerRangeLabel
       }
       
       // Add period columns
@@ -5606,13 +6315,40 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
         const projectFullCode = project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`
         const projectDisplayName = `${projectFullCode} - ${project.project_name}`
         
+        // Calculate Virtual Material
+        let virtualMaterialPercentage = 0
+        const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
+        
+        if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
+          let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
+          const parsedValue = parseFloat(cleanedValue)
+          if (!isNaN(parsedValue)) {
+            if (parsedValue > 0 && parsedValue <= 1) {
+              virtualMaterialPercentage = parsedValue * 100
+            } else {
+              virtualMaterialPercentage = parsedValue
+            }
+          }
+        }
+        
+        const virtualMaterialAmount = grandTotal > 0 && virtualMaterialPercentage > 0
+          ? grandTotal * (virtualMaterialPercentage / 100)
+          : 0
+        
         // Create row object
         const row: any = {
           'Project Full Name': projectDisplayName,
           'Divisions': divisionsText,
           'Workmanship?': isWorkmanship ? 'Yes' : 'No',
           'Total Contract Amount': totalContractAmount,
-          'Division Contract Amount': divisionContractAmount
+          'Division Contract Amount': divisionContractAmount,
+          'Virtual Material': virtualMaterialAmount
+        }
+        
+        // ✅ Add Outer Range value if enabled
+        if (showOuterRangeColumn && outerRangeStart) {
+          const outerRangeValue = cachedValues?.outerRangeValue || 0
+          row['Outer Range'] = outerRangeValue
         }
         
         // Add period values
@@ -5630,7 +6366,17 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
         'Divisions': '',
         'Workmanship?': '',
         'Total Contract Amount': 0, // Will be replaced with formula
-        'Division Contract Amount': 0 // Will be replaced with formula
+        'Division Contract Amount': 0, // Will be replaced with formula
+        'Virtual Material': totals.totalVirtualMaterialAmount
+      }
+      
+      // ✅ Add Outer Range total if enabled
+      if (showOuterRangeColumn && outerRangeStart) {
+        const totalOuterRangeValue = projectsWithWorkInRange.reduce((sum: number, analytics: any) => {
+          const cachedValues = periodValuesCache.get(analytics.project.id)
+          return sum + (cachedValues?.outerRangeValue || 0)
+        }, 0)
+        totalsRow['Outer Range'] = totalOuterRangeValue // Will be replaced with formula
       }
       
       periodHeaders.forEach((periodLabel, index) => {
@@ -5691,9 +6437,35 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
         }
       }
       
-      // Period columns (starting from column 5, F column)
+      // Column 5: Virtual Material (F column)
+      const virtualMaterialCol = getColLetter(5)
+      const virtualMaterialCell = `${virtualMaterialCol}${totalsRowNum}`
+      if (ws[virtualMaterialCell]) {
+        ws[virtualMaterialCell] = {
+          ...ws[virtualMaterialCell],
+          f: `SUM(${virtualMaterialCol}${dataStartRow}:${virtualMaterialCol}${dataEndRow})`,
+          t: 'n'
+        }
+      }
+      
+      // ✅ Column 6: Outer Range (G column) - if enabled
+      let periodStartCol = 6 // Default: G column (after Virtual Material)
+      if (showOuterRangeColumn && outerRangeStart) {
+        const outerRangeCol = getColLetter(6)
+        const outerRangeCell = `${outerRangeCol}${totalsRowNum}`
+        if (ws[outerRangeCell]) {
+          ws[outerRangeCell] = {
+            ...ws[outerRangeCell],
+            f: `SUM(${outerRangeCol}${dataStartRow}:${outerRangeCol}${dataEndRow})`,
+            t: 'n'
+          }
+        }
+        periodStartCol = 7 // Period columns start from H column
+      }
+      
+      // Period columns (starting from column 6 or 7 depending on Outer Range)
       periodHeaders.forEach((_, periodIndex) => {
-        const periodCol = getColLetter(5 + periodIndex)
+        const periodCol = getColLetter(periodStartCol + periodIndex)
         const periodCell = `${periodCol}${totalsRowNum}`
         if (ws[periodCell]) {
           ws[periodCell] = {
@@ -5705,7 +6477,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
       })
       
       // Grand Total column (last column)
-      const grandTotalCol = getColLetter(5 + periodHeaders.length)
+      const grandTotalCol = getColLetter(periodStartCol + periodHeaders.length)
       const grandTotalCell = `${grandTotalCol}${totalsRowNum}`
       if (ws[grandTotalCell]) {
         ws[grandTotalCell] = {
@@ -5722,8 +6494,8 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
         
         if (ws[grandTotalCellAddr]) {
           // Build SUM formula for all period columns in this row
-          const firstPeriodCol = getColLetter(5)
-          const lastPeriodCol = getColLetter(5 + periodHeaders.length - 1)
+          const firstPeriodCol = getColLetter(periodStartCol)
+          const lastPeriodCol = getColLetter(periodStartCol + periodHeaders.length - 1)
           
           ws[grandTotalCellAddr] = {
             ...ws[grandTotalCellAddr],
@@ -5740,6 +6512,8 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
         { wch: 12 }, // Workmanship?
         { wch: 20 }, // Total Contract Amount
         { wch: 25 }, // Division Contract Amount
+        { wch: 20 }, // Virtual Material
+        ...(showOuterRangeColumn && outerRangeStart ? [{ wch: 20 }] : []), // Outer Range column
         ...weeks.map(() => ({ wch: 18 })), // Week columns
         { wch: 18 }  // Grand Total
       ]
@@ -5825,8 +6599,12 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
           if (!ws[cellAddress]) continue
           
           const colIndex = col
-          // Columns: 0=Project, 1=Divisions, 2=Workmanship, 3=Total Contract, 4=Division Contract, 5+ = Weeks, last = Grand Total
-          const isNumberColumn = colIndex === 3 || colIndex === 4 || (colIndex >= 5 && colIndex < 5 + weeks.length) || colIndex === 5 + weeks.length
+          // Columns: 0=Project, 1=Divisions, 2=Workmanship, 3=Total Contract, 4=Division Contract, 5=Virtual Material, 6=Outer Range (if enabled), 6/7+ = Weeks, last = Grand Total
+          const outerRangeOffset = (showOuterRangeColumn && outerRangeStart) ? 1 : 0
+          const isNumberColumn = colIndex === 3 || colIndex === 4 || colIndex === 5 || 
+                                 (showOuterRangeColumn && outerRangeStart && colIndex === 6) ||
+                                 (colIndex >= 5 + outerRangeOffset && colIndex < 5 + outerRangeOffset + weeks.length) || 
+                                 colIndex === 5 + outerRangeOffset + weeks.length
           
           if (isTotalsRow) {
             if (colIndex === 0) {
@@ -5870,7 +6648,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
       console.error('Error exporting to Excel:', error)
       alert('Failed to export data. Please try again.')
     }
-  }, [projectsWithWorkInRange, periods, totals, divisionsDataMap, dateRange, formatCurrency, kpis, calculatePeriodEarnedValue, calculatePeriodPlannedValue, viewPlannedValue, periodType])
+  }, [projectsWithWorkInRange, periods, totals, divisionsDataMap, dateRange, formatCurrency, kpis, calculatePeriodEarnedValue, calculatePeriodPlannedValue, viewPlannedValue, periodType, showOuterRangeColumn, outerRangeStart, periodValuesCache])
 
   return (
     <div className="space-y-6">
@@ -5904,6 +6682,39 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
               onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
               className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
             />
+          </div>
+          {/* ✅ Outer Range: للفترة قبل الفترة المحددة */}
+          <div className="flex flex-col gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="showOuterRangeColumn"
+                checked={showOuterRangeColumn}
+                onChange={(e) => setShowOuterRangeColumn(e.target.checked)}
+                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              />
+              <label htmlFor="showOuterRangeColumn" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
+                Show Outer Range Column (Before Period)
+              </label>
+            </div>
+            {showOuterRangeColumn && (
+              <div className="flex items-center gap-2 ml-6">
+                <label className="text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                  Outer Range Start:
+                </label>
+                <input
+                  type="date"
+                  value={outerRangeStart}
+                  onChange={(e) => setOuterRangeStart(e.target.value)}
+                  max={dateRange.start || undefined}
+                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-xs"
+                  placeholder="e.g., 1/1 (Start of Year)"
+                />
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  to {dateRange.start ? new Date(dateRange.start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Period Start'}
+                </span>
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <input
@@ -5973,6 +6784,18 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
             />
             <label htmlFor="hideTotalContractColumn" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
               Hide Total Contract Amount Column
+            </label>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="hideVirtualMaterialColumn"
+              checked={hideVirtualMaterialColumn}
+              onChange={(e) => setHideVirtualMaterialColumn(e.target.checked)}
+              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+            />
+            <label htmlFor="hideVirtualMaterialColumn" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
+              Hide Virtual Material Column
             </label>
           </div>
         </div>
@@ -6346,7 +7169,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
         </CardHeader>
         <CardContent>
       <div className="overflow-x-auto overflow-y-auto print-table-container" style={{ maxHeight: '70vh' }}>
-            <table className="border-collapse text-sm print-table" style={{ tableLayout: 'fixed', minWidth: '100%', width: `${200 + (hideDivisionsColumn ? 0 : 180) + 120 + (hideTotalContractColumn ? 0 : 180) + 220 + (periods.length * 140) + 150}px` }}>
+            <table className="border-collapse text-sm print-table" style={{ tableLayout: 'fixed', minWidth: '100%', width: `${200 + (hideDivisionsColumn ? 0 : 180) + 120 + (hideTotalContractColumn ? 0 : 180) + 220 + (hideVirtualMaterialColumn ? 0 : 180) + (showOuterRangeColumn && outerRangeStart ? 160 : 0) + (periods.length * 140) + 150}px` }}>
               <thead className="sticky top-0 z-20">
                 <tr className="bg-gray-100 dark:bg-gray-800 border-b-2 border-gray-300 dark:border-gray-600">
                   <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold sticky left-0 z-30 bg-gray-100 dark:bg-gray-800" style={{ width: '200px' }}>Project Full Name</th>
@@ -6358,6 +7181,23 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                     <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '180px' }}>Total Contract Amount</th>
                   )}
                   <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '220px' }}>Division Contract Amount</th>
+                  {!hideVirtualMaterialColumn && (
+                    <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '180px' }}>Virtual Material</th>
+                  )}
+                  {showOuterRangeColumn && outerRangeStart && (
+                    <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}>
+                      <div className="font-bold text-blue-700 dark:text-blue-300">Outer Range</div>
+                      <div className="text-xs font-normal text-gray-500 dark:text-gray-400 mt-1">
+                        {outerRangeStart && dateRange.start ? (
+                          <>
+                            {new Date(outerRangeStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(dateRange.start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          </>
+                        ) : (
+                          <span>Before Period</span>
+                        )}
+                      </div>
+                    </th>
+                  )}
                   {periods.map((period, index) => (
                     <th key={index} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '140px' }}>
                       <div>{period.label}</div>
@@ -6372,7 +7212,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
               <tbody>
                 {projectsWithWorkInRange.length === 0 ? (
                   <tr>
-                    <td colSpan={3 + (hideDivisionsColumn ? 0 : 1) + (hideTotalContractColumn ? 0 : 1) + periods.length + 1} className="border border-gray-300 dark:border-gray-600 px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                    <td colSpan={3 + (hideDivisionsColumn ? 0 : 1) + (hideTotalContractColumn ? 0 : 1) + (hideVirtualMaterialColumn ? 0 : 1) + (showOuterRangeColumn && outerRangeStart ? 1 : 0) + periods.length + 1} className="border border-gray-300 dark:border-gray-600 px-4 py-8 text-center text-gray-500 dark:text-gray-400">
                       <div className="flex flex-col items-center gap-2">
                         <AlertTriangle className="h-8 w-8 text-gray-400" />
                         <p>No projects with work in the selected date range</p>
@@ -6497,6 +7337,67 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                             </div>
                           )}
                 </td>
+                        {!hideVirtualMaterialColumn && (
+                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '180px' }}>
+                            {(() => {
+                              // Get Virtual Material Value from project (as PERCENTAGE)
+                              let virtualMaterialPercentage = 0
+                              const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
+                              
+                              if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
+                                // Clean the value (remove %, commas, spaces)
+                                let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
+                                
+                                // Parse as number
+                                const parsedValue = parseFloat(cleanedValue)
+                                if (!isNaN(parsedValue)) {
+                                  // If value is between 0 and 1, treat as decimal (0.15 = 15%)
+                                  // Otherwise, treat as percentage (15 = 15%)
+                                  if (parsedValue > 0 && parsedValue <= 1) {
+                                    virtualMaterialPercentage = parsedValue * 100
+                                  } else {
+                                    virtualMaterialPercentage = parsedValue
+                                  }
+                                }
+                              }
+                              
+                              // Calculate Virtual Material Amount from Grand Total
+                              const virtualMaterialAmount = grandTotal > 0 && virtualMaterialPercentage > 0
+                                ? grandTotal * (virtualMaterialPercentage / 100)
+                                : 0
+                              
+                              return (
+                                <div className="space-y-1">
+                                  {virtualMaterialPercentage > 0 ? (
+                                    <>
+                                      <div className="text-xs text-gray-600 dark:text-gray-400">
+                                        {virtualMaterialPercentage.toFixed(1)}%
+                                      </div>
+                                      <div className="font-medium text-purple-600 dark:text-purple-400">
+                                        {formatCurrency(virtualMaterialAmount, project.currency)}
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <span className="text-sm text-gray-400 dark:text-gray-500">N/A</span>
+                                  )}
+                                </div>
+                              )
+                            })()}
+                          </td>
+                        )}
+                        {showOuterRangeColumn && outerRangeStart && (
+                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}>
+                            {(() => {
+                              const cachedValues = periodValuesCache.get(project.id)
+                              const outerRangeValue = cachedValues?.outerRangeValue || 0
+                              return outerRangeValue > 0 ? (
+                                <span className="font-medium text-blue-700 dark:text-blue-300">{formatCurrency(outerRangeValue, project.currency)}</span>
+                              ) : (
+                                <span className="text-gray-400">-</span>
+                              )
+                            })()}
+                          </td>
+                        )}
                         {periodValues.map((value: number, index: number) => {
                           const plannedValue = viewPlannedValue ? (periodPlannedValues[index] || 0) : 0
                           return (
@@ -6544,7 +7445,35 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
               {projectsWithWorkInRange.length > 0 && (
                 <tfoot>
                   <tr className="bg-gray-100 dark:bg-gray-800 font-bold border-t-2 border-gray-300 dark:border-gray-600">
-                    <td colSpan={3 + (hideDivisionsColumn ? 0 : 1) + (hideTotalContractColumn ? 0 : 1)} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right">Total:</td>
+                    <td colSpan={3 + (hideDivisionsColumn ? 0 : 1) + (hideTotalContractColumn ? 0 : 1) + (hideVirtualMaterialColumn ? 0 : 1)} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right">Total:</td>
+                    {!hideVirtualMaterialColumn && (
+                      <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '180px' }}>
+                        {totals.totalVirtualMaterialAmount > 0 ? (
+                          <div className="space-y-1">
+                            <div className="font-medium text-purple-600 dark:text-purple-400">
+                              {formatCurrency(totals.totalVirtualMaterialAmount)}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-sm text-gray-400 dark:text-gray-500">N/A</span>
+                        )}
+                      </td>
+                    )}
+                    {showOuterRangeColumn && outerRangeStart && (
+                      <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}>
+                        {(() => {
+                          const totalOuterRangeValue = projectsWithWorkInRange.reduce((sum: number, analytics: any) => {
+                            const cachedValues = periodValuesCache.get(analytics.project.id)
+                            return sum + (cachedValues?.outerRangeValue || 0)
+                          }, 0)
+                          return totalOuterRangeValue > 0 ? (
+                            <span className="font-bold text-blue-700 dark:text-blue-300">{formatCurrency(totalOuterRangeValue)}</span>
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )
+                        })()}
+                      </td>
+                    )}
                     {totals.periodEarnedValueTotals.map((value: number, index: number) => {
                       const plannedValue = viewPlannedValue ? (totals.periodPlannedValueTotals[index] || 0) : 0
                       return (
