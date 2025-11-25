@@ -186,6 +186,13 @@ export function IntegratedUserManager({ userRole = 'viewer' }: IntegratedUserMan
       if (managingPermissionsUser.id === appUser?.id) {
         console.log('🔄 Refreshing current user profile...')
         await refreshUserProfile()
+        // مسح الـ cache للصلاحيات بعد التحديث
+        guard.clearCache()
+        console.log('✅ Permission cache cleared')
+      } else {
+        // مسح الـ cache حتى لو لم يكن المستخدم الحالي (للتأكد من التحديث)
+        guard.clearCache()
+        console.log('✅ Permission cache cleared for other user')
       }
       
       // تحديث البيانات من قاعدة البيانات أيضاً للتأكد

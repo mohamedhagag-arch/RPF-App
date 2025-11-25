@@ -43,6 +43,7 @@ export function SmartActualKPIForm({
   
   // Track if form has been initialized from KPI data
   const [isInitialized, setIsInitialized] = useState(false)
+  const [hasUserChangedFields, setHasUserChangedFields] = useState(false)
   
   // Zone Management
   const [availableZones, setAvailableZones] = useState<string[]>([])
@@ -294,6 +295,7 @@ export function SmartActualKPIForm({
     setProjectCode(selectedProject.project_code)
     setProject(selectedProject)
     setShowProjectDropdown(false)
+    setHasUserChangedFields(true)
     
     // Reset activity related fields when project changes
     setActivityName('')
@@ -422,6 +424,7 @@ export function SmartActualKPIForm({
   const handleActivitySelect = (activityName: string) => {
     setActivityName(activityName)
     setShowActivityDropdown(false)
+    setHasUserChangedFields(true)
     
     // Find and set the selected activity for smart auto-fill
     const activity = availableActivities.find(a => a.activity_name === activityName)
@@ -435,6 +438,7 @@ export function SmartActualKPIForm({
   function handleZoneSelect(selectedZone: string) {
     setZone(selectedZone)
     setShowZoneDropdown(false)
+    setHasUserChangedFields(true)
     
     // Auto-generate zone number if not provided
     if (!zoneNumber) {
@@ -447,6 +451,7 @@ export function SmartActualKPIForm({
 
   function handleZoneNumberChange(value: string) {
     setZoneNumber(value)
+    setHasUserChangedFields(true)
     
     // Auto-generate zone ref if not provided
     if (!zone && value) {
@@ -456,8 +461,8 @@ export function SmartActualKPIForm({
   
   // Auto-save function with useCallback
   const autoSave = useCallback(async () => {
-    // Only auto-save if form is initialized and KPI exists (editing mode)
-    if (!isInitialized || !kpi) return
+    // Only auto-save if form is initialized, KPI exists (editing mode), and user has changed fields
+    if (!isInitialized || !kpi || !hasUserChangedFields) return
     
     // Basic validation for auto-save
     if (!projectCode || !activityName || !quantity || !unit || !actualDate) return
@@ -495,7 +500,7 @@ export function SmartActualKPIForm({
     } finally {
       setAutoSaving(false)
     }
-  }, [isInitialized, kpi, projectCode, activityName, quantity, unit, actualDate, zone, zoneNumber, day, drilledMeters, project, onSubmit])
+  }, [isInitialized, kpi, hasUserChangedFields, projectCode, activityName, quantity, unit, actualDate, zone, zoneNumber, day, drilledMeters, project, onSubmit])
   
   // Auto-save effect with debounce
   useEffect(() => {
@@ -605,14 +610,14 @@ export function SmartActualKPIForm({
                   <>
                     <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
                     <span className="text-sm text-blue-700 dark:text-blue-300 font-medium">
-                      جاري الحفظ تلقائياً...
+                      Auto-saving...
                     </span>
                   </>
                 ) : lastSaved ? (
                   <>
                     <CheckCircle2 className="w-4 h-4 text-green-600" />
                     <span className="text-sm text-green-700 dark:text-green-300 font-medium">
-                      تم الحفظ تلقائياً
+                      Auto-saved
                     </span>
                     <span className="text-xs text-gray-500 dark:text-gray-400">
                       {lastSaved.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
@@ -622,7 +627,7 @@ export function SmartActualKPIForm({
                   <>
                     <Info className="w-4 h-4 text-blue-600" />
                     <span className="text-sm text-blue-700 dark:text-blue-300">
-                      سيتم الحفظ تلقائياً عند تغيير أي حقل
+                      Changes will be saved automatically when you modify any field
                     </span>
                   </>
                 )}
@@ -679,6 +684,7 @@ export function SmartActualKPIForm({
                   value={projectCode}
                   onChange={(e) => {
                     setProjectCode(e.target.value)
+                    setHasUserChangedFields(true)
                     setShowProjectDropdown(true)
                   }}
                   onFocus={() => setShowProjectDropdown(true)}
@@ -725,6 +731,7 @@ export function SmartActualKPIForm({
                   value={activityName}
                   onChange={(e) => {
                     setActivityName(e.target.value)
+                    setHasUserChangedFields(true)
                     setShowActivityDropdown(true)
                   }}
                   onFocus={() => setShowActivityDropdown(true)}
@@ -777,6 +784,7 @@ export function SmartActualKPIForm({
                     value={quantity}
                     onChange={(e) => {
                       setQuantity(e.target.value)
+                      setHasUserChangedFields(true)
                       setIsAutoCalculated(false) // User is manually editing
                     }}
                     className={`w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white ${
@@ -847,7 +855,10 @@ export function SmartActualKPIForm({
               <input
                 type="date"
                 value={actualDate}
-                onChange={(e) => setActualDate(e.target.value)}
+                onChange={(e) => {
+                  setActualDate(e.target.value)
+                  setHasUserChangedFields(true)
+                }}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white bg-green-50 border-green-300"
               />
               <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -867,7 +878,10 @@ export function SmartActualKPIForm({
                 type="text"
                 placeholder="Enter zone name..."
                 value={zone}
-                onChange={(e) => setZone(e.target.value)}
+                onChange={(e) => {
+                  setZone(e.target.value)
+                  setHasUserChangedFields(true)
+                }}
                 className={`w-full px-4 py-3 text-lg border-2 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white ${
                   zone ? 'bg-blue-50 border-blue-300' : 'border-gray-300 dark:border-gray-600'
                 }`}
@@ -888,7 +902,10 @@ export function SmartActualKPIForm({
                   type="number"
                   placeholder="Day number..."
                   value={day}
-                  onChange={(e) => setDay(e.target.value)}
+                  onChange={(e) => {
+                    setDay(e.target.value)
+                    setHasUserChangedFields(true)
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
                   min="1"
                 />
@@ -907,7 +924,10 @@ export function SmartActualKPIForm({
                   type="number"
                   placeholder="Enter drilled meters (optional)..."
                   value={drilledMeters}
-                  onChange={(e) => setDrilledMeters(e.target.value)}
+                  onChange={(e) => {
+                    setDrilledMeters(e.target.value)
+                    setHasUserChangedFields(true)
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
                   step="0.01"
                   min="0"

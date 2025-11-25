@@ -232,7 +232,7 @@ export default function SmartKPIPage() {
 
   return (
     <PermissionPage 
-      permission="kpi.create"
+      permission="kpi.create.smart"
       accessDeniedTitle="KPI Creation Access Required"
       accessDeniedMessage="You need permission to create KPIs. Please contact your administrator."
     >

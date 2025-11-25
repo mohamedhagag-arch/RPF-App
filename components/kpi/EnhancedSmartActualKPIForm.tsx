@@ -1544,21 +1544,38 @@ export function EnhancedSmartActualKPIForm({
                               )}
                             </div>
                           </div>
-                          {isCompleted && (
-                            <div className="flex items-center gap-1 flex-shrink-0">
-                              <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-green-600 hidden sm:block" />
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            {!isCompleted && (
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation()
-                                  handleEditCompletedActivity(activity)
+                                  handleWorkTodayQuestion(activity.id, false)
                                 }}
-                                className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded transition-colors"
-                                title="Edit completed activity"
+                                className="group relative p-2 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/30 text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 rounded-lg border border-red-200 dark:border-red-800 hover:border-red-300 dark:hover:border-red-700 transition-all duration-200 shadow-sm hover:shadow-md"
+                                title="Mark as not worked on (Skip this activity)"
                               >
-                                <Edit className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                                <X className="w-4 h-4 sm:w-5 sm:h-5" />
+                                <span className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-900 dark:bg-gray-700 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap pointer-events-none z-50">
+                                  Skip Activity
+                                </span>
                               </button>
-                            </div>
-                          )}
+                            )}
+                            {isCompleted && (
+                              <>
+                                <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-green-600 hidden sm:block" />
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleEditCompletedActivity(activity)
+                                  }}
+                                  className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded transition-colors"
+                                  title="Edit completed activity"
+                                >
+                                  <Edit className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                                </button>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </div>
                     )
@@ -1791,21 +1808,38 @@ export function EnhancedSmartActualKPIForm({
                               )}
                             </div>
                           </div>
-                          {isCompleted && (
-                            <div className="flex items-center gap-1 flex-shrink-0">
-                              <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-green-600 hidden sm:block" />
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            {!isCompleted && (
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation()
-                                  handleEditCompletedActivity(activity)
+                                  handleWorkTodayQuestion(activity.id, false)
                                 }}
-                                className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded transition-colors"
-                                title="Edit completed activity"
+                                className="group relative p-2 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/30 text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 rounded-lg border border-red-200 dark:border-red-800 hover:border-red-300 dark:hover:border-red-700 transition-all duration-200 shadow-sm hover:shadow-md"
+                                title="Mark as not worked on (Skip this activity)"
                               >
-                                <Edit className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                                <X className="w-4 h-4 sm:w-5 sm:h-5" />
+                                <span className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-900 dark:bg-gray-700 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap pointer-events-none z-50">
+                                  Skip Activity
+                                </span>
                               </button>
-                            </div>
-                          )}
+                            )}
+                            {isCompleted && (
+                              <>
+                                <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-green-600 hidden sm:block" />
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleEditCompletedActivity(activity)
+                                  }}
+                                  className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded transition-colors"
+                                  title="Edit completed activity"
+                                >
+                                  <Edit className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                                </button>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </div>
                     )

@@ -46,6 +46,7 @@ export function IntelligentKPIForm({
   
   // Track if form has been initialized from KPI data
   const [isInitialized, setIsInitialized] = useState(false)
+  const [hasUserChangedFields, setHasUserChangedFields] = useState(false)
   
   // Zone Management
   const [availableZones, setAvailableZones] = useState<string[]>([])
@@ -378,6 +379,7 @@ export function IntelligentKPIForm({
     setProjectCode(selectedProject.project_code)
     setProject(selectedProject)
     setShowProjectDropdown(false)
+    setHasUserChangedFields(true)
     
     // Load activities for this project
     const projectActivities = activities.filter(a => a.project_code === selectedProject.project_code)
@@ -396,6 +398,7 @@ export function IntelligentKPIForm({
   function handleActivitySelect(activityName: string) {
     setActivityName(activityName)
     setShowActivityDropdown(false)
+    setHasUserChangedFields(true)
     
     // Find and set the selected activity for smart auto-fill
     const activity = availableActivities.find(a => a.activity_name === activityName)
@@ -419,6 +422,7 @@ export function IntelligentKPIForm({
   function handleZoneSelect(selectedZone: string) {
     setZone(selectedZone)
     setShowZoneDropdown(false)
+    setHasUserChangedFields(true)
     
     // Auto-generate zone number if not provided
     if (!zoneNumber) {
@@ -431,6 +435,7 @@ export function IntelligentKPIForm({
 
   function handleZoneNumberChange(value: string) {
     setZoneNumber(value)
+    setHasUserChangedFields(true)
     
     // Auto-generate zone ref if not provided
     if (!zone && value) {
@@ -440,8 +445,8 @@ export function IntelligentKPIForm({
   
   // Auto-save function with useCallback
   const autoSave = useCallback(async () => {
-    // Only auto-save if form is initialized and KPI exists (editing mode)
-    if (!isInitialized || !kpi) return
+    // Only auto-save if form is initialized, KPI exists (editing mode), and user has changed fields
+    if (!isInitialized || !kpi || !hasUserChangedFields) return
     
     // Basic validation for auto-save
     if (!projectCode || !activityName || !quantity || !unit) return
@@ -484,7 +489,7 @@ export function IntelligentKPIForm({
     } finally {
       setAutoSaving(false)
     }
-  }, [isInitialized, kpi, projectCode, activityName, quantity, unit, inputType, targetDate, actualDate, zone, zoneNumber, day, drilledMeters, project, onSubmit])
+  }, [isInitialized, kpi, hasUserChangedFields, projectCode, activityName, quantity, unit, inputType, targetDate, actualDate, zone, zoneNumber, day, drilledMeters, project, onSubmit])
   
   // Auto-save effect with debounce
   useEffect(() => {
@@ -640,14 +645,14 @@ export function IntelligentKPIForm({
                 <>
                   <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
                   <span className="text-sm text-blue-700 dark:text-blue-300 font-medium">
-                    جاري الحفظ تلقائياً...
+                    Auto-saving...
                   </span>
                 </>
               ) : lastSaved ? (
                 <>
                   <CheckCircle2 className="w-4 h-4 text-green-600" />
                   <span className="text-sm text-green-700 dark:text-green-300 font-medium">
-                    تم الحفظ تلقائياً
+                    Auto-saved
                   </span>
                   <span className="text-xs text-gray-500 dark:text-gray-400">
                     {lastSaved.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
@@ -657,7 +662,7 @@ export function IntelligentKPIForm({
                 <>
                   <Info className="w-4 h-4 text-blue-600" />
                   <span className="text-sm text-blue-700 dark:text-blue-300">
-                    سيتم الحفظ تلقائياً عند تغيير أي حقل
+                    Changes will be saved automatically when you modify any field
                   </span>
                 </>
               )}
@@ -733,7 +738,10 @@ export function IntelligentKPIForm({
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
-                onClick={() => setInputType('Planned')}
+                onClick={() => {
+                  setInputType('Planned')
+                  setHasUserChangedFields(true)
+                }}
                 className={`p-4 border-2 rounded-lg transition-all ${
                   inputType === 'Planned'
                     ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 ring-2 ring-blue-200 dark:ring-blue-800'
@@ -746,7 +754,10 @@ export function IntelligentKPIForm({
               </button>
               <button
                 type="button"
-                onClick={() => setInputType('Actual')}
+                onClick={() => {
+                  setInputType('Actual')
+                  setHasUserChangedFields(true)
+                }}
                 className={`p-4 border-2 rounded-lg transition-all ${
                   inputType === 'Actual'
                     ? 'border-green-500 bg-green-50 dark:bg-green-900/30 ring-2 ring-green-200 dark:ring-green-800'
@@ -771,6 +782,7 @@ export function IntelligentKPIForm({
                 value={projectCode}
                 onChange={(e) => {
                   setProjectCode(e.target.value)
+                  setHasUserChangedFields(true)
                   setShowProjectDropdown(true)
                 }}
                 onFocus={() => setShowProjectDropdown(true)}
@@ -822,6 +834,7 @@ export function IntelligentKPIForm({
                   value={activityName}
                   onChange={(e) => {
                     setActivityName(e.target.value)
+                    setHasUserChangedFields(true)
                     setShowActivityDropdown(true)
                   }}
                   onFocus={() => setShowActivityDropdown(true)}
@@ -887,6 +900,7 @@ export function IntelligentKPIForm({
                   onChange={(e) => {
                     setQuantity(e.target.value)
                     setIsAutoCalculated(false) // User is manually editing
+                    setHasUserChangedFields(true)
                   }}
                   placeholder="Enter quantity..."
                   className={`w-full px-4 py-2.5 border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 ${
@@ -933,7 +947,10 @@ export function IntelligentKPIForm({
               <input
                 type="text"
                 value={unit}
-                onChange={(e) => setUnit(e.target.value)}
+                onChange={(e) => {
+                  setUnit(e.target.value)
+                  setHasUserChangedFields(true)
+                }}
                 placeholder="e.g., m³, m, ton..."
                 className={`w-full px-4 py-2.5 border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                   unit && selectedActivity ? 'bg-blue-50 border-blue-300' : 'border-gray-300 dark:border-gray-600'
@@ -956,7 +973,10 @@ export function IntelligentKPIForm({
                 <input
                   type="date"
                   value={targetDate}
-                  onChange={(e) => setTargetDate(e.target.value)}
+                  onChange={(e) => {
+                    setTargetDate(e.target.value)
+                    setHasUserChangedFields(true)
+                  }}
                   className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                 />
@@ -977,6 +997,7 @@ export function IntelligentKPIForm({
                   onChange={(e) => {
                     console.log('📅 Actual date changed:', e.target.value)
                     setActualDate(e.target.value)
+                    setHasUserChangedFields(true)
                   }}
                   className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500"
                   required
@@ -1002,6 +1023,7 @@ export function IntelligentKPIForm({
                 onChange={(e) => {
                   setZone(e.target.value)
                   setShowZoneDropdown(true)
+                  setHasUserChangedFields(true)
                 }}
                 onFocus={() => setShowZoneDropdown(true)}
                 placeholder="e.g., Zone A, Area 1, Section B..."
@@ -1068,7 +1090,10 @@ export function IntelligentKPIForm({
               <input
                 type="text"
                 value={day}
-                onChange={(e) => setDay(e.target.value)}
+                onChange={(e) => {
+                  setDay(e.target.value)
+                  setHasUserChangedFields(true)
+                }}
                 placeholder="e.g., Monday, Day 1..."
                 className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
@@ -1081,7 +1106,10 @@ export function IntelligentKPIForm({
                 type="number"
                 step="0.01"
                 value={drilledMeters}
-                onChange={(e) => setDrilledMeters(e.target.value)}
+                onChange={(e) => {
+                  setDrilledMeters(e.target.value)
+                  setHasUserChangedFields(true)
+                }}
                 placeholder="0.00"
                 className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />

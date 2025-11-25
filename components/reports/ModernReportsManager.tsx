@@ -6104,7 +6104,13 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                         const currency = projectsWithWorkInRange.length > 0 
                           ? (projectsWithWorkInRange[0]?.project?.currency || 'AED')
                           : 'AED'
-                        return [formatCurrency(value, currency), name === 'earned' ? 'Earned Value' : 'Planned Value']
+                        if (name === 'earned' || name === 'earned-bar') {
+                          return [formatCurrency(value, currency), 'Earned Value']
+                        }
+                        if (name === 'planned' || name === 'planned-bar') {
+                          return [formatCurrency(value, currency), 'Planned Value']
+                        }
+                        return [formatCurrency(value, currency), name]
                       }}
                       labelFormatter={(label) => {
                         if (periodType === 'daily') return `Day: ${label}`
@@ -6116,7 +6122,11 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                       }}
                     />
                     <Legend 
-                      formatter={(value) => value === 'earned' ? 'Earned Value' : 'Planned Value'}
+                      formatter={(value) => {
+                        if (value === 'earned' || value === 'earned-bar') return 'Earned Value'
+                        if (value === 'planned' || value === 'planned-bar') return 'Planned Value'
+                        return value
+                      }}
                     />
                   </>
                 )
@@ -6206,23 +6216,46 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                   return (
                     <ComposedChart {...commonProps}>
                       {commonAxis}
+                      {/* Earned Value - Bar */}
                       <Bar 
                         dataKey="earned" 
                         fill="#10b981" 
-                        name="earned"
+                        name="earned-bar"
                         radius={[4, 4, 0, 0]}
+                        opacity={0.7}
+                      />
+                      {/* Earned Value - Line */}
+                      <Line 
+                        type="monotone" 
+                        dataKey="earned" 
+                        stroke="#10b981" 
+                        strokeWidth={3}
+                        dot={{ fill: '#10b981', r: 5 }}
+                        activeDot={{ r: 7 }}
+                        name="earned"
                       />
                       {viewPlannedValue && (
-                        <Line 
-                          type="monotone" 
-                          dataKey="planned" 
-                          stroke="#3b82f6" 
-                          strokeWidth={3}
-                          strokeDasharray="5 5"
-                          dot={{ fill: '#3b82f6', r: 5 }}
-                          activeDot={{ r: 7 }}
-                          name="planned"
-                        />
+                        <>
+                          {/* Planned Value - Bar */}
+                          <Bar 
+                            dataKey="planned" 
+                            fill="#3b82f6" 
+                            name="planned-bar"
+                            radius={[4, 4, 0, 0]}
+                            opacity={0.5}
+                          />
+                          {/* Planned Value - Line */}
+                          <Line 
+                            type="monotone" 
+                            dataKey="planned" 
+                            stroke="#3b82f6" 
+                            strokeWidth={3}
+                            strokeDasharray="5 5"
+                            dot={{ fill: '#3b82f6', r: 5 }}
+                            activeDot={{ r: 7 }}
+                            name="planned"
+                          />
+                        </>
                       )}
                     </ComposedChart>
                   )

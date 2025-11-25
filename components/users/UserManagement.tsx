@@ -554,7 +554,14 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
              if (userId === appUser?.id) {
                console.log('🔄 Refreshing global user profile for current user...')
                await refreshUserProfile()
+               // مسح الـ cache للصلاحيات بعد التحديث
+               guard.clearCache()
                console.log('✅ Global user profile refreshed - user should now see updated permissions!')
+               console.log('✅ Permission cache cleared')
+             } else {
+               // مسح الـ cache حتى لو لم يكن المستخدم الحالي (للتأكد من التحديث)
+               guard.clearCache()
+               console.log('✅ Permission cache cleared for other user')
              }
 
              // Update the managing permissions user state

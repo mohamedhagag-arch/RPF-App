@@ -40,6 +40,9 @@ export const ALL_PERMISSIONS: Permission[] = [
   // KPI Permissions
   { id: 'kpi.view', name: 'View KPIs', category: 'kpi', description: 'Can view KPI records', action: 'view' },
   { id: 'kpi.create', name: 'Create KPIs', category: 'kpi', description: 'Can create KPI records', action: 'create' },
+  { id: 'kpi.create.standard', name: 'Add New KPI', category: 'kpi', description: 'Can access the standard "Add New KPI" form to create KPI records', action: 'create' },
+  { id: 'kpi.create.smart', name: 'Smart Site KPI Form', category: 'kpi', description: 'Can access the Smart Site KPI Form to create KPI records with intelligent workflow', action: 'create' },
+  { id: 'kpi.create.legacy', name: 'Legacy Site Form', category: 'kpi', description: 'Can access the Legacy Site Form to create KPI records', action: 'create' },
   { id: 'kpi.edit', name: 'Edit KPIs', category: 'kpi', description: 'Can edit KPI records', action: 'edit' },
   { id: 'kpi.delete', name: 'Delete KPIs', category: 'kpi', description: 'Can delete KPI records', action: 'delete' },
   { id: 'kpi.export', name: 'Export KPIs', category: 'kpi', description: 'Can export KPI data', action: 'export' },
@@ -213,7 +216,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     // BOQ
     'boq.view', 'boq.create', 'boq.edit', 'boq.delete', 'boq.approve', 'boq.export', 'boq.import', 'boq.print',
     // KPI
-    'kpi.view', 'kpi.create', 'kpi.edit', 'kpi.delete', 'kpi.export', 'kpi.import', 'kpi.print', 'kpi.approve', 'kpi.need_to_submit',
+    'kpi.view', 'kpi.create', 'kpi.create.standard', 'kpi.create.smart', 'kpi.create.legacy', 'kpi.edit', 'kpi.delete', 'kpi.export', 'kpi.import', 'kpi.print', 'kpi.approve', 'kpi.need_to_submit',
     // Reports
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly', 'reports.financial', 'reports.export', 'reports.print',
     'reports.lookahead', 'reports.critical', 'reports.performance', 'reports.custom',
@@ -254,7 +257,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     // BOQ (create, edit, view)
     'boq.view', 'boq.create', 'boq.edit', 'boq.export',
     // KPI (all except delete)
-    'kpi.view', 'kpi.create', 'kpi.edit', 'kpi.export',
+    'kpi.view', 'kpi.create', 'kpi.create.standard', 'kpi.create.smart', 'kpi.create.legacy', 'kpi.edit', 'kpi.export',
     // Reports (view and export)
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly', 'reports.export', 'reports.print',
     'reports.lookahead', 'reports.critical', 'reports.performance',

@@ -2582,36 +2582,42 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           </div>
           
                  {/* Add New KPI Buttons */}
-                 {guard.hasAccess('kpi.create') && (
+                 {(guard.hasAccess('kpi.create.standard') || guard.hasAccess('kpi.create.smart') || guard.hasAccess('kpi.create.legacy')) && (
                    <div className="flex flex-col sm:flex-row gap-2">
-                     <Button 
-                       onClick={() => setShowForm(true)} 
-                       className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
-                     >
-                       <Plus className="h-4 w-4" />
-                       <span>Add New KPI</span>
-                     </Button>
-                     <Button 
-                       onClick={() => {
-                         // Navigate to the dedicated smart form page
-                         router.push('/kpi/smart-form')
-                       }}
-                       className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white"
-                     >
-                       <Target className="h-4 w-4" />
-                       <span>Smart Site KPI Form</span>
-                     </Button>
-                     <Button 
-                       onClick={() => {
-                         // ✅ Use router.push to maintain session and avoid reload
-                         router.push('/kpi/add')
-                       }}
-                       variant="outline"
-                       className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
-                     >
-                       <Target className="h-4 w-4" />
-                       <span>Legacy Site Form</span>
-                     </Button>
+                     {guard.hasAccess('kpi.create.standard') && (
+                       <Button 
+                         onClick={() => setShowForm(true)} 
+                         className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
+                       >
+                         <Plus className="h-4 w-4" />
+                         <span>Add New KPI</span>
+                       </Button>
+                     )}
+                     {guard.hasAccess('kpi.create.smart') && (
+                       <Button 
+                         onClick={() => {
+                           // Navigate to the dedicated smart form page
+                           router.push('/kpi/smart-form')
+                         }}
+                         className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white"
+                       >
+                         <Target className="h-4 w-4" />
+                         <span>Smart Site KPI Form</span>
+                       </Button>
+                     )}
+                     {guard.hasAccess('kpi.create.legacy') && (
+                       <Button 
+                         onClick={() => {
+                           // ✅ Use router.push to maintain session and avoid reload
+                           router.push('/kpi/add')
+                         }}
+                         variant="outline"
+                         className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
+                       >
+                         <Target className="h-4 w-4" />
+                         <span>Legacy Site Form</span>
+                       </Button>
+                     )}
                     <PermissionButton
                       permission="kpi.view"
                       onClick={() => setUseCustomizedTable(!useCustomizedTable)}

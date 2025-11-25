@@ -96,7 +96,7 @@ export default function AddKPIPage() {
 
   return (
     <PermissionPage 
-      permission="kpi.create"
+      permission="kpi.create.legacy"
       accessDeniedTitle="KPI Creation Access Required"
       accessDeniedMessage="You need permission to create KPI records. Please contact your administrator."
     >
