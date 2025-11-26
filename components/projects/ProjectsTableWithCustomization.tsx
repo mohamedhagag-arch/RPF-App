@@ -4590,46 +4590,47 @@ export function ProjectsTableWithCustomization({
             {sortedProjects.map((project) => {
               const isHighlighted = highlightedProjectId === project.id
               return (
-              <tr
-                key={project.id}
-                id={isHighlighted ? `project-row-${project.id}` : undefined}
-                className={`group border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 ${
-                  isHighlighted ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700 ring-2 ring-blue-400 dark:ring-blue-600' : ''
-                }`}
-              >
-                {visibleColumns.map((column, columnIndex) => {
-                  // Calculate left position for fixed columns
-                  let leftPosition = 0
-                  if (column.fixed) {
-                    for (let i = 0; i < columnIndex; i++) {
-                      const prevColumn = visibleColumns[i]
-                      if (prevColumn.fixed) {
-                        const width = prevColumn.width || '120px'
-                        const widthNum = parseInt(width.replace('px', '')) || 120
-                        leftPosition += widthNum
+                <tr
+                  key={project.id}
+                  id={isHighlighted ? `project-row-${project.id}` : undefined}
+                  className={`group border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 ${
+                    isHighlighted ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700 ring-2 ring-blue-400 dark:ring-blue-600' : ''
+                  }`}
+                >
+                  {visibleColumns.map((column, columnIndex) => {
+                    // Calculate left position for fixed columns
+                    let leftPosition = 0
+                    if (column.fixed) {
+                      for (let i = 0; i < columnIndex; i++) {
+                        const prevColumn = visibleColumns[i]
+                        if (prevColumn.fixed) {
+                          const width = prevColumn.width || '120px'
+                          const widthNum = parseInt(width.replace('px', '')) || 120
+                          leftPosition += widthNum
+                        }
                       }
                     }
-                  }
-                  
-                  return (
-                    <td
-                      key={column.id}
-                      className={`px-4 py-3 text-sm ${column.fixed ? 'shadow-[2px_0_4px_rgba(0,0,0,0.1)] bg-white dark:bg-gray-900 group-hover:bg-gray-50 dark:group-hover:bg-gray-800/50' : ''}`}
-                      style={{
-                        width: column.width || 'auto',
-                        minWidth: column.width || '120px',
-                        maxWidth: column.width || 'none',
-                        position: column.fixed ? 'sticky' : 'relative',
-                        left: column.fixed ? `${leftPosition}px` : 'auto',
-                        zIndex: column.fixed ? 15 : 1
-                      }}
-                    >
-                      {renderCell(project, column)}
-                    </td>
-                  )
-                })}
-              </tr>
-            ))}
+                    
+                    return (
+                      <td
+                        key={column.id}
+                        className={`px-4 py-3 text-sm ${column.fixed ? 'shadow-[2px_0_4px_rgba(0,0,0,0.1)] bg-white dark:bg-gray-900 group-hover:bg-gray-50 dark:group-hover:bg-gray-800/50' : ''}`}
+                        style={{
+                          width: column.width || 'auto',
+                          minWidth: column.width || '120px',
+                          maxWidth: column.width || 'none',
+                          position: column.fixed ? 'sticky' : 'relative',
+                          left: column.fixed ? `${leftPosition}px` : 'auto',
+                          zIndex: column.fixed ? 15 : 1
+                        }}
+                      >
+                        {renderCell(project, column)}
+                      </td>
+                    )
+                  })}
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
