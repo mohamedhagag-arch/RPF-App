@@ -200,7 +200,11 @@ export function SmartActualKPIForm({
     const loadProjectActivities = async () => {
       if (!projectCode || projects.length === 0) return
 
-      const selectedProject = projects.find(p => p.project_code === projectCode)
+      // ✅ Search by both project_full_code and project_code
+      const selectedProject = projects.find(p => 
+        p.project_full_code === projectCode || 
+        p.project_code === projectCode
+      )
       if (!selectedProject) return
 
       setProject(selectedProject)
@@ -292,7 +296,9 @@ export function SmartActualKPIForm({
   
   
   const handleProjectSelect = async (selectedProject: Project) => {
-    setProjectCode(selectedProject.project_code)
+    // ✅ Use project_full_code if available, otherwise use project_code
+    const projectCodeToUse = selectedProject.project_full_code || selectedProject.project_code
+    setProjectCode(projectCodeToUse)
     setProject(selectedProject)
     setShowProjectDropdown(false)
     setHasUserChangedFields(true)
@@ -309,8 +315,7 @@ export function SmartActualKPIForm({
     // This ensures all old and new activities are loaded
     try {
       const projectCode = selectedProject.project_code
-      const projectSubCode = selectedProject.project_sub_code || ''
-      const projectFullCode = `${projectCode}${projectSubCode}`
+      const projectFullCode = selectedProject.project_full_code || projectCode
 
       console.log(`🔍 Fetching ALL activities for project: ${projectCode} (Full: ${projectFullCode})`)
 
@@ -474,8 +479,9 @@ export function SmartActualKPIForm({
       setAutoSaving(true)
       
       const kpiData = {
-        'Project Full Code': project?.project_code || projectCode,
-        'Project Code': projectCode,
+        // ✅ Use project_full_code for Project Full Code, and extract project_code for Project Code
+        'Project Full Code': project?.project_full_code || projectCode,
+        'Project Code': project?.project_code || (projectCode.includes('-') ? projectCode.split('-')[0] : projectCode),
         'Project Sub Code': project?.project_sub_code || '',
         'Activity Name': activityName,
         'Quantity': Math.round(quantityValue * 100) / 100,
@@ -533,8 +539,9 @@ export function SmartActualKPIForm({
       if (!actualDate) throw new Error('Please enter actual date')
       
       const kpiData = {
-        'Project Full Code': project?.project_code || projectCode,
-        'Project Code': projectCode,
+        // ✅ Use project_full_code for Project Full Code, and extract project_code for Project Code
+        'Project Full Code': project?.project_full_code || projectCode,
+        'Project Code': project?.project_code || (projectCode.includes('-') ? projectCode.split('-')[0] : projectCode),
         'Project Sub Code': project?.project_sub_code || '',
         'Activity Name': activityName,
         'Quantity': Math.round(quantityValue * 100) / 100, // Round to 2 decimal places
@@ -694,26 +701,35 @@ export function SmartActualKPIForm({
                 {showProjectDropdown && (
                   <div className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg max-h-60 overflow-y-auto">
                     {projects
-                      .filter(project => 
-                        project.project_code?.toLowerCase().includes(projectCode.toLowerCase()) ||
-                        project.project_name?.toLowerCase().includes(projectCode.toLowerCase())
-                      )
+                      .filter(project => {
+                        const searchTerm = projectCode.toLowerCase()
+                        const projectFullCode = (project.project_full_code || project.project_code || '').toLowerCase()
+                        const projectCodeLower = (project.project_code || '').toLowerCase()
+                        const projectName = (project.project_name || '').toLowerCase()
+                        return projectFullCode.includes(searchTerm) ||
+                               projectCodeLower.includes(searchTerm) ||
+                               projectName.includes(searchTerm)
+                      })
                       .slice(0, 10)
-                      .map((project) => (
-                        <button
-                          key={project.id}
-                          type="button"
-                          onClick={() => handleProjectSelect(project)}
-                          className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700 last:border-b-0"
-                        >
-                          <div className="font-medium text-gray-900 dark:text-white">
-                            {project.project_code}
-                          </div>
-                          <div className="text-sm text-gray-500 dark:text-gray-400">
-                            {project.project_name}
-                          </div>
-                        </button>
-                      ))}
+                      .map((project) => {
+                        // ✅ Use project_full_code if available, otherwise use project_code
+                        const displayCode = project.project_full_code || project.project_code
+                        return (
+                          <button
+                            key={project.id}
+                            type="button"
+                            onClick={() => handleProjectSelect(project)}
+                            className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700 last:border-b-0"
+                          >
+                            <div className="font-medium text-gray-900 dark:text-white">
+                              {displayCode}
+                            </div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">
+                              {project.project_name}
+                            </div>
+                          </button>
+                        )
+                      })}
                   </div>
                 )}
               </div>

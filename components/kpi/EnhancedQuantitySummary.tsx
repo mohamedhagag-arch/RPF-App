@@ -237,87 +237,10 @@ export function EnhancedQuantitySummary({
       }
 
       // ============================================
-      // Fetch Planned KPIs
+      // ✅ REMOVED: Fetch Planned KPIs - Total now comes directly from BOQ Activity
       // ============================================
-      let plannedKPIs: any[] = []
-      try {
-        // ✅ Fetch all Planned KPIs first (we'll filter client-side for better control)
-        let query = supabase
-          .from(TABLES.KPI)
-          .select('id, "Quantity", "Input Type", "Zone", "Zone Number", "Activity Name", "Project Full Code", "Project Code"')
-          .eq('Input Type', 'Planned')
-        
-        // Try to filter by Project Full Code in query (but don't rely on it alone)
-        if (projectFullCodeToUse) {
-          query = query.eq('Project Full Code', projectFullCodeToUse)
-        }
-        
-        const result = await executeQuery(async () => query)
-        plannedKPIs = result.data || []
-
-        console.log(`📊 Planned KPIs before filtering: ${plannedKPIs.length}`, {
-          projectFullCodeToUse,
-          activityName,
-          zone: originalZone
-        })
-
-        // ✅ Filter by Project Full Code (client-side - more reliable)
-        if (projectFullCodeToUse) {
-          const beforeCount = plannedKPIs.length
-          const targetFullCode = projectFullCodeToUse.toString().trim().toUpperCase()
-          plannedKPIs = plannedKPIs.filter((kpi: any) => {
-            const kpiFullCode = (kpi['Project Full Code'] || '').toString().trim().toUpperCase()
-            const matches = kpiFullCode === targetFullCode
-            if (!matches && showDebug) {
-              console.log(`❌ Project Full Code mismatch: KPI="${kpiFullCode}" vs Target="${targetFullCode}"`)
-            }
-            return matches
-          })
-          console.log(`📊 After Project Full Code filter: ${plannedKPIs.length} (was ${beforeCount})`)
-        }
-
-        // ✅ Filter by Activity Name (flexible matching)
-        const beforeActivityCount = plannedKPIs.length
-        plannedKPIs = plannedKPIs.filter((kpi: any) => {
-          const kpiActivityName = (kpi['Activity Name'] || '').toLowerCase().trim()
-          const matches = kpiActivityName === activityName ||
-                         kpiActivityName.includes(activityName) ||
-                         activityName.includes(kpiActivityName)
-          if (!matches && showDebug) {
-            console.log(`❌ Activity Name mismatch: KPI="${kpiActivityName}" vs Target="${activityName}"`)
-          }
-          return matches
-        })
-        console.log(`📊 After Activity Name filter: ${plannedKPIs.length} (was ${beforeActivityCount})`)
-
-        // ✅ Filter by Zone (if provided)
-        if (zone && zone.trim() !== '') {
-          const beforeZoneCount = plannedKPIs.length
-          plannedKPIs = plannedKPIs.filter((kpi: any) => {
-            const kpiZoneRaw = (kpi['Zone'] || kpi['Zone Number'] || '').toString().trim()
-            
-            // Exclude KPIs without zone if zone filter is active
-            if (!kpiZoneRaw || kpiZoneRaw === '') {
-              if (showDebug) console.log(`❌ KPI has no zone, excluding`)
-              return false
-            }
-            
-            // ✅ Use Project Full Code for zone matching (important for correct normalization)
-            const matches = zonesMatch(originalZone, kpiZoneRaw, projectFullCodeToUse, projectCode)
-            
-            if (!matches && showDebug) {
-              console.log(`❌ Zone mismatch: KPI="${kpiZoneRaw}" vs Target="${originalZone}" (normalized="${normalizedZone}")`)
-            }
-            return matches
-          })
-          console.log(`📊 After Zone filter: ${plannedKPIs.length} (was ${beforeZoneCount})`)
-        }
-        // If zone is empty, keep all KPIs (no zone filtering)
-
-      } catch (err: any) {
-        console.error('❌ Error fetching Planned KPIs:', err)
-        // Continue with empty array
-      }
+      // Total MUST come from selectedActivity.planned_units or total_units
+      // BOQ Activity is the source of truth for planned quantities
 
       // ============================================
       // Fetch Actual KPIs
@@ -345,18 +268,40 @@ export function EnhancedQuantitySummary({
         })
 
         // ✅ Filter by Project Full Code (client-side - more reliable)
+        // Also match by Project Code if Project Full Code doesn't match
         if (projectFullCodeToUse) {
           const beforeCount = actualKPIs.length
           const targetFullCode = projectFullCodeToUse.toString().trim().toUpperCase()
+          const targetProjectCode = projectCode.toString().trim().toUpperCase()
+          
           actualKPIs = actualKPIs.filter((kpi: any) => {
             const kpiFullCode = (kpi['Project Full Code'] || '').toString().trim().toUpperCase()
-            const matches = kpiFullCode === targetFullCode
-            if (!matches && showDebug) {
-              console.log(`❌ Project Full Code mismatch: KPI="${kpiFullCode}" vs Target="${targetFullCode}"`)
+            const kpiProjectCode = (kpi['Project Code'] || '').toString().trim().toUpperCase()
+            
+            // ✅ Priority 1: Match by Project Full Code (exact match)
+            if (kpiFullCode === targetFullCode) {
+              return true
             }
-            return matches
+            
+            // ✅ Priority 2: Match by Project Code if Project Full Code is not available
+            // This handles cases where Actual KPIs were saved with Project Code only
+            if (kpiProjectCode === targetProjectCode && (!kpiFullCode || kpiFullCode === '')) {
+              return true
+            }
+            
+            // ✅ Priority 3: Match if Project Full Code starts with Project Code
+            // This handles cases like "P4110" matching "P4110-P"
+            if (targetFullCode.startsWith(targetProjectCode) && kpiFullCode.startsWith(targetProjectCode)) {
+              // Only match if they're from the same base project
+              return true
+            }
+            
+            if (showDebug) {
+              console.log(`❌ Project mismatch: KPI Full Code="${kpiFullCode}", KPI Code="${kpiProjectCode}" vs Target Full Code="${targetFullCode}", Target Code="${targetProjectCode}"`)
+            }
+            return false
           })
-          console.log(`📊 After Project Full Code filter: ${actualKPIs.length} (was ${beforeCount})`)
+          console.log(`📊 After Project filter: ${actualKPIs.length} (was ${beforeCount})`)
         }
 
         // ✅ Filter by Activity Name (flexible matching)
@@ -405,9 +350,22 @@ export function EnhancedQuantitySummary({
       // ============================================
       // Calculate Totals
       // ============================================
-      const totalPlanned = plannedKPIs.reduce((sum, kpi) => {
-        return sum + parseQuantity(kpi)
-      }, 0)
+      // ✅ CRITICAL: Total comes DIRECTLY from BOQ Activity (planned_units or total_units)
+      // BOQ Activity is the ONLY source of truth for planned quantities
+      // Priority 1: planned_units from BOQ Activity
+      // Priority 2: total_units from BOQ Activity (if planned_units not available)
+      let totalPlanned = parseFloat(String(selectedActivity.planned_units || '0')) || 0
+      if (totalPlanned === 0) {
+        totalPlanned = parseFloat(String(selectedActivity.total_units || '0')) || 0
+      }
+      
+      if (showDebug) {
+        console.log(`📊 Total from BOQ Activity:`, {
+          planned_units: selectedActivity.planned_units,
+          total_units: selectedActivity.total_units,
+          totalPlanned
+        })
+      }
       
       const totalActual = actualKPIs.reduce((sum, kpi) => {
         return sum + parseQuantity(kpi)
@@ -443,20 +401,11 @@ export function EnhancedQuantitySummary({
         normalizedZone: normalizedZone || 'N/A',
         zoneNumber: zoneNumber || 'N/A',
         originalZone: originalZone || 'N/A',
-        plannedKPIsCount: plannedKPIs.length,
         actualKPIsCount: actualKPIs.length,
-        totalPlanned,
+        totalPlanned, // ✅ From BOQ Activity (planned_units or total_units)
         totalActual,
         remaining,
         progress,
-        samplePlanned: plannedKPIs.slice(0, 5).map(kpi => ({
-          quantity: kpi['Quantity'],
-          activityName: kpi['Activity Name'] || 'N/A',
-          projectFullCode: kpi['Project Full Code'] || 'N/A',
-          projectCode: kpi['Project Code'] || 'N/A',
-          zone: kpi['Zone'] || 'N/A',
-          zoneNumber: kpi['Zone Number'] || 'N/A'
-        })),
         sampleActual: actualKPIs.slice(0, 5).map(kpi => ({
           quantity: kpi['Quantity'],
           activityName: kpi['Activity Name'] || 'N/A',

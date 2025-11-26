@@ -12,13 +12,14 @@ import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
 import { PermissionButton } from '@/components/ui/PermissionButton'
 import { Card } from '@/components/ui/Card'
-import { ArrowLeft, CheckCircle, X, Clock, Target, AlertCircle } from 'lucide-react'
+import { ArrowLeft, CheckCircle, X, Clock, Target, AlertCircle, User, Mail, Phone, Filter, Search, MessageCircle } from 'lucide-react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { useAuth } from '@/app/providers'
 
 interface PendingKPI {
   id: string
   created_at: string
+  created_by?: string // ✅ Creator identifier (email or user ID)
   // New snake_case fields (from mapKPIFromDB)
   project_full_code?: string
   project_code?: string
@@ -45,6 +46,16 @@ interface PendingKPI {
   'Approval Status'?: string
   'Approved By'?: string
   'Approval Date'?: string
+  'Recorded By'?: string // Alternative field name for created_by
+}
+
+interface UserInfo {
+  name: string
+  email: string
+  phone_1?: string
+  phone_2?: string
+  role?: string
+  division?: string
 }
 
 export default function PendingApprovalKPIPage() {
@@ -52,11 +63,23 @@ export default function PendingApprovalKPIPage() {
   const guard = usePermissionGuard()
   const { user: authUser, appUser } = useAuth()
   const [pendingKPIs, setPendingKPIs] = useState<PendingKPI[]>([])
+  const [filteredKPIs, setFilteredKPIs] = useState<PendingKPI[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set())
+  
+  // ✅ Filter state
+  const [selectedProjects, setSelectedProjects] = useState<string[]>([])
+  const [selectedActivities, setSelectedActivities] = useState<string[]>([])
+  const [selectedZones, setSelectedZones] = useState<string[]>([])
+  const [projectSearchTerm, setProjectSearchTerm] = useState('')
+  const [activitySearchTerm, setActivitySearchTerm] = useState('')
+  const [zoneSearchTerm, setZoneSearchTerm] = useState('')
+  
+  // ✅ User info cache (for creator information)
+  const [userInfoCache, setUserInfoCache] = useState<Map<string, UserInfo>>(new Map())
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
@@ -214,6 +237,15 @@ export default function PendingApprovalKPIPage() {
 
       setPendingKPIs(mappedKPIs as PendingKPI[])
       setCurrentPage(1) // Reset to first page when data changes
+      
+      // ✅ Load user info for all creators
+      const creatorIds = Array.from(new Set((data as any[])
+        .map((row: any) => row.created_by || row['created_by'] || row['Recorded By'] || null)
+        .filter(Boolean)))
+      
+      if (creatorIds.length > 0) {
+        await loadUserInfo(creatorIds as string[])
+      }
     } catch (err: any) {
       console.error('Error fetching pending KPIs:', err)
       setError(err.message || 'Failed to load pending KPIs')
@@ -654,10 +686,100 @@ export default function PendingApprovalKPIPage() {
     }
   }
 
-  const getProjectName = (projectCode: string) => {
-    if (!projectCode) return 'N/A'
-    const project = projects.find(p => p.project_code === projectCode || p.project_code === projectCode.trim())
-    return project?.project_name || projectCode || 'N/A'
+  // ✅ Load user info from users table
+  const loadUserInfo = async (userIds: string[]) => {
+    try {
+      const userMap = new Map<string, UserInfo>()
+      
+      for (const userId of userIds) {
+        if (!userId || userId === 'System' || userId === 'Unknown' || userInfoCache.has(userId)) {
+          continue
+        }
+        
+        // Check if it's an email
+        if (userId.includes('@')) {
+          try {
+            const { data: userByEmail, error: emailError } = await supabase
+              .from('users')
+              .select('id, email, full_name, phone_1, phone_2, role, division')
+              .eq('email', userId)
+              .single()
+            
+            if (!emailError && userByEmail) {
+              const userData = userByEmail as any
+              userMap.set(userId, {
+                name: userData.full_name || userData.email?.split('@')[0] || userId,
+                email: userData.email || userId,
+                phone_1: userData.phone_1,
+                phone_2: userData.phone_2,
+                role: userData.role,
+                division: userData.division
+              })
+            } else {
+              // If not found, use email as name
+              userMap.set(userId, { name: userId.split('@')[0], email: userId })
+            }
+          } catch (e: any) {
+            userMap.set(userId, { name: userId.split('@')[0], email: userId })
+          }
+        } else {
+          // Try to find by ID
+          try {
+            const { data: userById, error: idError } = await supabase
+              .from('users')
+              .select('id, email, full_name, phone_1, phone_2, role, division')
+              .eq('id', userId)
+              .single()
+            
+            if (!idError && userById) {
+              const userData = userById as any
+              userMap.set(userId, {
+                name: userData.full_name || userData.email?.split('@')[0] || userId,
+                email: userData.email || userId,
+                phone_1: userData.phone_1,
+                phone_2: userData.phone_2,
+                role: userData.role,
+                division: userData.division
+              })
+            } else {
+              userMap.set(userId, { name: userId, email: '' })
+            }
+          } catch (e: any) {
+            userMap.set(userId, { name: userId, email: '' })
+          }
+        }
+      }
+      
+      // Update cache
+      setUserInfoCache(prev => {
+        const newCache = new Map(prev)
+        Array.from(userMap.entries()).forEach(([key, value]) => {
+          newCache.set(key, value)
+        })
+        return newCache
+      })
+    } catch (err: any) {
+      console.error('Error loading user info:', err)
+    }
+  }
+  
+  // ✅ Get user info for a KPI creator
+  const getCreatorInfo = (kpi: PendingKPI): UserInfo | null => {
+    const creatorId = kpi.created_by || (kpi as any)['created_by'] || (kpi as any)['Recorded By'] || null
+    if (!creatorId) return null
+    return userInfoCache.get(creatorId) || null
+  }
+  
+  // ✅ Helper to clean phone number for WhatsApp link
+  const cleanPhoneNumber = (phone: string): string => {
+    // Remove all non-digit characters except +
+    return phone.replace(/[^\d+]/g, '')
+  }
+  
+  // ✅ Get WhatsApp link for a phone number
+  const getWhatsAppLink = (phone: string): string => {
+    const cleanPhone = cleanPhoneNumber(phone)
+    return `https://wa.me/${cleanPhone}`
   }
   
   // Helper to get field value (handles both old and new field names)
@@ -674,6 +796,9 @@ export default function PendingApprovalKPIPage() {
     // Try common variations
     if (field === 'Project Code') {
       return kpi.project_code || kpi['Project Code'] || ''
+    }
+    if (field === 'Project Full Code') {
+      return kpi.project_full_code || kpi['Project Full Code'] || ''
     }
     if (field === 'Activity Name') {
       return kpi.activity_name || kpi['Activity Name'] || ''
@@ -692,6 +817,63 @@ export default function PendingApprovalKPIPage() {
     }
     return ''
   }
+  
+  const getProjectName = (projectCode: string) => {
+    if (!projectCode) return 'N/A'
+    // ✅ Search by both project_full_code and project_code
+    const project = projects.find(p => 
+      p.project_full_code === projectCode || 
+      p.project_code === projectCode ||
+      p.project_full_code === projectCode.trim() ||
+      p.project_code === projectCode.trim()
+    )
+    return project?.project_name || projectCode || 'N/A'
+  }
+  
+  // ✅ Get unique values for filters
+  const uniqueProjects = Array.from(new Set(pendingKPIs.map(kpi => 
+    getField(kpi, 'Project Full Code') || getField(kpi, 'Project Code') || ''
+  ).filter(Boolean))).sort()
+  
+  const uniqueActivities = Array.from(new Set(pendingKPIs.map(kpi => 
+    getField(kpi, 'Activity Name') || ''
+  ).filter(Boolean))).sort()
+  
+  const uniqueZones = Array.from(new Set(pendingKPIs.map(kpi => 
+    getField(kpi, 'Zone') || ''
+  ).filter(Boolean))).sort()
+  
+  // ✅ Filter KPIs based on selected filters
+  useEffect(() => {
+    let filtered = [...pendingKPIs]
+    
+    // Filter by Projects
+    if (selectedProjects.length > 0) {
+      filtered = filtered.filter(kpi => {
+        const projectCode = getField(kpi, 'Project Full Code') || getField(kpi, 'Project Code') || ''
+        return selectedProjects.includes(projectCode)
+      })
+    }
+    
+    // Filter by Activities
+    if (selectedActivities.length > 0) {
+      filtered = filtered.filter(kpi => {
+        const activityName = getField(kpi, 'Activity Name') || ''
+        return selectedActivities.includes(activityName)
+      })
+    }
+    
+    // Filter by Zones
+    if (selectedZones.length > 0) {
+      filtered = filtered.filter(kpi => {
+        const zone = getField(kpi, 'Zone') || ''
+        return selectedZones.includes(zone)
+      })
+    }
+    
+    setFilteredKPIs(filtered)
+    setCurrentPage(1) // Reset to first page when filters change
+  }, [pendingKPIs, selectedProjects, selectedActivities, selectedZones])
 
   if (loading && pendingKPIs.length === 0) {
     return (
@@ -777,6 +959,153 @@ export default function PendingApprovalKPIPage() {
             </Alert>
           )}
 
+          {/* ✅ Filters Section */}
+          <Card className="mb-6">
+            <div className="p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Filter className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Filters</h2>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Projects Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Projects
+                  </label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search projects..."
+                      value={projectSearchTerm}
+                      onChange={(e) => setProjectSearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm"
+                    />
+                  </div>
+                  <div className="mt-2 max-h-40 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-md p-2">
+                    {uniqueProjects
+                      .filter(p => !projectSearchTerm || p.toLowerCase().includes(projectSearchTerm.toLowerCase()))
+                      .map(project => (
+                        <label key={project} className="flex items-center gap-2 p-1 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selectedProjects.includes(project)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedProjects([...selectedProjects, project])
+                              } else {
+                                setSelectedProjects(selectedProjects.filter(p => p !== project))
+                              }
+                            }}
+                            className="rounded"
+                          />
+                          <span className="text-sm text-gray-700 dark:text-gray-300">{project}</span>
+                        </label>
+                      ))}
+                  </div>
+                </div>
+                
+                {/* Activities Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Activities
+                  </label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search activities..."
+                      value={activitySearchTerm}
+                      onChange={(e) => setActivitySearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm"
+                    />
+                  </div>
+                  <div className="mt-2 max-h-40 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-md p-2">
+                    {uniqueActivities
+                      .filter(a => !activitySearchTerm || a.toLowerCase().includes(activitySearchTerm.toLowerCase()))
+                      .map(activity => (
+                        <label key={activity} className="flex items-center gap-2 p-1 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selectedActivities.includes(activity)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedActivities([...selectedActivities, activity])
+                              } else {
+                                setSelectedActivities(selectedActivities.filter(a => a !== activity))
+                              }
+                            }}
+                            className="rounded"
+                          />
+                          <span className="text-sm text-gray-700 dark:text-gray-300 truncate" title={activity}>{activity}</span>
+                        </label>
+                      ))}
+                  </div>
+                </div>
+                
+                {/* Zones Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Zones
+                  </label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search zones..."
+                      value={zoneSearchTerm}
+                      onChange={(e) => setZoneSearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm"
+                    />
+                  </div>
+                  <div className="mt-2 max-h-40 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-md p-2">
+                    {uniqueZones
+                      .filter(z => !zoneSearchTerm || z.toLowerCase().includes(zoneSearchTerm.toLowerCase()))
+                      .map(zone => (
+                        <label key={zone} className="flex items-center gap-2 p-1 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selectedZones.includes(zone)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedZones([...selectedZones, zone])
+                              } else {
+                                setSelectedZones(selectedZones.filter(z => z !== zone))
+                              }
+                            }}
+                            className="rounded"
+                          />
+                          <span className="text-sm text-gray-700 dark:text-gray-300">{zone}</span>
+                        </label>
+                      ))}
+                  </div>
+                </div>
+              </div>
+              
+              {/* Clear Filters Button */}
+              {(selectedProjects.length > 0 || selectedActivities.length > 0 || selectedZones.length > 0) && (
+                <div className="mt-4">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setSelectedProjects([])
+                      setSelectedActivities([])
+                      setSelectedZones([])
+                      setProjectSearchTerm('')
+                      setActivitySearchTerm('')
+                      setZoneSearchTerm('')
+                    }}
+                  >
+                    <X className="w-4 h-4 mr-2" />
+                    Clear All Filters
+                  </Button>
+                </div>
+              )}
+            </div>
+          </Card>
+
           {/* Summary Card */}
           <Card className="mb-6">
             <div className="p-6">
@@ -788,10 +1117,10 @@ export default function PendingApprovalKPIPage() {
                     </div>
                     <div>
                       <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                        {pendingKPIs.length}
+                        {filteredKPIs.length}
                       </div>
                       <div className="text-sm text-gray-600 dark:text-gray-400">
-                        Pending KPIs
+                        {filteredKPIs.length === pendingKPIs.length ? 'Pending KPIs' : `Filtered (${pendingKPIs.length} total)`}
                       </div>
                     </div>
                   </div>
@@ -801,10 +1130,10 @@ export default function PendingApprovalKPIPage() {
           </Card>
 
           {/* Pagination Controls - Top */}
-          {pendingKPIs.length > itemsPerPage && (
+          {filteredKPIs.length > itemsPerPage && (
             <div className="mb-6 flex flex-col sm:flex-row items-center justify-between gap-4">
               <div className="text-sm text-gray-600 dark:text-gray-400">
-                Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, pendingKPIs.length)} of {pendingKPIs.length} KPIs
+                Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredKPIs.length)} of {filteredKPIs.length} KPIs
               </div>
               <div className="flex items-center gap-2">
                 <Button
@@ -824,8 +1153,8 @@ export default function PendingApprovalKPIPage() {
                   Previous
                 </Button>
                 <div className="flex items-center gap-1">
-                  {Array.from({ length: Math.min(5, Math.ceil(pendingKPIs.length / itemsPerPage)) }, (_, i) => {
-                    const totalPages = Math.ceil(pendingKPIs.length / itemsPerPage)
+                  {Array.from({ length: Math.min(5, Math.ceil(filteredKPIs.length / itemsPerPage)) }, (_, i) => {
+                    const totalPages = Math.ceil(filteredKPIs.length / itemsPerPage)
                     let pageNum: number
                     
                     if (totalPages <= 5) {
@@ -854,16 +1183,16 @@ export default function PendingApprovalKPIPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setCurrentPage(prev => Math.min(Math.ceil(pendingKPIs.length / itemsPerPage), prev + 1))}
-                  disabled={currentPage >= Math.ceil(pendingKPIs.length / itemsPerPage)}
+                  onClick={() => setCurrentPage(prev => Math.min(Math.ceil(filteredKPIs.length / itemsPerPage), prev + 1))}
+                  disabled={currentPage >= Math.ceil(filteredKPIs.length / itemsPerPage)}
                 >
                   Next
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setCurrentPage(Math.ceil(pendingKPIs.length / itemsPerPage))}
-                  disabled={currentPage >= Math.ceil(pendingKPIs.length / itemsPerPage)}
+                  onClick={() => setCurrentPage(Math.ceil(filteredKPIs.length / itemsPerPage))}
+                  disabled={currentPage >= Math.ceil(filteredKPIs.length / itemsPerPage)}
                 >
                   Last
                 </Button>
@@ -888,7 +1217,7 @@ export default function PendingApprovalKPIPage() {
           )}
 
           {/* KPIs List */}
-          {pendingKPIs.length === 0 ? (
+          {filteredKPIs.length === 0 ? (
             <Card>
               <div className="p-12 text-center">
                 <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
@@ -906,7 +1235,7 @@ export default function PendingApprovalKPIPage() {
                 // Calculate pagination
                 const startIndex = (currentPage - 1) * itemsPerPage
                 const endIndex = startIndex + itemsPerPage
-                const paginatedKPIs = pendingKPIs.slice(startIndex, endIndex)
+                const paginatedKPIs = filteredKPIs.slice(startIndex, endIndex)
                 
                 return paginatedKPIs.map((kpi) => (
                 <Card key={kpi.id} className="hover:shadow-lg transition-shadow">
@@ -922,10 +1251,88 @@ export default function PendingApprovalKPIPage() {
                               {getField(kpi, 'Activity Name') || 'N/A'}
                             </h3>
                             <p className="text-sm text-gray-600 dark:text-gray-400">
-                              Project: {getProjectName(getField(kpi, 'Project Code') || '')} ({getField(kpi, 'Project Code') || 'N/A'})
+                              Project: {getProjectName(getField(kpi, 'Project Full Code') || getField(kpi, 'Project Code') || '')} ({getField(kpi, 'Project Full Code') || getField(kpi, 'Project Code') || 'N/A'})
                             </p>
+                            {getField(kpi, 'Zone') && (
+                              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                Zone: {getField(kpi, 'Zone')}
+                              </p>
+                            )}
                           </div>
                         </div>
+
+                        {/* ✅ Creator Information */}
+                        {(() => {
+                          const creatorInfo = getCreatorInfo(kpi)
+                          if (creatorInfo) {
+                            return (
+                              <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                                  <span className="text-sm font-semibold text-gray-900 dark:text-white">Created By:</span>
+                                  <span className="text-sm text-gray-700 dark:text-gray-300">{creatorInfo.name}</span>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-3 text-xs">
+                                  {/* Email */}
+                                  {creatorInfo.email && (
+                                    <a 
+                                      href={`mailto:${creatorInfo.email}`}
+                                      className="flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline transition-colors"
+                                    >
+                                      <Mail className="w-4 h-4" />
+                                      <span>{creatorInfo.email}</span>
+                                    </a>
+                                  )}
+                                  
+                                  {/* Phone 1 */}
+                                  {creatorInfo.phone_1 && (
+                                    <div className="flex items-center gap-2">
+                                      <a 
+                                        href={`tel:${creatorInfo.phone_1}`}
+                                        className="flex items-center gap-1 text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline transition-colors"
+                                      >
+                                        <Phone className="w-4 h-4" />
+                                        <span>{creatorInfo.phone_1}</span>
+                                      </a>
+                                      <a 
+                                        href={getWhatsAppLink(creatorInfo.phone_1)}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-1 text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 transition-colors"
+                                        title={`WhatsApp: ${creatorInfo.phone_1}`}
+                                      >
+                                        <MessageCircle className="w-4 h-4" />
+                                      </a>
+                                    </div>
+                                  )}
+                                  
+                                  {/* Phone 2 */}
+                                  {creatorInfo.phone_2 && (
+                                    <div className="flex items-center gap-2">
+                                      <a 
+                                        href={`tel:${creatorInfo.phone_2}`}
+                                        className="flex items-center gap-1 text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline transition-colors"
+                                      >
+                                        <Phone className="w-4 h-4" />
+                                        <span>{creatorInfo.phone_2}</span>
+                                      </a>
+                                      <a 
+                                        href={getWhatsAppLink(creatorInfo.phone_2)}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-1 text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 transition-colors"
+                                        title={`WhatsApp: ${creatorInfo.phone_2}`}
+                                      >
+                                        <MessageCircle className="w-4 h-4" />
+                                      </a>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          }
+                          return null
+                        })()}
 
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4">
                           <div>
@@ -1014,10 +1421,10 @@ export default function PendingApprovalKPIPage() {
           )}
 
           {/* Pagination Controls - Bottom */}
-          {pendingKPIs.length > itemsPerPage && (
+          {filteredKPIs.length > itemsPerPage && (
             <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
               <div className="text-sm text-gray-600 dark:text-gray-400">
-                Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, pendingKPIs.length)} of {pendingKPIs.length} KPIs
+                Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredKPIs.length)} of {filteredKPIs.length} KPIs
               </div>
               <div className="flex items-center gap-2">
                 <Button
@@ -1037,8 +1444,8 @@ export default function PendingApprovalKPIPage() {
                   Previous
                 </Button>
                 <div className="flex items-center gap-1">
-                  {Array.from({ length: Math.min(5, Math.ceil(pendingKPIs.length / itemsPerPage)) }, (_, i) => {
-                    const totalPages = Math.ceil(pendingKPIs.length / itemsPerPage)
+                  {Array.from({ length: Math.min(5, Math.ceil(filteredKPIs.length / itemsPerPage)) }, (_, i) => {
+                    const totalPages = Math.ceil(filteredKPIs.length / itemsPerPage)
                     let pageNum: number
                     
                     if (totalPages <= 5) {
@@ -1067,16 +1474,16 @@ export default function PendingApprovalKPIPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setCurrentPage(prev => Math.min(Math.ceil(pendingKPIs.length / itemsPerPage), prev + 1))}
-                  disabled={currentPage >= Math.ceil(pendingKPIs.length / itemsPerPage)}
+                  onClick={() => setCurrentPage(prev => Math.min(Math.ceil(filteredKPIs.length / itemsPerPage), prev + 1))}
+                  disabled={currentPage >= Math.ceil(filteredKPIs.length / itemsPerPage)}
                 >
                   Next
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setCurrentPage(Math.ceil(pendingKPIs.length / itemsPerPage))}
-                  disabled={currentPage >= Math.ceil(pendingKPIs.length / itemsPerPage)}
+                  onClick={() => setCurrentPage(Math.ceil(filteredKPIs.length / itemsPerPage))}
+                  disabled={currentPage >= Math.ceil(filteredKPIs.length / itemsPerPage)}
                 >
                   Last
                 </Button>

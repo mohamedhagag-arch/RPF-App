@@ -1273,6 +1273,117 @@ export function BOQTableWithCustomization({
     // ✅ SHARED HELPER FUNCTIONS (used by multiple columns)
     // ============================================
     
+    // ✅ Calculate yesterday date (end of yesterday at 23:59:59) - shared across columns
+    const yesterday = new Date()
+    yesterday.setDate(yesterday.getDate() - 1)
+    yesterday.setHours(23, 59, 59, 999)
+    
+    // ✅ Helper function to get KPI value (handles Value field or calculates from Quantity × Rate)
+    const getKPIValue = (kpi: any, activity: BOQActivity): number => {
+      const rawKPI = (kpi as any).raw || {}
+      const rawActivity = (activity as any).raw || {}
+      
+      // Get quantity
+      const quantity = parseFloat(String(kpi.quantity || kpi['Quantity'] || rawKPI['Quantity'] || '0').replace(/,/g, '')) || 0
+      
+      // Priority 1: Try to get Value directly
+      let kpiValue = parseFloat(String(kpi.value || kpi['Value'] || rawKPI['Value'] || '0').replace(/,/g, '')) || 0
+      
+      // ✅ Check if Value equals Quantity (means it's quantity, not value)
+      if (kpiValue > 0 && quantity > 0 && Math.abs(kpiValue - quantity) < 0.01) {
+        kpiValue = 0 // Reset to calculate from rate
+      }
+      
+      // Priority 2: If value is 0 or equals quantity, calculate from Quantity × Rate
+      if (kpiValue === 0 && quantity > 0) {
+        // Try to get rate from KPI
+        let rate = parseFloat(String(kpi.rate || kpi['Rate'] || rawKPI['Rate'] || '0').replace(/,/g, '')) || 0
+        
+        // If no rate in KPI, calculate from activity
+        if (rate === 0) {
+          rate = parseFloat(String(activity.rate || rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
+          
+          // If still no rate, calculate from Total Value / Planned Units
+          if (rate === 0 && activity.total_value && activity.planned_units && activity.planned_units > 0) {
+            rate = activity.total_value / activity.planned_units
+          }
+        }
+        
+        kpiValue = quantity * rate
+      }
+      
+      // Ensure valid number
+      return isNaN(kpiValue) || !isFinite(kpiValue) ? 0 : kpiValue
+    }
+    
+    // ✅ Helper function to check if KPI matches activity
+    const kpiMatchesActivity = (kpi: any, activity: BOQActivity): boolean => {
+      const rawKPI = (kpi as any).raw || {}
+      
+      // Match Project Code or Project Full Code
+      const kpiProjectCode = (kpi.project_code || kpi['Project Code'] || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+      const kpiProjectFullCode = (kpi.project_full_code || kpi['Project Full Code'] || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+      const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
+      const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+      
+      const projectMatch = (
+        (kpiProjectCode && activityProjectCode && kpiProjectCode === activityProjectCode) ||
+        (kpiProjectFullCode && activityProjectFullCode && kpiProjectFullCode === activityProjectFullCode) ||
+        (kpiProjectCode && activityProjectFullCode && kpiProjectCode === activityProjectFullCode) ||
+        (kpiProjectFullCode && activityProjectCode && kpiProjectFullCode === activityProjectCode)
+      )
+      
+      if (!projectMatch) return false
+      
+      // Match Activity Name (required)
+      const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPI['Activity Name'] || '').toLowerCase().trim()
+      const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+      
+      const activityMatch = kpiActivityName && activityName && (
+        kpiActivityName === activityName ||
+        kpiActivityName.includes(activityName) ||
+        activityName.includes(kpiActivityName)
+      )
+      
+      if (!activityMatch) return false
+      
+      // Match Zone (optional but helps with precision)
+      const kpiZone = (kpi.zone || kpi['Zone'] || kpi.section || rawKPI['Zone'] || '').toLowerCase().trim()
+      const activityZone = (activity.zone_ref || activity.zone_number || '').toLowerCase().trim()
+      
+      if (activityZone && kpiZone) {
+        return kpiZone === activityZone || kpiZone.includes(activityZone) || activityZone.includes(kpiZone)
+      }
+      
+      return true // If no zone in activity, accept the match
+    }
+    
+    // ✅ Helper function to check if KPI date is until yesterday
+    const isKPIUntilYesterday = (kpi: any, inputType: 'planned' | 'actual'): boolean => {
+      const rawKPI = (kpi as any).raw || {}
+      
+      // Get date based on input type
+      let kpiDateStr = ''
+      if (inputType === 'planned') {
+        kpiDateStr = kpi.activity_date || kpi.target_date || kpi['Activity Date'] || kpi['Target Date'] || 
+                    rawKPI['Activity Date'] || rawKPI['Target Date'] || ''
+      } else {
+        kpiDateStr = kpi.actual_date || kpi.activity_date || kpi['Actual Date'] || kpi['Activity Date'] || 
+                    rawKPI['Actual Date'] || rawKPI['Activity Date'] || ''
+      }
+      
+      // If no date, include it (assume valid)
+      if (!kpiDateStr) return true
+      
+      try {
+        const kpiDate = new Date(kpiDateStr)
+        if (isNaN(kpiDate.getTime())) return true // Include if invalid date
+        return kpiDate <= yesterday
+      } catch {
+        return true // Include if date parsing fails
+      }
+    }
+    
     // Helper: Normalize zone value (remove project code prefix)
     const normalizeZone = (zone: string, projectCode: string): string => {
       if (!zone || !projectCode) return (zone || '').toLowerCase().trim()
@@ -1383,9 +1494,10 @@ export function BOQTableWithCustomization({
       return normalizeZone(zoneRaw, projectCode)
     }
     
-    // Helper: Check if KPI matches activity (Project, Activity Name, Zone)
+    // Helper: Check if KPI matches activity (Project, Activity Name, Zone) - ULTRA STRICT VERSION
     // ✅ IMPROVED: Ultra strict Project Full Code matching to prevent "P5066-12" matching "P5066-2"
-    const kpiMatchesActivity = (kpi: any, activity: BOQActivity): boolean => {
+    // NOTE: This is a more strict version used by quantities column, the shared version is above
+    const kpiMatchesActivityStrict = (kpi: any, activity: BOQActivity): boolean => {
       const rawKPI = (kpi as any).raw || {}
       
       // 1. Project Code Matching (ULTRA STRICT)
@@ -1585,11 +1697,9 @@ export function BOQTableWithCustomization({
       return parseFloat(quantityStr) || 0
     }
     
-    // Helper: Check if KPI date is until yesterday
-    const isKPIUntilYesterday = (kpi: any, inputType: 'planned' | 'actual'): boolean => {
-      const yesterday = new Date()
-      yesterday.setDate(yesterday.getDate() - 1)
-      yesterday.setHours(23, 59, 59, 999)
+    // Helper: Check if KPI date is until yesterday - EXTENDED VERSION (with more date sources)
+    // NOTE: This version has more date sources, but uses the shared 'yesterday' variable
+    const isKPIUntilYesterdayExtended = (kpi: any, inputType: 'planned' | 'actual'): boolean => {
       
       const raw = (kpi as any).raw || {}
       let kpiDateStr = ''
@@ -1966,10 +2076,10 @@ export function BOQTableWithCustomization({
           })
           
           // Step 2: Match Planned KPIs to this activity (Project, Activity Name, Zone)
-          const matchedPlannedKPIs = plannedKPIs.filter((kpi: any) => kpiMatchesActivity(kpi, activity))
+          const matchedPlannedKPIs = plannedKPIs.filter((kpi: any) => kpiMatchesActivityStrict(kpi, activity))
           
           // Step 3: Filter until yesterday and sum quantities
-          const plannedKPIsUntilYesterday = matchedPlannedKPIs.filter((kpi: any) => isKPIUntilYesterday(kpi, 'planned'))
+          const plannedKPIsUntilYesterday = matchedPlannedKPIs.filter((kpi: any) => isKPIUntilYesterdayExtended(kpi, 'planned'))
           plannedUnits = plannedKPIsUntilYesterday.reduce((sum: number, kpi: any) => {
             return sum + getKPIQuantity(kpi)
           }, 0)
@@ -1988,10 +2098,10 @@ export function BOQTableWithCustomization({
           
           // Step 2: Match Actual KPIs to this activity (Project, Activity Name, Zone)
           // ✅ USE SAME FUNCTION AS PLANNED - kpiMatchesActivity
-          const matchedActualKPIs = actualKPIs.filter((kpi: any) => kpiMatchesActivity(kpi, activity))
+          const matchedActualKPIs = actualKPIs.filter((kpi: any) => kpiMatchesActivityStrict(kpi, activity))
           
           // Step 3: Filter until yesterday and sum quantities
-          const actualKPIsUntilYesterday = matchedActualKPIs.filter((kpi: any) => isKPIUntilYesterday(kpi, 'actual'))
+          const actualKPIsUntilYesterday = matchedActualKPIs.filter((kpi: any) => isKPIUntilYesterdayExtended(kpi, 'actual'))
           actualUnits = actualKPIsUntilYesterday.reduce((sum: number, kpi: any) => {
             return sum + getKPIQuantity(kpi)
           }, 0)
@@ -2021,8 +2131,8 @@ export function BOQTableWithCustomization({
               return inputType === 'actual'
             })
             
-            matchedPlannedCount = plannedKPIs.filter((kpi: any) => kpiMatchesActivity(kpi, activity)).length
-            matchedActualCount = actualKPIs.filter((kpi: any) => kpiMatchesActivity(kpi, activity)).length
+            matchedPlannedCount = plannedKPIs.filter((kpi: any) => kpiMatchesActivityStrict(kpi, activity)).length
+            matchedActualCount = actualKPIs.filter((kpi: any) => kpiMatchesActivityStrict(kpi, activity)).length
           }
           
           console.log(`📊 [BOQ Quantities] "${activity.activity_name}" (Zone: ${activityZone || 'N/A'}):`, {
@@ -2207,275 +2317,87 @@ export function BOQTableWithCustomization({
         )
       
       case 'progress_summary':
-        // ✅ Calculate Progress Summary based on Actual Units vs Planned Units
+        // ============================================
+        // ✅ PROGRESS SUMMARY - COMPLETE REWRITE
+        // ============================================
+        // Principle: Calculate progress based on VALUES (not quantities)
+        // Planned Progress = (Sum of Planned KPIs values until yesterday / Total Value) × 100
+        // Actual Progress = (Sum of Actual KPIs values until yesterday / Total Value) × 100
+        // Variance = Actual Progress - Planned Progress
+        // ============================================
+        
         const rawActivityProgress = (activity as any).raw || {}
         
-        // ✅ Get Total Units for Actual Progress calculation (still based on quantities)
-        const totalUnitsProgress = activity.total_units || 
-                          parseFloat(String(rawActivityProgress['Total Units'] || '0').replace(/,/g, '')) || 
-                          activity.planned_units ||
-                          parseFloat(String(rawActivityProgress['Planned Units'] || '0').replace(/,/g, '')) || 
-                          0
-        
-        // ✅ Calculate yesterday date for filtering KPIs
-        const yesterday = new Date()
-        yesterday.setDate(yesterday.getDate() - 1)
-        yesterday.setHours(23, 59, 59, 999) // End of yesterday
-        
-        // ✅ Get Total Value from BOQ activity (this is the base for calculations)
-        const totalValueProgress = activity.total_value || 
-                          parseFloat(String(rawActivityProgress['Total Value'] || '0').replace(/,/g, '')) || 
-                          0
-        
-        // ✅ Get Planned Value from Planned KPIs until yesterday only
-        let plannedValueProgress = 0
-        if (allKPIs.length > 0 && totalValueProgress > 0) {
-          // Match KPIs to this activity
-          const activityKPIsProgress = allKPIs.filter((kpi: any) => {
-            const rawKPIProgress = (kpi as any).raw || {}
-            
-            const kpiProjectCodeProgress = (kpi.project_code || kpi['Project Code'] || rawKPIProgress['Project Code'] || '').toString().trim().toUpperCase()
-            const kpiProjectFullCodeProgress = (kpi.project_full_code || kpi['Project Full Code'] || rawKPIProgress['Project Full Code'] || '').toString().trim().toUpperCase()
-            const activityProjectCodeProgress = (activity.project_code || '').toString().trim().toUpperCase()
-            const activityProjectFullCodeProgress = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
-            
-            const kpiActivityNameProgress = (kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPIProgress['Activity Name'] || '').toLowerCase().trim()
-            const activityNameProgress = (activity.activity_name || activity.activity || '').toLowerCase().trim()
-            
-            const kpiZoneProgress = (kpi.zone || kpi['Zone'] || kpi.section || rawKPIProgress['Zone'] || '').toLowerCase().trim()
-            const activityZoneProgress = (activity.zone_ref || activity.zone_number || '').toLowerCase().trim()
-            
-            const projectMatchProgress = (
-              (kpiProjectCodeProgress && activityProjectCodeProgress && kpiProjectCodeProgress === activityProjectCodeProgress) ||
-              (kpiProjectFullCodeProgress && activityProjectFullCodeProgress && kpiProjectFullCodeProgress === activityProjectFullCodeProgress) ||
-              (kpiProjectCodeProgress && activityProjectFullCodeProgress && kpiProjectCodeProgress === activityProjectFullCodeProgress) ||
-              (kpiProjectFullCodeProgress && activityProjectCodeProgress && kpiProjectFullCodeProgress === activityProjectCodeProgress) ||
-              (kpiProjectCodeProgress && activityProjectCodeProgress && (
-                kpiProjectCodeProgress.includes(activityProjectCodeProgress) || 
-                activityProjectCodeProgress.includes(kpiProjectCodeProgress)
-              ))
-            )
-            
-            if (!projectMatchProgress) return false
-            
-            // ✅ STRICT: Activity name must match (required for activity-specific matching)
-            const activityMatchProgress = kpiActivityNameProgress && activityNameProgress && 
-              (kpiActivityNameProgress === activityNameProgress || 
-               kpiActivityNameProgress.includes(activityNameProgress) || 
-               activityNameProgress.includes(kpiActivityNameProgress))
-            
-            // ✅ Zone match is optional but helps with precision
-            const zoneMatchProgress = kpiZoneProgress && activityZoneProgress && 
-              (kpiZoneProgress === activityZoneProgress || 
-               kpiZoneProgress.includes(activityZoneProgress) || 
-               activityZoneProgress.includes(kpiZoneProgress))
-            
-            // ✅ Require activity name match (not just zone) to ensure activity-specific matching
-            // If zone is available, both should match for better precision
-            if (activityZoneProgress && kpiZoneProgress) {
-              return activityMatchProgress && zoneMatchProgress
-            }
-            
-            // If no zone in activity, require activity name match
-            return activityMatchProgress
-          })
-          
-          // Filter for Planned KPIs only
-          const plannedKPIsProgress = activityKPIsProgress.filter((kpi: any) => {
-            const inputType = (kpi.input_type || kpi['Input Type'] || kpi.raw?.['Input Type'] || '').toLowerCase()
-            return inputType === 'planned'
-          })
-          
-          // ✅ Filter Planned KPIs until yesterday only and sum VALUES (not quantities)
-          if (plannedKPIsProgress.length > 0) {
-            plannedValueProgress = plannedKPIsProgress
-              .filter((kpi: any) => {
-                // Get KPI date from multiple sources
-                const kpiDateStr = kpi.activity_date || kpi.target_date || kpi['Activity Date'] || kpi['Target Date'] || kpi.raw?.['Activity Date'] || kpi.raw?.['Target Date'] || ''
-                if (!kpiDateStr) return true // Include if no date (assume it's valid)
-                
-                try {
-                  const kpiDate = new Date(kpiDateStr)
-                  if (isNaN(kpiDate.getTime())) return true // Include if invalid date
-                  return kpiDate <= yesterday // Only include KPIs until yesterday
-                } catch {
-                  return true // Include if date parsing fails
-                }
-              })
-              .reduce((sum: number, kpi: any) => {
-                // Calculate value: use value directly if available, otherwise quantity × rate
-                let kpiValue = parseFloat(String(kpi.value || kpi['Value'] || kpi.raw?.['Value'] || '0').replace(/,/g, '')) || 0
-                
-                // If value is 0 or not available, calculate from quantity × rate
-                if (kpiValue === 0) {
-                  const quantity = parseFloat(String(kpi.quantity || kpi['Quantity'] || kpi.raw?.['Quantity'] || '0').replace(/,/g, '')) || 0
-                  const rate = parseFloat(String(kpi.rate || kpi['Rate'] || kpi.raw?.['Rate'] || '0').replace(/,/g, '')) || 0
-                  
-                  // If rate is not available, calculate from activity rate
-                  if (rate === 0) {
-                    const activityRate = activity.rate || 
-                                      (activity.total_value && activity.planned_units && activity.planned_units > 0 
-                                        ? activity.total_value / activity.planned_units 
-                                        : 0) ||
-                                      parseFloat(String(rawActivityProgress['Rate'] || '0').replace(/,/g, '')) ||
-                                      0
-                    kpiValue = quantity * activityRate
-                  } else {
-                    kpiValue = quantity * rate
-                  }
-                }
-                
-                return sum + kpiValue
-              }, 0)
-          }
+        // ✅ Step 1: Get Total Value from BOQ Activity (the base for all calculations)
+        let totalValue = parseFloat(String(activity.total_value || rawActivityProgress['Total Value'] || '0').replace(/,/g, '')) || 0
+        if (isNaN(totalValue) || !isFinite(totalValue) || totalValue <= 0) {
+          totalValue = 0
         }
         
-        // ✅ Fallback: If no Planned KPIs found, use 0 (should start from 0%)
-        // This ensures Planned Progress starts from 0% and increases as KPIs are added
-        if (plannedValueProgress === 0 && allKPIs.length === 0) {
-          plannedValueProgress = 0
-        }
-        
-        // ✅ Get Actual Value from Actual KPIs until yesterday only
-        let actualValueProgress = 0
-        if (allKPIs.length > 0 && totalValueProgress > 0) {
-          // Match KPIs to this activity (same logic as Planned)
-          const activityKPIsActual = allKPIs.filter((kpi: any) => {
-            const rawKPIProgress = (kpi as any).raw || {}
-            
-            const kpiProjectCodeProgress = (kpi.project_code || kpi['Project Code'] || rawKPIProgress['Project Code'] || '').toString().trim().toUpperCase()
-            const kpiProjectFullCodeProgress = (kpi.project_full_code || kpi['Project Full Code'] || rawKPIProgress['Project Full Code'] || '').toString().trim().toUpperCase()
-            const activityProjectCodeProgress = (activity.project_code || '').toString().trim().toUpperCase()
-            const activityProjectFullCodeProgress = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
-            
-            const kpiActivityNameProgress = (kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPIProgress['Activity Name'] || '').toLowerCase().trim()
-            const activityNameProgress = (activity.activity_name || activity.activity || '').toLowerCase().trim()
-            
-            const kpiZoneProgress = (kpi.zone || kpi['Zone'] || kpi.section || rawKPIProgress['Zone'] || '').toLowerCase().trim()
-            const activityZoneProgress = (activity.zone_ref || activity.zone_number || '').toLowerCase().trim()
-            
-            const projectMatchProgress = (
-              (kpiProjectCodeProgress && activityProjectCodeProgress && kpiProjectCodeProgress === activityProjectCodeProgress) ||
-              (kpiProjectFullCodeProgress && activityProjectFullCodeProgress && kpiProjectFullCodeProgress === activityProjectFullCodeProgress) ||
-              (kpiProjectCodeProgress && activityProjectFullCodeProgress && kpiProjectCodeProgress === activityProjectFullCodeProgress) ||
-              (kpiProjectFullCodeProgress && activityProjectCodeProgress && kpiProjectFullCodeProgress === activityProjectCodeProgress) ||
-              (kpiProjectCodeProgress && activityProjectCodeProgress && (
-                kpiProjectCodeProgress.includes(activityProjectCodeProgress) || 
-                activityProjectCodeProgress.includes(kpiProjectCodeProgress)
-              ))
-            )
-            
-            if (!projectMatchProgress) return false
-            
-            // ✅ STRICT: Activity name must match (required for activity-specific matching)
-            const activityMatchProgress = kpiActivityNameProgress && activityNameProgress && 
-              (kpiActivityNameProgress === activityNameProgress || 
-               kpiActivityNameProgress.includes(activityNameProgress) || 
-               activityNameProgress.includes(kpiActivityNameProgress))
-            
-            // ✅ Zone match is optional but helps with precision
-            const zoneMatchProgress = kpiZoneProgress && activityZoneProgress && 
-              (kpiZoneProgress === activityZoneProgress || 
-               kpiZoneProgress.includes(activityZoneProgress) || 
-               activityZoneProgress.includes(kpiZoneProgress))
-            
-            // ✅ Require activity name match (not just zone) to ensure activity-specific matching
-            // If zone is available, both should match for better precision
-            if (activityZoneProgress && kpiZoneProgress) {
-              return activityMatchProgress && zoneMatchProgress
-            }
-            
-            // If no zone in activity, require activity name match
-            return activityMatchProgress
-          })
+        // ✅ Step 2: Calculate Planned Value from Planned KPIs until yesterday
+        let plannedValue = 0
+        if (allKPIs.length > 0 && totalValue > 0) {
+          const plannedKPIs = allKPIs
+            .filter((kpi: any) => {
+              // Must be Planned type
+              const inputType = (kpi.input_type || kpi['Input Type'] || (kpi as any).raw?.['Input Type'] || '').toLowerCase()
+              if (inputType !== 'planned') return false
+              
+              // Must match activity
+              if (!kpiMatchesActivity(kpi, activity)) return false
+              
+              // Must be until yesterday
+              return isKPIUntilYesterday(kpi, 'planned')
+            })
+            .map((kpi: any) => getKPIValue(kpi, activity))
           
-          // Filter for Actual KPIs only
-          const actualKPIsProgress = activityKPIsActual.filter((kpi: any) => {
-            const inputType = (kpi.input_type || kpi['Input Type'] || kpi.raw?.['Input Type'] || '').toLowerCase()
-            return inputType === 'actual'
-          })
+          plannedValue = plannedKPIs.reduce((sum, value) => sum + value, 0)
+        }
+        
+        // ✅ Step 3: Calculate Actual Value from Actual KPIs until yesterday
+        let actualValue = 0
+        if (allKPIs.length > 0 && totalValue > 0) {
+          const actualKPIs = allKPIs
+            .filter((kpi: any) => {
+              // Must be Actual type
+              const inputType = (kpi.input_type || kpi['Input Type'] || (kpi as any).raw?.['Input Type'] || '').toLowerCase()
+              if (inputType !== 'actual') return false
+              
+              // Must match activity
+              if (!kpiMatchesActivity(kpi, activity)) return false
+              
+              // Must be until yesterday
+              return isKPIUntilYesterday(kpi, 'actual')
+            })
+            .map((kpi: any) => getKPIValue(kpi, activity))
           
-          // ✅ Filter Actual KPIs until yesterday only and sum VALUES (not quantities)
-          if (actualKPIsProgress.length > 0) {
-            actualValueProgress = actualKPIsProgress
-              .filter((kpi: any) => {
-                // Get KPI date from multiple sources
-                const kpiDateStr = kpi.actual_date || kpi.activity_date || kpi['Actual Date'] || kpi['Activity Date'] || kpi.raw?.['Actual Date'] || kpi.raw?.['Activity Date'] || ''
-                if (!kpiDateStr) return true // Include if no date
-                
-                try {
-                  const kpiDate = new Date(kpiDateStr)
-                  if (isNaN(kpiDate.getTime())) return true
-                  return kpiDate <= yesterday // Only include KPIs until yesterday
-                } catch {
-                  return true
-                }
-              })
-              .reduce((sum: number, kpi: any) => {
-                // Calculate value: use value directly if available, otherwise quantity × rate
-                let kpiValue = parseFloat(String(kpi.value || kpi['Value'] || kpi.raw?.['Value'] || '0').replace(/,/g, '')) || 0
-                
-                // If value is 0 or not available, calculate from quantity × rate
-                if (kpiValue === 0) {
-                  const quantity = parseFloat(String(kpi.quantity || kpi['Quantity'] || kpi.raw?.['Quantity'] || '0').replace(/,/g, '')) || 0
-                  const rate = parseFloat(String(kpi.rate || kpi['Rate'] || kpi.raw?.['Rate'] || '0').replace(/,/g, '')) || 0
-                  
-                  // If rate is not available, calculate from activity rate
-                  if (rate === 0) {
-                    const activityRate = activity.rate || 
-                                      (activity.total_value && activity.planned_units && activity.planned_units > 0 
-                                        ? activity.total_value / activity.planned_units 
-                                        : 0) ||
-                                      parseFloat(String(rawActivityProgress['Rate'] || '0').replace(/,/g, '')) ||
-                                      0
-                    kpiValue = quantity * activityRate
-                  } else {
-                    kpiValue = quantity * rate
-                  }
-                }
-                
-                return sum + kpiValue
-              }, 0)
-          }
+          actualValue = actualKPIs.reduce((sum, value) => sum + value, 0)
         }
         
-        // ✅ Fallback: If no Actual KPIs found, use 0 (should start from 0%)
-        if (actualValueProgress === 0 && allKPIs.length === 0) {
-          actualValueProgress = 0
-        }
-        
-        // ✅ Calculate Planned Progress: (Planned Value until yesterday / Total Value) × 100
-        // This starts from 0% and increases to 100% as Planned KPIs are added until yesterday
-        // Cap at 100% to prevent values exceeding 100%
-        const plannedProgress = totalValueProgress > 0 
-          ? Math.min(100, (plannedValueProgress / totalValueProgress) * 100)
+        // ✅ Step 4: Calculate Progress Percentages
+        const plannedProgress = totalValue > 0 
+          ? Math.min(100, Math.max(0, (plannedValue / totalValue) * 100))
           : 0
         
-        // ✅ Calculate Actual Progress: (Actual Value until yesterday / Total Value) × 100
-        // This starts from 0% and increases to 100% as Actual KPIs are added until yesterday
-        // Cap at 100% to prevent values exceeding 100%
-        const actualProgress = totalValueProgress > 0 
-          ? Math.min(100, (actualValueProgress / totalValueProgress) * 100)
+        const actualProgress = totalValue > 0 
+          ? Math.min(100, Math.max(0, (actualValue / totalValue) * 100))
           : 0
         
         const varianceProgress = actualProgress - plannedProgress
         
-        // ✅ DEBUG: Log calculation in development
+        // ✅ DEBUG: Log in development mode
         if (process.env.NODE_ENV === 'development') {
-          console.log(`📊 [BOQ] Progress Summary for "${activity.activity_name}":`, {
-            plannedValue: plannedValueProgress,
-            actualValue: actualValueProgress,
-            totalValue: totalValueProgress,
-            plannedProgressRaw: totalValueProgress > 0 ? (plannedValueProgress / totalValueProgress) * 100 : 0,
-            plannedProgressCapped: plannedProgress,
-            actualProgressRaw: totalValueProgress > 0 ? (actualValueProgress / totalValueProgress) * 100 : 0,
-            actualProgressCapped: actualProgress,
-            variance: varianceProgress,
-            plannedWarning: plannedValueProgress > totalValueProgress ? '⚠️ Planned Value exceeds Total Value!' : 'OK',
-            actualWarning: actualValueProgress > totalValueProgress ? '⚠️ Actual Value exceeds Total Value!' : 'OK'
+          console.log(`📊 [Progress Summary] "${activity.activity_name}":`, {
+            totalValue,
+            plannedValue,
+            actualValue,
+            plannedProgress: plannedProgress.toFixed(1) + '%',
+            actualProgress: actualProgress.toFixed(1) + '%',
+            variance: varianceProgress.toFixed(1) + '%'
           })
         }
         
+        // ✅ Render the progress summary UI
         return (
           <div className="space-y-2">
             <div className="space-y-1">
@@ -2665,18 +2587,29 @@ export function BOQTableWithCustomization({
         }
         
         // Helper: Get KPI Value (priority: k.value > rate * quantity > planned_value/actual_value)
+        // ✅ IMPORTANT: Check if Value equals Quantity (means it's quantity, not value)
         const getKPIValueWorkValue = (kpi: any, activity: BOQActivity): number => {
           const rawKPI = (kpi as any).raw || {}
           
+          // Get quantity first
+          const quantity = parseFloat(String(kpi.quantity || rawKPI['Quantity'] || '0').replace(/,/g, '')) || 0
+          
           // Priority 1: Use value directly from KPI if available (most accurate)
-          const kpiValue = parseFloat(String(kpi.value || rawKPI['Value'] || '0').replace(/,/g, '')) || 0
+          let kpiValue = parseFloat(String(kpi.value || rawKPI['Value'] || '0').replace(/,/g, '')) || 0
+          
+          // ✅ Check if Value equals Quantity (means it's quantity, not value)
+          // If Value equals Quantity, we need to calculate from Rate × Quantity
+          if (kpiValue > 0 && quantity > 0 && Math.abs(kpiValue - quantity) < 0.01) {
+            // Value equals quantity, so it's not a real value - calculate from rate
+            kpiValue = 0
+          }
+          
           if (kpiValue > 0) {
             return kpiValue
           }
           
-          // Priority 2: Calculate from rate * quantity
+          // Priority 2: Calculate from rate * quantity (if value is 0 or equals quantity)
           const rate = getActivityRateWorkValue(activity, kpi)
-          const quantity = parseFloat(String(kpi.quantity || rawKPI['Quantity'] || '0').replace(/,/g, '')) || 0
           if (rate > 0 && quantity > 0) {
             return rate * quantity
           }
@@ -2928,12 +2861,21 @@ export function BOQTableWithCustomization({
                 }
               })
               .reduce((sum: number, kpi: any) => {
+                // Get quantity first
+                const quantity = parseFloat(String(kpi.quantity || kpi['Quantity'] || kpi.raw?.['Quantity'] || '0').replace(/,/g, '')) || 0
+                
                 // Calculate value: use value directly if available, otherwise quantity × rate
                 let kpiValue = parseFloat(String(kpi.value || kpi['Value'] || kpi.raw?.['Value'] || '0').replace(/,/g, '')) || 0
                 
-                // If value is 0 or not available, calculate from quantity × rate
+                // ✅ Check if Value equals Quantity (means it's quantity, not value)
+                // If Value equals Quantity, we need to calculate from Rate × Quantity
+                if (kpiValue > 0 && quantity > 0 && Math.abs(kpiValue - quantity) < 0.01) {
+                  // Value equals quantity, so it's not a real value - calculate from rate
+                  kpiValue = 0
+                }
+                
+                // If value is 0 or not available (or equals quantity), calculate from quantity × rate
                 if (kpiValue === 0) {
-                  const quantity = parseFloat(String(kpi.quantity || kpi['Quantity'] || kpi.raw?.['Quantity'] || '0').replace(/,/g, '')) || 0
                   const rate = parseFloat(String(kpi.rate || kpi['Rate'] || kpi.raw?.['Rate'] || '0').replace(/,/g, '')) || 0
                   
                   // If rate is not available, calculate from activity rate
@@ -3031,12 +2973,21 @@ export function BOQTableWithCustomization({
                 }
               })
               .reduce((sum: number, kpi: any) => {
+                // Get quantity first
+                const quantity = parseFloat(String(kpi.quantity || kpi['Quantity'] || kpi.raw?.['Quantity'] || '0').replace(/,/g, '')) || 0
+                
                 // Calculate value: use value directly if available, otherwise quantity × rate
                 let kpiValue = parseFloat(String(kpi.value || kpi['Value'] || kpi.raw?.['Value'] || '0').replace(/,/g, '')) || 0
                 
-                // If value is 0 or not available, calculate from quantity × rate
+                // ✅ Check if Value equals Quantity (means it's quantity, not value)
+                // If Value equals Quantity, we need to calculate from Rate × Quantity
+                if (kpiValue > 0 && quantity > 0 && Math.abs(kpiValue - quantity) < 0.01) {
+                  // Value equals quantity, so it's not a real value - calculate from rate
+                  kpiValue = 0
+                }
+                
+                // If value is 0 or not available (or equals quantity), calculate from quantity × rate
                 if (kpiValue === 0) {
-                  const quantity = parseFloat(String(kpi.quantity || kpi['Quantity'] || kpi.raw?.['Quantity'] || '0').replace(/,/g, '')) || 0
                   const rate = parseFloat(String(kpi.rate || kpi['Rate'] || kpi.raw?.['Rate'] || '0').replace(/,/g, '')) || 0
                   
                   // If rate is not available, calculate from activity rate
@@ -3188,7 +3139,7 @@ export function BOQTableWithCustomization({
           const matchedActualKPIsProductivity = actualKPIs.filter((kpi: any) => kpiMatchesActivity(kpi, activity))
           
           // Step 3: Filter until yesterday and sum quantities
-          const actualKPIsUntilYesterday = matchedActualKPIsProductivity.filter((kpi: any) => isKPIUntilYesterday(kpi, 'actual'))
+          const actualKPIsUntilYesterday = matchedActualKPIsProductivity.filter((kpi: any) => isKPIUntilYesterdayExtended(kpi, 'actual'))
           actualUnitsProductivity = actualKPIsUntilYesterday.reduce((sum: number, kpi: any) => {
             return sum + getKPIQuantity(kpi)
           }, 0)

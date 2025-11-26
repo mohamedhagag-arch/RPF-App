@@ -276,18 +276,20 @@ export function IntelligentKPIForm({
   // Auto-load project data when project code changes
   useEffect(() => {
     if (projectCode && projects.length > 0) {
+      // ✅ Search by both project_full_code and project_code
       const selectedProject = projects.find(
-        p => p.project_code === projectCode
+        p => p.project_full_code === projectCode || p.project_code === projectCode
       )
       
       if (selectedProject) {
         setProject(selectedProject)
         console.log('✅ Project loaded:', selectedProject.project_name)
         
-        // Filter activities for this project
+        // Filter activities for this project - match by both project_code and project_full_code
         const projectActivities = activities.filter(
-          a => a.project_code === projectCode || 
-               a.project_full_code === projectCode
+          a => a.project_code === selectedProject.project_code || 
+               a.project_full_code === projectCode ||
+               a.project_full_code === selectedProject.project_full_code
         )
         setAvailableActivities(projectActivities)
         console.log(`✅ Found ${projectActivities.length} activities for project`)
@@ -376,13 +378,19 @@ export function IntelligentKPIForm({
   }, [activityName, availableActivities, inputType])
   
   function handleProjectSelect(selectedProject: Project) {
-    setProjectCode(selectedProject.project_code)
+    // ✅ Use project_full_code if available, otherwise use project_code
+    const projectCodeToUse = selectedProject.project_full_code || selectedProject.project_code
+    setProjectCode(projectCodeToUse)
     setProject(selectedProject)
     setShowProjectDropdown(false)
     setHasUserChangedFields(true)
     
-    // Load activities for this project
-    const projectActivities = activities.filter(a => a.project_code === selectedProject.project_code)
+    // Load activities for this project - match by both project_code and project_full_code
+    const projectActivities = activities.filter(a => 
+      a.project_code === selectedProject.project_code ||
+      a.project_full_code === projectCodeToUse ||
+      a.project_full_code === selectedProject.project_full_code
+    )
     setAvailableActivities(projectActivities)
     console.log('✅ Activities loaded for project:', projectActivities.length)
     
@@ -459,7 +467,8 @@ export function IntelligentKPIForm({
       
       setAutoSaving(true)
       
-      const finalProjectCode = projectCode || project?.project_code || ''
+      // ✅ Use project_full_code if available, otherwise use project_code
+      const finalProjectCode = projectCode || project?.project_full_code || project?.project_code || ''
       
       const kpiData = {
         'Project Full Code': finalProjectCode,
@@ -536,8 +545,8 @@ export function IntelligentKPIForm({
         throw new Error('Please select a project')
       }
       
-      // Use projectCode as the primary source for Project Full Code
-      const finalProjectCode = projectCode || project?.project_code || ''
+      // ✅ Use project_full_code if available, otherwise use project_code
+      const finalProjectCode = projectCode || project?.project_full_code || project?.project_code || ''
       
       console.log('🔍 Final Project Code:', finalProjectCode)
       console.log('🔍 Project Code from state:', projectCode)
@@ -717,7 +726,7 @@ export function IntelligentKPIForm({
                   {project.project_name}
                 </h3>
                 <div className="grid grid-cols-2 gap-2 mt-2 text-xs text-blue-700 dark:text-blue-300">
-                  <div><span className="font-medium">Code:</span> {project.project_code}</div>
+                  <div><span className="font-medium">Code:</span> {project.project_full_code || project.project_code}</div>
                   <div><span className="font-medium">Division:</span> {project.responsible_division || 'N/A'}</div>
                   <div><span className="font-medium">Status:</span> {project.project_status || 'Active'}</div>
                   <div><span className="font-medium">Activities:</span> {availableActivities.length}</div>
@@ -795,28 +804,37 @@ export function IntelligentKPIForm({
               {showProjectDropdown && projects.length > 0 && (
                 <div className="absolute z-50 mt-1 w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-64 overflow-y-auto">
                   {projects
-                    .filter(p => 
-                      !projectCode || 
-                      p.project_code?.toLowerCase().includes(projectCode.toLowerCase()) ||
-                      p.project_name?.toLowerCase().includes(projectCode.toLowerCase())
-                    )
-                    .map(p => (
-                      <div
-                        key={p.id}
-                        onClick={() => handleProjectSelect(p)}
-                        className="px-4 py-3 hover:bg-blue-50 dark:hover:bg-blue-900/30 cursor-pointer border-b border-gray-100 dark:border-gray-700 last:border-b-0"
-                      >
-                        <div className="font-semibold text-gray-900 dark:text-gray-100">
-                          {p.project_code}
+                    .filter(p => {
+                      if (!projectCode) return true
+                      const searchTerm = projectCode.toLowerCase()
+                      const projectFullCode = (p.project_full_code || p.project_code || '').toLowerCase()
+                      const projectCodeLower = (p.project_code || '').toLowerCase()
+                      const projectName = (p.project_name || '').toLowerCase()
+                      return projectFullCode.includes(searchTerm) ||
+                             projectCodeLower.includes(searchTerm) ||
+                             projectName.includes(searchTerm)
+                    })
+                    .map(p => {
+                      // ✅ Use project_full_code if available, otherwise use project_code
+                      const displayCode = p.project_full_code || p.project_code
+                      return (
+                        <div
+                          key={p.id}
+                          onClick={() => handleProjectSelect(p)}
+                          className="px-4 py-3 hover:bg-blue-50 dark:hover:bg-blue-900/30 cursor-pointer border-b border-gray-100 dark:border-gray-700 last:border-b-0"
+                        >
+                          <div className="font-semibold text-gray-900 dark:text-gray-100">
+                            {displayCode}
+                          </div>
+                          <div className="text-sm text-gray-600 dark:text-gray-400">
+                            {p.project_name}
+                          </div>
+                          <div className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                            {p.responsible_division || 'N/A'}
+                          </div>
                         </div>
-                        <div className="text-sm text-gray-600 dark:text-gray-400">
-                          {p.project_name}
-                        </div>
-                        <div className="text-xs text-gray-500 dark:text-gray-500 mt-1">
-                          {p.responsible_division || 'N/A'}
-                        </div>
-                      </div>
-                    ))
+                      )
+                    })
                   }
                 </div>
               )}
@@ -1128,7 +1146,7 @@ export function IntelligentKPIForm({
                   </h4>
                   <div className="grid grid-cols-2 gap-2 text-sm text-green-700 dark:text-green-300">
                     <div><span className="font-medium">Type:</span> {inputType}</div>
-                    <div><span className="font-medium">Project:</span> {projectCode}</div>
+                    <div><span className="font-medium">Project:</span> {projectCode || project?.project_full_code || project?.project_code || ''}</div>
                     <div><span className="font-medium">Activity:</span> {activityName}</div>
                     <div><span className="font-medium">Quantity:</span> {quantity} {unit}</div>
                     {inputType === 'Planned' && targetDate && (

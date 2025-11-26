@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { KPIRecord } from '@/lib/supabase'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
-import { X, User, Calendar, CheckCircle, Clock, AlertCircle, FileText, Edit, Plus, Trash2, History, Building, Activity, Target, DollarSign, Package, MapPin, Layers, Globe, TrendingUp } from 'lucide-react'
+import { X, User, Calendar, CheckCircle, Clock, AlertCircle, FileText, Edit, Plus, Trash2, History, Building, Activity, Target, DollarSign, Package, MapPin, Layers, Globe, TrendingUp, Mail, Phone, MessageCircle, ChevronDown, ChevronUp } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 
@@ -11,6 +11,12 @@ interface KPIHistoryModalProps {
   kpi: KPIRecord | null
   isOpen: boolean
   onClose: () => void
+}
+
+interface FieldChange {
+  field: string
+  oldValue: string
+  newValue: string
 }
 
 interface HistoryEntry {
@@ -21,11 +27,14 @@ interface HistoryEntry {
   field?: string
   oldValue?: string
   newValue?: string
+  changedFields?: FieldChange[] // ✅ All changed fields with old and new values
 }
 
 interface UserInfo {
   name: string
   email: string
+  phone_1?: string
+  phone_2?: string
   role?: string
   division?: string
 }
@@ -34,6 +43,7 @@ export function KPIHistoryModal({ kpi, isOpen, onClose }: KPIHistoryModalProps) 
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [userInfo, setUserInfo] = useState<Map<string, UserInfo>>(new Map())
+  const [expandedEntries, setExpandedEntries] = useState<Set<number>>(new Set()) // ✅ Track which entries are expanded
 
   useEffect(() => {
     if (isOpen && kpi) {
@@ -49,207 +59,161 @@ export function KPIHistoryModal({ kpi, isOpen, onClose }: KPIHistoryModalProps) 
 
     setLoading(true)
     try {
-      // ✅ STEP 1: Log the KPI object we received
-      console.log('🔍 [KPI History] Starting history load for KPI:', {
-        kpiId: kpi.id,
-        kpiObject: kpi,
-        rawData: (kpi as any).raw,
-        hasRaw: !!(kpi as any).raw
-      })
-      
-      // ✅ STEP 1.5: Fetch latest KPI data directly from database to ensure we have the most up-to-date information
-      let latestKPI = kpi
-      try {
-        const supabase = getSupabaseClient()
-        const { data: freshKPI, error: fetchError } = await supabase
-          .from('Planning Database - KPI')
-          .select('*')
-          .eq('id', kpi.id)
-          .single()
-        
-        if (!fetchError && freshKPI) {
-          console.log('✅ [KPI History] Fetched fresh KPI from database:', {
-            approvalStatus: freshKPI['Approval Status'],
-            approvedBy: freshKPI['Approved By'],
-            approvalDate: freshKPI['Approval Date'],
-            notes: freshKPI['Notes']
-          })
-          
-          // Map the fresh data using mapKPIFromDB
-          const { mapKPIFromDB } = await import('@/lib/dataMappers')
-          latestKPI = mapKPIFromDB(freshKPI)
-          console.log('✅ [KPI History] Mapped fresh KPI:', {
-            approvalStatus: (latestKPI as any).approval_status,
-            approvedBy: (latestKPI as any).approved_by,
-            approvalDate: (latestKPI as any).approval_date,
-            rawApprovalStatus: (latestKPI as any).raw?.['Approval Status'],
-            rawApprovedBy: (latestKPI as any).raw?.['Approved By'],
-            rawApprovalDate: (latestKPI as any).raw?.['Approval Date']
-          })
-        } else {
-          console.log('⚠️ [KPI History] Could not fetch fresh KPI, using provided KPI:', fetchError)
-        }
-      } catch (fetchErr) {
-        console.log('⚠️ [KPI History] Error fetching fresh KPI, using provided KPI:', fetchErr)
-      }
-      
+      const supabase = getSupabaseClient()
       const entries: HistoryEntry[] = []
-      const raw = (latestKPI as any).raw || (kpi as any).raw || {}
       
-      // ✅ STEP 2: Log all approval-related fields from all sources
-      console.log('🔍 [KPI History] All approval sources:', {
-        rawApprovalStatus: raw['Approval Status'],
-        rawApprovedBy: raw['Approved By'],
-        rawApprovalDate: raw['Approval Date'],
-        kpiApprovalStatus: (kpi as any).approval_status,
-        kpiApprovedBy: (kpi as any).approved_by,
-        kpiApprovalDate: (kpi as any).approval_date,
-        kpiApprovalStatusAlt: (kpi as any)['Approval Status'],
-        kpiApprovedByAlt: (kpi as any)['Approved By'],
-        kpiApprovalDateAlt: (kpi as any)['Approval Date'],
-        notes: kpi.notes || raw['Notes'] || ''
-      })
-
-      // Use latestKPI for all operations to ensure we have the most recent data
-      const currentKPI = latestKPI || kpi
-      
-      // 1. Creation Info
-      if (currentKPI.created_at) {
-        const createdBy = currentKPI.created_by || raw.created_by || 'System'
-        entries.push({
-          type: 'created',
-          user: createdBy,
-          date: currentKPI.created_at,
-          details: `KPI was created with initial values: Quantity: ${currentKPI.quantity || 'N/A'} ${currentKPI.unit || ''}, Value: ${currentKPI.value ? `$${parseFloat(String(currentKPI.value)).toLocaleString()}` : 'N/A'}`
-        })
-      }
-
-      // 2. Last Update Info
-      if (currentKPI.updated_at && currentKPI.updated_at !== currentKPI.created_at && currentKPI.created_at) {
-        const updatedBy = raw.updated_by || currentKPI.created_by || 'System'
-        const timeDiff = new Date(currentKPI.updated_at).getTime() - new Date(currentKPI.created_at).getTime()
-        const daysDiff = Math.floor(timeDiff / (1000 * 60 * 60 * 24))
-        entries.push({
-          type: 'updated',
-          user: updatedBy,
-          date: currentKPI.updated_at,
-          details: daysDiff > 0 ? `KPI was last updated ${daysDiff} day(s) after creation` : 'KPI was last updated'
-        })
-      }
-
-      // 3. Approval Info - ✅ Read from multiple sources for maximum accuracy
-      // Priority: 1) raw data (most accurate), 2) mapped kpi data, 3) Notes field
-      let approvalStatus = raw['Approval Status'] || (currentKPI as any).approval_status || (currentKPI as any)['Approval Status'] || null
-      let approvedBy = raw['Approved By'] || (currentKPI as any).approved_by || (currentKPI as any)['Approved By'] || null
-      let approvalDate = raw['Approval Date'] || (currentKPI as any).approval_date || (currentKPI as any)['Approval Date'] || null
-
-      // ✅ Also check Notes field if approval columns are empty
-      const notes = currentKPI.notes || raw['Notes'] || ''
-      if (notes && notes.includes('APPROVED:') && (!approvalStatus || !approvedBy || !approvalDate)) {
-        const parts = notes.split(':')
-        if (parts.length >= 6) {
-          if (!approvalStatus) {
-            approvalStatus = parts[1] || null
-          }
-          if (!approvedBy) {
-            approvedBy = parts[3] || null
-          }
-          if (!approvalDate) {
-            approvalDate = parts[5] || null
-          }
-        }
-      }
-
-      // ✅ STEP 3: Log final approval info after all processing
-      console.log('🔍 [KPI History] Approval Info (Final After Processing):', {
-        approvalStatus,
-        approvedBy,
-        approvalDate,
-        notesContainsApproval: notes.includes('APPROVED:'),
-        willCreateApprovalEntry: !!approvalStatus
-      })
-
-      if (approvalStatus) {
-        if (approvalStatus.toLowerCase() === 'approved') {
-          entries.push({
-            type: 'approved',
-            user: approvedBy || 'Unknown',
-            date: approvalDate || currentKPI.updated_at || currentKPI.created_at || new Date().toISOString(),
-            details: approvedBy && approvedBy !== 'Unknown' ? `KPI was approved by ${approvedBy}` : 'KPI was approved'
-          })
-        } else if (approvalStatus.toLowerCase() === 'rejected') {
-          entries.push({
-            type: 'rejected',
-            user: approvedBy || 'Unknown',
-            date: approvalDate || currentKPI.updated_at || currentKPI.created_at || new Date().toISOString(),
-            details: approvedBy ? `KPI was rejected by ${approvedBy}` : 'KPI was rejected'
-          })
-        } else if (approvalStatus.toLowerCase() === 'pending') {
-          entries.push({
-            type: 'note',
-            user: 'System',
-            date: currentKPI.updated_at || currentKPI.created_at || new Date().toISOString(),
-            details: 'KPI is pending approval'
-          })
-        }
-      }
-
-      // 4. Parse Notes field for approval history (format: "APPROVED:approved:by:user@email.com:date:2025-01-01")
-      // ✅ IMPORTANT: Only parse Notes if Approval Status is not already set (to avoid duplicates)
-      // Note: 'notes' variable is already defined above, so we use it here
-      if (notes && !approvalStatus) {
-        // Check if Notes contains approval info
-        if (notes.includes('APPROVED:')) {
-          const parts = notes.split(':')
-          if (parts.length >= 6) {
-            const status = parts[1] || 'approved'
-            const by = parts[3] || 'Unknown'
-            const date = parts[5] || currentKPI.updated_at || currentKPI.created_at || new Date().toISOString()
-
-            if (status.toLowerCase() === 'approved') {
-              entries.push({
-                type: 'approved',
-                user: by || 'Unknown',
-                date: date || currentKPI.updated_at || currentKPI.created_at || new Date().toISOString(),
-                details: `KPI was approved (recorded in Notes field)`
-              })
-            } else if (status.toLowerCase() === 'rejected') {
-              entries.push({
-                type: 'rejected',
-                user: by || 'Unknown',
-                date: date || currentKPI.updated_at || currentKPI.created_at || new Date().toISOString(),
-                details: `KPI was rejected (recorded in Notes field)`
-              })
+      // ✅ STEP 1: Try to load from audit log first (most detailed history)
+      try {
+        const { data: auditLogs, error: auditError } = await supabase
+          .from('kpi_audit_log')
+          .select('*')
+          .eq('kpi_id', kpi.id)
+          .order('changed_at', { ascending: false })
+        
+        if (!auditError && auditLogs && auditLogs.length > 0) {
+          console.log(`✅ Found ${auditLogs.length} audit log entries`)
+          
+          for (const log of auditLogs) {
+            const logAny = log as any
+            let eventType: HistoryEntry['type'] = 'updated'
+            
+            if (logAny.action === 'INSERT') {
+              eventType = 'created'
+            } else if (logAny.action === 'APPROVE') {
+              eventType = 'approved'
+            } else if (logAny.action === 'REJECT') {
+              eventType = 'rejected'
+            } else if (logAny.action === 'UPDATE') {
+              eventType = 'updated'
             }
+            
+            // Extract field changes with old and new values
+            const changedFields: Array<{field: string, oldValue: string, newValue: string}> = []
+            if (logAny.old_values && logAny.new_values) {
+              const oldVals = logAny.old_values as any
+              const newVals = logAny.new_values as any
+              
+              // Check ALL fields to show what changed and what didn't
+              const allFields = Object.keys({ ...oldVals, ...newVals })
+              
+              // Key fields to prioritize (user-visible fields)
+              const keyFields = [
+                'Project Code', 'Project Full Code', 'Activity Name', 
+                'Quantity', 'Value', 'Input Type', 'Approval Status',
+                'Zone', 'Unit', 'Target Date', 'Actual Date', 'Section',
+                'Activity Division', 'Activity Scope', 'Activity Timing',
+                'Notes', 'Recorded By', 'Approved By', 'Approval Date'
+              ]
+              
+              // Combine key fields with all fields, removing duplicates
+              const fieldsToCheck = Array.from(new Set([...keyFields, ...allFields]))
+              
+              for (const field of fieldsToCheck) {
+                // Skip system/internal fields
+                if (field === 'id' || field === 'created_at' || field === 'updated_at' || 
+                    field === 'created_by' || field === 'updated_by') {
+                  continue
+                }
+                
+                const oldVal = oldVals[field]
+                const newVal = newVals[field]
+                
+                // Check if value changed (including null/undefined/empty changes)
+                const oldValStr = oldVal === null || oldVal === undefined ? '' : String(oldVal).trim()
+                const newValStr = newVal === null || newVal === undefined ? '' : String(newVal).trim()
+                
+                // Only add if values are actually different
+                if (oldValStr !== newValStr) {
+                  changedFields.push({
+                    field,
+                    oldValue: oldValStr || 'Empty',
+                    newValue: newValStr || 'Empty'
+                  })
+                }
+              }
+            }
+            
+            // Build details
+            let details = ''
+            if (eventType === 'created') {
+              details = 'KPI was created'
+            } else if (changedFields.length > 0) {
+              if (changedFields.length === 1) {
+                details = `Changed: ${changedFields[0].field}`
+              } else {
+                details = `Changed ${changedFields.length} fields: ${changedFields.map(f => f.field).join(', ')}`
+              }
+            } else {
+              details = 'KPI was updated'
+            }
+            
+            // For single field change, show old → new (for backward compatibility)
+            const singleChange = changedFields.length === 1 ? changedFields[0] : null
+            
+            entries.push({
+              type: eventType,
+              user: logAny.changed_by || 'System',
+              date: logAny.changed_at,
+              details,
+              field: singleChange?.field,
+              oldValue: singleChange?.oldValue,
+              newValue: singleChange?.newValue,
+              changedFields: changedFields.length > 0 ? changedFields : undefined // ✅ All changed fields
+            })
           }
-        } else if (notes.trim().length > 0 && !notes.includes('APPROVED:')) {
-          // Regular note (only if it's not empty and not approval info)
+        }
+      } catch (auditErr) {
+        console.log('⚠️ Could not load audit log, using basic history:', auditErr)
+      }
+      
+      // ✅ STEP 2: If no audit log, use basic history from KPI record
+      if (entries.length === 0) {
+        const raw = (kpi as any).raw || {}
+        
+        // 1. Creation Info
+        if (kpi.created_at) {
+          const createdBy = kpi.created_by || raw.created_by || 'System'
           entries.push({
-            type: 'note',
-            user: currentKPI.recorded_by || raw['Recorded By'] || 'Unknown',
-            date: currentKPI.updated_at || currentKPI.created_at || new Date().toISOString(),
-            details: `Note: ${notes}`
+            type: 'created',
+            user: createdBy,
+            date: kpi.created_at,
+            details: 'KPI was created'
           })
         }
-      } else if (notes && notes.trim().length > 0 && !notes.includes('APPROVED:') && approvalStatus) {
-        // If approval status exists but Notes has additional info, add it as a note
-        entries.push({
-          type: 'note',
-          user: currentKPI.recorded_by || raw['Recorded By'] || 'Unknown',
-          date: currentKPI.updated_at || currentKPI.created_at || new Date().toISOString(),
-          details: `Note: ${notes}`
-        })
-      }
 
-      // 5. Recorded By Info (only if different from approved_by and not already in notes)
-      const recordedBy = currentKPI.recorded_by || raw['Recorded By'] || ''
-      if (recordedBy && recordedBy !== approvedBy && !notes.includes(recordedBy)) {
-        entries.push({
-          type: 'note',
-          user: recordedBy,
-          date: currentKPI.updated_at || currentKPI.created_at || new Date().toISOString(),
-          details: `KPI was recorded by ${recordedBy}`
-        })
+        // 2. Last Update Info
+        if (kpi.updated_at && kpi.updated_at !== kpi.created_at) {
+          const updatedBy = raw.updated_by || kpi.created_by || 'System'
+          entries.push({
+            type: 'updated',
+            user: updatedBy,
+            date: kpi.updated_at,
+            details: 'KPI was updated'
+          })
+        }
+
+        // 3. Approval Info
+        const approvalStatus = raw['Approval Status'] || (kpi as any).approval_status || null
+        const approvedBy = raw['Approved By'] || (kpi as any).approved_by || null
+        const approvalDate = raw['Approval Date'] || (kpi as any).approval_date || null
+
+        if (approvalStatus) {
+          if (approvalStatus.toLowerCase() === 'approved') {
+            entries.push({
+              type: 'approved',
+              user: approvedBy || 'Unknown',
+              date: approvalDate || kpi.updated_at || kpi.created_at || new Date().toISOString(),
+              details: 'KPI was approved'
+            })
+          } else if (approvalStatus.toLowerCase() === 'rejected') {
+            entries.push({
+              type: 'rejected',
+              user: approvedBy || 'Unknown',
+              date: approvalDate || kpi.updated_at || kpi.created_at || new Date().toISOString(),
+              details: 'KPI was rejected'
+            })
+          }
+        }
       }
 
       // Sort by date (newest first)
@@ -293,15 +257,17 @@ export function KPIHistoryModal({ kpi, isOpen, onClose }: KPIHistoryModalProps) 
           try {
             const { data: userByEmail, error: emailError } = await supabase
               .from('users')
-              .select('id, email, full_name, role, division')
+              .select('id, email, full_name, phone_1, phone_2, role, division')
               .eq('email', userId)
               .single()
 
             if (!emailError && userByEmail && typeof userByEmail === 'object') {
-              const userData = userByEmail as { id: string; email?: string; full_name?: string; role?: string; division?: string }
+              const userData = userByEmail as { id: string; email?: string; full_name?: string; phone_1?: string; phone_2?: string; role?: string; division?: string }
               userMap.set(userId, {
                 name: userData.full_name || userData.email?.split('@')[0] || userId,
                 email: userData.email || userId,
+                phone_1: userData.phone_1,
+                phone_2: userData.phone_2,
                 role: userData.role,
                 division: userData.division
               })
@@ -321,15 +287,17 @@ export function KPIHistoryModal({ kpi, isOpen, onClose }: KPIHistoryModalProps) 
           try {
             const { data, error: idError } = await supabase
               .from('users')
-              .select('id, email, full_name, role, division')
+              .select('id, email, full_name, phone_1, phone_2, role, division')
               .eq('id', userId)
               .single()
 
             if (!idError && data && typeof data === 'object' && 'email' in data) {
-              const userData = data as { id: string; email?: string; full_name?: string; role?: string; division?: string }
+              const userData = data as { id: string; email?: string; full_name?: string; phone_1?: string; phone_2?: string; role?: string; division?: string }
               userMap.set(userId, {
                 name: userData.full_name || userData.email?.split('@')[0] || userId,
                 email: userData.email || userId,
+                phone_1: userData.phone_1,
+                phone_2: userData.phone_2,
                 role: userData.role,
                 division: userData.division
               })
@@ -340,15 +308,17 @@ export function KPIHistoryModal({ kpi, isOpen, onClose }: KPIHistoryModalProps) 
                 try {
                   const { data: emailData } = await supabase
                     .from('users')
-                    .select('id, email, full_name, role, division')
+                    .select('id, email, full_name, phone_1, phone_2, role, division')
                     .eq('email', userId)
                     .single()
                   
                   if (emailData) {
-                    const userData = emailData as { id: string; email?: string; full_name?: string; role?: string; division?: string }
+                    const userData = emailData as { id: string; email?: string; full_name?: string; phone_1?: string; phone_2?: string; role?: string; division?: string }
                     userMap.set(userId, {
                       name: userData.full_name || userData.email?.split('@')[0] || userId,
                       email: userData.email || userId,
+                      phone_1: userData.phone_1,
+                      phone_2: userData.phone_2,
                       role: userData.role,
                       division: userData.division
                     })
@@ -533,155 +503,66 @@ export function KPIHistoryModal({ kpi, isOpen, onClose }: KPIHistoryModalProps) 
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {/* KPI Complete Information */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Basic Information */}
-            <div className="p-4 bg-gradient-to-br from-blue-50 to-blue-100 dark:from-gray-900 dark:to-gray-800 rounded-lg border border-blue-200 dark:border-gray-700">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                <Target className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                Basic Information
-              </h3>
-              <div className="space-y-3 text-sm">
-                <div className="flex items-start gap-2">
-                  <Building className="w-4 h-4 text-gray-500 dark:text-gray-400 mt-0.5" />
-                  <div className="flex-1">
-                    <span className="text-gray-600 dark:text-gray-400">Project:</span>
-                    <span className="ml-2 font-medium text-gray-900 dark:text-white">
-                      {projectFullCode}{projectSubCode && projectSubCode !== projectFullCode ? ` (${projectSubCode})` : ''}
-                    </span>
-                  </div>
+          {/* ✅ Simplified KPI Information */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Basic Info */}
+            <div className="p-4 bg-blue-50 dark:bg-gray-800 rounded-lg border border-blue-200 dark:border-gray-700">
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Basic Info</h3>
+              <div className="space-y-2 text-sm">
+                <div>
+                  <span className="text-gray-600 dark:text-gray-400">Project:</span>
+                  <div className="font-medium text-gray-900 dark:text-white">{projectFullCode}</div>
                 </div>
-                <div className="flex items-start gap-2">
-                  <Activity className="w-4 h-4 text-gray-500 dark:text-gray-400 mt-0.5" />
-                  <div className="flex-1">
-                    <span className="text-gray-600 dark:text-gray-400">Activity:</span>
-                    <span className="ml-2 font-medium text-gray-900 dark:text-white">
-                      {activityName}
-                    </span>
-                  </div>
+                <div>
+                  <span className="text-gray-600 dark:text-gray-400">Activity:</span>
+                  <div className="font-medium text-gray-900 dark:text-white">{activityName}</div>
                 </div>
-                <div className="flex items-start gap-2">
-                  <Clock className="w-4 h-4 text-gray-500 dark:text-gray-400 mt-0.5" />
-                  <div className="flex-1">
-                    <span className="text-gray-600 dark:text-gray-400">Input Type:</span>
-                    <span className={`ml-2 px-2 py-0.5 rounded text-xs font-medium ${
-                      inputType === 'Planned' 
-                        ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' 
-                        : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                    }`}>
-                      {inputType}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2">
-                  <Calendar className="w-4 h-4 text-gray-500 dark:text-gray-400 mt-0.5" />
-                  <div className="flex-1">
-                    <span className="text-gray-600 dark:text-gray-400">Date:</span>
-                    <span className="ml-2 font-medium text-gray-900 dark:text-white">
-                      {date !== 'N/A' ? formatDateShort(date) : 'N/A'}
-                    </span>
-                  </div>
+                <div>
+                  <span className="text-gray-600 dark:text-gray-400">Type:</span>
+                  <span className={`ml-2 px-2 py-0.5 rounded text-xs ${
+                    inputType === 'Planned' 
+                      ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' 
+                      : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                  }`}>
+                    {inputType}
+                  </span>
                 </div>
               </div>
             </div>
 
-            {/* Quantities & Values */}
-            <div className="p-4 bg-gradient-to-br from-green-50 to-green-100 dark:from-gray-900 dark:to-gray-800 rounded-lg border border-green-200 dark:border-gray-700">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                <DollarSign className="w-5 h-5 text-green-600 dark:text-green-400" />
-                Quantities & Values
-              </h3>
-              <div className="space-y-3 text-sm">
-                <div className="flex items-start gap-2">
-                  <Package className="w-4 h-4 text-gray-500 dark:text-gray-400 mt-0.5" />
-                  <div className="flex-1">
-                    <span className="text-gray-600 dark:text-gray-400">Quantity:</span>
-                    <span className="ml-2 font-medium text-gray-900 dark:text-white">
-                      {quantity} {unit}
-                    </span>
-                  </div>
+            {/* Quantities */}
+            <div className="p-4 bg-green-50 dark:bg-gray-800 rounded-lg border border-green-200 dark:border-gray-700">
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Quantities</h3>
+              <div className="space-y-2 text-sm">
+                <div>
+                  <span className="text-gray-600 dark:text-gray-400">Quantity:</span>
+                  <div className="font-medium text-gray-900 dark:text-white">{quantity} {unit}</div>
                 </div>
-                <div className="flex items-start gap-2">
-                  <DollarSign className="w-4 h-4 text-gray-500 dark:text-gray-400 mt-0.5" />
-                  <div className="flex-1">
+                {value && (
+                  <div>
                     <span className="text-gray-600 dark:text-gray-400">Value:</span>
-                    <span className="ml-2 font-medium text-gray-900 dark:text-white">
-                      {value ? formatCurrencyByCodeSync(parseFloat(String(value)), currencyCode) : 'N/A'}
-                    </span>
-                  </div>
-                </div>
-                {virtualValue && (
-                  <div className="flex items-start gap-2">
-                    <TrendingUp className="w-4 h-4 text-gray-500 dark:text-gray-400 mt-0.5" />
-                    <div className="flex-1">
-                      <span className="text-gray-600 dark:text-gray-400">Virtual Value:</span>
-                      <span className="ml-2 font-medium text-gray-900 dark:text-white">
-                        {formatCurrencyByCodeSync(parseFloat(String(virtualValue)), currencyCode)}
-                      </span>
+                    <div className="font-medium text-gray-900 dark:text-white">
+                      {formatCurrencyByCodeSync(parseFloat(String(value)), currencyCode)}
                     </div>
+                  </div>
+                )}
+                {zone !== 'N/A' && (
+                  <div>
+                    <span className="text-gray-600 dark:text-gray-400">Zone:</span>
+                    <div className="font-medium text-gray-900 dark:text-white">{zone}</div>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Activity Details */}
-            <div className="p-4 bg-gradient-to-br from-purple-50 to-purple-100 dark:from-gray-900 dark:to-gray-800 rounded-lg border border-purple-200 dark:border-gray-700">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                <Layers className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-                Activity Details
-              </h3>
-              <div className="space-y-3 text-sm">
-                <div className="flex items-start gap-2">
-                  <MapPin className="w-4 h-4 text-gray-500 dark:text-gray-400 mt-0.5" />
-                  <div className="flex-1">
-                    <span className="text-gray-600 dark:text-gray-400">Zone:</span>
-                    <span className="ml-2 font-medium text-gray-900 dark:text-white">
-                      {zone}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2">
-                  <Layers className="w-4 h-4 text-gray-500 dark:text-gray-400 mt-0.5" />
-                  <div className="flex-1">
-                    <span className="text-gray-600 dark:text-gray-400">Division:</span>
-                    <span className="ml-2 font-medium text-gray-900 dark:text-white">
-                      {division}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2">
-                  <Globe className="w-4 h-4 text-gray-500 dark:text-gray-400 mt-0.5" />
-                  <div className="flex-1">
-                    <span className="text-gray-600 dark:text-gray-400">Scope:</span>
-                    <span className="ml-2 font-medium text-gray-900 dark:text-white">
-                      {scope}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2">
-                  <Clock className="w-4 h-4 text-gray-500 dark:text-gray-400 mt-0.5" />
-                  <div className="flex-1">
-                    <span className="text-gray-600 dark:text-gray-400">Timing:</span>
-                    <span className="ml-2 font-medium text-gray-900 dark:text-white">
-                      {timing}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Approval & Recording */}
-            <div className="p-4 bg-gradient-to-br from-orange-50 to-orange-100 dark:from-gray-900 dark:to-gray-800 rounded-lg border border-orange-200 dark:border-gray-700">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                <CheckCircle className="w-5 h-5 text-orange-600 dark:text-orange-400" />
-                Approval & Recording
-              </h3>
-              <div className="space-y-3 text-sm">
-                <div className="flex items-start gap-2">
-                  <CheckCircle className="w-4 h-4 text-gray-500 dark:text-gray-400 mt-0.5" />
-                  <div className="flex-1">
-                    <span className="text-gray-600 dark:text-gray-400">Approval Status:</span>
-                    <span className={`ml-2 px-2 py-0.5 rounded text-xs font-medium ${
+            {/* Status */}
+            <div className="p-4 bg-orange-50 dark:bg-gray-800 rounded-lg border border-orange-200 dark:border-gray-700">
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Status</h3>
+              <div className="space-y-2 text-sm">
+                <div>
+                  <span className="text-gray-600 dark:text-gray-400">Approval:</span>
+                  <div>
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
                       approvalStatus === 'approved' 
                         ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
                         : approvalStatus === 'rejected'
@@ -694,47 +575,11 @@ export function KPIHistoryModal({ kpi, isOpen, onClose }: KPIHistoryModalProps) 
                     </span>
                   </div>
                 </div>
-                {approvedBy !== 'N/A' && (
-                  <div className="flex items-start gap-2">
-                    <User className="w-4 h-4 text-gray-500 dark:text-gray-400 mt-0.5" />
-                    <div className="flex-1">
-                      <span className="text-gray-600 dark:text-gray-400">Approved By:</span>
-                      <span className="ml-2 font-medium text-gray-900 dark:text-white">
-                        {getUserDisplay(approvedBy)}
-                      </span>
-                    </div>
-                  </div>
-                )}
-                {approvalDate !== 'N/A' && (
-                  <div className="flex items-start gap-2">
-                    <Calendar className="w-4 h-4 text-gray-500 dark:text-gray-400 mt-0.5" />
-                    <div className="flex-1">
-                      <span className="text-gray-600 dark:text-gray-400">Approval Date:</span>
-                      <span className="ml-2 font-medium text-gray-900 dark:text-white">
-                        {formatDateShort(approvalDate)}
-                      </span>
-                    </div>
-                  </div>
-                )}
                 {recordedBy !== 'N/A' && (
-                  <div className="flex items-start gap-2">
-                    <User className="w-4 h-4 text-gray-500 dark:text-gray-400 mt-0.5" />
-                    <div className="flex-1">
-                      <span className="text-gray-600 dark:text-gray-400">Recorded By:</span>
-                      <span className="ml-2 font-medium text-gray-900 dark:text-white">
-                        {getUserDisplay(recordedBy)}
-                      </span>
-                    </div>
-                  </div>
-                )}
-                {notes && notes.trim() && !notes.includes('APPROVED:') && (
-                  <div className="flex items-start gap-2">
-                    <FileText className="w-4 h-4 text-gray-500 dark:text-gray-400 mt-0.5" />
-                    <div className="flex-1">
-                      <span className="text-gray-600 dark:text-gray-400">Notes:</span>
-                      <span className="ml-2 font-medium text-gray-900 dark:text-white">
-                        {notes}
-                      </span>
+                  <div>
+                    <span className="text-gray-600 dark:text-gray-400">Recorded By:</span>
+                    <div className="font-medium text-gray-900 dark:text-white text-xs">
+                      {getUserDisplay(recordedBy)}
                     </div>
                   </div>
                 )}
@@ -802,22 +647,144 @@ export function KPIHistoryModal({ kpi, isOpen, onClose }: KPIHistoryModalProps) 
                         })()}
                       </div>
                       {entry.details && (
-                        <div className="text-sm text-gray-700 dark:text-gray-300 mt-2 bg-gray-50 dark:bg-gray-900 p-2 rounded">
+                        <div className="text-sm text-gray-700 dark:text-gray-300 mt-2">
                           {entry.details}
                         </div>
                       )}
-                      {entry.field && (
-                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-2 bg-blue-50 dark:bg-blue-900/20 p-2 rounded">
-                          <span className="font-medium">Field:</span> {entry.field}
-                          {entry.oldValue && entry.newValue && (
-                            <span className="ml-2">
-                              <span className="line-through text-red-600 dark:text-red-400">{entry.oldValue}</span>
-                              {' → '}
-                              <span className="text-green-600 dark:text-green-400 font-medium">{entry.newValue}</span>
+                      
+                      {/* ✅ Show all changed fields with expand/collapse button */}
+                      {((entry.changedFields && entry.changedFields.length > 0) || (entry.field && entry.oldValue && entry.newValue)) && (
+                        <div className="mt-3">
+                          <button
+                            onClick={() => {
+                              const newExpanded = new Set(expandedEntries)
+                              if (newExpanded.has(index)) {
+                                newExpanded.delete(index)
+                              } else {
+                                newExpanded.add(index)
+                              }
+                              setExpandedEntries(newExpanded)
+                            }}
+                            className="flex items-center gap-2 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors w-full text-left py-1 px-2 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                          >
+                            {expandedEntries.has(index) ? (
+                              <ChevronUp className="w-4 h-4" />
+                            ) : (
+                              <ChevronDown className="w-4 h-4" />
+                            )}
+                            <Edit className="w-3 h-3" />
+                            <span>
+                              {entry.changedFields 
+                                ? `View Changes (${entry.changedFields.length} field${entry.changedFields.length !== 1 ? 's' : ''})`
+                                : 'View Change Details'}
                             </span>
+                          </button>
+                          
+                          {expandedEntries.has(index) && (
+                            <div className="mt-2 space-y-2 pl-6">
+                              {entry.changedFields && entry.changedFields.length > 0 ? (
+                                entry.changedFields.map((change, idx) => (
+                                  <div key={idx} className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-700">
+                                    <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                      {change.field}:
+                                    </div>
+                                    <div className="flex items-center gap-2 text-sm">
+                                      <span className="line-through text-red-600 dark:text-red-400 px-2 py-1 bg-red-50 dark:bg-red-900/20 rounded">
+                                        {change.oldValue || 'Empty'}
+                                      </span>
+                                      <span className="text-gray-400">→</span>
+                                      <span className="text-green-600 dark:text-green-400 font-medium px-2 py-1 bg-green-50 dark:bg-green-900/20 rounded">
+                                        {change.newValue || 'Empty'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                ))
+                              ) : entry.field && entry.oldValue && entry.newValue ? (
+                                <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-700">
+                                  <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    {entry.field}:
+                                  </div>
+                                  <div className="flex items-center gap-2 text-sm">
+                                    <span className="line-through text-red-600 dark:text-red-400 px-2 py-1 bg-red-50 dark:bg-red-900/20 rounded">
+                                      {entry.oldValue}
+                                    </span>
+                                    <span className="text-gray-400">→</span>
+                                    <span className="text-green-600 dark:text-green-400 font-medium px-2 py-1 bg-green-50 dark:bg-green-900/20 rounded">
+                                      {entry.newValue}
+                                    </span>
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
                           )}
                         </div>
                       )}
+                      
+                      {/* ✅ Contact Info */}
+                      {(() => {
+                        const info = userInfo.get(entry.user)
+                        if (info && (info.email || info.phone_1 || info.phone_2)) {
+                          return (
+                            <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                              <div className="text-xs font-semibold text-gray-600 dark:text-gray-400 w-full mb-1">
+                                Contact Information:
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2 text-xs">
+                                {info.email && (
+                                  <a 
+                                    href={`mailto:${info.email}`}
+                                    className="flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline px-2 py-1 rounded hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                                  >
+                                    <Mail className="w-3 h-3" />
+                                    <span>{info.email}</span>
+                                  </a>
+                                )}
+                                {info.phone_1 && (
+                                  <div className="flex items-center gap-1">
+                                    <a 
+                                      href={`tel:${info.phone_1}`}
+                                      className="flex items-center gap-1 text-green-600 dark:text-green-400 hover:underline px-2 py-1 rounded hover:bg-green-50 dark:hover:bg-green-900/20"
+                                    >
+                                      <Phone className="w-3 h-3" />
+                                      <span>{info.phone_1}</span>
+                                    </a>
+                                    <a 
+                                      href={`https://wa.me/${info.phone_1.replace(/\D/g, '')}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="flex items-center gap-1 text-green-600 dark:text-green-400 hover:underline px-1 py-1 rounded hover:bg-green-50 dark:hover:bg-green-900/20"
+                                      title={`WhatsApp: ${info.phone_1}`}
+                                    >
+                                      <MessageCircle className="w-3 h-3" />
+                                    </a>
+                                  </div>
+                                )}
+                                {info.phone_2 && (
+                                  <div className="flex items-center gap-1">
+                                    <a 
+                                      href={`tel:${info.phone_2}`}
+                                      className="flex items-center gap-1 text-green-600 dark:text-green-400 hover:underline px-2 py-1 rounded hover:bg-green-50 dark:hover:bg-green-900/20"
+                                    >
+                                      <Phone className="w-3 h-3" />
+                                      <span>{info.phone_2}</span>
+                                    </a>
+                                    <a 
+                                      href={`https://wa.me/${info.phone_2.replace(/\D/g, '')}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="flex items-center gap-1 text-green-600 dark:text-green-400 hover:underline px-1 py-1 rounded hover:bg-green-50 dark:hover:bg-green-900/20"
+                                      title={`WhatsApp: ${info.phone_2}`}
+                                    >
+                                      <MessageCircle className="w-3 h-3" />
+                                    </a>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        }
+                        return null
+                      })()}
                     </div>
                   </div>
                 ))}

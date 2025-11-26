@@ -71,10 +71,16 @@ export function AddKPIForm() {
   // Auto-load activities when project changes
   useEffect(() => {
     if (projectCode && projects.length > 0) {
-      const project = projects.find(p => p.project_code === projectCode)
+      // ✅ Search by both project_full_code and project_code
+      const project = projects.find(p => 
+        p.project_full_code === projectCode || 
+        p.project_code === projectCode
+      )
       if (project) {
         setSelectedProject(project)
-        loadActivitiesForProject(projectCode)
+        // ✅ Use project_full_code if available, otherwise use project_code
+        const codeToUse = project.project_full_code || project.project_code
+        loadActivitiesForProject(codeToUse)
       }
     }
   }, [projectCode, projects])
@@ -164,7 +170,9 @@ export function AddKPIForm() {
   }
   
   const handleProjectSelect = (project: Project) => {
-    setProjectCode(project.project_code)
+    // ✅ Use project_full_code if available, otherwise use project_code
+    const projectCodeToUse = project.project_full_code || project.project_code
+    setProjectCode(projectCodeToUse)
     setSelectedProject(project)
     setShowProjectDropdown(false)
   }
@@ -195,9 +203,13 @@ export function AddKPIForm() {
       if (!unit) throw new Error('Please enter a unit')
       if (!actualDate) throw new Error('Please enter actual date')
       
+      // ✅ Use project_full_code for Project Full Code, and extract project_code for Project Code
+      const projectFullCode = selectedProject?.project_full_code || projectCode
+      const projectCodeOnly = selectedProject?.project_code || (projectCode.includes('-') ? projectCode.split('-')[0] : projectCode)
+      
       const kpiData = {
-        project_full_code: selectedProject?.project_code || projectCode,
-        project_code: projectCode,
+        project_full_code: projectFullCode,
+        project_code: projectCodeOnly,
         project_sub_code: selectedProject?.project_sub_code || '',
         activity_name: activityName,
         quantity: parseFloat(quantity),
@@ -346,26 +358,35 @@ export function AddKPIForm() {
                 {showProjectDropdown && (
                   <div className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg max-h-60 overflow-y-auto">
                     {projects
-                      .filter(project => 
-                        project.project_code?.toLowerCase().includes(projectCode.toLowerCase()) ||
-                        project.project_name?.toLowerCase().includes(projectCode.toLowerCase())
-                      )
+                      .filter(project => {
+                        const searchTerm = projectCode.toLowerCase()
+                        const projectFullCode = (project.project_full_code || project.project_code || '').toLowerCase()
+                        const projectCodeLower = (project.project_code || '').toLowerCase()
+                        const projectName = (project.project_name || '').toLowerCase()
+                        return projectFullCode.includes(searchTerm) ||
+                               projectCodeLower.includes(searchTerm) ||
+                               projectName.includes(searchTerm)
+                      })
                       .slice(0, 10)
-                      .map((project) => (
-                        <button
-                          key={project.id}
-                          type="button"
-                          onClick={() => handleProjectSelect(project)}
-                          className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700 last:border-b-0"
-                        >
-                          <div className="font-medium text-gray-900 dark:text-white">
-                            {project.project_code}
-                          </div>
-                          <div className="text-sm text-gray-500 dark:text-gray-400">
-                            {project.project_name}
-                          </div>
-                        </button>
-                      ))}
+                      .map((project) => {
+                        // ✅ Use project_full_code if available, otherwise use project_code
+                        const displayCode = project.project_full_code || project.project_code
+                        return (
+                          <button
+                            key={project.id}
+                            type="button"
+                            onClick={() => handleProjectSelect(project)}
+                            className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700 last:border-b-0"
+                          >
+                            <div className="font-medium text-gray-900 dark:text-white">
+                              {displayCode}
+                            </div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">
+                              {project.project_name}
+                            </div>
+                          </button>
+                        )
+                      })}
                   </div>
                 )}
               </div>

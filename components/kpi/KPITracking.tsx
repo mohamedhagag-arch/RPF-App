@@ -26,7 +26,7 @@ import { autoSaveOnKPIUpdate } from '@/lib/autoCalculationSaver'
 import { UnifiedFilter, FilterState } from '@/components/ui/UnifiedFilter'
 import { Pagination } from '@/components/ui/Pagination'
 import { SmartFilter } from '@/components/ui/SmartFilter'
-import { Plus, BarChart3, CheckCircle, Clock, AlertCircle, Target, Info, Filter, X, Coins, DollarSign, Lock } from 'lucide-react'
+import { Plus, BarChart3, CheckCircle, Clock, AlertCircle, Target, Info, Filter, X, Coins, DollarSign, Lock, Package } from 'lucide-react'
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 import { ExportButton } from '@/components/ui/ExportButton'
 import { ImportButton } from '@/components/ui/ImportButton'
@@ -2307,30 +2307,23 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     return 0
   }, [activityIndexMap])
   
-  // ✅ FIXED: Calculate Planned Value - Use Planned Value directly from database
-  // For Planned KPIs, we should use the Planned Value field directly, not calculate from Rate × Quantity
+  // ✅ FIXED: Calculate Planned Value - Use Value field or calculate from Quantity × Rate
+  // IMPORTANT: If Value field equals Quantity, it means it contains quantity not value, so calculate from Rate × Quantity
   const totalPlannedValue = useMemo(() => {
     if (plannedKPIs.length === 0) {
       return 0
     }
 
     let total = 0
-    let fromPlannedValue = 0
     let fromValue = 0
+    let fromRateCalculation = 0
     let skipped = 0
     
     plannedKPIs.forEach((kpi: ProcessedKPI) => {
       const rawKPI = (kpi as any).raw || {}
+      const quantity = kpi.quantity || parseFloat(String(rawKPI['Quantity'] || '0').replace(/,/g, '')) || 0
       
-      // ✅ PRIORITY 1: Use Planned Value directly from KPI (most accurate for Planned KPIs)
-      const plannedValue = kpi.planned_value || parseFloat(String(rawKPI['Planned Value'] || '0').replace(/,/g, '')) || 0
-      if (plannedValue > 0) {
-        total += plannedValue
-        fromPlannedValue++
-          return
-      }
-      
-      // ✅ PRIORITY 2: Fallback to Value field if Planned Value is not available
+      // ✅ PRIORITY 1: Use Value field directly (this should be the financial value)
       let kpiValue = 0
       
       // Try raw['Value'] (from database with capital V)
@@ -2351,10 +2344,28 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
       }
       
+      // ✅ Check if Value equals Quantity (means it's quantity, not value)
+      // If Value equals Quantity, we need to calculate from Rate × Quantity
+      if (kpiValue > 0 && quantity > 0 && Math.abs(kpiValue - quantity) < 0.01) {
+        // Value equals quantity, so it's not a real value - calculate from rate
+        kpiValue = 0
+      }
+      
       if (kpiValue > 0) {
         total += kpiValue
         fromValue++
         return
+      }
+      
+      // ✅ PRIORITY 2: Calculate from Quantity × Rate (if Value is not available or equals quantity)
+      if (quantity > 0) {
+        const rate = getActivityRate(kpi)
+        if (rate > 0) {
+          const calculatedValue = quantity * rate
+          total += calculatedValue
+          fromRateCalculation++
+          return
+        }
       }
       
       // If no value found, skip this KPI
@@ -2363,22 +2374,22 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     
     // Log calculation summary for debugging
     if (process.env.NODE_ENV === 'development') {
-    console.log(`📊 [Planned Value] Calculated for ${plannedKPIs.length} Planned KPIs:`, {
-      total,
-      fromPlannedValue,
+      console.log(`📊 [Planned Value] Calculated for ${plannedKPIs.length} Planned KPIs:`, {
+        total,
         fromValue,
-      skipped,
-      percentages: {
-        fromPlannedValue: plannedKPIs.length > 0 ? ((fromPlannedValue / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%',
+        fromRateCalculation,
+        skipped,
+        percentages: {
           fromValue: plannedKPIs.length > 0 ? ((fromValue / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%',
-        skipped: plannedKPIs.length > 0 ? ((skipped / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%'
-      },
-        note: 'Using Planned Value directly from database (Priority: 1) Planned Value, 2) Value field)'
+          fromRateCalculation: plannedKPIs.length > 0 ? ((fromRateCalculation / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%',
+          skipped: plannedKPIs.length > 0 ? ((skipped / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%'
+        },
+        note: 'Using Value field (Priority 1) or calculating from Quantity × Rate (Priority 2). Skipping if Value equals Quantity.'
       })
     }
     
     return total
-  }, [plannedKPIs])
+  }, [plannedKPIs, getActivityRate])
   
   // ✅ FIXED: Calculate Actual Value - Use Actual Value directly from database
   // For Actual KPIs, we should use the Actual Value field directly, not calculate from Rate × Quantity

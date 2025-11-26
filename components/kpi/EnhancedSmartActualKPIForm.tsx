@@ -86,8 +86,7 @@ export function EnhancedSmartActualKPIForm({
   const [dailyRate, setDailyRate] = useState<number>(0)
   const [isAutoCalculated, setIsAutoCalculated] = useState(false)
   
-  // ✅ Store calculated planned units from KPIs (filtered by Zone and Project Full Code)
-  const [calculatedPlannedUnits, setCalculatedPlannedUnits] = useState<Map<string, number>>(new Map())
+  // ✅ REMOVED: calculatedPlannedUnits - Total now comes directly from BOQ Activity (planned_units or total_units)
   
   // Temporary storage for reported activities
   const [completedActivitiesData, setCompletedActivitiesData] = useState<Map<string, any>>(new Map())
@@ -457,32 +456,183 @@ export function EnhancedSmartActualKPIForm({
     loadProjectActivities()
   }, [selectedProject])
   
-  // ✅ Calculate Planned Units from KPIs (filtered by Zone and Project Full Code)
+  // ============================================
+  // ✅ HELPER FUNCTIONS: Zone Normalization
+  // Must respect Project Full Code for accurate zone matching
+  // ============================================
+  
+  /**
+   * Normalize zone string by removing project code prefix
+   * CRITICAL: Must use Project Full Code first (e.g., "P5066-I2 - 1" -> "1")
+   * Examples: 
+   * - "P5066-I2 - 1" -> "1" (using Project Full Code)
+   * - "P5066 - 1" -> "1" (using Project Code only)
+   */
+  const normalizeZone = (zoneStr: string, projectFullCode: string, projectCode: string): string => {
+    if (!zoneStr) return ''
+    
+    let normalized = zoneStr.trim()
+    if (!normalized) return ''
+    
+    // ✅ FIRST: Try to remove Project Full Code (e.g., "P5066-I2 - 1" -> "1")
+    if (projectFullCode) {
+      const fullCodeUpper = projectFullCode.toUpperCase()
+      const normalizedUpper = normalized.toUpperCase()
+      
+      // If zone starts with Project Full Code, remove it
+      if (normalizedUpper.startsWith(fullCodeUpper)) {
+        const afterFullCode = normalized.substring(projectFullCode.length).trim()
+        // Remove leading dashes or spaces
+        normalized = afterFullCode.replace(/^[\s-]+/, '').trim()
+        if (normalized) {
+          return normalized.toLowerCase()
+        }
+      }
+    }
+    
+    // ✅ SECOND: If Project Full Code didn't match, try Project Code only
+    if (projectCode) {
+      const codeUpper = projectCode.toUpperCase()
+      
+      // Remove project code prefix in various formats
+      normalized = normalized.replace(new RegExp(`^${codeUpper}\\s*-\\s*`, 'i'), '').trim()
+      normalized = normalized.replace(new RegExp(`^${codeUpper}\\s+`, 'i'), '').trim()
+      normalized = normalized.replace(new RegExp(`^${codeUpper}-`, 'i'), '').trim()
+    }
+    
+    // Clean up any remaining " - " or "- " at the start
+    normalized = normalized.replace(/^\s*-\s*/, '').trim()
+    
+    return normalized.toLowerCase()
+  }
+  
+  /**
+   * Extract all numbers from zone string and join them
+   * Example: "12 - 1" -> "121", "12 - 2" -> "122"
+   * This creates a unique identifier for zones
+   */
+  const extractZoneNumber = (zoneStr: string): string => {
+    if (!zoneStr || zoneStr.trim() === '') return ''
+    
+    const numbers = zoneStr.match(/\d+/g)
+    if (numbers && numbers.length > 0) {
+      return numbers.join('') // Join all numbers to create unique identifier
+    }
+    
+    return zoneStr.toLowerCase().trim()
+  }
+  
+  /**
+   * Check if two zones match using multiple strategies
+   * CRITICAL: Must use Project Full Code for accurate matching
+   */
+  const zonesMatch = (zone1: string, zone2: string, projectFullCode: string, projectCode: string): boolean => {
+    if (!zone1 || !zone2) return false
+    
+    const z1 = zone1.trim()
+    const z2 = zone2.trim()
+    
+    // Strategy 1: Exact match (case-insensitive)
+    if (z1.toLowerCase() === z2.toLowerCase()) {
+      return true
+    }
+    
+    // Strategy 2: Normalize both and compare (using Project Full Code first!)
+    const normalized1 = normalizeZone(zone1, projectFullCode, projectCode)
+    const normalized2 = normalizeZone(zone2, projectFullCode, projectCode)
+    if (normalized1 && normalized2 && normalized1 === normalized2) {
+      return true
+    }
+    
+    // Strategy 3: Extract zone numbers and compare
+    const zoneNum1 = extractZoneNumber(normalized1 || z1)
+    const zoneNum2 = extractZoneNumber(normalized2 || z2)
+    if (zoneNum1 && zoneNum2 && zoneNum1 === zoneNum2) {
+      return true
+    }
+    
+    // Strategy 4: Extract zone numbers from original strings (before normalization)
+    const originalZoneNum1 = extractZoneNumber(z1)
+    const originalZoneNum2 = extractZoneNumber(z2)
+    if (originalZoneNum1 && originalZoneNum2 && originalZoneNum1 === originalZoneNum2) {
+      return true
+    }
+    
+    // Strategy 5: Check if one zone contains the other (after normalization)
+    if (normalized1 && normalized2) {
+      if (normalized1.includes(normalized2) || normalized2.includes(normalized1)) {
+        return true
+      }
+    }
+    
+    return false
+  }
+  
+  // ============================================
+  // ✅ HELPER FUNCTION: Get Activity Quantities
+  // Purpose: Show Done and Total for each activity BEFORE clicking
+  // ============================================
+  
+  /**
+   * Get Done and Total quantities for an activity
+   * 
+   * Priority for Done:
+   *   1. completedActivitiesData (temporary session data)
+   *   2. actualQuantities (calculated from Actual KPIs in database - filtered by Project Full Code and Zone)
+   *   3. activity.actual_units (from BOQ Activity - immediate fallback)
+   * 
+   * Priority for Total:
+   *   1. activity.planned_units (from BOQ Activity - THE ONLY SOURCE OF TRUTH)
+   *   2. activity.total_units (fallback if planned_units not available)
+   * 
+   * ✅ CRITICAL: Total MUST come from BOQ Activity, NOT from Planned KPIs
+   * BOQ Activity is the source of truth for planned quantities
+   */
+  const getActivityQuantities = (activity: BOQActivity): { done: number; total: number; unit: string } => {
+    // ✅ Calculate Total (Planned) - ONLY from BOQ Activity
+    // Priority 1: planned_units from BOQ Activity
+    // Priority 2: total_units from BOQ Activity (if planned_units not available)
+    let total = parseFloat(String(activity.planned_units || '0')) || 0
+    if (total === 0) {
+      total = parseFloat(String(activity.total_units || '0')) || 0
+    }
+    
+    // Calculate Done (Actual) - from Actual KPIs filtered by Project Full Code and Zone
+    let done = 0
+    const completedData = completedActivitiesData.get(activity.id)
+    if (completedData && completedData['Quantity']) {
+      done = parseFloat(String(completedData['Quantity'])) || 0
+    } else {
+      done = actualQuantities.get(activity.id) ?? 0
+      if (done === 0) {
+        done = parseFloat(String(activity.actual_units || '0')) || 0
+      }
+    }
+    
+    return {
+      done,
+      total,
+      unit: activity.unit || ''
+    }
+  }
+  
+  // ============================================
+  // ✅ CALCULATE ACTUAL UNITS (DONE) FROM DATABASE
+  // Total comes directly from BOQ Activity (planned_units or total_units)
+  // ============================================
+  
+  /**
+   * Calculate Actual Units (Done) from KPIs in database
+   * Falls back to activity.actual_units if no KPIs found
+   */
   useEffect(() => {
-    const calculatePlannedUnits = async () => {
-      if (!selectedProject || projectActivities.length === 0) return
-      
-      const plannedUnitsMap = new Map<string, number>()
-      
-      // ✅ Helper: Normalize zone (remove project code prefix)
-      const normalizeZone = (zoneStr: string, projectCode: string): string => {
-        if (!zoneStr || !projectCode) return (zoneStr || '').toLowerCase().trim()
-        let normalized = zoneStr.trim()
-        const codeUpper = projectCode.toUpperCase()
-        normalized = normalized.replace(new RegExp(`^${codeUpper}\\s*-\\s*`, 'i'), '').trim()
-        normalized = normalized.replace(new RegExp(`^${codeUpper}\\s+`, 'i'), '').trim()
-        normalized = normalized.replace(new RegExp(`^${codeUpper}-`, 'i'), '').trim()
-        return normalized.toLowerCase()
+    const calculateActualUnits = async () => {
+      if (!selectedProject || projectActivities.length === 0) {
+        setActualQuantities(new Map())
+        return
       }
       
-      // ✅ Helper: Extract zone number
-      const extractZoneNumber = (zoneStr: string): string => {
-        if (!zoneStr || zoneStr.trim() === '') return ''
-        const numberMatch = zoneStr.match(/\d+/)
-        if (numberMatch) return numberMatch[0]
-        return zoneStr.toLowerCase().trim()
-      }
-      
+      const actualUnitsMap = new Map<string, number>()
       const projectFullCode = (selectedProject.project_full_code || selectedProject.project_code || '').toString().trim().toUpperCase()
       const projectCode = (selectedProject.project_code || '').toString().trim().toUpperCase()
       
@@ -492,96 +642,77 @@ export function EnhancedSmartActualKPIForm({
         const supabase = getSupabaseClient()
         
         for (const activity of projectActivities) {
-          // ✅ Use activity_name from activity (case-insensitive matching)
           const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
           const activityZoneRaw = (activity.zone_ref || activity.zone_number || '').toString().trim()
-          const normalizedZone = normalizeZone(activityZoneRaw, projectCode)
+          // ✅ CRITICAL: Use Project Full Code for zone normalization
+          const normalizedZone = normalizeZone(activityZoneRaw, projectFullCode, projectCode)
           const zoneNumber = extractZoneNumber(normalizedZone)
           
-          // ✅ Fetch Planned KPIs for this activity - fetch all for this project and activity, then filter
+          // ✅ Fetch Actual KPIs - MUST match Project Full Code exactly
           let query = supabase
             .from(TABLES.KPI)
-            .select('id, "Quantity", "Input Type", "Zone", "Zone Number", "Activity Name"')
-            .eq('Project Full Code', projectFullCode)
-            .eq('Input Type', 'Planned')
+            .select('id, "Quantity", "Input Type", "Zone", "Zone Number", "Activity Name", "Project Full Code", "Project Code"')
+            .eq('Input Type', 'Actual')
+          
+          // ✅ CRITICAL: Filter by Project Full Code ONLY (exact match required)
+          if (projectFullCode) {
+            query = query.eq('Project Full Code', projectFullCode)
+          }
           
           const result = await executeQuery(async () => query)
-          let plannedKPIs = result.data || []
+          let actualKPIs = result.data || []
           
-          // ✅ Filter by Activity Name (case-insensitive, flexible matching)
-          plannedKPIs = plannedKPIs.filter((kpi: any) => {
+          // ✅ CRITICAL: Client-side filter to ensure exact Project Full Code match
+          // NO fallback to Project Code - each project with different sub-code is SEPARATE
+          if (projectFullCode) {
+            const targetFullCode = projectFullCode.toString().trim().toUpperCase()
+            actualKPIs = actualKPIs.filter((kpi: any) => {
+              const kpiFullCode = (kpi['Project Full Code'] || '').toString().trim().toUpperCase()
+              // ✅ MUST match Project Full Code exactly - no fallback to Project Code
+              return kpiFullCode === targetFullCode
+            })
+          }
+          
+          // Filter by Activity Name (flexible matching)
+          actualKPIs = actualKPIs.filter((kpi: any) => {
             const kpiActivityName = (kpi['Activity Name'] || '').toLowerCase().trim()
-            // Match by exact name or if one contains the other
             const nameMatch = kpiActivityName === activityName ||
                             kpiActivityName.includes(activityName) ||
                             activityName.includes(kpiActivityName)
             
             if (!nameMatch) return false
             
-            // ✅ Filter by Zone if activity has zone
-            if (activityZoneRaw && normalizedZone && zoneNumber) {
+            // ✅ CRITICAL: Filter by Zone if activity has zone - must use zonesMatch for accurate matching
+            if (activityZoneRaw && activityZoneRaw.trim() !== '') {
               const kpiZoneRaw = (kpi['Zone'] || kpi['Zone Number'] || '').toString().trim()
-              if (!kpiZoneRaw) return false // Exclude KPIs without zone if activity has zone
+              if (!kpiZoneRaw || kpiZoneRaw === '') {
+                return false // Exclude KPIs without zone if activity has zone
+              }
               
-              const kpiZone = normalizeZone(kpiZoneRaw, projectCode)
-              const kpiZoneNum = extractZoneNumber(kpiZone)
-              
-              // Match by zone number or normalized zone
-              return kpiZoneNum === zoneNumber || kpiZone === normalizedZone
+              // ✅ Use zonesMatch with Project Full Code for accurate zone matching
+              return zonesMatch(activityZoneRaw, kpiZoneRaw, projectFullCode, projectCode)
             }
             
-            // If activity has no zone, include all KPIs for this activity
             return true
           })
           
-          // Calculate total planned quantity
-          const totalPlanned = plannedKPIs.reduce((sum: number, kpi: any) => {
+          // Calculate total actual quantity (Done)
+          const totalActual = actualKPIs.reduce((sum: number, kpi: any) => {
             const qty = parseFloat(String(kpi['Quantity'] || '0').replace(/,/g, '')) || 0
             return sum + qty
           }, 0)
           
-          plannedUnitsMap.set(activity.id, totalPlanned)
-          
-          // ✅ Debug logging
-          if (process.env.NODE_ENV === 'development') {
-            console.log(`📊 [Planned Units] Activity: "${activity.activity_name}" (ID: ${activity.id})`, {
-              projectFullCode,
-              activityZoneRaw: activityZoneRaw || 'N/A',
-              normalizedZone: normalizedZone || 'N/A',
-              zoneNumber: zoneNumber || 'N/A',
-              plannedKPIsCount: plannedKPIs.length,
-              totalPlanned,
-              plannedKPIs: plannedKPIs.slice(0, 3).map((kpi: any) => ({
-                quantity: kpi['Quantity'],
-                zone: kpi['Zone'] || kpi['Zone Number'] || 'N/A'
-              }))
-            })
-          }
+          actualUnitsMap.set(activity.id, totalActual)
         }
         
-        setCalculatedPlannedUnits(plannedUnitsMap)
+        setActualQuantities(actualUnitsMap)
       } catch (err: any) {
-        console.error('❌ Error calculating planned units:', err)
+        console.error('❌ Error calculating actual units:', err)
       }
     }
     
-    calculatePlannedUnits()
+    calculateActualUnits()
   }, [selectedProject, projectActivities])
-  
-  // Load actual quantities from BOQ activities
-  useEffect(() => {
-    if (projectActivities.length > 0) {
-      console.log('🔄 Loading activities with actual quantities...')
-      projectActivities.forEach(activity => {
-        console.log(`📊 ${activity.activity_name}:`, {
-          id: activity.id,
-          planned_units: activity.planned_units,
-          actual_units: activity.actual_units,
-          unit: activity.unit
-        })
-      })
-    }
-  }, [projectActivities])
 
   // Auto-fill form when activity is selected
   useEffect(() => {
@@ -830,7 +961,7 @@ export function EnhancedSmartActualKPIForm({
       
       // Store "not worked on" data in completedActivitiesData
       const notWorkedData: any = {
-        'Project Full Code': selectedProject?.project_code || '',
+        'Project Full Code': selectedProject?.project_full_code || selectedProject?.project_code || '',
         'Project Code': selectedProject?.project_code || '',
         'Project Sub Code': selectedProject?.project_sub_code || '',
         'Activity Name': activity.activity_name || '',
@@ -882,7 +1013,7 @@ export function EnhancedSmartActualKPIForm({
       // Prepare the final data with the correct date and structure
       // ✅ Only include columns that exist in the unified KPI table
       const finalFormData: any = {
-        'Project Full Code': selectedProject?.project_code || formData.project_code,
+        'Project Full Code': selectedProject?.project_full_code || selectedProject?.project_code || formData.project_code || formData.project_full_code,
         'Project Code': selectedProject?.project_code || formData.project_code,
         'Project Sub Code': selectedProject?.project_sub_code || '',
         'Activity Name': selectedActivity?.activity_name || formData.activity_name,
@@ -1256,15 +1387,7 @@ export function EnhancedSmartActualKPIForm({
                               {project.project_name}
                             </div>
                             <div className="text-sm text-gray-600 dark:text-gray-400">
-                              <span className="font-medium">{project.project_code}</span>
-                              {project.project_sub_code && (
-                                <>
-                                  <span className="mx-1">•</span>
-                                  <span className="font-semibold text-gray-800 dark:text-gray-300">
-                                    {project.project_sub_code}
-                                  </span>
-                                </>
-                              )}
+                              <span className="font-medium">{project.project_full_code || project.project_code}</span>
                               {((project as any).location) && (
                                 <span className="ml-2 text-gray-500 dark:text-gray-500">
                                   • {(project as any).location}
@@ -1316,10 +1439,7 @@ export function EnhancedSmartActualKPIForm({
                       </p>
                       {selectedProject && (
                         <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
-                          Project: <span className="font-medium">{selectedProject.project_code}</span>
-                          {selectedProject.project_sub_code && (
-                            <span className="font-semibold ml-1">{selectedProject.project_sub_code}</span>
-                          )}
+                          Project: <span className="font-medium">{selectedProject.project_full_code || selectedProject.project_code}</span>
                           {selectedProject.project_name && (
                             <span className="ml-2">• {selectedProject.project_name}</span>
                           )}
@@ -1498,6 +1618,9 @@ export function EnhancedSmartActualKPIForm({
                     const isCompleted = completedActivities.has(activity.id)
                     const isCurrent = projectActivities.findIndex(a => a.id === activity.id) === currentActivityIndex
                     
+                    // ✅ Get Done and Total quantities (calculated from database or fallback to activity data)
+                    const { done: doneActual, total: totalPlanned, unit } = getActivityQuantities(activity)
+                    
                     return (
                       <div
                         key={activity.id}
@@ -1538,9 +1661,25 @@ export function EnhancedSmartActualKPIForm({
                                 {activity.activity_name}
                               </h3>
                               {activity.activity && (
-                                <p className="text-xs text-gray-500 dark:text-gray-400 truncate hidden sm:block" title={activity.activity}>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 truncate hidden sm:block mt-1" title={activity.activity}>
                                   {activity.activity}
                                 </p>
+                              )}
+                            </div>
+                          </div>
+                          {/* ✅ Display Done and Total on the right side */}
+                          <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                            <div className="flex flex-col items-end gap-0.5">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs text-gray-500 dark:text-gray-400">Done:</span>
+                                <span className="text-xs font-bold text-blue-600 dark:text-blue-400">{doneActual.toLocaleString()}</span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs text-gray-500 dark:text-gray-400">Total:</span>
+                                <span className="text-xs font-bold text-gray-900 dark:text-white">{totalPlanned.toLocaleString()}</span>
+                              </div>
+                              {unit && (
+                                <span className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{unit}</span>
                               )}
                             </div>
                           </div>
@@ -1762,6 +1901,9 @@ export function EnhancedSmartActualKPIForm({
                     const isCompleted = completedActivities.has(activity.id)
                     const isCurrent = index === currentActivityIndex
                     
+                    // ✅ Get Done and Total quantities (calculated from database or fallback to activity data)
+                    const { done: doneActual, total: totalPlanned, unit } = getActivityQuantities(activity)
+                    
                     return (
                       <div
                         key={activity.id}
@@ -1805,6 +1947,22 @@ export function EnhancedSmartActualKPIForm({
                                 <p className="text-xs text-gray-500 dark:text-gray-400 truncate hidden sm:block" title={activity.activity}>
                                   {activity.activity}
                                 </p>
+                              )}
+                            </div>
+                          </div>
+                          {/* ✅ Display Done and Total on the right side */}
+                          <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                            <div className="flex flex-col items-end gap-0.5">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs text-gray-500 dark:text-gray-400">Done:</span>
+                                <span className="text-xs font-bold text-blue-600 dark:text-blue-400">{doneActual.toLocaleString()}</span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs text-gray-500 dark:text-gray-400">Total:</span>
+                                <span className="text-xs font-bold text-gray-900 dark:text-white">{totalPlanned.toLocaleString()}</span>
+                              </div>
+                              {unit && (
+                                <span className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{unit}</span>
                               )}
                             </div>
                           </div>
@@ -2204,10 +2362,7 @@ export function EnhancedSmartActualKPIForm({
                       {selectedProject && (
                         <div className="mb-3 px-4">
                           <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                            Project: <span className="font-semibold">{selectedProject.project_code}</span>
-                            {selectedProject.project_sub_code && (
-                              <span className="font-bold ml-1">{selectedProject.project_sub_code}</span>
-                            )}
+                            Project: <span className="font-semibold">{selectedProject.project_full_code || selectedProject.project_code}</span>
                           </p>
                           {selectedProject.project_name && (
                             <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
@@ -2255,10 +2410,7 @@ export function EnhancedSmartActualKPIForm({
                       Activity Details
                     </h2>
                     <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 truncate">
-                      Project: <span className="font-medium">{selectedProject?.project_code}</span>
-                      {selectedProject?.project_sub_code && (
-                        <span className="font-semibold ml-1">{selectedProject.project_sub_code}</span>
-                      )}
+                      Project: <span className="font-medium">{selectedProject?.project_full_code || selectedProject?.project_code}</span>
                       {selectedProject?.project_name && (
                         <span className="ml-2">• {selectedProject.project_name}</span>
                       )}
@@ -2330,19 +2482,10 @@ export function EnhancedSmartActualKPIForm({
                       Active
                     </span>
                     {(() => {
-                      // ✅ Use Quantity Summary totals (from EnhancedQuantitySummary) - most accurate!
-                      // EnhancedQuantitySummary will calculate and pass totals via onTotalsChange callback
-                      // For now, use calculatedPlannedUnits as fallback (which uses same logic)
-                      const activityId = currentActivity?.id
-                      if (!activityId) return null
-                      
-                      // Note: EnhancedQuantitySummary below will calculate and display the correct Planned value
-                      // This header display will be updated when EnhancedQuantitySummary calls onTotalsChange
-                      const calculatedPlanned = calculatedPlannedUnits.get(activityId)
+                      // ✅ Total comes directly from BOQ Activity (planned_units or total_units)
                       const activityPlannedUnits = currentActivity?.planned_units || 0
-                      const plannedToShow = calculatedPlanned !== undefined && calculatedPlanned > 0 
-                        ? calculatedPlanned 
-                        : activityPlannedUnits
+                      const activityTotalUnits = currentActivity?.total_units || 0
+                      const plannedToShow = activityPlannedUnits > 0 ? activityPlannedUnits : activityTotalUnits
                       
                       if (plannedToShow > 0) {
                         return (
@@ -2510,14 +2653,8 @@ export function EnhancedSmartActualKPIForm({
                         zone={selectedActivity?.zone_ref || selectedActivity?.zone_number || undefined} // ✅ Pass Zone from activity
                         projectFullCode={selectedProject?.project_full_code || selectedProject?.project_code || undefined} // ✅ Pass Project Full Code
                         onTotalsChange={(totals) => {
-                          // ✅ Update calculatedPlannedUnits with accurate values from EnhancedQuantitySummary
-                          if (selectedActivity?.id) {
-                            setCalculatedPlannedUnits(prev => {
-                              const updated = new Map(prev)
-                              updated.set(selectedActivity.id, totals.totalPlanned)
-                              return updated
-                            })
-                          }
+                          // ✅ Note: Total comes from BOQ Activity (planned_units), not from KPIs
+                          // EnhancedQuantitySummary calculates Done from Actual KPIs only
                         }}
                       />
                     </div>

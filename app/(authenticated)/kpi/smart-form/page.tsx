@@ -116,8 +116,43 @@ export default function SmartKPIPage() {
       }
       
       // ✅ FIX: Use KPIConsistencyManager to ensure proper format
-      // ✅ Calculate Value from Quantity × Rate (from activity)
-      const finalProjectCode = kpiData['Project Full Code'] || kpiData.project_code
+      // ✅ CRITICAL: Always use project_full_code, never project_code alone
+      // Find the project from the projects list to get the correct project_full_code
+      let finalProjectCode = kpiData['Project Full Code'] || kpiData.project_full_code
+      
+      // If Project Full Code is not provided or is empty, try to find it from projects list
+      if (!finalProjectCode || finalProjectCode.trim() === '') {
+        const projectCodeToSearch = kpiData['Project Code'] || kpiData.project_code
+        if (projectCodeToSearch) {
+          // Find project by project_code to get project_full_code
+          const foundProject = projects.find((p: Project) => 
+            p.project_code === projectCodeToSearch || 
+            p.project_full_code === projectCodeToSearch
+          )
+          if (foundProject) {
+            finalProjectCode = foundProject.project_full_code || foundProject.project_code
+            console.log(`✅ Found project_full_code from projects list: ${finalProjectCode} (was searching for: ${projectCodeToSearch})`)
+          } else {
+            // Fallback: use project_code if project not found
+            finalProjectCode = projectCodeToSearch
+            console.warn(`⚠️ Project not found in list, using project_code as fallback: ${finalProjectCode}`)
+          }
+        }
+      }
+      
+      // ✅ VALIDATE: Ensure we have a valid project code
+      if (!finalProjectCode || finalProjectCode.trim() === '') {
+        throw new Error('Project Full Code is required and cannot be empty')
+      }
+      
+      console.log(`🔍 Final Project Full Code to save: ${finalProjectCode}`)
+      console.log(`🔍 Original kpiData:`, {
+        'Project Full Code': kpiData['Project Full Code'],
+        'Project Code': kpiData['Project Code'],
+        project_full_code: kpiData.project_full_code,
+        project_code: kpiData.project_code
+      })
+      
       const finalActivityName = kpiData['Activity Name'] || kpiData.activity_name
       const finalQuantity = quantityValue // Use the already parsed value
       
@@ -150,9 +185,31 @@ export default function SmartKPIPage() {
         }
       }
       
+      // ✅ Find the project to get both project_code and project_full_code
+      const foundProjectForSave = projects.find((p: Project) => 
+        p.project_full_code === finalProjectCode || 
+        p.project_code === finalProjectCode
+      )
+      
+      // ✅ Extract project_code from project_full_code if needed
+      // If finalProjectCode is like "4110-P", extract "4110" as project_code
+      let projectCodeOnly = finalProjectCode
+      if (foundProjectForSave) {
+        projectCodeOnly = foundProjectForSave.project_code
+      } else if (finalProjectCode.includes('-')) {
+        // Extract base code before dash (e.g., "4110-P" -> "4110")
+        projectCodeOnly = finalProjectCode.split('-')[0]
+      }
+      
+      console.log(`🔍 Project codes for save:`, {
+        project_full_code: finalProjectCode,
+        project_code: projectCodeOnly,
+        found_project: foundProjectForSave ? foundProjectForSave.project_name : 'Not found'
+      })
+      
       const standardizedData = KPIConsistencyManager.createStandardKPIForSave({
-        projectCode: finalProjectCode,
-        projectSubCode: kpiData['Project Sub Code'] || '',
+        projectCode: finalProjectCode, // ✅ This will be used for Project Full Code
+        projectSubCode: kpiData['Project Sub Code'] || foundProjectForSave?.project_sub_code || '',
         // ❌ Removed projectName - not stored in KPI table
         activityName: finalActivityName,
         // ❌ Removed activityDivision - not stored in KPI table
@@ -165,6 +222,10 @@ export default function SmartKPIPage() {
         zoneRef: kpiData['Zone Ref'] || kpiData['Section'] || kpiData.zone_ref || kpiData.section || '',
         zoneNumber: kpiData['Zone Number'] || kpiData['Zone'] || kpiData.zone_number || kpiData.zone || ''
       })
+      
+      // ✅ CRITICAL FIX: Override Project Code to use project_code only (not project_full_code)
+      // This ensures Project Code contains "4110" and Project Full Code contains "4110-P"
+      standardizedData['Project Code'] = projectCodeOnly
       
       // ✅ Add Value field if available or calculated
       if (calculatedValue && calculatedValue > 0) {
