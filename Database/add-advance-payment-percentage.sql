@@ -26,3 +26,4 @@ CREATE INDEX IF NOT EXISTS idx_projects_advance_payment_percentage
 
 
 
+

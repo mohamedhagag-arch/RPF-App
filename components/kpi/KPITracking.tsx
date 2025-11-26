@@ -2327,7 +2327,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       if (plannedValue > 0) {
         total += plannedValue
         fromPlannedValue++
-        return
+          return
       }
       
       // ✅ PRIORITY 2: Fallback to Value field if Planned Value is not available
@@ -2363,16 +2363,16 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     
     // Log calculation summary for debugging
     if (process.env.NODE_ENV === 'development') {
-      console.log(`📊 [Planned Value] Calculated for ${plannedKPIs.length} Planned KPIs:`, {
-        total,
-        fromPlannedValue,
+    console.log(`📊 [Planned Value] Calculated for ${plannedKPIs.length} Planned KPIs:`, {
+      total,
+      fromPlannedValue,
         fromValue,
-        skipped,
-        percentages: {
-          fromPlannedValue: plannedKPIs.length > 0 ? ((fromPlannedValue / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%',
+      skipped,
+      percentages: {
+        fromPlannedValue: plannedKPIs.length > 0 ? ((fromPlannedValue / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%',
           fromValue: plannedKPIs.length > 0 ? ((fromValue / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%',
-          skipped: plannedKPIs.length > 0 ? ((skipped / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%'
-        },
+        skipped: plannedKPIs.length > 0 ? ((skipped / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%'
+      },
         note: 'Using Planned Value directly from database (Priority: 1) Planned Value, 2) Value field)'
       })
     }
@@ -2400,7 +2400,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       if (actualValue > 0) {
         total += actualValue
         fromActualValue++
-        return
+          return
       }
       
       // ✅ PRIORITY 2: Fallback to Value field if Actual Value is not available
@@ -2585,38 +2585,38 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
                  {(guard.hasAccess('kpi.create.standard') || guard.hasAccess('kpi.create.smart') || guard.hasAccess('kpi.create.legacy')) && (
                    <div className="flex flex-col sm:flex-row gap-2">
                      {guard.hasAccess('kpi.create.standard') && (
-                       <Button 
-                         onClick={() => setShowForm(true)} 
-                         className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
-                       >
-                         <Plus className="h-4 w-4" />
-                         <span>Add New KPI</span>
-                       </Button>
+                     <Button 
+                       onClick={() => setShowForm(true)} 
+                       className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
+                     >
+                       <Plus className="h-4 w-4" />
+                       <span>Add New KPI</span>
+                     </Button>
                      )}
                      {guard.hasAccess('kpi.create.smart') && (
-                       <Button 
-                         onClick={() => {
-                           // Navigate to the dedicated smart form page
-                           router.push('/kpi/smart-form')
-                         }}
-                         className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white"
-                       >
-                         <Target className="h-4 w-4" />
-                         <span>Smart Site KPI Form</span>
-                       </Button>
+                     <Button 
+                       onClick={() => {
+                         // Navigate to the dedicated smart form page
+                         router.push('/kpi/smart-form')
+                       }}
+                       className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white"
+                     >
+                       <Target className="h-4 w-4" />
+                       <span>Smart Site KPI Form</span>
+                     </Button>
                      )}
                      {guard.hasAccess('kpi.create.legacy') && (
-                       <Button 
-                         onClick={() => {
-                           // ✅ Use router.push to maintain session and avoid reload
-                           router.push('/kpi/add')
-                         }}
-                         variant="outline"
-                         className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
-                       >
-                         <Target className="h-4 w-4" />
-                         <span>Legacy Site Form</span>
-                       </Button>
+                     <Button 
+                       onClick={() => {
+                         // ✅ Use router.push to maintain session and avoid reload
+                         router.push('/kpi/add')
+                       }}
+                       variant="outline"
+                       className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
+                     >
+                       <Target className="h-4 w-4" />
+                       <span>Legacy Site Form</span>
+                     </Button>
                      )}
                     <PermissionButton
                       permission="kpi.view"

@@ -3174,6 +3174,7 @@ export function BOQTableWithCustomization({
         // ✅ Calculate Actual Units from KPIs (EXACT SAME LOGIC AS QUANTITIES COLUMN)
         // ✅ Always calculate from KPIs (ignore activity.actual_units) - Use same kpiMatchesActivity function
         let actualUnitsProductivity = 0
+        let actualDaysCount = 0 // Initialize actual days count
         
         if (allKPIs.length > 0) {
           // Step 1: Filter Actual KPIs only
@@ -3191,6 +3192,35 @@ export function BOQTableWithCustomization({
           actualUnitsProductivity = actualKPIsUntilYesterday.reduce((sum: number, kpi: any) => {
             return sum + getKPIQuantity(kpi)
           }, 0)
+          
+          // ✅ Calculate Actual Days: Count unique dates from Actual KPIs
+          const actualDaysSet = new Set<string>()
+          actualKPIsUntilYesterday.forEach((kpi: any) => {
+            const raw = (kpi as any).raw || {}
+            // Get date from KPI (same priority as isKPIUntilYesterday)
+            const kpiDateStr = kpi.actual_date || 
+                              kpi.activity_date || 
+                              kpi['Actual Date'] || 
+                              kpi['Activity Date'] || 
+                              raw['Actual Date'] || 
+                              raw['Activity Date'] ||
+                              kpi.created_at ||
+                              ''
+            
+            if (kpiDateStr) {
+              try {
+                // Normalize date to YYYY-MM-DD format for unique counting
+                const kpiDate = new Date(kpiDateStr)
+                if (!isNaN(kpiDate.getTime())) {
+                  const dateKey = kpiDate.toISOString().split('T')[0]
+                  actualDaysSet.add(dateKey)
+                }
+              } catch {
+                // Skip invalid dates
+              }
+            }
+          })
+          actualDaysCount = actualDaysSet.size
         }
         
         // ✅ CRITICAL: Cap Actual to not exceed Total (same as quantities column)
@@ -3295,15 +3325,26 @@ export function BOQTableWithCustomization({
         // ✅ CRITICAL: Daily Productivity must be >= Natural Daily Productivity (Total Quantity / Duration)
         // Natural Daily Productivity (Planned) = Total Units / Total Duration
         // Remaining Daily Productivity (Required) = Remaining Units / Remaining Days
+        // Actual Daily Productivity = Actual Quantity / Actual Days (from record raw)
         // Final Daily Productivity = Math.ceil(Math.max(Natural, Remaining))
         let dailyProductivity = 0
         let plannedProductivity = 0 // Natural Daily Productivity
         let requiredProductivity = 0 // Remaining Daily Productivity
+        let actualProductivity = 0 // Actual Daily Productivity
         let showCalculation = false
         
         // ✅ Calculate Natural Daily Productivity (Planned) = Total Quantity / Duration
         if (totalUnitsProductivity > 0 && totalDurationProductivity > 0) {
           plannedProductivity = totalUnitsProductivity / totalDurationProductivity
+        }
+        
+        // ✅ Calculate Actual Daily Productivity = Actual Quantity / Actual Days
+        // If no Actual KPIs, use Planned Productivity as Actual
+        if (actualUnitsProductivity > 0 && actualDaysCount > 0) {
+          actualProductivity = actualUnitsProductivity / actualDaysCount
+        } else if (actualUnitsProductivity === 0 && actualDaysCount === 0) {
+          // No Actual KPIs yet - use Planned Productivity as Actual
+          actualProductivity = plannedProductivity
         }
         
         // ✅ Show calculation if we have remaining units (even if 0, for completed activities)
@@ -3386,6 +3427,22 @@ export function BOQTableWithCustomization({
                       </span>
                       <span className="text-gray-500 dark:text-gray-400 ml-1">
                         ({totalUnitsProductivity.toLocaleString()} / {totalDurationProductivity} days)
+                      </span>
+                    </div>
+                  )}
+                  {/* Actual (Actual Daily Productivity) */}
+                  {actualProductivity > 0 && (
+                    <div className="text-xs">
+                      <span className="font-semibold text-green-600 dark:text-green-400">Actual:</span>{' '}
+                      <span className="font-medium text-green-700 dark:text-green-300">
+                        {actualProductivity.toFixed(2).replace(/\.?0+$/, '')} {unitProductivity}/day
+                      </span>
+                      <span className="text-gray-500 dark:text-gray-400 ml-1">
+                        ({actualUnitsProductivity.toLocaleString()} / {actualDaysCount > 0 ? actualDaysCount : '?'} days
+                        {actualDaysCount === 0 && actualUnitsProductivity > 0 && (
+                          <span className="text-green-600 dark:text-green-400"> est.</span>
+                        )}
+                        )
                       </span>
                     </div>
                   )}

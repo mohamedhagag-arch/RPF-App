@@ -377,9 +377,28 @@ export function hasPermission(user: UserWithPermissions | null, permission: stri
     return false
   }
   
-  // ✅ Admin لديه كل الصلاحيات دائماً (إلا إذا كان custom_permissions_enabled)
-  if (user.role === 'admin' && !user.custom_permissions_enabled) {
-    return true
+  // ✅ Admin لديه كل الصلاحيات دائماً (حتى مع custom_permissions_enabled)
+  // ✅ Exception: Admin can always delete users, manage users, and access critical system functions
+  const criticalAdminPermissions = [
+    'users.delete',
+    'users.create',
+    'users.edit',
+    'users.permissions',
+    'users.view',
+    'system.backup',
+    'system.restore',
+    'database.manage'
+  ]
+  
+  if (user.role === 'admin') {
+    // Admin always has critical permissions, even with custom_permissions_enabled
+    if (criticalAdminPermissions.includes(permission)) {
+      return true
+    }
+    // For other permissions, check custom if enabled, otherwise all permissions
+    if (!user.custom_permissions_enabled) {
+      return true
+    }
   }
   
   // إذا كان Admin مع custom permissions، نفحص الصلاحيات المخصصة

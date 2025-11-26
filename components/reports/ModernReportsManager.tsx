@@ -16,6 +16,8 @@ import { PrintableReport } from './PrintableReport'
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 import { calculateProjectLookAhead, ProjectLookAhead } from './LookAheadHelper'
 import { KPICChartReportView } from './KPICChartReportView'
+import { DelayedActivitiesReportView } from './DelayedActivitiesReportView'
+import { ActivityPeriodicalProgressReportView } from './ActivityPeriodicalProgressReportView'
 import {
   FileText,
   Download,
@@ -65,7 +67,7 @@ import {
   ResponsiveContainer
 } from 'recharts'
 
-type ReportType = 'overview' | 'projects' | 'activities' | 'kpis' | 'financial' | 'performance' | 'lookahead' | 'monthly-revenue' | 'kpi-chart'
+type ReportType = 'overview' | 'projects' | 'activities' | 'kpis' | 'financial' | 'performance' | 'lookahead' | 'monthly-revenue' | 'kpi-chart' | 'delayed-activities' | 'activity-periodical-progress'
 
 interface ReportStats {
   totalProjects: number
@@ -1753,7 +1755,9 @@ export function ModernReportsManager() {
             { id: 'financial', label: 'Financial', icon: DollarSign },
             { id: 'performance', label: 'Performance', icon: Activity },
             { id: 'lookahead', label: 'LookAhead', icon: FastForward },
-            { id: 'monthly-revenue', label: 'Monthly Revenue', icon: CalendarDays }
+            { id: 'monthly-revenue', label: 'Monthly Revenue', icon: CalendarDays },
+            { id: 'delayed-activities', label: 'Delayed Activities', icon: AlertTriangle },
+            { id: 'activity-periodical-progress', label: 'Activity Periodical Progress', icon: CalendarRange }
         ].map((tab) => {
           const Icon = tab.icon
           return (
@@ -1803,6 +1807,21 @@ export function ModernReportsManager() {
           )}
           {activeReport === 'kpi-chart' && (
             <KPICChartReportView 
+              activities={filteredData.filteredActivities} 
+              projects={filteredData.filteredProjects} 
+              kpis={filteredData.filteredKPIs}
+              formatCurrency={formatCurrency} 
+            />
+          )}
+          {activeReport === 'delayed-activities' && (
+            <DelayedActivitiesReportView 
+              activities={filteredData.filteredActivities} 
+              projects={filteredData.filteredProjects} 
+              formatCurrency={formatCurrency} 
+            />
+          )}
+          {activeReport === 'activity-periodical-progress' && (
+            <ActivityPeriodicalProgressReportView 
               activities={filteredData.filteredActivities} 
               projects={filteredData.filteredProjects} 
               kpis={filteredData.filteredKPIs}
@@ -7400,11 +7419,32 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                         )}
                         {periodValues.map((value: number, index: number) => {
                           const plannedValue = viewPlannedValue ? (periodPlannedValues[index] || 0) : 0
+                          
+                          // Calculate Virtual Material for this period
+                          let virtualMaterialPercentage = 0
+                          const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
+                          
+                          if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
+                            let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
+                            const parsedValue = parseFloat(cleanedValue)
+                            if (!isNaN(parsedValue)) {
+                              if (parsedValue > 0 && parsedValue <= 1) {
+                                virtualMaterialPercentage = parsedValue * 100
+                              } else {
+                                virtualMaterialPercentage = parsedValue
+                              }
+                            }
+                          }
+                          
+                          const periodVirtualMaterial = value > 0 && virtualMaterialPercentage > 0
+                            ? value * (virtualMaterialPercentage / 100)
+                            : 0
+                          
                           return (
                             <td key={index} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: viewPlannedValue ? '200px' : '140px' }}>
                               {viewPlannedValue ? (
                                 <div className="space-y-1">
-                            {value > 0 ? (
+                                  {value > 0 ? (
                                     <div className="font-medium text-green-600 dark:text-green-400">{formatCurrency(value, project.currency)}</div>
                                   ) : (
                                     <div className="text-gray-400">-</div>
@@ -7414,29 +7454,75 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                                   ) : (
                                     <div className="text-xs text-gray-400">-</div>
                                   )}
+                                  {periodVirtualMaterial > 0 && (
+                                    <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                      VM: {formatCurrency(periodVirtualMaterial, project.currency)}
+                                    </div>
+                                  )}
                                 </div>
                               ) : (
-                                value > 0 ? (
-                              <span className="font-medium text-green-600 dark:text-green-400">{formatCurrency(value, project.currency)}</span>
-                            ) : (
-                              <span className="text-gray-400">-</span>
-                                )
-                            )}
-                </td>
+                                <div className="space-y-1">
+                                  {value > 0 ? (
+                                    <div className="font-medium text-green-600 dark:text-green-400">{formatCurrency(value, project.currency)}</div>
+                                  ) : (
+                                    <div className="text-gray-400">-</div>
+                                  )}
+                                  {periodVirtualMaterial > 0 && (
+                                    <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                      VM: {formatCurrency(periodVirtualMaterial, project.currency)}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </td>
                           )
                         })}
                         <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '150px' }}>
-                          {viewPlannedValue ? (
-                            <div className="space-y-1">
-                              <div className="font-bold text-gray-900 dark:text-white">{formatCurrency(grandTotal, project.currency)}</div>
-                              {grandTotalPlanned > 0 && (
-                                <div className="text-xs text-blue-600 dark:text-blue-400">{formatCurrency(grandTotalPlanned, project.currency)}</div>
-                              )}
-                            </div>
-                          ) : (
-                          <span className="font-bold text-gray-900 dark:text-white">{formatCurrency(grandTotal, project.currency)}</span>
-                          )}
-                </td>
+                          {(() => {
+                            // Calculate Virtual Material Total from Grand Total
+                            let virtualMaterialPercentage = 0
+                            const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
+                            
+                            if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
+                              let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
+                              const parsedValue = parseFloat(cleanedValue)
+                              if (!isNaN(parsedValue)) {
+                                if (parsedValue > 0 && parsedValue <= 1) {
+                                  virtualMaterialPercentage = parsedValue * 100
+                                } else {
+                                  virtualMaterialPercentage = parsedValue
+                                }
+                              }
+                            }
+                            
+                            const grandTotalVirtualMaterial = grandTotal > 0 && virtualMaterialPercentage > 0
+                              ? grandTotal * (virtualMaterialPercentage / 100)
+                              : 0
+                            
+                            return viewPlannedValue ? (
+                              <div className="space-y-1">
+                                <div className="font-bold text-gray-900 dark:text-white">{formatCurrency(grandTotal, project.currency)}</div>
+                                {grandTotalPlanned > 0 && (
+                                  <div className="text-xs text-blue-600 dark:text-blue-400">{formatCurrency(grandTotalPlanned, project.currency)}</div>
+                                )}
+                                {grandTotalVirtualMaterial > 0 && (
+                                  <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                    VM: {formatCurrency(grandTotalVirtualMaterial, project.currency)}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="space-y-1">
+                                <div className="font-bold text-gray-900 dark:text-white">{formatCurrency(grandTotal, project.currency)}</div>
+                                {grandTotalVirtualMaterial > 0 && (
+                                  <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                    VM: {formatCurrency(grandTotalVirtualMaterial, project.currency)}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })()}
+                        </td>
               </tr>
                     )
                   })

@@ -55,11 +55,13 @@ interface ProjectsListProps {
     division: string
     dateRange: string
   }
+  initialProjectCode?: string // ✅ Project code from URL query parameter
 }
 
 export function ProjectsList({ 
   globalSearchTerm = '', 
-  globalFilters = { project: '', status: '', division: '', dateRange: '' } 
+  globalFilters = { project: '', status: '', division: '', dateRange: '' },
+  initialProjectCode = ''
 }: ProjectsListProps = {}) {
   // ==================== Hooks & Refs ====================
   const { user: authUser, appUser } = useAuth()
@@ -815,6 +817,32 @@ export function ProjectsList({
     await fetchProjectsPage(currentPage, debouncedSearchTerm, currentFilters)
   }, [fetchProjectsPage, currentPage, debouncedSearchTerm, selectedStatuses, selectedDivisions, dateRange])
 
+  // ✅ Open project from URL query parameter
+  useEffect(() => {
+    if (!initialProjectCode || !projects.length || viewingProject) return
+
+    // Find project by code (exact match or partial match)
+    const projectCodeUpper = initialProjectCode.trim().toUpperCase()
+    const foundProject = projects.find(project => {
+      const code = (project.project_code || '').trim().toUpperCase()
+      const fullCode = buildProjectFullCode(project).toUpperCase()
+      return code === projectCodeUpper || fullCode === projectCodeUpper || code.includes(projectCodeUpper) || fullCode.includes(projectCodeUpper)
+    })
+
+    if (foundProject) {
+      console.log('✅ Opening project from URL:', initialProjectCode, foundProject)
+      setViewingProject(foundProject)
+      // Remove query parameter from URL after opening
+      if (typeof window !== 'undefined') {
+        const url = new URL(window.location.href)
+        url.searchParams.delete('project')
+        window.history.replaceState({}, '', url.toString())
+      }
+    } else {
+      console.log('⚠️ Project not found in current list:', initialProjectCode)
+    }
+  }, [initialProjectCode, projects, viewingProject, buildProjectFullCode])
+
   // ==================== Event Handlers ====================
 
   const handlePageChange = useCallback((page: number) => {
@@ -1565,6 +1593,7 @@ export function ProjectsList({
                     onSort={handleTableSort} // ✅ Pass database-level sorting callback
                     currentSortColumn={sortBy} // ✅ Pass current sort column
                     currentSortDirection={sortDirection} // ✅ Pass current sort direction
+                    highlightedProjectId={viewingProject?.id} // ✅ Highlight project in table when viewing
                   />
             ) : (
                 <div className={`grid gap-6 ${getCardGridClasses('cards')} transition-all duration-300 ease-in-out`}>

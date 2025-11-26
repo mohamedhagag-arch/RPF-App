@@ -115,7 +115,8 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
   const supabase = getSupabaseClient()
 
   // Check permissions for user management access
-  const canManageUsers = guard.hasAccess('users.view') || guard.hasAccess('users.permissions') || userRole === 'admin'
+  // ✅ Allow Admin to manage users even if they don't have explicit permissions
+  const canManageUsers = guard.hasAccess('users.view') || guard.hasAccess('users.permissions') || appUser?.role === 'admin' || userRole === 'admin'
 
   // Advanced Features Functions
   const getFilteredUsers = () => {
@@ -459,24 +460,44 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
   }
 
   const handleDeleteUser = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this user?')) return
+    // ✅ Admin can always delete users, regardless of permissions
+    // ✅ Other users need users.delete permission
+    const canDelete = appUser?.role === 'admin' || guard.hasAccess('users.delete')
+    
+    if (!canDelete) {
+      setError('User not allowed to delete users')
+      return
+    }
+
+    if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) return
 
     try {
-      // Delete from auth users
-      const { error: authError } = await supabase.auth.admin.deleteUser(id)
-      if (authError) throw authError
+      setError('')
+      setSuccess('')
+      
+      // ✅ Use API route with Service Role Key to delete user
+      const response = await fetch('/api/users/delete', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userId: id }),
+      })
 
-      // Delete from users table
-      const { error: profileError } = await supabase
-        .from('users')
-        .delete()
-        .eq('id', id)
+      const result = await response.json()
 
-      if (profileError) throw profileError
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to delete user')
+      }
 
+      setSuccess(result.message || 'User deleted successfully')
       fetchUsers()
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccess(''), 3000)
     } catch (error: any) {
-      setError(error.message)
+      console.error('❌ Error deleting user:', error)
+      setError(error.message || 'Failed to delete user')
     }
   }
 
@@ -692,7 +713,7 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
           
           {/* Tabs */}
           <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
-            {guard.hasAccess('users.view') && (
+            {(guard.hasAccess('users.view') || appUser?.role === 'admin') && (
               <button
                 onClick={() => setActiveTab('users')}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
@@ -705,7 +726,7 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
                 Users
               </button>
             )}
-            {guard.hasAccess('users.permissions') && (
+            {(guard.hasAccess('users.permissions') || appUser?.role === 'admin') && (
               <button
                 onClick={() => setActiveTab('roles')}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
@@ -721,7 +742,7 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
           </div>
           
           {/* System Toggle */}
-          {guard.hasAccess('users.permissions') && (
+          {(guard.hasAccess('users.permissions') || appUser?.role === 'admin') && (
             <div className="flex items-center space-x-2 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
               <button
                 onClick={() => setUseIntegratedSystem(true)}
@@ -835,7 +856,7 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
               </button>
             </div>
             
-            {guard.hasAccess('users.create') && (
+            {(guard.hasAccess('users.create') || appUser?.role === 'admin') && (
               <Button onClick={() => setShowForm(true)} className="flex items-center space-x-2">
                 <Plus className="h-4 w-4" />
                 <span>Add New User</span>
@@ -1107,7 +1128,7 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
                             >
                               <Eye className="h-4 w-4" />
                             </Button>
-                            {guard.hasAccess('users.permissions') && (
+                            {(guard.hasAccess('users.permissions') || appUser?.role === 'admin') && (
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -1117,7 +1138,7 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
                                 <Shield className="h-4 w-4" />
                               </Button>
                             )}
-                            {guard.hasAccess('users.edit') && (
+                            {(guard.hasAccess('users.edit') || appUser?.role === 'admin') && (
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -1126,7 +1147,7 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
                                 <Edit className="h-4 w-4" />
                               </Button>
                             )}
-                            {guard.hasAccess('users.delete') && (
+                            {(guard.hasAccess('users.delete') || appUser?.role === 'admin') && (
                               <Button
                                 variant="outline"
                                 size="sm"

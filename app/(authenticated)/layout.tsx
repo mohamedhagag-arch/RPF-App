@@ -1,7 +1,7 @@
 'use client'
 
 import { useAuth } from '@/app/providers'
-import { useRouter, usePathname } from 'next/navigation'
+import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { ModernSidebar } from '@/components/dashboard/ModernSidebar'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { useEffect, useState } from 'react'
@@ -196,8 +196,17 @@ export default function AuthenticatedLayout({
     if (pathname === '/projects') return 'projects'
     if (pathname === '/boq') return 'boq'
     if (pathname === '/kpi') return 'kpi'
+    if (pathname === '/kpi/add') return 'forms/kpi-standard'
+    if (pathname === '/kpi/smart-form') return 'forms/kpi-smart'
     if (pathname === '/reports') return 'reports'
-    if (pathname === '/settings') return 'settings'
+    if (pathname === '/settings') {
+      // Check if it's user form tab
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search)
+        if (params.get('tab') === 'users') return 'forms/user'
+      }
+      return 'settings'
+    }
     if (pathname === '/profile' || pathname.startsWith('/profile/')) return 'profile'
     if (pathname === '/directory') return 'directory'
     if (pathname === '/planning') return 'planning'
@@ -210,6 +219,18 @@ export default function AuthenticatedLayout({
       router.push('/settings?tab=users')
     } else if (tab === 'directory') {
       router.push('/directory')
+    } else if (tab === 'forms/boq') {
+      router.push('/boq')
+    } else if (tab === 'forms/kpi-standard') {
+      router.push('/kpi/add')
+    } else if (tab === 'forms/kpi-smart') {
+      router.push('/kpi/smart-form')
+    } else if (tab === 'forms/project') {
+      router.push('/projects')
+    } else if (tab === 'forms/user') {
+      router.push('/settings?tab=users')
+    } else if (tab === 'forms') {
+      router.push('/boq') // Default to BOQ Form
     } else {
       router.push(`/${tab}`)
     }

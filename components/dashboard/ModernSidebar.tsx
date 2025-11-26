@@ -28,6 +28,8 @@ import {
   ChevronUp,
   BookOpen,
   Activity,
+  FileEdit,
+  FormInput,
   type LucideIcon
 } from 'lucide-react'
 
@@ -61,6 +63,18 @@ const sidebarItems: SidebarItem[] = [
       { icon: BarChart3, label: 'Reports', tab: 'reports' },
     ]
   },
+  { 
+    icon: FormInput, 
+    label: 'Forms', 
+    tab: 'forms',
+    subItems: [
+      { icon: ClipboardList, label: 'BOQ Form', tab: 'forms/boq' },
+      { icon: Target, label: 'KPI Standard Form', tab: 'forms/kpi-standard' },
+      { icon: Zap, label: 'KPI Smart Form', tab: 'forms/kpi-smart' },
+      { icon: FileEdit, label: 'Project Form', tab: 'forms/project' },
+      { icon: Users, label: 'User Form', tab: 'forms/user' },
+    ]
+  },
   { icon: BookOpen, label: 'User Guide', tab: 'user-guide' },
   { icon: Settings, label: 'Settings', tab: 'settings' },
 ]
@@ -90,7 +104,14 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
     if (tab === 'directory') return '/directory'
     if (tab === 'search') return '/dashboard?search=true'
     if (tab === 'planning') return '/boq' // Default to BOQ when clicking Planning
+    if (tab === 'forms') return '/boq' // Default to BOQ Form when clicking Forms
     if (tab === 'activity-log') return '/activity-log'
+    // Forms sub-items - map to actual pages
+    if (tab === 'forms/boq') return '/boq'
+    if (tab === 'forms/kpi-standard') return '/kpi/add'
+    if (tab === 'forms/kpi-smart') return '/kpi/smart-form'
+    if (tab === 'forms/project') return '/projects'
+    if (tab === 'forms/user') return '/settings?tab=users'
     return `/${tab}`
   }
 
@@ -122,6 +143,10 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
   useEffect(() => {
     if (activeTab === 'boq' || activeTab === 'kpi' || activeTab === 'reports') {
       setExpandedItems(prev => new Set(prev).add('planning'))
+    }
+    // Auto-expand forms if any form sub-item is active
+    if (activeTab === 'forms/boq' || activeTab === 'forms/kpi-standard' || activeTab === 'forms/kpi-smart' || activeTab === 'forms/project' || activeTab === 'forms/user') {
+      setExpandedItems(prev => new Set(prev).add('forms'))
     }
   }, [activeTab])
 
@@ -173,6 +198,31 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
           })
         }
         return true
+      case 'forms':
+        // ✅ Show forms only if user has access to at least one form sub-item
+        // ✅ Admin always has access
+        if (guard.isAdmin()) {
+          return true
+        }
+        if (item.subItems) {
+          const hasAnyFormAccess = item.subItems.some(subItem => {
+            switch (subItem.tab) {
+              case 'forms/boq':
+                return guard.hasAccess('boq.create') || guard.hasAccess('boq.edit')
+              case 'forms/kpi-standard':
+              case 'forms/kpi-smart':
+                return guard.hasAccess('kpi.create')
+              case 'forms/project':
+                return guard.hasAccess('projects.create') || guard.hasAccess('projects.edit')
+              case 'forms/user':
+                return guard.hasAccess('users.create') || guard.hasAccess('users.edit')
+              default:
+                return false
+            }
+          })
+          return hasAnyFormAccess
+        }
+        return false
       case 'settings':
         return guard.hasAccess('settings.view')
       default:
@@ -191,6 +241,19 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
               return guard.hasAccess('kpi.view')
             case 'reports':
               return guard.hasAccess('reports.view')
+            case 'forms/boq':
+              // ✅ Admin always has access, others need boq.create or boq.edit
+              return guard.isAdmin() || guard.hasAccess('boq.create') || guard.hasAccess('boq.edit')
+            case 'forms/kpi-standard':
+            case 'forms/kpi-smart':
+              // ✅ Admin always has access, others need kpi.create
+              return guard.isAdmin() || guard.hasAccess('kpi.create')
+            case 'forms/project':
+              // ✅ Admin always has access, others need projects.create or projects.edit
+              return guard.isAdmin() || guard.hasAccess('projects.create') || guard.hasAccess('projects.edit')
+            case 'forms/user':
+              // ✅ Admin always has access, others need users.create or users.edit
+              return guard.isAdmin() || guard.hasAccess('users.create') || guard.hasAccess('users.edit')
             default:
               return true
           }

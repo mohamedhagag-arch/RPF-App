@@ -453,7 +453,14 @@ export function calculateProjectAnalytics(
   // ✅ Also calculate Total Quantity from all KPI Planned
   let totalQuantityFromKPIPlanned = 0
   for (const kpi of projectKPIs) {
-    if (kpi.input_type === 'Planned') {
+    const inputType = String(
+      kpi.input_type || 
+      (kpi as any)['Input Type'] || 
+      (kpi as any).raw?.['Input Type'] || 
+      (kpi as any).raw?.['input_type'] ||
+      ''
+    ).trim().toLowerCase()
+    if (inputType === 'planned') {
       const quantityValue = parseFloat(kpi.quantity?.toString() || '0') || 0
       totalQuantityFromKPIPlanned += quantityValue
     }
@@ -476,7 +483,16 @@ export function calculateProjectAnalytics(
   
   // ✅ STEP 1: Calculate Planned Value from ALL Planned KPIs (no date filter)
   // Planned Value = مجموع كل Planned Value من Planned KPIs بغض النظر عن التاريخ
-  const plannedKPIs = projectKPIs.filter(k => k.input_type === 'Planned')
+  const plannedKPIs = projectKPIs.filter((k: any) => {
+    const inputType = String(
+      k.input_type || 
+      k['Input Type'] || 
+      (k as any).raw?.['Input Type'] || 
+      (k as any).raw?.['input_type'] ||
+      ''
+    ).trim().toLowerCase()
+    return inputType === 'planned'
+  })
   
   plannedKPIs.forEach((kpi: any) => {
     const rawKPI = (kpi as any).raw || {}
@@ -520,19 +536,84 @@ export function calculateProjectAnalytics(
   
   // ✅ STEP 2: Calculate Earned Value from ALL Actual KPIs (no date filter)
   // Earned Value = مجموع Actual Value من كل Actual KPIs بغض النظر عن التاريخ
-  const actualKPIs = projectKPIs.filter(k => k.input_type === 'Actual')
+  const actualKPIs = projectKPIs.filter((k: any) => {
+    const inputType = String(
+      k.input_type || 
+      k['Input Type'] || 
+      (k as any).raw?.['Input Type'] || 
+      (k as any).raw?.['input_type'] ||
+      ''
+    ).trim().toLowerCase()
+    return inputType === 'actual'
+  })
   
   actualKPIs.forEach((kpi: any) => {
     const rawKPI = (kpi as any).raw || {}
+    const quantity = parseFloat(String(kpi.quantity || rawKPI['Quantity'] || '0').replace(/,/g, '')) || 0
     
-    // ✅ PRIORITY 1: Use Actual Value directly from KPI (most accurate)
-    const actualValue = kpi.actual_value || parseFloat(String(rawKPI['Actual Value'] || '0').replace(/,/g, '')) || 0
-    if (actualValue > 0) {
-      totalEarnedValue += actualValue
-      return
+    // Find matching activity for this KPI to get rate
+    const kpiActivityName = String(kpi.activity_name || kpi['Activity Name'] || rawKPI['Activity Name'] || '').toLowerCase().trim()
+    const kpiZone = String(kpi.zone || kpi['Zone'] || rawKPI['Zone'] || '').toString().trim().toLowerCase()
+    
+    let matchingActivity: BOQActivity | null = null
+    for (const activity of projectActivities) {
+      const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+      const activityZone = (activity.zone_ref || activity.zone_number || '').toString().trim().toLowerCase()
+      
+      // Match activity name
+      const nameMatch = kpiActivityName === activityName || 
+                       kpiActivityName.includes(activityName) || 
+                       activityName.includes(kpiActivityName)
+      
+      if (!nameMatch) continue
+      
+      // Match zone if available
+      if (kpiZone && activityZone && kpiZone !== 'enabling division') {
+        const zoneMatch = kpiZone === activityZone || 
+                         kpiZone.includes(activityZone) || 
+                         activityZone.includes(kpiZone)
+        if (!zoneMatch) continue
+      }
+      
+      matchingActivity = activity
+      break
     }
     
-    // ✅ PRIORITY 2: Fallback to Value field if Actual Value is not available
+    // ✅ PRIORITY 1: Calculate from Rate × Quantity (most accurate)
+    let calculatedValue = 0
+    if (matchingActivity && quantity > 0) {
+      const rawActivity = (matchingActivity as any).raw || {}
+      
+      // Get rate from activity
+      let rate = 0
+      const totalValueFromActivity = matchingActivity.total_value || 
+                                   parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                   0
+      const totalUnits = matchingActivity.total_units || 
+                      matchingActivity.planned_units ||
+                      parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                      0
+      
+      if (totalUnits > 0 && totalValueFromActivity > 0) {
+        rate = totalValueFromActivity / totalUnits
+      } else {
+        rate = matchingActivity.rate || 
+              parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+              0
+      }
+      
+      if (rate > 0 && quantity > 0) {
+        calculatedValue = rate * quantity
+        if (calculatedValue > 0) {
+          totalEarnedValue += calculatedValue
+          const quantityValue = parseFloat(kpi.quantity?.toString() || '0') || 0
+          totalEarnedQuantity += quantityValue
+          return // Move to next KPI
+        }
+      }
+    }
+    
+    // ✅ PRIORITY 2: Use Value directly from KPI
     let kpiValue = 0
     
     // Try raw['Value'] (from database with capital V)
@@ -555,9 +636,21 @@ export function calculateProjectAnalytics(
     
     if (kpiValue > 0) {
       totalEarnedValue += kpiValue
+      const quantityValue = parseFloat(kpi.quantity?.toString() || '0') || 0
+      totalEarnedQuantity += quantityValue
+      return // Move to next KPI
     }
     
-    // Also track quantity
+    // ✅ PRIORITY 3: Use Actual Value directly from KPI (fallback)
+    const actualValue = kpi.actual_value || parseFloat(String(rawKPI['Actual Value'] || '0').replace(/,/g, '')) || 0
+    if (actualValue > 0) {
+      totalEarnedValue += actualValue
+      const quantityValue = parseFloat(kpi.quantity?.toString() || '0') || 0
+      totalEarnedQuantity += quantityValue
+      return
+    }
+    
+    // Also track quantity even if no value found
     const quantityValue = parseFloat(kpi.quantity?.toString() || '0') || 0
     totalEarnedQuantity += quantityValue
   })
@@ -629,8 +722,26 @@ export function calculateProjectAnalytics(
   
   // KPI Metrics
   const totalKPIs = projectKPIs.length
-  const plannedKPIsCount = projectKPIs.filter(k => k.input_type === 'Planned').length
-  const actualKPIsCount = projectKPIs.filter(k => k.input_type === 'Actual').length
+  const plannedKPIsCount = projectKPIs.filter((k: any) => {
+    const inputType = String(
+      k.input_type || 
+      k['Input Type'] || 
+      (k as any).raw?.['Input Type'] || 
+      (k as any).raw?.['input_type'] ||
+      ''
+    ).trim().toLowerCase()
+    return inputType === 'planned'
+  }).length
+  const actualKPIsCount = projectKPIs.filter((k: any) => {
+    const inputType = String(
+      k.input_type || 
+      k['Input Type'] || 
+      (k as any).raw?.['Input Type'] || 
+      (k as any).raw?.['input_type'] ||
+      ''
+    ).trim().toLowerCase()
+    return inputType === 'actual'
+  }).length
   
   // ✅ PERFORMANCE: Remove or reduce logging in production
   // Only log in development mode and very rarely

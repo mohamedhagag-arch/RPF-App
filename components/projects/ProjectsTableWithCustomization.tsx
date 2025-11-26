@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Project } from '@/lib/supabase'
 import { ColumnCustomizer, ColumnConfig } from '@/components/ui/ColumnCustomizer'
 import { useColumnCustomization } from '@/lib/useColumnCustomization'
@@ -31,6 +31,7 @@ interface ProjectsTableWithCustomizationProps {
   onSort?: (columnId: string, direction: 'asc' | 'desc') => void // ✅ Database-level sorting callback
   currentSortColumn?: string // ✅ Current sort column from parent
   currentSortDirection?: 'asc' | 'desc' // ✅ Current sort direction from parent
+  highlightedProjectId?: string // ✅ Project ID to highlight in the table
 }
 
 // Default column configuration for Projects
@@ -86,7 +87,8 @@ export function ProjectsTableWithCustomization({
   projectsAnalytics: propProjectsAnalytics, // ✅ Pre-calculated analytics from parent
   onSort, // ✅ Database-level sorting callback
   currentSortColumn, // ✅ Current sort column from parent
-  currentSortDirection // ✅ Current sort direction from parent
+  currentSortDirection, // ✅ Current sort direction from parent
+  highlightedProjectId // ✅ Project ID to highlight in the table
 }: ProjectsTableWithCustomizationProps) {
   const guard = usePermissionGuard()
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -106,6 +108,20 @@ export function ProjectsTableWithCustomization({
   // Sorting state - use props if provided (database-level sorting), otherwise use local state (client-side sorting)
   const [localSortColumn, setLocalSortColumn] = useState<string | null>(null)
   const [localSortDirection, setLocalSortDirection] = useState<'asc' | 'desc'>('asc')
+  
+  // ✅ Scroll to highlighted project when it changes
+  useEffect(() => {
+    if (highlightedProjectId) {
+      const rowId = `project-row-${highlightedProjectId}`
+      const rowElement = document.getElementById(rowId)
+      if (rowElement) {
+        // Small delay to ensure table is rendered
+        setTimeout(() => {
+          rowElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }, 100)
+      }
+    }
+  }, [highlightedProjectId])
   
   // Use parent's sort state if onSort callback is provided (database-level sorting)
   const sortColumn = onSort ? (currentSortColumn || null) : localSortColumn
@@ -2407,16 +2423,16 @@ export function ProjectsTableWithCustomization({
       let projectFullCode = (project.project_full_code || '').toString().trim()
       if (!projectFullCode) {
         // Build from project_code + project_sub_code if not available
-        const projectCode = (project.project_code || '').toString().trim()
-        const projectSubCode = (project.project_sub_code || '').toString().trim()
-        if (projectSubCode) {
+      const projectCode = (project.project_code || '').toString().trim()
+      const projectSubCode = (project.project_sub_code || '').toString().trim()
+      if (projectSubCode) {
           if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
-            projectFullCode = projectSubCode
-          } else if (projectSubCode.startsWith('-')) {
-            projectFullCode = `${projectCode}${projectSubCode}`
-          } else {
-            projectFullCode = `${projectCode}-${projectSubCode}`
-          }
+          projectFullCode = projectSubCode
+        } else if (projectSubCode.startsWith('-')) {
+          projectFullCode = `${projectCode}${projectSubCode}`
+        } else {
+          projectFullCode = `${projectCode}-${projectSubCode}`
+        }
         } else {
           projectFullCode = projectCode
         }
@@ -2477,7 +2493,7 @@ export function ProjectsTableWithCustomization({
       const codesMatch = (itemCodes: string[], targetCodes: string[]): boolean => {
         const targetCodesUpper = targetCodes.map(c => c.toUpperCase().trim())
         const itemCodesUpper = itemCodes.map(c => c.toUpperCase().trim())
-        
+          
         // ✅ First, try exact match (most important for project_full_code)
         for (const itemCode of itemCodesUpper) {
           if (targetCodesUpper.includes(itemCode)) {
@@ -2496,14 +2512,14 @@ export function ProjectsTableWithCustomization({
             if (itemHasDash || targetHasDash) {
               // If either has a dash, only exact match is allowed
               if (itemCode === targetCode) {
-                return true
-              }
+            return true
+          }
             } else {
               // If neither has a dash, allow prefix matching (for backward compatibility)
               if (itemCode.startsWith(targetCode) || targetCode.startsWith(itemCode)) {
-                return true
-              }
-            }
+            return true
+          }
+        }
           }
         }
         
@@ -4571,10 +4587,15 @@ export function ProjectsTableWithCustomization({
             </tr>
           </thead>
           <tbody>
-            {sortedProjects.map((project) => (
+            {sortedProjects.map((project) => {
+              const isHighlighted = highlightedProjectId === project.id
+              return (
               <tr
                 key={project.id}
-                className="group border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                id={isHighlighted ? `project-row-${project.id}` : undefined}
+                className={`group border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 ${
+                  isHighlighted ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700 ring-2 ring-blue-400 dark:ring-blue-600' : ''
+                }`}
               >
                 {visibleColumns.map((column, columnIndex) => {
                   // Calculate left position for fixed columns

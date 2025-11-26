@@ -3,8 +3,12 @@
 import { ProjectsList } from '@/components/projects/ProjectsList'
 import { PermissionPage } from '@/components/ui/PermissionPage'
 import { DynamicTitle } from '@/components/ui/DynamicTitle'
+import { useSearchParams } from 'next/navigation'
 
 export default function ProjectsPage() {
+  const searchParams = useSearchParams()
+  const projectCode = searchParams?.get('project') || ''
+
   return (
     <PermissionPage 
       permission="projects.view"
@@ -13,7 +17,11 @@ export default function ProjectsPage() {
     >
       <DynamicTitle pageTitle="Projects" />
       <div className="p-6">
-        <ProjectsList globalSearchTerm="" globalFilters={{ project: '', status: '', division: '', dateRange: '' }} />
+        <ProjectsList 
+          globalSearchTerm="" 
+          globalFilters={{ project: '', status: '', division: '', dateRange: '' }}
+          initialProjectCode={projectCode}
+        />
       </div>
     </PermissionPage>
   )

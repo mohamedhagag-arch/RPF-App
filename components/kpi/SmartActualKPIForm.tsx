@@ -469,7 +469,7 @@ export function SmartActualKPIForm({
     
     try {
       const quantityValue = parseFloat(quantity)
-      if (isNaN(quantityValue) || quantityValue <= 0) return
+      if (isNaN(quantityValue) || quantityValue < 0) return
       
       setAutoSaving(true)
       
@@ -523,11 +523,12 @@ export function SmartActualKPIForm({
       // Validation - Only for Actual KPI
       if (!projectCode) throw new Error('Please select a project')
       if (!activityName) throw new Error('Please enter activity name')
-      if (!quantity || parseFloat(quantity) <= 0) throw new Error('Please enter a valid quantity')
+      if (!quantity || quantity.trim() === '') throw new Error('Please enter a quantity')
       
-      // Ensure quantity is a valid number
+      // Ensure quantity is a valid number (allow 0)
       const quantityValue = parseFloat(quantity)
       if (isNaN(quantityValue)) throw new Error('Please enter a valid number for quantity')
+      if (quantityValue < 0) throw new Error('Quantity cannot be negative')
       if (!unit) throw new Error('Please enter a unit')
       if (!actualDate) throw new Error('Please enter actual date')
       
