@@ -52,9 +52,10 @@ interface IntelligentBOQFormProps {
   onSubmit: (data: any) => Promise<void>
   onCancel: () => void
   projects?: Project[]
+  allKPIs?: any[] // ✅ Add KPIs to use same logic as table
 }
 
-export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = [] }: IntelligentBOQFormProps) {
+export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = [], allKPIs = [] }: IntelligentBOQFormProps) {
   const guard = usePermissionGuard()
   const { user: authUser, appUser } = useAuth()
   const [loading, setLoading] = useState(false)
@@ -97,8 +98,213 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   const [showUnitDropdown, setShowUnitDropdown] = useState(false)
   const [plannedUnits, setPlannedUnits] = useState(activity?.planned_units?.toString() || '')
   const [plannedValue, setPlannedValue] = useState(activity?.planned_value?.toString() || '')
-  const [startDate, setStartDate] = useState(activity?.planned_activity_start_date || '')
-  const [endDate, setEndDate] = useState(activity?.deadline || '')
+  const [startDate, setStartDate] = useState(() => {
+    // Extract start date from multiple sources for initial state
+    if (!activity) return ''
+    const raw = (activity as any).raw || {}
+    
+    // Helper to get field from raw or activity
+    const getField = (fieldName: string) => {
+      return raw[fieldName] || raw[fieldName.replace(/\s+/g, ' ')] || activity?.[fieldName] || ''
+    }
+    
+    // ✅ PRIORITY 1: Extract from "Planned Dates" column (e.g., "04/01/2025 - 04/17/2025")
+    let extractedStartDate = ''
+    const plannedDatesValue = raw['Planned Dates'] || getField('Planned Dates') || ''
+    if (plannedDatesValue && String(plannedDatesValue).trim() !== '' && String(plannedDatesValue).trim() !== 'N/A') {
+      const plannedDatesStr = String(plannedDatesValue).trim()
+      // Try different separators: " - ", " to ", "–", "—", " / "
+      const dateParts = plannedDatesStr.split(/\s*[-–—to/]\s*/i).map(part => part.trim()).filter(part => part !== '')
+      if (dateParts.length >= 1 && dateParts[0]) {
+        extractedStartDate = dateParts[0]
+      }
+    }
+    
+    // ✅ PRIORITY 2: If not found in Planned Dates column, try direct fields
+    if (!extractedStartDate || extractedStartDate.trim() === '' || extractedStartDate === 'N/A') {
+      extractedStartDate = activity.planned_activity_start_date || 
+                           activity.activity_planned_start_date ||
+                           getField('Planned Activity Start Date') ||
+                           getField('Planned Start Date') ||
+                           getField('Activity Planned Start Date') ||
+                           raw['Planned Activity Start Date'] ||
+                           raw['Planned Start Date'] ||
+                           raw['Activity Planned Start Date'] ||
+                           raw['Start Date'] ||
+                           raw['Activity Start Date'] ||
+                           raw['Planned Start'] ||
+                           raw['Start'] ||
+                           ''
+    }
+    
+    if (extractedStartDate && extractedStartDate.trim() !== '' && extractedStartDate !== 'N/A') {
+      // Parse date avoiding timezone issues - extract directly from string
+      const trimmed = extractedStartDate.trim()
+      
+      // ✅ PRIORITY 1: If already in YYYY-MM-DD format (with or without time), extract date part only
+      const yyyyMMddMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})(?:T.*)?$/)
+      if (yyyyMMddMatch) {
+        const [, year, month, day] = yyyyMMddMatch
+        return `${year}-${month}-${day}`
+      }
+      
+      // ✅ PRIORITY 2: Try MM/DD/YYYY format (common in US) - extract directly
+      const mmddyyyyMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/)
+      if (mmddyyyyMatch) {
+        const [, month, day, year] = mmddyyyyMatch
+        return `${year}-${String(parseInt(month, 10)).padStart(2, '0')}-${String(parseInt(day, 10)).padStart(2, '0')}`
+      }
+      
+      // ✅ FALLBACK: Try to extract date from ISO string or use Date object
+      // Extract date part from ISO string to avoid timezone conversion
+      const isoDateMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/)
+      if (isoDateMatch) {
+        const [, year, month, day] = isoDateMatch
+        return `${year}-${month}-${day}`
+      }
+      
+      // Last resort: Parse as Date
+      try {
+        const date = new Date(trimmed)
+        if (!isNaN(date.getTime())) {
+          // Try to extract from original string first
+          const stringDateMatch = trimmed.match(/(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/)
+          if (stringDateMatch) {
+            const [, year, month, day] = stringDateMatch
+            return `${year}-${String(parseInt(month, 10)).padStart(2, '0')}-${String(parseInt(day, 10)).padStart(2, '0')}`
+          }
+          
+          // Use Date object components (may have timezone issues)
+          const year = date.getFullYear()
+          const month = date.getMonth() + 1
+          const day = date.getDate()
+          return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+        }
+      } catch {
+        // Invalid date
+      }
+    }
+    
+    // Priority 2: Calculate from End Date - Duration
+    const extractedEndDate = activity.deadline || 
+                            activity.activity_planned_completion_date ||
+                            getField('Deadline') ||
+                            getField('Planned Completion Date') ||
+                            raw['Deadline'] ||
+                            raw['Planned Completion Date'] ||
+                            raw['End Date'] ||
+                            ''
+    
+    const plannedDuration = activity.calendar_duration || 
+                           parseFloat(String(getField('Calendar Duration') || '0')) ||
+                           parseFloat(String(raw['Calendar Duration'] || '0')) ||
+                           0
+    
+    if (extractedEndDate && extractedEndDate.trim() !== '' && extractedEndDate !== 'N/A' && plannedDuration > 0) {
+      try {
+        const endDate = new Date(extractedEndDate)
+        if (!isNaN(endDate.getTime())) {
+          const startDateObj = new Date(endDate)
+          startDateObj.setDate(startDateObj.getDate() - plannedDuration)
+          const year = startDateObj.getFullYear()
+          const month = String(startDateObj.getMonth() + 1).padStart(2, '0')
+          const day = String(startDateObj.getDate()).padStart(2, '0')
+          return `${year}-${month}-${day}`
+        }
+      } catch {
+        // Invalid calculation
+      }
+    }
+    
+    return ''
+  })
+  
+  const [endDate, setEndDate] = useState(() => {
+    // Extract end date from multiple sources for initial state
+    if (!activity) return ''
+    const raw = (activity as any).raw || {}
+    
+    // Helper to get field from raw or activity
+    const getField = (fieldName: string) => {
+      return raw[fieldName] || raw[fieldName.replace(/\s+/g, ' ')] || activity?.[fieldName] || ''
+    }
+    
+    // ✅ PRIORITY 1: Extract from "Planned Dates" column (e.g., "04/01/2025 - 04/17/2025")
+    let extractedEndDate = ''
+    const plannedDatesValue = raw['Planned Dates'] || getField('Planned Dates') || ''
+    if (plannedDatesValue && String(plannedDatesValue).trim() !== '' && String(plannedDatesValue).trim() !== 'N/A') {
+      const plannedDatesStr = String(plannedDatesValue).trim()
+      // Try different separators: " - ", " to ", "–", "—", " / "
+      const dateParts = plannedDatesStr.split(/\s*[-–—to/]\s*/i).map(part => part.trim()).filter(part => part !== '')
+      if (dateParts.length >= 2 && dateParts[1]) {
+        extractedEndDate = dateParts[1]
+      }
+    }
+    
+    // ✅ PRIORITY 2: If not found in Planned Dates column, try direct fields
+    if (!extractedEndDate || extractedEndDate.trim() === '' || extractedEndDate === 'N/A') {
+      extractedEndDate = activity.deadline || 
+                        activity.activity_planned_completion_date ||
+                        getField('Deadline') ||
+                        getField('Planned Completion Date') ||
+                        raw['Deadline'] ||
+                        raw['Planned Completion Date'] ||
+                        raw['Activity Planned Completion Date'] ||
+                        raw['End Date'] ||
+                        raw['Activity End Date'] ||
+                        raw['Planned End'] ||
+                        raw['End'] ||
+                        ''
+    }
+    
+    if (extractedEndDate && extractedEndDate.trim() !== '' && extractedEndDate !== 'N/A') {
+      // Parse date avoiding timezone issues - extract directly from string
+      const trimmed = extractedEndDate.trim()
+      
+      // ✅ PRIORITY 1: If already in YYYY-MM-DD format (with or without time), extract date part only
+      const yyyyMMddMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})(?:T.*)?$/)
+      if (yyyyMMddMatch) {
+        const [, year, month, day] = yyyyMMddMatch
+        return `${year}-${month}-${day}`
+      }
+      
+      // ✅ PRIORITY 2: Try MM/DD/YYYY format (common in US) - extract directly
+      const mmddyyyyMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/)
+      if (mmddyyyyMatch) {
+        const [, month, day, year] = mmddyyyyMatch
+        return `${year}-${String(parseInt(month, 10)).padStart(2, '0')}-${String(parseInt(day, 10)).padStart(2, '0')}`
+      }
+      
+      // ✅ FALLBACK: Try to extract date from ISO string or use Date object
+      const isoDateMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/)
+      if (isoDateMatch) {
+        const [, year, month, day] = isoDateMatch
+        return `${year}-${month}-${day}`
+      }
+      
+      // Last resort: Parse as Date
+      try {
+        const date = new Date(trimmed)
+        if (!isNaN(date.getTime())) {
+          // Try to extract from original string first
+          const stringDateMatch = trimmed.match(/(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/)
+          if (stringDateMatch) {
+            const [, year, month, day] = stringDateMatch
+            return `${year}-${String(parseInt(month, 10)).padStart(2, '0')}-${String(parseInt(day, 10)).padStart(2, '0')}`
+          }
+          
+          // Use Date object components (may have timezone issues)
+          const year = date.getFullYear()
+          const month = date.getMonth() + 1
+          const day = date.getDate()
+          return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+        }
+      } catch {
+        // Invalid date
+      }
+    }
+    return ''
+  })
   const [duration, setDuration] = useState(0)
   const [includeWeekends, setIncludeWeekends] = useState(false)
   const [customHolidays, setCustomHolidays] = useState<string[]>([])
@@ -445,6 +651,305 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
     }
   }, [projectCode, allProjects])
   
+  // Helper function to get activity field from raw object or direct field
+  const getActivityField = (activity: any, fieldName: string): any => {
+    const raw = activity?.raw || activity || {}
+    return raw[fieldName] || raw[fieldName.replace(/\s+/g, ' ')] || activity?.[fieldName] || ''
+  }
+
+  // Helper function to parse date to YYYY-MM-DD format (without timezone conversion)
+  const parseDateToYYYYMMDD = (dateStr: string): string | null => {
+    if (!dateStr || dateStr.trim() === '' || dateStr === 'N/A') return null
+    
+    try {
+      const trimmed = dateStr.trim()
+      
+      // ✅ PRIORITY 1: If already in YYYY-MM-DD format (with or without time), extract date part only
+      // This handles: "2025-04-07", "2025-04-07T00:00:00Z", "2025-04-07T00:00:00.000Z", etc.
+      const yyyyMMddMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})(?:T.*)?$/)
+      if (yyyyMMddMatch) {
+        const [, year, month, day] = yyyyMMddMatch
+        // Validate the date
+        const monthNum = parseInt(month, 10)
+        const dayNum = parseInt(day, 10)
+        if (monthNum >= 1 && monthNum <= 12 && dayNum >= 1 && dayNum <= 31) {
+          // Return the date as-is without timezone conversion
+          return `${year}-${month}-${day}`
+        }
+      }
+      
+      // ✅ PRIORITY 2: Try MM/DD/YYYY format (common in US) - extract directly without Date object
+      const mmddyyyyMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/)
+      if (mmddyyyyMatch) {
+        const [, month, day, year] = mmddyyyyMatch
+        const monthNum = parseInt(month, 10)
+        const dayNum = parseInt(day, 10)
+        if (monthNum >= 1 && monthNum <= 12 && dayNum >= 1 && dayNum <= 31) {
+          return `${year}-${String(monthNum).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`
+        }
+      }
+      
+      // ✅ PRIORITY 3: Try DD/MM/YYYY format - extract directly without Date object
+      const ddmmyyyyMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/)
+      if (ddmmyyyyMatch) {
+        const [, day, month, year] = ddmmyyyyMatch
+        const monthNum = parseInt(month, 10)
+        const dayNum = parseInt(day, 10)
+        // Check if it's likely DD/MM (day > 12) or MM/DD (month > 12)
+        if (dayNum > 12 && monthNum <= 12) {
+          // Likely DD/MM/YYYY
+          return `${year}-${String(monthNum).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`
+        } else if (monthNum > 12 && dayNum <= 12) {
+          // Likely MM/DD/YYYY (already handled above)
+          return null
+        }
+      }
+      
+      // ✅ FALLBACK: Only use Date object if we can't extract directly
+      // When using Date, extract the date part from ISO string to avoid timezone issues
+      if (trimmed.includes('T') || trimmed.match(/^\d{4}-\d{2}-\d{2}/)) {
+        // It's an ISO date string - extract the date part before 'T' or use regex
+        const isoDateMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/)
+        if (isoDateMatch) {
+          const [, year, month, day] = isoDateMatch
+          return `${year}-${month}-${day}`
+        }
+      }
+      
+      // Last resort: Try parsing as Date but extract date components from string if possible
+      const date = new Date(trimmed)
+      if (!isNaN(date.getTime())) {
+        // Try to extract from original string first to avoid timezone conversion
+        const stringDateMatch = trimmed.match(/(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/)
+        if (stringDateMatch) {
+          const [, year, month, day] = stringDateMatch
+          return `${year}-${String(parseInt(month, 10)).padStart(2, '0')}-${String(parseInt(day, 10)).padStart(2, '0')}`
+        }
+        
+        // If we can't extract from string, use Date object (but this may have timezone issues)
+        const year = date.getFullYear()
+        const month = date.getMonth() + 1
+        const day = date.getDate()
+        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+      }
+      
+      return null
+    } catch {
+      return null
+    }
+  }
+
+  // ✅ Use the EXACT SAME function as the table to get planned start date
+  const getPlannedStartDate = (activity: any): string => {
+    const raw = (activity as any).raw || {}
+    
+    // Helper functions (same as table)
+    const normalizeZone = (zone: string, projectCode: string): string => {
+      if (!zone || !projectCode) return (zone || '').toLowerCase().trim()
+      let normalized = zone.trim()
+      const codeUpper = projectCode.toUpperCase()
+      normalized = normalized.replace(new RegExp(`^${codeUpper}\\s*-\\s*`, 'i'), '').trim()
+      normalized = normalized.replace(new RegExp(`^${codeUpper}\\s+`, 'i'), '').trim()
+      normalized = normalized.replace(new RegExp(`^${codeUpper}-`, 'i'), '').trim()
+      return normalized.toLowerCase()
+    }
+    
+    const getActivityZone = (activity: any): string => {
+      const rawActivity = (activity as any).raw || {}
+      let zoneValue = activity.zone_number || 
+                     activity.zone_ref || 
+                     rawActivity['Zone Number'] ||
+                     rawActivity['Zone Ref'] ||
+                     rawActivity['Zone #'] ||
+                     ''
+      
+      if (zoneValue && activity.project_code) {
+        const projectCodeUpper = activity.project_code.toUpperCase().trim()
+        let zoneStr = zoneValue.toString()
+        zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+        zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
+        zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
+        zoneStr = zoneStr.replace(/^\s*-\s*/, '').trim()
+        zoneStr = zoneStr.replace(/\s+/g, ' ').trim()
+        zoneValue = zoneStr || ''
+      }
+      
+      return (zoneValue || '').toString().toLowerCase().trim()
+    }
+    
+    const getKPIZone = (kpi: any): string => {
+      const rawKPI = (kpi as any).raw || {}
+      const zoneRaw = (
+        kpi.zone || 
+        kpi.section || 
+        rawKPI['Zone'] || 
+        rawKPI['Zone Number'] || 
+        ''
+      ).toString().trim()
+      const projectCode = (kpi.project_code || kpi['Project Code'] || rawKPI['Project Code'] || '').toString().trim()
+      return normalizeZone(zoneRaw, projectCode)
+    }
+    
+    const extractZoneNumber = (zone: string): string => {
+      if (!zone || zone.trim() === '') return ''
+      const normalizedZone = zone.toLowerCase().trim()
+      const zonePatternMatch = normalizedZone.match(/zone\s*[-_]?\s*(\d+)/i)
+      if (zonePatternMatch && zonePatternMatch[1]) {
+        return zonePatternMatch[1]
+      }
+      const endNumberMatch = normalizedZone.match(/(\d+)\s*$/)
+      if (endNumberMatch && endNumberMatch[1]) {
+        return endNumberMatch[1]
+      }
+      const numberMatch = normalizedZone.match(/\d+/)
+      if (numberMatch) return numberMatch[0]
+      return normalizedZone
+    }
+    
+    const parseDateToYYYYMMDDTable = (dateStr: string): string | null => {
+      if (!dateStr || dateStr.trim() === '' || dateStr === 'N/A') return null
+      try {
+        const date = new Date(dateStr)
+        if (isNaN(date.getTime())) return null
+        const year = date.getFullYear()
+        const month = String(date.getMonth() + 1).padStart(2, '0')
+        const day = String(date.getDate()).padStart(2, '0')
+        return `${year}-${month}-${day}`
+      } catch {
+        return null
+      }
+    }
+    
+    // PRIORITY 1: Get from first Planned KPI Date column (same as table)
+    if (allKPIs && allKPIs.length > 0) {
+      const activityName = (activity.activity_name || '').toLowerCase().trim()
+      const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
+      const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+      const activityZone = getActivityZone(activity)
+      const activityZoneNum = extractZoneNumber(activityZone)
+      
+      const matchingKPIs = allKPIs.filter((kpi: any) => {
+        const rawKPI = (kpi as any).raw || {}
+        const kpiInputType = (kpi.input_type || rawKPI['Input Type'] || '').toString().toLowerCase().trim()
+        if (kpiInputType !== 'planned') return false
+        
+        const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
+        if (!kpiActivityName || !activityName) return false
+        if (kpiActivityName !== activityName && !kpiActivityName.includes(activityName) && !activityName.includes(kpiActivityName)) {
+          return false
+        }
+        
+        const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+        const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+        
+        const projectMatch = (
+          (kpiProjectCode && activityProjectCode && kpiProjectCode === activityProjectCode) ||
+          (kpiProjectFullCode && activityProjectFullCode && kpiProjectFullCode === activityProjectFullCode) ||
+          (kpiProjectCode && activityProjectFullCode && kpiProjectCode === activityProjectFullCode) ||
+          (kpiProjectFullCode && activityProjectCode && kpiProjectFullCode === activityProjectCode)
+        )
+        if (!projectMatch) return false
+        
+        if (activityZone && activityZone.trim() !== '') {
+          const kpiZone = getKPIZone(kpi)
+          if (!kpiZone || kpiZone.trim() === '') return false
+          const kpiZoneNum = extractZoneNumber(kpiZone)
+          if (activityZoneNum && kpiZoneNum && activityZoneNum !== kpiZoneNum) {
+            return false
+          }
+        }
+        
+        return true
+      })
+      
+      if (matchingKPIs.length > 0) {
+        const validDates: Array<{ dateStr: string; dateObj: Date; kpi: any }> = []
+        
+        matchingKPIs.forEach((kpi: any) => {
+          const rawKPI = (kpi as any).raw || {}
+          let kpiDateStr = ''
+          if (kpi.target_date && kpi.target_date.toString().trim() !== '' && kpi.target_date !== 'N/A') {
+            kpiDateStr = kpi.target_date.toString().trim()
+          } else if (kpi.activity_date && kpi.activity_date.toString().trim() !== '' && kpi.activity_date !== 'N/A') {
+            kpiDateStr = kpi.activity_date.toString().trim()
+          } else if (rawKPI['Date'] && rawKPI['Date'].toString().trim() !== '' && rawKPI['Date'] !== 'N/A') {
+            kpiDateStr = rawKPI['Date'].toString().trim()
+          } else if (rawKPI['Target Date'] && rawKPI['Target Date'].toString().trim() !== '' && rawKPI['Target Date'] !== 'N/A') {
+            kpiDateStr = rawKPI['Target Date'].toString().trim()
+          } else if (rawKPI['Activity Date'] && rawKPI['Activity Date'].toString().trim() !== '' && rawKPI['Activity Date'] !== 'N/A') {
+            kpiDateStr = rawKPI['Activity Date'].toString().trim()
+          }
+          
+          if (kpiDateStr) {
+            const parsedDate = parseDateToYYYYMMDDTable(kpiDateStr)
+            if (parsedDate) {
+              try {
+                const [year, month, day] = parsedDate.split('-').map(Number)
+                const dateObj = new Date(year, month - 1, day)
+                if (!isNaN(dateObj.getTime())) {
+                  validDates.push({ dateStr: parsedDate, dateObj, kpi })
+                }
+              } catch {
+                // Skip invalid date
+              }
+            }
+          }
+        })
+        
+        if (validDates.length > 0) {
+          validDates.sort((a, b) => a.dateObj.getTime() - b.dateObj.getTime())
+          return validDates[0].dateStr
+        }
+      }
+    }
+    
+    // Priority 2: Direct BOQ Activity fields (same as table)
+    const directStart = activity.planned_activity_start_date || 
+                       activity.activity_planned_start_date ||
+                       getActivityField(activity, 'Planned Activity Start Date') ||
+                       getActivityField(activity, 'Planned Start Date') ||
+                       getActivityField(activity, 'Activity Planned Start Date') ||
+                       raw['Planned Activity Start Date'] ||
+                       raw['Planned Start Date'] ||
+                       raw['Activity Planned Start Date'] ||
+                       ''
+    
+    if (directStart && directStart.trim() !== '' && directStart !== 'N/A') {
+      return directStart
+    }
+    
+    // Priority 3: Calculate from Completion Date - Duration (same as table)
+    const plannedEnd = activity.deadline || 
+                      activity.activity_planned_completion_date ||
+                      getActivityField(activity, 'Deadline') ||
+                      getActivityField(activity, 'Planned Completion Date') ||
+                      getActivityField(activity, 'Activity Planned Completion Date') ||
+                      raw['Deadline'] ||
+                      raw['Planned Completion Date'] ||
+                      raw['Activity Planned Completion Date'] ||
+                      ''
+    
+    const plannedDuration = activity.calendar_duration || 
+                           parseFloat(String(getActivityField(activity, 'Calendar Duration') || '0')) ||
+                           parseFloat(String(raw['Calendar Duration'] || '0')) ||
+                           0
+    
+    if (plannedEnd && plannedEnd.trim() !== '' && plannedEnd !== 'N/A' && plannedDuration > 0) {
+      try {
+        const endDate = new Date(plannedEnd)
+        if (!isNaN(endDate.getTime())) {
+          const startDate = new Date(endDate)
+          startDate.setDate(startDate.getDate() - plannedDuration)
+          return startDate.toISOString().split('T')[0]
+        }
+      } catch (e) {
+        // Invalid date, continue
+      }
+    }
+    
+    return ''
+  }
+
   // ✅ Load activity data when editing (priority: activity data > project defaults)
   useEffect(() => {
     if (activity && activity.id) {
@@ -455,7 +960,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         zone_ref: activity.zone_ref
       })
       
-      // ✅ Load Division from activity (only if not already set from activity)
+      // ✅ Load Division from activity
       if (activity.activity_division) {
         setActivityDivision(activity.activity_division)
         console.log('✅ Division loaded from activity:', activity.activity_division)
@@ -472,8 +977,61 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         setZoneRef(activity.zone_ref)
         console.log('✅ Zone Ref loaded from activity:', activity.zone_ref)
       }
+
+      // ✅ Use EXACT SAME function as table to get planned start date
+      const extractedStartDate = getPlannedStartDate(activity)
+      
+      // ✅ For End Date: Use SAME fields as table
+      const raw = (activity as any).raw || {}
+      let extractedEndDate = activity.deadline || 
+                            activity.activity_planned_completion_date ||
+                            getActivityField(activity, 'Deadline') ||
+                            getActivityField(activity, 'Planned Completion Date') ||
+                            getActivityField(activity, 'Activity Planned Completion Date') ||
+                            raw['Deadline'] ||
+                            raw['Planned Completion Date'] ||
+                            raw['Activity Planned Completion Date'] ||
+                            ''
+      
+      console.log('📅 Extracted dates (using EXACT same logic as table):', {
+        start: extractedStartDate,
+        end: extractedEndDate
+      })
+      
+      // Parse and format start date
+      if (extractedStartDate && extractedStartDate.trim() !== '' && extractedStartDate !== 'N/A') {
+        const parsedStartDate = parseDateToYYYYMMDD(extractedStartDate)
+        if (parsedStartDate) {
+          setStartDate(parsedStartDate)
+          console.log('✅ Start Date loaded (same as table):', parsedStartDate, 'Source:', extractedStartDate)
+        } else {
+          console.warn('⚠️ Failed to parse start date:', extractedStartDate)
+        }
+      }
+      
+      // Parse and format end date
+      if (extractedEndDate && extractedEndDate.trim() !== '' && extractedEndDate !== 'N/A') {
+        const parsedEndDate = parseDateToYYYYMMDD(extractedEndDate)
+        if (parsedEndDate) {
+          setEndDate(parsedEndDate)
+          console.log('✅ End Date loaded (same as table):', parsedEndDate, 'Source:', extractedEndDate)
+        } else {
+          console.warn('⚠️ Failed to parse end date:', extractedEndDate)
+        }
+      }
     }
-  }, [activity?.id, activity?.activity_division, activity?.zone_number, activity?.zone_ref])
+  }, [
+    activity?.id, 
+    activity?.activity_division, 
+    activity?.zone_number, 
+    activity?.zone_ref,
+    activity?.planned_activity_start_date,
+    activity?.activity_planned_start_date,
+    activity?.deadline,
+    activity?.activity_planned_completion_date,
+    (activity as any)?.raw,
+    allKPIs // ✅ Add allKPIs to dependencies
+  ])
 
   // ✅ Auto-update Division when project changes (only if NOT editing existing activity)
   useEffect(() => {

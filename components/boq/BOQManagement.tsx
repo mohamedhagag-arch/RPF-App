@@ -2157,19 +2157,6 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       return
     }
     
-    if (!confirm(`Are you sure you want to delete this activity?\n\nThis will also delete all associated KPIs (Planned).`)) return
-
-    try {
-      console.log('========================================')
-      console.log('🗑️ DELETE BOQ ACTIVITY STARTED')
-      console.log('  - Activity ID:', id)
-      console.log('  - Activity Name:', activityToDelete.activity_name)
-      console.log('  - Project Full Code:', activityToDelete.project_full_code)
-      console.log('========================================')
-      
-      // Step 1: Delete associated KPIs first
-      console.log('🗑️ Step 1: Deleting associated KPIs...')
-      
       // ✅ Build project_full_code for accurate matching
       const projectCode = (activityToDelete.project_code || '').trim()
       const projectSubCode = (activityToDelete.project_sub_code || '').trim()
@@ -2188,14 +2175,101 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         }
       }
       
-      console.log(`🔍 Searching for KPIs to delete:`, {
+    // ✅ Step 0: Check if activity has Actual KPIs - if yes, prevent deletion
+    console.log('🔍 Checking for Actual KPIs before deletion...')
+    let hasActualKPIs = false
+    let actualKPIsCount = 0
+    
+    // Strategy 1: Check by Project Full Code + Activity Name
+    let { data: actualKPIsByFullCode } = await supabase
+      .from(TABLES.KPI)
+      .select('id')
+      .eq('Project Full Code', projectFullCode)
+      .eq('Activity Name', activityToDelete.activity_name)
+      .eq('Input Type', 'Actual')
+    
+    if (actualKPIsByFullCode && Array.isArray(actualKPIsByFullCode) && actualKPIsByFullCode.length > 0) {
+      hasActualKPIs = true
+      actualKPIsCount = actualKPIsByFullCode.length
+      console.log(`⚠️ Found ${actualKPIsCount} Actual KPIs by Project Full Code`)
+    } else {
+      // Strategy 2: Check by Project Code + Project Sub Code + Activity Name
+      if (projectSubCode) {
+        let { data: actualKPIsByCodeAndSub } = await supabase
+          .from(TABLES.KPI)
+          .select('id')
+          .eq('Project Code', projectCode)
+          .eq('Project Sub Code', projectSubCode)
+          .eq('Activity Name', activityToDelete.activity_name)
+          .eq('Input Type', 'Actual')
+        
+        if (actualKPIsByCodeAndSub && Array.isArray(actualKPIsByCodeAndSub) && actualKPIsByCodeAndSub.length > 0) {
+          hasActualKPIs = true
+          actualKPIsCount = actualKPIsByCodeAndSub.length
+          console.log(`⚠️ Found ${actualKPIsCount} Actual KPIs by Project Code + Sub Code`)
+        } else {
+          // Strategy 3: Check by Project Code only (fallback)
+          let { data: actualKPIsByCode } = await supabase
+            .from(TABLES.KPI)
+            .select('id')
+            .eq('Project Code', projectCode)
+            .eq('Activity Name', activityToDelete.activity_name)
+            .eq('Input Type', 'Actual')
+          
+          if (actualKPIsByCode && Array.isArray(actualKPIsByCode) && actualKPIsByCode.length > 0) {
+            hasActualKPIs = true
+            actualKPIsCount = actualKPIsByCode.length
+            console.log(`⚠️ Found ${actualKPIsCount} Actual KPIs by Project Code only`)
+          }
+        }
+      } else {
+        // Strategy 3: Check by Project Code only (no sub_code)
+        let { data: actualKPIsByCode } = await supabase
+          .from(TABLES.KPI)
+          .select('id')
+          .eq('Project Code', projectCode)
+          .eq('Activity Name', activityToDelete.activity_name)
+          .eq('Input Type', 'Actual')
+        
+        if (actualKPIsByCode && Array.isArray(actualKPIsByCode) && actualKPIsByCode.length > 0) {
+          hasActualKPIs = true
+          actualKPIsCount = actualKPIsByCode.length
+          console.log(`⚠️ Found ${actualKPIsCount} Actual KPIs by Project Code only`)
+        }
+      }
+    }
+    
+    // ✅ If activity has Actual KPIs, prevent deletion
+    if (hasActualKPIs) {
+      const errorMessage = `Cannot delete this activity!\n\nThis activity has ${actualKPIsCount} Actual KPI(s).\n\nPlease delete all Actual KPIs first before deleting the activity.`
+      setError(errorMessage)
+      alert(errorMessage)
+      console.log('❌ DELETE BLOCKED: Activity has Actual KPIs')
+      return
+    }
+    
+    if (!confirm(`Are you sure you want to delete this activity?\n\nThis will also delete all associated KPIs (Planned).`)) return
+
+    try {
+      console.log('========================================')
+      console.log('🗑️ DELETE BOQ ACTIVITY STARTED')
+      console.log('  - Activity ID:', id)
+      console.log('  - Activity Name:', activityToDelete.activity_name)
+      console.log('  - Project Full Code:', projectFullCode)
+      console.log('  - No Actual KPIs found - deletion allowed')
+      console.log('========================================')
+      
+      // Step 1: Delete associated Planned KPIs
+      console.log('🗑️ Step 1: Deleting associated Planned KPIs...')
+      
+      console.log(`🔍 Searching for Planned KPIs to delete:`, {
         projectCode,
         projectSubCode,
         projectFullCode,
         activityName: activityToDelete.activity_name
       })
       
-      // ✅ Try multiple strategies to find and delete KPIs
+      // ✅ Try multiple strategies to find and delete Planned KPIs
       let kpisToDelete: any[] = []
       
       // Strategy 1: Match by Project Full Code + Activity Name
@@ -2306,10 +2380,117 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   const handleBulkDeleteActivity = async (ids: string[]) => {
     if (ids.length === 0) return
     
+    // ✅ Step 0: Check all activities for Actual KPIs before starting deletion
+    console.log('🔍 Checking all activities for Actual KPIs before bulk deletion...')
+    const activitiesWithActualKPIs: Array<{ id: string; name: string; count: number }> = []
+    
+    for (const id of ids) {
+      const activityToDelete = activities.find(a => a.id === id)
+      if (!activityToDelete) continue
+      
+      // ✅ Build project_full_code for accurate matching
+      const projectCode = (activityToDelete.project_code || '').trim()
+      const projectSubCode = (activityToDelete.project_sub_code || '').trim()
+      let projectFullCode = activityToDelete.project_full_code || projectCode
+      if (!projectFullCode || projectFullCode === projectCode) {
+        if (projectSubCode) {
+          if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+            projectFullCode = projectSubCode
+          } else {
+            if (projectSubCode.startsWith('-')) {
+              projectFullCode = `${projectCode}${projectSubCode}`
+            } else {
+              projectFullCode = `${projectCode}-${projectSubCode}`
+            }
+          }
+        }
+      }
+      
+      // Check for Actual KPIs
+      let hasActualKPIs = false
+      let actualKPIsCount = 0
+      
+      // Strategy 1: Check by Project Full Code + Activity Name
+      let { data: actualKPIsByFullCode } = await supabase
+        .from(TABLES.KPI)
+        .select('id')
+        .eq('Project Full Code', projectFullCode)
+        .eq('Activity Name', activityToDelete.activity_name)
+        .eq('Input Type', 'Actual')
+      
+      if (actualKPIsByFullCode && Array.isArray(actualKPIsByFullCode) && actualKPIsByFullCode.length > 0) {
+        hasActualKPIs = true
+        actualKPIsCount = actualKPIsByFullCode.length
+      } else {
+        // Strategy 2: Check by Project Code + Project Sub Code + Activity Name
+        if (projectSubCode) {
+          let { data: actualKPIsByCodeAndSub } = await supabase
+            .from(TABLES.KPI)
+            .select('id')
+            .eq('Project Code', projectCode)
+            .eq('Project Sub Code', projectSubCode)
+            .eq('Activity Name', activityToDelete.activity_name)
+            .eq('Input Type', 'Actual')
+          
+          if (actualKPIsByCodeAndSub && Array.isArray(actualKPIsByCodeAndSub) && actualKPIsByCodeAndSub.length > 0) {
+            hasActualKPIs = true
+            actualKPIsCount = actualKPIsByCodeAndSub.length
+          } else {
+            // Strategy 3: Check by Project Code only (fallback)
+            let { data: actualKPIsByCode } = await supabase
+              .from(TABLES.KPI)
+              .select('id')
+              .eq('Project Code', projectCode)
+              .eq('Activity Name', activityToDelete.activity_name)
+              .eq('Input Type', 'Actual')
+            
+            if (actualKPIsByCode && Array.isArray(actualKPIsByCode) && actualKPIsByCode.length > 0) {
+              hasActualKPIs = true
+              actualKPIsCount = actualKPIsByCode.length
+            }
+          }
+        } else {
+          // Strategy 3: Check by Project Code only (no sub_code)
+          let { data: actualKPIsByCode } = await supabase
+            .from(TABLES.KPI)
+            .select('id')
+            .eq('Project Code', projectCode)
+            .eq('Activity Name', activityToDelete.activity_name)
+            .eq('Input Type', 'Actual')
+          
+          if (actualKPIsByCode && Array.isArray(actualKPIsByCode) && actualKPIsByCode.length > 0) {
+            hasActualKPIs = true
+            actualKPIsCount = actualKPIsByCode.length
+          }
+        }
+      }
+      
+      if (hasActualKPIs) {
+        activitiesWithActualKPIs.push({
+          id: activityToDelete.id,
+          name: activityToDelete.activity_name,
+          count: actualKPIsCount
+        })
+      }
+    }
+    
+    // ✅ If any activity has Actual KPIs, prevent bulk deletion
+    if (activitiesWithActualKPIs.length > 0) {
+      const activitiesList = activitiesWithActualKPIs.map(a => `- ${a.name} (${a.count} Actual KPI(s))`).join('\n')
+      const errorMessage = `Cannot delete ${activitiesWithActualKPIs.length} activity/activities!\n\nThese activities have Actual KPIs:\n${activitiesList}\n\nPlease delete all Actual KPIs first before deleting the activities.`
+      setError(errorMessage)
+      alert(errorMessage)
+      console.log('❌ BULK DELETE BLOCKED: Some activities have Actual KPIs')
+      return
+    }
+    
+    if (!confirm(`Are you sure you want to delete ${ids.length} activity/activities?\n\nThis will also delete all associated KPIs (Planned).`)) return
+    
     try {
       console.log('========================================')
       console.log('🗑️ BULK DELETE BOQ ACTIVITIES STARTED')
       console.log(`Deleting ${ids.length} activities`)
+      console.log('  - No Actual KPIs found - deletion allowed')
       console.log('========================================')
       
       let totalKPIsDeleted = 0
@@ -2337,7 +2518,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
           }
         }
         
-        // ✅ Try multiple strategies to find and delete KPIs
+        // ✅ Try multiple strategies to find and delete Planned KPIs
         let kpisToDelete: any[] = []
         
         // Strategy 1: Match by Project Full Code + Activity Name
@@ -2862,7 +3043,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         const actualValue = kpi.actual_value || parseFloat(String(rawKPI['Actual Value'] || '0').replace(/,/g, '')) || 0
         if (actualValue > 0) return actualValue
       }
-
+      
       // ✅ PRIORITY 2: Fallback to Value field if Planned/Actual Value is not available
       let kpiValue = 0
       
@@ -2945,7 +3126,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         
         const value = getKPIValue(kpi, matchingActivity)
         return sum + value
-      }, 0)
+    }, 0)
     
     // Actual Value: Sum of values from Actual KPIs until yesterday (matching activities)
     // ✅ EXACT SAME LOGIC AS QUANTITIES COLUMN - Filter until yesterday and use strict matching
@@ -2984,7 +3165,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         
         const value = getKPIValue(kpi, matchingActivity)
         return sum + value
-      }, 0)
+    }, 0)
     
     // Actual Value / Total Value Rate: (Actual Value / Total Value) * 100
     const actualToTotalValueRate = totalValue > 0 
@@ -3528,6 +3709,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         <IntelligentBOQForm
           activity={editingActivity}
           projects={projects}
+          allKPIs={allKPIs}
           onSubmit={async (data: any) => {
             console.log('📝 BOQ Form onSubmit called with:', data)
             await handleUpdateActivity(editingActivity.id, data)
