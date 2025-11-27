@@ -4804,6 +4804,8 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
   const [hideDivisionsColumn, setHideDivisionsColumn] = useState<boolean>(false)
   const [hideTotalContractColumn, setHideTotalContractColumn] = useState<boolean>(false)
   const [hideVirtualMaterialColumn, setHideVirtualMaterialColumn] = useState<boolean>(false)
+  const [showVirtualMaterialValues, setShowVirtualMaterialValues] = useState<boolean>(false)
+  const [useVirtualValueInChart, setUseVirtualValueInChart] = useState<boolean>(false)
   const [chartType, setChartType] = useState<'line' | 'bar' | 'area' | 'composed'>('line')
   const [showChartExportMenu, setShowChartExportMenu] = useState<boolean>(false)
   // ✅ Outer Range: للفترة قبل الفترة المحددة (مثال: من 1/1 إلى بداية الفترة المحددة)
@@ -5486,6 +5488,229 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
     })
   }, [kpis, weeks, activities])
 
+  // ✅ Calculate Virtual Material Value from KPIs for activities with use_virtual_material
+  // For activities with use_virtual_material = true: Total Virtual Material Value = Base Value + Virtual Material Amount
+  // For activities without use_virtual_material: Use normal value
+  const calculatePeriodVirtualMaterialValue = useCallback((project: Project, analytics: any): number[] => {
+    const projectKPIs = projectKPIsMap.get(project.id)
+    const allProjectKPIs = projectKPIs?.actual || []
+    const projectActivities = analytics.activities || []
+    
+    // Get Virtual Material Percentage from project
+    let virtualMaterialPercentage = 0
+    const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
+    
+    if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
+      let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
+      const parsedValue = parseFloat(cleanedValue)
+      if (!isNaN(parsedValue)) {
+        if (parsedValue > 0 && parsedValue <= 1) {
+          virtualMaterialPercentage = parsedValue * 100
+        } else {
+          virtualMaterialPercentage = parsedValue
+        }
+      }
+    }
+    
+    return periods.map((period) => {
+      const periodStart = period.start
+      const periodEnd = period.end
+      const effectivePeriodEnd = periodEnd > today ? today : periodEnd
+      
+      // Get KPI Actual for this period (same logic as calculatePeriodEarnedValue)
+      const actualKPIsInPeriod = allProjectKPIs.filter((kpi: any) => {
+        const inputType = String(
+          kpi.input_type || 
+          kpi['Input Type'] || 
+          (kpi as any).raw?.['Input Type'] || 
+          (kpi as any).raw?.['input_type'] ||
+          ''
+        ).trim().toLowerCase()
+        
+        if (inputType !== 'actual') return false
+        
+        const rawKPIDate = (kpi as any).raw || {}
+        const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
+        const actualDateValue = (kpi as any).actual_date || rawKPIDate['Actual Date'] || ''
+        const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
+        
+        let kpiDateStr = ''
+        if (kpi.input_type === 'Actual' && actualDateValue) {
+          kpiDateStr = actualDateValue
+        } else if (dayValue) {
+          kpiDateStr = activityDateValue || dayValue
+        } else {
+          kpiDateStr = activityDateValue || actualDateValue
+        }
+        
+        if (!kpiDateStr) return false
+        
+        try {
+          const kpiDate = new Date(kpiDateStr)
+          if (isNaN(kpiDate.getTime())) return false
+          
+          kpiDate.setHours(0, 0, 0, 0)
+          const normalizedPeriodStart = new Date(periodStart)
+          normalizedPeriodStart.setHours(0, 0, 0, 0)
+          const normalizedPeriodEnd = new Date(effectivePeriodEnd)
+          normalizedPeriodEnd.setHours(23, 59, 59, 999)
+          
+          return kpiDate >= normalizedPeriodStart && kpiDate <= normalizedPeriodEnd
+        } catch {
+          return false
+        }
+      })
+      
+      return actualKPIsInPeriod.reduce((sum: number, kpi: any) => {
+        try {
+          const rawKpi = (kpi as any).raw || {}
+          const quantityValue = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
+          
+          // Find related activity (same logic as calculatePeriodEarnedValue)
+          const kpiActivityName = (kpi.activity_name || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
+          const kpiProjectFullCode = (kpi.project_full_code || kpi.project_code || '').toLowerCase().trim()
+          const kpiProjectCode = (kpi.project_code || '').toLowerCase().trim()
+          
+          const kpiZoneRaw = (kpi.zone || rawKpi['Zone'] || rawKpi['Zone Number'] || '').toString().trim()
+          let kpiZone = kpiZoneRaw.toLowerCase().trim()
+          if (kpiZone && kpiProjectCode) {
+            const projectCodeUpper = kpiProjectCode.toUpperCase()
+            kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+            kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
+            kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
+          }
+          if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
+          
+          let relatedActivity: BOQActivity | undefined = undefined
+          
+          if (kpiActivityName && kpiProjectFullCode && kpiZone) {
+            relatedActivity = projectActivities.find((a: BOQActivity) => {
+              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
+              const rawActivity = (a as any).raw || {}
+              const activityZone = (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+              return activityName === kpiActivityName && 
+                     activityProjectFullCode === kpiProjectFullCode &&
+                     (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
+            })
+          }
+          
+          if (!relatedActivity && kpiActivityName && kpiProjectFullCode) {
+            relatedActivity = projectActivities.find((a: BOQActivity) => {
+              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
+              return activityName === kpiActivityName && activityProjectFullCode === kpiProjectFullCode
+            })
+          }
+          
+          if (!relatedActivity && kpiActivityName && kpiProjectCode && kpiZone) {
+            relatedActivity = projectActivities.find((a: BOQActivity) => {
+              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+              const activityProjectCode = (a.project_code || '').toLowerCase().trim()
+              const rawActivity = (a as any).raw || {}
+              const activityZone = (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+              return activityName === kpiActivityName && 
+                     activityProjectCode === kpiProjectCode &&
+                     (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
+            })
+          }
+          
+          if (!relatedActivity && kpiActivityName && kpiProjectCode) {
+            relatedActivity = projectActivities.find((a: BOQActivity) => {
+              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+              const activityProjectCode = (a.project_code || '').toLowerCase().trim()
+              return activityName === kpiActivityName && activityProjectCode === kpiProjectCode
+            })
+          }
+          
+          if (!relatedActivity && kpiActivityName) {
+            relatedActivity = projectActivities.find((a: BOQActivity) => {
+              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+              return activityName === kpiActivityName
+            })
+          }
+          
+          // Check if activity uses virtual material
+          const useVirtualMaterial = relatedActivity?.use_virtual_material ?? false
+          
+          // Calculate base value (same logic as calculatePeriodEarnedValue)
+          let baseValue = 0
+          
+          if (relatedActivity) {
+            const rawActivity = (relatedActivity as any).raw || {}
+            
+            const totalValueFromActivity = relatedActivity.total_value || 
+                                         parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                         0
+            
+            const totalUnits = relatedActivity.total_units || 
+                            relatedActivity.planned_units ||
+                            parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                            0
+            
+            let rate = 0
+            if (totalUnits > 0 && totalValueFromActivity > 0) {
+              rate = totalValueFromActivity / totalUnits
+            } else {
+              rate = relatedActivity.rate || 
+                    parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+                    0
+            }
+            
+            if (rate > 0 && quantityValue > 0) {
+              baseValue = quantityValue * rate
+            }
+          }
+          
+          if (baseValue === 0) {
+            let kpiValue = 0
+            
+            if (rawKpi['Value'] !== undefined && rawKpi['Value'] !== null) {
+              const val = rawKpi['Value']
+              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+            }
+            
+            if (kpiValue === 0 && rawKpi.value !== undefined && rawKpi.value !== null) {
+              const val = rawKpi.value
+              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+            }
+            
+            if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
+              const val = kpi.value
+              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+            }
+            
+            if (kpiValue > 0) {
+              baseValue = kpiValue
+            }
+          }
+          
+          if (baseValue === 0) {
+            const actualValue = kpi.actual_value || parseFloat(String(rawKpi['Actual Value'] || '0').replace(/,/g, '')) || 0
+            if (actualValue > 0) {
+              baseValue = actualValue
+            }
+          }
+          
+          // Calculate Virtual Material Value
+          if (useVirtualMaterial && virtualMaterialPercentage > 0 && baseValue > 0) {
+            // Virtual Material Amount = Base Value × (Virtual Material Percentage / 100)
+            const virtualMaterialAmount = baseValue * (virtualMaterialPercentage / 100)
+            // Total Virtual Value = Base Value + Virtual Material Amount
+            const totalVirtualValue = baseValue + virtualMaterialAmount
+            return sum + totalVirtualValue
+          } else {
+            // For activities without virtual material, use base value
+            return sum + baseValue
+          }
+        } catch (error) {
+          console.error('[Monthly Revenue] Error calculating Virtual Material Value:', error, { kpi, project })
+          return sum
+        }
+      }, 0)
+    })
+  }, [kpis, periods, activities, today, projectKPIsMap])
+
   // ✅ PERFORMANCE: Memoize calculatePeriodEarnedValue to avoid recalculations
   const calculatePeriodEarnedValue = useCallback((project: Project, analytics: any): number[] => {
     // ✅ PERFORMANCE: Use pre-filtered KPIs instead of filtering every time
@@ -5685,9 +5910,6 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
             // Calculate value = rate × quantity
             if (rate > 0 && quantityValue > 0) {
               financialValue = quantityValue * rate
-              if (financialValue > 0) {
-                return sum + financialValue
-              }
             }
           }
           
@@ -5716,7 +5938,6 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
             
             if (kpiValue > 0) {
               financialValue = kpiValue
-          return sum + financialValue
             }
           }
           
@@ -5728,13 +5949,17 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
             
             if (actualValue > 0) {
               financialValue = actualValue
-              return sum + financialValue
             }
           }
           
           // ✅ CRITICAL: If no value found and no rate, skip (NEVER use quantity as value!)
-          // This KPI will not contribute to period revenue
-          return sum
+          if (financialValue === 0) {
+            return sum
+          }
+          
+          // ✅ Always return the base financialValue (Actual value remains constant)
+          // Virtual Material will be calculated and displayed separately in the UI
+          return sum + financialValue
         } catch (error) {
           // ✅ PERFORMANCE: Only log critical errors
           if (process.env.NODE_ENV === 'development') console.error('[Monthly Revenue] Error calculating KPI value:', error, { kpi, project })
@@ -5742,7 +5967,220 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
         }
       }, 0)
     })
-  }, [kpis, periods, activities])
+  }, [kpis, periods, activities, today, projectKPIsMap, showVirtualMaterialValues])
+
+  // ✅ Calculate Virtual Material Amount per period from KPIs for activities with use_virtual_material
+  const calculatePeriodVirtualMaterialAmount = useCallback((project: Project, analytics: any): number[] => {
+    const projectKPIs = projectKPIsMap.get(project.id)
+    const allProjectKPIs = projectKPIs?.actual || []
+    const projectActivities = analytics.activities || []
+    
+    // Get Virtual Material Percentage from project
+    let virtualMaterialPercentage = 0
+    const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
+    
+    if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
+      let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
+      const parsedValue = parseFloat(cleanedValue)
+      if (!isNaN(parsedValue)) {
+        if (parsedValue > 0 && parsedValue <= 1) {
+          virtualMaterialPercentage = parsedValue * 100
+        } else {
+          virtualMaterialPercentage = parsedValue
+        }
+      }
+    }
+    
+    if (virtualMaterialPercentage === 0) {
+      return periods.map(() => 0)
+    }
+    
+    return periods.map((period) => {
+      const periodStart = period.start
+      const periodEnd = period.end
+      const effectivePeriodEnd = periodEnd > today ? today : periodEnd
+      
+      // Get KPI Actual for this period (same logic as calculatePeriodEarnedValue)
+      const actualKPIsInPeriod = allProjectKPIs.filter((kpi: any) => {
+        const inputType = String(
+          kpi.input_type || 
+          kpi['Input Type'] || 
+          (kpi as any).raw?.['Input Type'] || 
+          (kpi as any).raw?.['input_type'] ||
+          ''
+        ).trim().toLowerCase()
+        
+        if (inputType !== 'actual') return false
+        
+        const rawKPIDate = (kpi as any).raw || {}
+        const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
+        const actualDateValue = (kpi as any).actual_date || rawKPIDate['Actual Date'] || ''
+        const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
+        
+        let kpiDateStr = ''
+        if (kpi.input_type === 'Actual' && actualDateValue) {
+          kpiDateStr = actualDateValue
+        } else if (dayValue) {
+          kpiDateStr = activityDateValue || dayValue
+        } else {
+          kpiDateStr = activityDateValue || actualDateValue
+        }
+        
+        if (!kpiDateStr) return false
+        
+        try {
+          const kpiDate = new Date(kpiDateStr)
+          if (isNaN(kpiDate.getTime())) return false
+          
+          kpiDate.setHours(0, 0, 0, 0)
+          const normalizedPeriodStart = new Date(periodStart)
+          normalizedPeriodStart.setHours(0, 0, 0, 0)
+          const normalizedPeriodEnd = new Date(effectivePeriodEnd)
+          normalizedPeriodEnd.setHours(23, 59, 59, 999)
+          
+          return kpiDate >= normalizedPeriodStart && kpiDate <= normalizedPeriodEnd
+        } catch {
+          return false
+        }
+      })
+      
+      return actualKPIsInPeriod.reduce((sum: number, kpi: any) => {
+        try {
+          const rawKpi = (kpi as any).raw || {}
+          const quantityValue = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
+          
+          // Find related activity (same logic as calculatePeriodEarnedValue)
+          const kpiActivityName = (kpi.activity_name || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
+          const kpiProjectFullCode = (kpi.project_full_code || kpi.project_code || '').toLowerCase().trim()
+          const kpiProjectCode = (kpi.project_code || '').toLowerCase().trim()
+          
+          const kpiZoneRaw = (kpi.zone || rawKpi['Zone'] || rawKpi['Zone Number'] || '').toString().trim()
+          let kpiZone = kpiZoneRaw.toLowerCase().trim()
+          if (kpiZone && kpiProjectCode) {
+            const projectCodeUpper = kpiProjectCode.toUpperCase()
+            kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+            kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
+            kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
+          }
+          if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
+          
+          let relatedActivity: BOQActivity | undefined = undefined
+          
+          if (kpiActivityName && kpiProjectFullCode && kpiZone) {
+            relatedActivity = projectActivities.find((a: BOQActivity) => {
+              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
+              const rawActivity = (a as any).raw || {}
+              const activityZone = (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+              return activityName === kpiActivityName && 
+                     activityProjectFullCode === kpiProjectFullCode &&
+                     (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
+            })
+          }
+          
+          if (!relatedActivity && kpiActivityName && kpiProjectFullCode) {
+            relatedActivity = projectActivities.find((a: BOQActivity) => {
+              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
+              return activityName === kpiActivityName && activityProjectFullCode === kpiProjectFullCode
+            })
+          }
+          
+          if (!relatedActivity && kpiActivityName && kpiProjectCode && kpiZone) {
+            relatedActivity = projectActivities.find((a: BOQActivity) => {
+              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+              const activityProjectCode = (a.project_code || '').toLowerCase().trim()
+              const rawActivity = (a as any).raw || {}
+              const activityZone = (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+              return activityName === kpiActivityName && 
+                     activityProjectCode === kpiProjectCode &&
+                     (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
+            })
+          }
+          
+          if (!relatedActivity && kpiActivityName && kpiProjectCode) {
+            relatedActivity = projectActivities.find((a: BOQActivity) => {
+              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+              const activityProjectCode = (a.project_code || '').toLowerCase().trim()
+              return activityName === kpiActivityName && activityProjectCode === kpiProjectCode
+            })
+          }
+          
+          if (!relatedActivity && kpiActivityName) {
+            relatedActivity = projectActivities.find((a: BOQActivity) => {
+              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+              return activityName === kpiActivityName
+            })
+          }
+          
+          // Check if activity uses virtual material
+          const useVirtualMaterial = relatedActivity?.use_virtual_material ?? false
+          if (!useVirtualMaterial) return sum
+          
+          // Calculate base value (same logic as calculatePeriodEarnedValue)
+          let baseValue = 0
+          
+          if (relatedActivity) {
+            const rawActivity = (relatedActivity as any).raw || {}
+            const totalValueFromActivity = relatedActivity.total_value || 
+                                         parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                         0
+            const totalUnits = relatedActivity.total_units || 
+                            relatedActivity.planned_units ||
+                            parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                            0
+            let rate = 0
+            if (totalUnits > 0 && totalValueFromActivity > 0) {
+              rate = totalValueFromActivity / totalUnits
+            } else {
+              rate = relatedActivity.rate || 
+                    parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+                    0
+            }
+            if (rate > 0 && quantityValue > 0) {
+              baseValue = quantityValue * rate
+            }
+          }
+          
+          if (baseValue === 0) {
+            let kpiValue = 0
+            if (rawKpi['Value'] !== undefined && rawKpi['Value'] !== null) {
+              const val = rawKpi['Value']
+              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+            }
+            if (kpiValue === 0 && rawKpi.value !== undefined && rawKpi.value !== null) {
+              const val = rawKpi.value
+              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+            }
+            if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
+              const val = kpi.value
+              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+            }
+            if (kpiValue > 0) {
+              baseValue = kpiValue
+            }
+          }
+          
+          if (baseValue === 0) {
+            const actualValue = kpi.actual_value || parseFloat(String(rawKpi['Actual Value'] || '0').replace(/,/g, '')) || 0
+            if (actualValue > 0) {
+              baseValue = actualValue
+            }
+          }
+          
+          // Calculate Virtual Material Amount = Base Value × (Virtual Material Percentage / 100)
+          if (baseValue > 0) {
+            const virtualMaterialAmount = baseValue * (virtualMaterialPercentage / 100)
+            return sum + virtualMaterialAmount
+          }
+          
+          return sum
+        } catch (error) {
+          return sum
+        }
+      }, 0)
+    })
+  }, [kpis, periods, activities, today, projectKPIsMap])
 
   const allAnalytics = useMemo(() => {
     return getAllProjectsAnalytics(filteredProjects, activities, kpis)
@@ -5957,18 +6395,19 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
   }, [outerRangeStart, dateRange.start, today, projectKPIsMap, getPeriodsInRange])
 
   const periodValuesCache = useMemo(() => {
-    const cache = new Map<string, { earned: number[], planned: number[], outerRangeValue: number }>()
+    const cache = new Map<string, { earned: number[], planned: number[], outerRangeValue: number, virtualMaterialAmount: number[] }>()
     
     allAnalytics.forEach((analytics: any) => {
       const projectId = analytics.project.id
       const earnedValues = calculatePeriodEarnedValue(analytics.project, analytics)
       const plannedValues = viewPlannedValue ? calculatePeriodPlannedValue(analytics.project, analytics) : []
       const outerRangeValue = showOuterRangeColumn ? calculateOuterRangeValue(analytics.project, analytics) : 0
-      cache.set(projectId, { earned: earnedValues, planned: plannedValues, outerRangeValue })
+      const virtualMaterialAmount = showVirtualMaterialValues ? calculatePeriodVirtualMaterialAmount(analytics.project, analytics) : []
+      cache.set(projectId, { earned: earnedValues, planned: plannedValues, outerRangeValue, virtualMaterialAmount })
     })
     
     return cache
-  }, [allAnalytics, calculatePeriodEarnedValue, calculatePeriodPlannedValue, viewPlannedValue, showOuterRangeColumn, calculateOuterRangeValue])
+  }, [allAnalytics, calculatePeriodEarnedValue, calculatePeriodPlannedValue, viewPlannedValue, showOuterRangeColumn, calculateOuterRangeValue, showVirtualMaterialValues, calculatePeriodVirtualMaterialAmount])
 
   // ✅ FIX: Show ALL projects from allAnalytics, regardless of date range or KPIs
   // The date range filter only affects which weeks show data in the table, not which projects are displayed
@@ -6196,40 +6635,148 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
     const grandTotalPlannedValue = periodPlannedValueTotals.reduce((sum, val) => sum + val, 0)
     
     // Calculate total Virtual Material Amount from all projects
-    const totalVirtualMaterialAmount = projectsWithWorkInRange.reduce((sum: number, analytics: any) => {
-      const project = analytics.project
-      const cachedValues = periodValuesCache.get(project.id)
-      const periodValues = cachedValues?.earned || []
-      const grandTotal = periodValues.reduce((s: number, val: number) => s + val, 0)
-      
-      // Get Virtual Material Value from project (as PERCENTAGE)
-      let virtualMaterialPercentage = 0
-      const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
-      
-      if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
-        // Clean the value (remove %, commas, spaces)
-        let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
-        
-        // Parse as number
-        const parsedValue = parseFloat(cleanedValue)
-        if (!isNaN(parsedValue)) {
-          // If value is between 0 and 1, treat as decimal (0.15 = 15%)
-          // Otherwise, treat as percentage (15 = 15%)
-          if (parsedValue > 0 && parsedValue <= 1) {
-            virtualMaterialPercentage = parsedValue * 100
-          } else {
-            virtualMaterialPercentage = parsedValue
+    // When showVirtualMaterialValues is enabled, calculate Virtual Material Amount from KPIs
+    // for activities with use_virtual_material = true
+    const totalVirtualMaterialAmount = showVirtualMaterialValues 
+      ? projectsWithWorkInRange.reduce((sum: number, analytics: any) => {
+          const project = analytics.project
+          const projectActivities = analytics.activities || []
+          const projectKPIs = projectKPIsMap.get(project.id)
+          const allProjectKPIs = projectKPIs?.actual || []
+          
+          // Get Virtual Material Percentage from project
+          let virtualMaterialPercentage = 0
+          const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
+          
+          if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
+            let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
+            const parsedValue = parseFloat(cleanedValue)
+            if (!isNaN(parsedValue)) {
+              if (parsedValue > 0 && parsedValue <= 1) {
+                virtualMaterialPercentage = parsedValue * 100
+              } else {
+                virtualMaterialPercentage = parsedValue
+              }
+            }
           }
-        }
-      }
-      
-      // Calculate Virtual Material Amount from Grand Total
-      if (grandTotal > 0 && virtualMaterialPercentage > 0) {
-        return sum + (grandTotal * (virtualMaterialPercentage / 100))
-      }
-      
-      return sum
-    }, 0)
+          
+          if (virtualMaterialPercentage === 0) return sum
+          
+          // Calculate Virtual Material Amount from KPIs for activities with use_virtual_material
+          return allProjectKPIs.reduce((kpiSum: number, kpi: any) => {
+            try {
+              const rawKpi = (kpi as any).raw || {}
+              const quantityValue = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
+              
+              // Find related activity
+              const kpiActivityName = (kpi.activity_name || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
+              const kpiProjectFullCode = (kpi.project_full_code || kpi.project_code || '').toLowerCase().trim()
+              
+              let relatedActivity: BOQActivity | undefined = undefined
+              if (kpiActivityName && kpiProjectFullCode) {
+                relatedActivity = projectActivities.find((a: BOQActivity) => {
+                  const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+                  const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
+                  return activityName === kpiActivityName && activityProjectFullCode === kpiProjectFullCode
+                })
+              }
+              
+              // Check if activity uses virtual material
+              const useVirtualMaterial = relatedActivity?.use_virtual_material ?? false
+              if (!useVirtualMaterial) return kpiSum
+              
+              // Calculate base value (same logic as calculatePeriodEarnedValue)
+              let baseValue = 0
+              if (relatedActivity) {
+                const rawActivity = (relatedActivity as any).raw || {}
+                const totalValueFromActivity = relatedActivity.total_value || 
+                                             parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                             0
+                const totalUnits = relatedActivity.total_units || 
+                                relatedActivity.planned_units ||
+                                parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                                0
+                let rate = 0
+                if (totalUnits > 0 && totalValueFromActivity > 0) {
+                  rate = totalValueFromActivity / totalUnits
+                } else {
+                  rate = relatedActivity.rate || 
+                        parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+                        0
+                }
+                if (rate > 0 && quantityValue > 0) {
+                  baseValue = quantityValue * rate
+                }
+              }
+              
+              if (baseValue === 0) {
+                let kpiValue = 0
+                if (rawKpi['Value'] !== undefined && rawKpi['Value'] !== null) {
+                  const val = rawKpi['Value']
+                  kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+                }
+                if (kpiValue === 0 && rawKpi.value !== undefined && rawKpi.value !== null) {
+                  const val = rawKpi.value
+                  kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+                }
+                if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
+                  const val = kpi.value
+                  kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+                }
+                if (kpiValue > 0) {
+                  baseValue = kpiValue
+                }
+              }
+              
+              if (baseValue === 0) {
+                const actualValue = kpi.actual_value || parseFloat(String(rawKpi['Actual Value'] || '0').replace(/,/g, '')) || 0
+                if (actualValue > 0) {
+                  baseValue = actualValue
+                }
+              }
+              
+              // Calculate Virtual Material Amount = Base Value × (Virtual Material Percentage / 100)
+              if (baseValue > 0) {
+                const virtualMaterialAmount = baseValue * (virtualMaterialPercentage / 100)
+                return kpiSum + virtualMaterialAmount
+              }
+              
+              return kpiSum
+            } catch (error) {
+              return kpiSum
+            }
+          }, 0) + sum
+        }, 0)
+      : projectsWithWorkInRange.reduce((sum: number, analytics: any) => {
+          // When showVirtualMaterialValues is disabled, calculate as percentage of grand total
+          const project = analytics.project
+          const cachedValues = periodValuesCache.get(project.id)
+          const periodValues = cachedValues?.earned || []
+          const grandTotal = periodValues.reduce((s: number, val: number) => s + val, 0)
+          
+          // Get Virtual Material Value from project (as PERCENTAGE)
+          let virtualMaterialPercentage = 0
+          const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
+          
+          if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
+            let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
+            const parsedValue = parseFloat(cleanedValue)
+            if (!isNaN(parsedValue)) {
+              if (parsedValue > 0 && parsedValue <= 1) {
+                virtualMaterialPercentage = parsedValue * 100
+              } else {
+                virtualMaterialPercentage = parsedValue
+              }
+            }
+          }
+          
+          // Calculate Virtual Material Amount from Grand Total
+          if (grandTotal > 0 && virtualMaterialPercentage > 0) {
+            return sum + (grandTotal * (virtualMaterialPercentage / 100))
+          }
+          
+          return sum
+        }, 0)
     
     return { 
       totalContractValue, 
@@ -6240,7 +6787,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
       grandTotalPlannedValue,
       totalVirtualMaterialAmount
     }
-  }, [filteredProjects, kpis, periods, periodValuesCache, projectsWithWorkInRange])
+  }, [filteredProjects, kpis, periods, periodValuesCache, projectsWithWorkInRange, showVirtualMaterialValues, projectKPIsMap])
 
   // Export to Excel function with advanced formatting
   const handleExportPeriodRevenue = useCallback(async () => {
@@ -6817,6 +7364,30 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
               Hide Virtual Material Column
             </label>
           </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="showVirtualMaterialValues"
+              checked={showVirtualMaterialValues}
+              onChange={(e) => setShowVirtualMaterialValues(e.target.checked)}
+              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+            />
+            <label htmlFor="showVirtualMaterialValues" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
+              Show Virtual Material Values
+            </label>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="useVirtualValueInChart"
+              checked={useVirtualValueInChart}
+              onChange={(e) => setUseVirtualValueInChart(e.target.checked)}
+              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+            />
+            <label htmlFor="useVirtualValueInChart" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
+              Use Virtual Value in Chart
+            </label>
+          </div>
         </div>
       </div>
 
@@ -6886,6 +7457,19 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
             <ResponsiveContainer width="100%" height="100%">
               {(() => {
                 // ✅ Generate chart data once
+                // Calculate period Virtual Material Amount totals for chart
+                const periodVirtualMaterialAmountTotals = useVirtualValueInChart
+                  ? periods.map((_, periodIndex) => {
+                      let sum = 0
+                      projectsWithWorkInRange.forEach((analytics: any) => {
+                        const cachedValues = periodValuesCache.get(analytics.project.id)
+                        const virtualMaterialAmounts = cachedValues?.virtualMaterialAmount || []
+                        sum += virtualMaterialAmounts[periodIndex] || 0
+                      })
+                      return sum
+                    })
+                  : periods.map(() => 0)
+                
                 const chartData = periods.map((period, index) => {
                   let periodShort = period.label
                   if (periodType === 'daily') {
@@ -6900,10 +7484,17 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                     periodShort = period.start.getFullYear().toString()
                   }
                   
+                  // Calculate earned value: base value + virtual material amount (if useVirtualValueInChart is enabled)
+                  const baseEarned = totals.periodEarnedValueTotals[index] || 0
+                  const virtualMaterialAmount = periodVirtualMaterialAmountTotals[index] || 0
+                  const earned = useVirtualValueInChart 
+                    ? baseEarned + virtualMaterialAmount 
+                    : baseEarned
+                  
                   return {
                     period: period.label,
                     periodShort: periodShort,
-                    earned: totals.periodEarnedValueTotals[index] || 0,
+                    earned: earned,
                     planned: viewPlannedValue ? (totals.periodPlannedValueTotals[index] || 0) : undefined
                   }
                 })
@@ -7188,23 +7779,24 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
         </CardHeader>
         <CardContent>
       <div className="overflow-x-auto overflow-y-auto print-table-container" style={{ maxHeight: '70vh' }}>
-            <table className="border-collapse text-sm print-table" style={{ tableLayout: 'fixed', minWidth: '100%', width: `${200 + (hideDivisionsColumn ? 0 : 180) + 120 + (hideTotalContractColumn ? 0 : 180) + 220 + (hideVirtualMaterialColumn ? 0 : 180) + (showOuterRangeColumn && outerRangeStart ? 160 : 0) + (periods.length * 140) + 150}px` }}>
+            <table className="border-collapse text-sm print-table" style={{ tableLayout: 'fixed', minWidth: '100%', width: `${200 + (hideDivisionsColumn ? 0 : 180) + 120 + (hideTotalContractColumn ? 0 : 180) + 220 + (hideVirtualMaterialColumn ? 0 : 180) + (showOuterRangeColumn && outerRangeStart ? 160 : 0) + (periods.length * (viewPlannedValue ? 280 : 140)) + (viewPlannedValue ? 300 : 150)}px` }}>
               <thead className="sticky top-0 z-20">
+                {/* First row: Main headers with period headers spanning sub-columns */}
                 <tr className="bg-gray-100 dark:bg-gray-800 border-b-2 border-gray-300 dark:border-gray-600">
-                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold sticky left-0 z-30 bg-gray-100 dark:bg-gray-800" style={{ width: '200px' }}>Project Full Name</th>
+                  <th rowSpan={viewPlannedValue ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold sticky left-0 z-30 bg-gray-100 dark:bg-gray-800" style={{ width: '200px' }}>Project Full Name</th>
                   {!hideDivisionsColumn && (
-                    <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold" style={{ width: '180px' }}>Divisions</th>
+                    <th rowSpan={viewPlannedValue ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold" style={{ width: '180px' }}>Divisions</th>
                   )}
-                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: '120px' }}>Workmanship?</th>
+                  <th rowSpan={viewPlannedValue ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: '120px' }}>Workmanship?</th>
                   {!hideTotalContractColumn && (
-                    <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '180px' }}>Total Contract Amount</th>
+                    <th rowSpan={viewPlannedValue ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '180px' }}>Total Contract Amount</th>
                   )}
-                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '220px' }}>Division Contract Amount</th>
+                  <th rowSpan={viewPlannedValue ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '220px' }}>Division Contract Amount</th>
                   {!hideVirtualMaterialColumn && (
-                    <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '180px' }}>Virtual Material</th>
+                    <th rowSpan={viewPlannedValue ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '180px' }}>Virtual Material</th>
                   )}
                   {showOuterRangeColumn && outerRangeStart && (
-                    <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}>
+                    <th rowSpan={viewPlannedValue ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}>
                       <div className="font-bold text-blue-700 dark:text-blue-300">Outer Range</div>
                       <div className="text-xs font-normal text-gray-500 dark:text-gray-400 mt-1">
                         {outerRangeStart && dateRange.start ? (
@@ -7217,21 +7809,63 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                       </div>
                     </th>
                   )}
-                  {periods.map((period, index) => (
-                    <th key={index} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '140px' }}>
-                      <div>{period.label}</div>
-                      <div className="text-xs font-normal text-gray-500 dark:text-gray-400">
-                        {period.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {period.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </div>
+                  {periods.map((period, index) => {
+                    if (viewPlannedValue) {
+                      // When viewPlannedValue is enabled, show period header spanning two columns
+                      return (
+                        <th key={index} colSpan={2} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: '280px' }}>
+                          <div className="font-bold text-gray-900 dark:text-white">{period.label}</div>
+                          <div className="text-xs font-normal text-gray-500 dark:text-gray-400">
+                            {period.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {period.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          </div>
+                        </th>
+                      )
+                    } else {
+                      // When viewPlannedValue is disabled, show single column per period
+                      return (
+                        <th key={index} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '140px' }}>
+                          <div>{period.label}</div>
+                          <div className="text-xs font-normal text-gray-500 dark:text-gray-400">
+                            {period.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {period.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          </div>
+                        </th>
+                      )
+                    }
+                  })}
+                  {viewPlannedValue ? (
+                    <th colSpan={2} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: '300px' }}>
+                      <div className="font-bold text-gray-900 dark:text-white">Grand Total</div>
                     </th>
-                  ))}
-                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '150px' }}>Grand Total</th>
-            </tr>
+                  ) : (
+                    <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '150px' }}>Grand Total</th>
+                  )}
+                </tr>
+                {/* Second row: Sub-headers for Actual and Planned (only when viewPlannedValue is enabled) */}
+                {viewPlannedValue && (
+                  <tr className="bg-gray-100 dark:bg-gray-800 border-b-2 border-gray-300 dark:border-gray-600">
+                    {periods.map((period, index) => (
+                      <>
+                        <th key={`${index}-actual`} className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-green-50 dark:bg-green-900/20" style={{ width: '140px' }}>
+                          <div className="text-xs font-medium text-green-600 dark:text-green-400">Actual</div>
+                        </th>
+                        <th key={`${index}-planned`} className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: '140px' }}>
+                          <div className="text-xs font-medium text-blue-600 dark:text-blue-400">Planned</div>
+                        </th>
+                      </>
+                    ))}
+                    <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-green-50 dark:bg-green-900/20" style={{ width: '150px' }}>
+                      <div className="text-xs font-medium text-green-600 dark:text-green-400">Actual</div>
+                    </th>
+                    <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: '150px' }}>
+                      <div className="text-xs font-medium text-blue-600 dark:text-blue-400">Planned</div>
+                    </th>
+                  </tr>
+                )}
           </thead>
               <tbody>
                 {projectsWithWorkInRange.length === 0 ? (
                   <tr>
-                    <td colSpan={3 + (hideDivisionsColumn ? 0 : 1) + (hideTotalContractColumn ? 0 : 1) + (hideVirtualMaterialColumn ? 0 : 1) + (showOuterRangeColumn && outerRangeStart ? 1 : 0) + periods.length + 1} className="border border-gray-300 dark:border-gray-600 px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                    <td colSpan={3 + (hideDivisionsColumn ? 0 : 1) + (hideTotalContractColumn ? 0 : 1) + (hideVirtualMaterialColumn ? 0 : 1) + (showOuterRangeColumn && outerRangeStart ? 1 : 0) + (periods.length * (viewPlannedValue ? 2 : 1)) + (viewPlannedValue ? 2 : 1)} className="border border-gray-300 dark:border-gray-600 px-4 py-8 text-center text-gray-500 dark:text-gray-400">
                       <div className="flex flex-col items-center gap-2">
                         <AlertTriangle className="h-8 w-8 text-gray-400" />
                         <p>No projects with work in the selected date range</p>
@@ -7281,6 +7915,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                     const cachedValues = periodValuesCache.get(project.id)
                     const periodValues = cachedValues?.earned || []
                     const periodPlannedValues = viewPlannedValue ? (cachedValues?.planned || []) : []
+                    const periodVirtualMaterialAmounts = showVirtualMaterialValues ? (cachedValues?.virtualMaterialAmount || []) : []
                     const grandTotal = periodValues.reduce((sum: number, val: number) => sum + val, 0)
                     const grandTotalPlanned = viewPlannedValue ? periodPlannedValues.reduce((sum: number, val: number) => sum + val, 0) : 0
                     return (
@@ -7419,110 +8054,109 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                         )}
                         {periodValues.map((value: number, index: number) => {
                           const plannedValue = viewPlannedValue ? (periodPlannedValues[index] || 0) : 0
+                          const periodVirtualMaterial = showVirtualMaterialValues ? (periodVirtualMaterialAmounts[index] || 0) : 0
                           
-                          // Calculate Virtual Material for this period
-                          let virtualMaterialPercentage = 0
-                          const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
-                          
-                          if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
-                            let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
-                            const parsedValue = parseFloat(cleanedValue)
-                            if (!isNaN(parsedValue)) {
-                              if (parsedValue > 0 && parsedValue <= 1) {
-                                virtualMaterialPercentage = parsedValue * 100
-                              } else {
-                                virtualMaterialPercentage = parsedValue
-                              }
-                            }
-                          }
-                          
-                          const periodVirtualMaterial = value > 0 && virtualMaterialPercentage > 0
-                            ? value * (virtualMaterialPercentage / 100)
-                            : 0
-                          
-                          return (
-                            <td key={index} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: viewPlannedValue ? '200px' : '140px' }}>
-                              {viewPlannedValue ? (
-                                <div className="space-y-1">
-                                  {value > 0 ? (
-                                    <div className="font-medium text-green-600 dark:text-green-400">{formatCurrency(value, project.currency)}</div>
-                                  ) : (
-                                    <div className="text-gray-400">-</div>
-                                  )}
+                          if (viewPlannedValue) {
+                            // When viewPlannedValue is enabled, show two separate cells: Actual and Planned
+                            return (
+                              <>
+                                {/* Actual Column */}
+                                <td key={`${index}-actual`} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-green-50/30 dark:bg-green-900/10" style={{ width: '140px' }}>
+                                  <div className="space-y-1">
+                                    {value > 0 ? (
+                                      <div className="font-medium text-green-600 dark:text-green-400">{formatCurrency(value, project.currency)}</div>
+                                    ) : (
+                                      <div className="text-gray-400">-</div>
+                                    )}
+                                    {!hideVirtualMaterialColumn && showVirtualMaterialValues && periodVirtualMaterial > 0 && (
+                                      <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                        VM: {formatCurrency(periodVirtualMaterial, project.currency)}
+                                      </div>
+                                    )}
+                                  </div>
+                                </td>
+                                {/* Planned Column */}
+                                <td key={`${index}-planned`} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50/30 dark:bg-blue-900/10" style={{ width: '140px' }}>
                                   {plannedValue > 0 ? (
-                                    <div className="text-xs text-blue-600 dark:text-blue-400">{formatCurrency(plannedValue, project.currency)}</div>
+                                    <div className="font-medium text-blue-600 dark:text-blue-400">{formatCurrency(plannedValue, project.currency)}</div>
                                   ) : (
-                                    <div className="text-xs text-gray-400">-</div>
+                                    <div className="text-gray-400">-</div>
                                   )}
-                                  {periodVirtualMaterial > 0 && (
-                                    <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
-                                      VM: {formatCurrency(periodVirtualMaterial, project.currency)}
-                                    </div>
-                                  )}
-                                </div>
-                              ) : (
+                                </td>
+                              </>
+                            )
+                          } else {
+                            // When viewPlannedValue is disabled, show single cell
+                            return (
+                              <td key={index} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '140px' }}>
                                 <div className="space-y-1">
                                   {value > 0 ? (
                                     <div className="font-medium text-green-600 dark:text-green-400">{formatCurrency(value, project.currency)}</div>
                                   ) : (
                                     <div className="text-gray-400">-</div>
                                   )}
-                                  {periodVirtualMaterial > 0 && (
+                                  {!hideVirtualMaterialColumn && showVirtualMaterialValues && periodVirtualMaterial > 0 && (
                                     <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
                                       VM: {formatCurrency(periodVirtualMaterial, project.currency)}
                                     </div>
                                   )}
                                 </div>
+                              </td>
+                            )
+                          }
+                        })}
+                        {viewPlannedValue ? (
+                          <>
+                            {/* Actual Grand Total Column */}
+                            <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-green-50/30 dark:bg-green-900/10" style={{ width: '150px' }}>
+                              {(() => {
+                                // Calculate Virtual Material Total from periodVirtualMaterialAmounts
+                                const grandTotalVirtualMaterial = showVirtualMaterialValues 
+                                  ? periodVirtualMaterialAmounts.reduce((sum: number, val: number) => sum + val, 0)
+                                  : 0
+                                
+                                return (
+                                  <div className="space-y-1">
+                                    <div className="font-bold text-gray-900 dark:text-white">{formatCurrency(grandTotal, project.currency)}</div>
+                                    {!hideVirtualMaterialColumn && showVirtualMaterialValues && grandTotalVirtualMaterial > 0 && (
+                                      <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                        VM: {formatCurrency(grandTotalVirtualMaterial, project.currency)}
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              })()}
+                            </td>
+                            {/* Planned Grand Total Column */}
+                            <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50/30 dark:bg-blue-900/10" style={{ width: '150px' }}>
+                              {grandTotalPlanned > 0 ? (
+                                <div className="font-bold text-blue-600 dark:text-blue-400">{formatCurrency(grandTotalPlanned, project.currency)}</div>
+                              ) : (
+                                <div className="text-gray-400">-</div>
                               )}
                             </td>
-                          )
-                        })}
-                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '150px' }}>
-                          {(() => {
-                            // Calculate Virtual Material Total from Grand Total
-                            let virtualMaterialPercentage = 0
-                            const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
-                            
-                            if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
-                              let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
-                              const parsedValue = parseFloat(cleanedValue)
-                              if (!isNaN(parsedValue)) {
-                                if (parsedValue > 0 && parsedValue <= 1) {
-                                  virtualMaterialPercentage = parsedValue * 100
-                                } else {
-                                  virtualMaterialPercentage = parsedValue
-                                }
-                              }
-                            }
-                            
-                            const grandTotalVirtualMaterial = grandTotal > 0 && virtualMaterialPercentage > 0
-                              ? grandTotal * (virtualMaterialPercentage / 100)
-                              : 0
-                            
-                            return viewPlannedValue ? (
-                              <div className="space-y-1">
-                                <div className="font-bold text-gray-900 dark:text-white">{formatCurrency(grandTotal, project.currency)}</div>
-                                {grandTotalPlanned > 0 && (
-                                  <div className="text-xs text-blue-600 dark:text-blue-400">{formatCurrency(grandTotalPlanned, project.currency)}</div>
-                                )}
-                                {grandTotalVirtualMaterial > 0 && (
-                                  <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
-                                    VM: {formatCurrency(grandTotalVirtualMaterial, project.currency)}
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
-                              <div className="space-y-1">
-                                <div className="font-bold text-gray-900 dark:text-white">{formatCurrency(grandTotal, project.currency)}</div>
-                                {grandTotalVirtualMaterial > 0 && (
-                                  <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
-                                    VM: {formatCurrency(grandTotalVirtualMaterial, project.currency)}
-                                  </div>
-                                )}
-                              </div>
-                            )
-                          })()}
-                        </td>
+                          </>
+                        ) : (
+                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '150px' }}>
+                            {(() => {
+                              // Calculate Virtual Material Total from periodVirtualMaterialAmounts
+                              const grandTotalVirtualMaterial = showVirtualMaterialValues 
+                                ? periodVirtualMaterialAmounts.reduce((sum: number, val: number) => sum + val, 0)
+                                : 0
+                              
+                              return (
+                                <div className="space-y-1">
+                                  <div className="font-bold text-gray-900 dark:text-white">{formatCurrency(grandTotal, project.currency)}</div>
+                                  {!hideVirtualMaterialColumn && showVirtualMaterialValues && grandTotalVirtualMaterial > 0 && (
+                                    <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                      VM: {formatCurrency(grandTotalVirtualMaterial, project.currency)}
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })()}
+                          </td>
+                        )}
               </tr>
                     )
                   })
@@ -7531,7 +8165,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
               {projectsWithWorkInRange.length > 0 && (
                 <tfoot>
                   <tr className="bg-gray-100 dark:bg-gray-800 font-bold border-t-2 border-gray-300 dark:border-gray-600">
-                    <td colSpan={3 + (hideDivisionsColumn ? 0 : 1) + (hideTotalContractColumn ? 0 : 1) + (hideVirtualMaterialColumn ? 0 : 1)} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right">Total:</td>
+                    <td colSpan={1 + (hideDivisionsColumn ? 0 : 1) + 1 + (hideTotalContractColumn ? 0 : 1) + 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right sticky left-0 z-10 bg-gray-100 dark:bg-gray-800">Total:</td>
                     {!hideVirtualMaterialColumn && (
                       <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '180px' }}>
                         {totals.totalVirtualMaterialAmount > 0 ? (
@@ -7562,33 +8196,67 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                     )}
                     {totals.periodEarnedValueTotals.map((value: number, index: number) => {
                       const plannedValue = viewPlannedValue ? (totals.periodPlannedValueTotals[index] || 0) : 0
-                      return (
-                        <td key={index} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: viewPlannedValue ? '200px' : '140px' }}>
-                          {viewPlannedValue ? (
-                            <div className="space-y-1">
-                              <div className="text-green-600 dark:text-green-400 font-bold">{formatCurrency(value)}</div>
-                              {plannedValue > 0 && (
-                                <div className="text-xs text-blue-600 dark:text-blue-400">{formatCurrency(plannedValue)}</div>
+                      if (viewPlannedValue) {
+                        // When viewPlannedValue is enabled, show two separate cells: Actual and Planned
+                        return (
+                          <>
+                            {/* Actual Column */}
+                            <td key={`${index}-actual`} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-green-50/30 dark:bg-green-900/10" style={{ width: '140px' }}>
+                              <span className="text-green-600 dark:text-green-400 font-bold">{formatCurrency(value)}</span>
+                            </td>
+                            {/* Planned Column */}
+                            <td key={`${index}-planned`} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50/30 dark:bg-blue-900/10" style={{ width: '140px' }}>
+                              {plannedValue > 0 ? (
+                                <span className="text-blue-600 dark:text-blue-400 font-bold">{formatCurrency(plannedValue)}</span>
+                              ) : (
+                                <span className="text-gray-400">-</span>
                               )}
-                            </div>
-                          ) : (
-                        <span className="text-green-600 dark:text-green-400">{formatCurrency(value)}</span>
-                          )}
-                      </td>
-                      )
+                            </td>
+                          </>
+                        )
+                      } else {
+                        // When viewPlannedValue is disabled, show single cell
+                        return (
+                          <td key={index} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '140px' }}>
+                            <span className="text-green-600 dark:text-green-400">{formatCurrency(value)}</span>
+                          </td>
+                        )
+                      }
                     })}
-                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '150px' }}>
-                      {viewPlannedValue ? (
+                    {viewPlannedValue ? (
+                      <>
+                        {/* Actual Grand Total Column */}
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-green-50/30 dark:bg-green-900/10" style={{ width: '150px' }}>
+                          <div className="space-y-1">
+                            <span className="text-gray-900 dark:text-white font-bold">{formatCurrency(totals.grandTotalEarnedValue)}</span>
+                            {!hideVirtualMaterialColumn && showVirtualMaterialValues && totals.totalVirtualMaterialAmount > 0 && (
+                              <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                VM: {formatCurrency(totals.totalVirtualMaterialAmount)}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        {/* Planned Grand Total Column */}
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50/30 dark:bg-blue-900/10" style={{ width: '150px' }}>
+                          {totals.grandTotalPlannedValue > 0 ? (
+                            <span className="text-blue-600 dark:text-blue-400 font-bold">{formatCurrency(totals.grandTotalPlannedValue)}</span>
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )}
+                        </td>
+                      </>
+                    ) : (
+                      <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '150px' }}>
                         <div className="space-y-1">
-                          <div className="text-gray-900 dark:text-white font-bold">{formatCurrency(totals.grandTotalEarnedValue)}</div>
-                          {totals.grandTotalPlannedValue > 0 && (
-                            <div className="text-xs text-blue-600 dark:text-blue-400">{formatCurrency(totals.grandTotalPlannedValue)}</div>
+                          <span className="text-gray-900 dark:text-white font-bold">{formatCurrency(totals.grandTotalEarnedValue)}</span>
+                          {!hideVirtualMaterialColumn && showVirtualMaterialValues && totals.totalVirtualMaterialAmount > 0 && (
+                            <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                              VM: {formatCurrency(totals.totalVirtualMaterialAmount)}
+                            </div>
                           )}
                         </div>
-                      ) : (
-                      <span className="text-gray-900 dark:text-white">{formatCurrency(totals.grandTotalEarnedValue)}</span>
-                      )}
-                    </td>
+                      </td>
+                    )}
                   </tr>
                 </tfoot>
               )}
