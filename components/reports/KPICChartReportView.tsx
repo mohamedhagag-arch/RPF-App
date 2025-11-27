@@ -27,8 +27,8 @@ interface KPICChartReportViewProps {
 export function KPICChartReportView({ activities, projects, kpis, formatCurrency }: KPICChartReportViewProps) {
   const [selectedProjectId, setSelectedProjectId] = useState<string>('')
   const [cutOffDate, setCutOffDate] = useState<string>(new Date().toISOString().split('T')[0])
-  const [selectedActivityId, setSelectedActivityId] = useState<string>('')
-  const [selectedZone, setSelectedZone] = useState<string>('')
+  const [selectedActivityIds, setSelectedActivityIds] = useState<Set<string>>(new Set())
+  const [selectedZones, setSelectedZones] = useState<Set<string>>(new Set())
   const [groupBy, setGroupBy] = useState<'daily' | 'weekly' | 'monthly'>('daily')
   
   // Bulk export states
@@ -69,22 +69,41 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
       return activityFullCode === projectFullCode || activity.project_id === selectedProject.id
     })
     
-    // Filter by selected activity
-    if (selectedActivityId) {
-      filtered = filtered.filter((activity: BOQActivity) => activity.id === selectedActivityId)
+    // Filter by selected activities (multiple selection)
+    if (selectedActivityIds.size > 0) {
+      // Get all selected activity names
+      const selectedActivityNames = new Set<string>()
+      selectedActivityIds.forEach((activityId) => {
+        const selectedActivity = filtered.find((activity: BOQActivity) => activity.id === activityId)
+        if (selectedActivity) {
+          const activityName = (selectedActivity.activity_name || selectedActivity.activity || '').toLowerCase().trim()
+          selectedActivityNames.add(activityName)
+        }
+      })
+      
+      // Filter by activity names (to include all zones for selected activities)
+      if (selectedActivityNames.size > 0) {
+        filtered = filtered.filter((activity: BOQActivity) => {
+          const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+          return selectedActivityNames.has(activityName)
+        })
+      }
     }
     
-    // Filter by selected zone
-    if (selectedZone) {
+    // Filter by selected zones (multiple selection)
+    if (selectedZones.size > 0) {
       filtered = filtered.filter((activity: BOQActivity) => {
         const rawActivity = (activity as any).raw || {}
         const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim().toUpperCase()
-        return activityZone === selectedZone.toUpperCase() || activityZone.includes(selectedZone.toUpperCase())
+        return Array.from(selectedZones).some((selectedZone) => {
+          const zoneUpper = selectedZone.toUpperCase()
+          return activityZone === zoneUpper || activityZone.includes(zoneUpper)
+        })
       })
     }
     
     return filtered
-  }, [activities, selectedProject, selectedActivityId, selectedZone])
+  }, [activities, selectedProject, selectedActivityIds, selectedZones])
   
   // Get unique activities for dropdown
   const availableActivities = useMemo(() => {
@@ -129,8 +148,8 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
   
   // Reset filters when project changes
   useEffect(() => {
-    setSelectedActivityId('')
-    setSelectedZone('')
+    setSelectedActivityIds(new Set())
+    setSelectedZones(new Set())
     setActivitySearch('')
     setZoneSearch('')
   }, [selectedProjectId])
@@ -170,8 +189,7 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
     const searchLower = activitySearch.toLowerCase()
     return availableActivities.filter((activity: { id: string; name: string; zone: string }) => {
       const name = activity.name.toLowerCase()
-      const zone = (activity.zone || '').toLowerCase()
-      return name.includes(searchLower) || zone.includes(searchLower)
+      return name.includes(searchLower) // ✅ Search only in activity name, not zone
     })
   }, [availableActivities, activitySearch])
   
@@ -190,12 +208,19 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
     return `${project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`} - ${project.project_name}`
   }, [projects, selectedProjectId])
   
-  const selectedActivityName = useMemo(() => {
-    if (!selectedActivityId) return '-- All Activities --'
-    const activity = availableActivities.find((a) => a.id === selectedActivityId)
-    if (!activity) return '-- All Activities --'
-    return `${activity.name}${activity.zone ? ` (Zone: ${activity.zone})` : ''}`
-  }, [availableActivities, selectedActivityId])
+  const selectedActivityNames = useMemo(() => {
+    if (selectedActivityIds.size === 0) return '-- All Activities --'
+    const names = Array.from(selectedActivityIds)
+      .map((id) => {
+        const activity = availableActivities.find((a) => a.id === id)
+        return activity ? activity.name : null
+      })
+      .filter((name): name is string => name !== null)
+    
+    if (names.length === 0) return '-- All Activities --'
+    if (names.length === 1) return names[0]
+    return `${names.length} Activities Selected`
+  }, [availableActivities, selectedActivityIds])
   
   // Helper function to match KPI to Activity
   const kpiMatchesActivity = useCallback((kpi: any, activity: BOQActivity): boolean => {
@@ -1082,7 +1107,7 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
                   }}
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-left flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-600"
                 >
-                  <span className="truncate">{selectedActivityName}</span>
+                  <span className="truncate">{selectedActivityNames}</span>
                   <ChevronDown className={`w-4 h-4 transition-transform ${showActivityDropdown ? 'rotate-180' : ''}`} />
                 </button>
                 
@@ -1106,32 +1131,44 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
                       <button
                         type="button"
                         onClick={() => {
-                          setSelectedActivityId('')
+                          setSelectedActivityIds(new Set())
                           setShowActivityDropdown(false)
                           setActivitySearch('')
                         }}
                         className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 ${
-                          !selectedActivityId ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-gray-100'
+                          selectedActivityIds.size === 0 ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-gray-100'
                         }`}
                       >
                         -- All Activities --
                       </button>
-                      {filteredActivities.map((activity) => (
-                        <button
-                          key={activity.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedActivityId(activity.id)
-                            setShowActivityDropdown(false)
-                            setActivitySearch('')
-                          }}
-                          className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 ${
-                            selectedActivityId === activity.id ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-gray-100'
-                          }`}
-                        >
-                          {activity.name} {activity.zone ? `(Zone: ${activity.zone})` : ''}
-                        </button>
-                      ))}
+                      {filteredActivities.map((activity) => {
+                        const isSelected = selectedActivityIds.has(activity.id)
+                        return (
+                          <label
+                            key={activity.id}
+                            className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer flex items-center gap-2 ${
+                              isSelected ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-gray-100'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                const newSet = new Set(selectedActivityIds)
+                                if (e.target.checked) {
+                                  newSet.add(activity.id)
+                                } else {
+                                  newSet.delete(activity.id)
+                                }
+                                setSelectedActivityIds(newSet)
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                            />
+                            <span>{activity.name}</span> {/* ✅ Show activity name only, without zone */}
+                          </label>
+                        )
+                      })}
                       {filteredActivities.length === 0 && (
                         <div className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400 text-center">
                           No activities found
@@ -1160,7 +1197,13 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
                   }}
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-left flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-600"
                 >
-                  <span className="truncate">{selectedZone || '-- All Zones --'}</span>
+                  <span className="truncate">
+                    {selectedZones.size === 0 
+                      ? '-- All Zones --' 
+                      : selectedZones.size === 1 
+                        ? Array.from(selectedZones)[0] 
+                        : `${selectedZones.size} Zones Selected`}
+                  </span>
                   <ChevronDown className={`w-4 h-4 transition-transform ${showZoneDropdown ? 'rotate-180' : ''}`} />
                 </button>
                 
@@ -1181,35 +1224,52 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
                       </div>
                     </div>
                     <div className="max-h-64 overflow-y-auto">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedZone('')
-                          setShowZoneDropdown(false)
-                          setZoneSearch('')
-                        }}
-                        className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 ${
-                          !selectedZone ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-gray-100'
+                      <label
+                        className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer flex items-center gap-2 ${
+                          selectedZones.size === 0 ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-gray-100'
                         }`}
                       >
-                        -- All Zones --
-                      </button>
-                      {filteredZones.map((zone) => (
-                        <button
-                          key={zone}
-                          type="button"
-                          onClick={() => {
-                            setSelectedZone(zone)
-                            setShowZoneDropdown(false)
-                            setZoneSearch('')
+                        <input
+                          type="checkbox"
+                          checked={selectedZones.size === 0}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedZones(new Set())
+                            }
                           }}
-                          className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 ${
-                            selectedZone === zone ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-gray-100'
-                          }`}
-                        >
-                          {zone}
-                        </button>
-                      ))}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                        />
+                        <span>-- All Zones --</span>
+                      </label>
+                      {filteredZones.map((zone) => {
+                        const isSelected = selectedZones.has(zone)
+                        return (
+                          <label
+                            key={zone}
+                            className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer flex items-center gap-2 ${
+                              isSelected ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-gray-100'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                const newSet = new Set(selectedZones)
+                                if (e.target.checked) {
+                                  newSet.add(zone)
+                                } else {
+                                  newSet.delete(zone)
+                                }
+                                setSelectedZones(newSet)
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                            />
+                            <span>{zone}</span>
+                          </label>
+                        )
+                      })}
                       {filteredZones.length === 0 && (
                         <div className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400 text-center">
                           No zones found
@@ -1252,11 +1312,11 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
           </div>
           
           {/* Clear Filters Button */}
-          {(selectedActivityId || selectedZone) && (
+          {(selectedActivityIds.size > 0 || selectedZones.size > 0) && (
             <Button
               onClick={() => {
-                setSelectedActivityId('')
-                setSelectedZone('')
+                setSelectedActivityIds(new Set())
+                setSelectedZones(new Set())
               }}
               variant="outline"
               size="sm"
