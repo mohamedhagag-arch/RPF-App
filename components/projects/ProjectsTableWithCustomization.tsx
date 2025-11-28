@@ -2577,11 +2577,69 @@ export function ProjectsTableWithCustomization({
         })
       }
       
-      // Step 5: Calculate division amounts from KPIs Planned
+      // Step 5: Calculate division amounts from ALL Activities (not just Planned KPIs)
+      // ✅ FIX: Calculate from activities' total_value grouped by division
       const divisionAmounts: Record<string, number> = {}
       const divisionNames: Record<string, string> = {}
       
-      plannedKPIs.forEach((kpi: any) => {
+      // ✅ First, calculate from all activities in the project
+      const projectActivities = allActivities.filter((activity: any) => {
+        const activityCodes = extractProjectCodes(activity)
+        return codesMatch(activityCodes, targetCodes)
+      })
+      
+      projectActivities.forEach((activity: any) => {
+        const rawActivity = (activity as any).raw || {}
+        
+        // Get division from activity
+        const division = activity.activity_division || 
+                        activity['Activity Division'] || 
+                        rawActivity['Activity Division'] || 
+                        rawActivity['activity_division'] || ''
+        
+        // Skip if no division found
+        if (!division || division.trim() === '') {
+          return
+        }
+        
+        const divisionKey = division.trim().toLowerCase()
+        const divisionName = division.trim()
+        
+        // Get total_value from activity
+        const activityTotalValue = activity.total_value || 
+                                 parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                 0
+        
+        if (activityTotalValue > 0) {
+          if (!divisionNames[divisionKey]) {
+            divisionNames[divisionKey] = divisionName
+          }
+          divisionAmounts[divisionKey] = (divisionAmounts[divisionKey] || 0) + activityTotalValue
+        } else {
+          // Calculate from Rate × Total Units if Total Value not available
+          const rate = activity.rate || 
+                      parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+                      0
+          const totalUnits = activity.total_units || 
+                          activity.planned_units ||
+                          parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                          0
+          
+          if (rate > 0 && totalUnits > 0) {
+            const calculatedValue = rate * totalUnits
+            if (calculatedValue > 0) {
+              if (!divisionNames[divisionKey]) {
+                divisionNames[divisionKey] = divisionName
+              }
+              divisionAmounts[divisionKey] = (divisionAmounts[divisionKey] || 0) + calculatedValue
+            }
+          }
+        }
+      })
+      
+      // ✅ Fallback: If no activities found or division amounts are empty, calculate from Planned KPIs
+      if (Object.keys(divisionAmounts).length === 0) {
+        plannedKPIs.forEach((kpi: any) => {
         const rawKPI = (kpi as any).raw || {}
         
         // ✅ Get division from KPI - Use "Activity Division" (same as KPITracking.tsx)
@@ -2598,15 +2656,69 @@ export function ProjectsTableWithCustomization({
         const divisionKey = division.trim().toLowerCase()
         const divisionName = division.trim()
         
-        // ✅ Get Planned Value from KPI (SAME LOGIC AS KPI PAGE)
+        // ✅ Get Planned Value from KPI (SAME LOGIC AS BOQManagement.tsx and workValueCalculator.ts)
+        // Get Quantity
+        const quantity = parseFloat(String(kpi.quantity || rawKPI['Quantity'] || '0').replace(/,/g, '')) || 0
+        
+        // Find matching activity to get Rate
+        let rate = 0
+        const matchingActivity = allActivities.find((activity: any) => {
+          const activityCodes = extractProjectCodes(activity)
+          if (!codesMatch(activityCodes, targetCodes)) return false
+          
+          const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
+          const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+          if (!kpiActivityName || !activityName || kpiActivityName !== activityName) return false
+          
+          // Zone matching (flexible)
+          const kpiZone = (kpi.zone || rawKPI['Zone'] || '').toString().trim()
+          const activityZone = (activity.zone_ref || activity.zone_number || activity.zone || '').toString().trim()
+          if (activityZone && kpiZone && activityZone !== kpiZone) return false
+          
+          return true
+        })
+        
+        if (matchingActivity) {
+          const rawActivity = (matchingActivity as any).raw || {}
+          const totalValueFromActivity = matchingActivity.total_value || 
+                                       parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                       0
+          const totalUnits = matchingActivity.total_units || 
+                          matchingActivity.planned_units ||
+                          parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                          0
+          
+          if (totalUnits > 0 && totalValueFromActivity > 0) {
+            rate = totalValueFromActivity / totalUnits
+          } else if (matchingActivity.rate && matchingActivity.rate > 0) {
+            rate = matchingActivity.rate
+          } else {
+            const rateFromRaw = parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
+            if (rateFromRaw > 0) rate = rateFromRaw
+          }
+        }
+        
         let kpiValue = 0
         
-        // ✅ PRIORITY 1: Use Planned Value directly from KPI (most accurate)
-        const plannedValue = kpi.planned_value || parseFloat(String(rawKPI['Planned Value'] || '0').replace(/,/g, '')) || 0
-        if (plannedValue > 0) {
-          kpiValue = plannedValue
-        } else {
-          // ✅ PRIORITY 2: Fallback to Value field if Planned Value is not available
+        // ✅ PRIORITY 1: ALWAYS calculate from Quantity × Rate if both are available
+        // This is the most accurate method as it uses the actual rate from the BOQ Activity
+        if (rate > 0 && quantity > 0) {
+          const calculatedValue = quantity * rate
+          if (calculatedValue > 0) {
+            kpiValue = calculatedValue
+          }
+        }
+        
+        // ✅ PRIORITY 2: Use Planned Value directly from KPI (fallback)
+        if (kpiValue === 0) {
+          const plannedValue = kpi.planned_value || parseFloat(String(rawKPI['Planned Value'] || '0').replace(/,/g, '')) || 0
+          if (plannedValue > 0) {
+            kpiValue = plannedValue
+          }
+        }
+        
+        // ✅ PRIORITY 3: Fallback to Value field if Planned Value is not available (but check if it's actually a quantity)
+        if (kpiValue === 0) {
           // Try raw['Value'] (from database with capital V)
           if (rawKPI['Value'] !== undefined && rawKPI['Value'] !== null) {
             const val = rawKPI['Value']
@@ -2624,6 +2736,23 @@ export function ProjectsTableWithCustomization({
             const val = kpi.value
             kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
           }
+          
+          // ✅ CRITICAL CHECK: If Value equals Quantity, it means it's a quantity, not a financial value
+          if (kpiValue > 0 && quantity > 0 && Math.abs(kpiValue - quantity) < 0.01) {
+            // Value equals quantity, so it's not a real financial value - skip
+            kpiValue = 0
+          }
+        }
+        
+        // ✅ PRIORITY 4: If still no rate, try to get Rate from KPI raw data and calculate
+        if (kpiValue === 0 && quantity > 0) {
+          const rateFromKPI = parseFloat(String(rawKPI['Rate'] || kpi.rate || '0').replace(/,/g, '')) || 0
+          if (rateFromKPI > 0) {
+            const calculatedFromKPIRate = quantity * rateFromKPI
+            if (calculatedFromKPIRate > 0) {
+              kpiValue = calculatedFromKPIRate
+            }
+          }
         }
         
         // Sum values for this division (only if we have a value)
@@ -2634,6 +2763,7 @@ export function ProjectsTableWithCustomization({
           divisionAmounts[divisionKey] = (divisionAmounts[divisionKey] || 0) + kpiValue
         }
       })
+      }
       
       // Store in map (always store, even if empty, to ensure all projects are in the map)
       map.set(project.id, { divisionAmounts, divisionNames })
@@ -3848,8 +3978,150 @@ export function ProjectsTableWithCustomization({
             }))
             .sort((a, b) => b.amount - a.amount)
           
-          // Calculate total
-          const totalAmount = divisionsList.reduce((sum, div) => sum + div.amount, 0)
+          // ✅ Calculate total from ALL activities in the project (not just Planned KPIs)
+          // Total should be the sum of total_value from all activities in the project
+          let totalAmount = 0
+          if (allActivities.length > 0) {
+            // Helper to extract project codes (same as in divisionsDataMap)
+            const extractProjectCodes = (item: any): string[] => {
+              const codes: string[] = []
+              const raw = (item as any).raw || {}
+              
+              const fullCodeSources = [
+                item.project_full_code,
+                (item as any)['Project Full Code'],
+                raw['Project Full Code']
+              ]
+              
+              for (const source of fullCodeSources) {
+                if (source) {
+                  const code = source.toString().trim()
+                  if (code) {
+                    codes.push(code)
+                    codes.push(code.toUpperCase())
+                    return Array.from(new Set(codes))
+                  }
+                }
+              }
+              
+              const codeSources = [
+                item.project_code,
+                (item as any)['Project Code'],
+                raw['Project Code']
+              ]
+              
+              for (const source of codeSources) {
+                if (source) {
+                  const code = source.toString().trim()
+                  if (code) {
+                    codes.push(code)
+                    codes.push(code.toUpperCase())
+                  }
+                }
+              }
+              
+              return Array.from(new Set(codes))
+            }
+            
+            // Build target codes for matching (same as in divisionsDataMap)
+            let projectFullCode = (project.project_full_code || '').toString().trim()
+            if (!projectFullCode) {
+              const projectCode = (project.project_code || '').toString().trim()
+              const projectSubCode = (project.project_sub_code || '').toString().trim()
+              if (projectSubCode) {
+                if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+                  projectFullCode = projectSubCode
+                } else if (projectSubCode.startsWith('-')) {
+                  projectFullCode = `${projectCode}${projectSubCode}`
+                } else {
+                  projectFullCode = `${projectCode}-${projectSubCode}`
+                }
+              } else {
+                projectFullCode = projectCode
+              }
+            }
+            const projectFullCodeUpper = projectFullCode.toUpperCase()
+            const projectCode = (project.project_code || '').toString().trim()
+            const projectCodeUpper = projectCode.toUpperCase()
+            
+            const targetCodes: string[] = []
+            if (projectFullCodeUpper) {
+              targetCodes.push(projectFullCodeUpper)
+              const hasDirectFullCode = project.project_full_code && project.project_full_code.toString().trim() !== ''
+              if (!hasDirectFullCode && projectCodeUpper && projectCodeUpper !== projectFullCodeUpper) {
+                targetCodes.push(projectCodeUpper)
+              }
+            } else if (projectCodeUpper) {
+              targetCodes.push(projectCodeUpper)
+            }
+            
+            // Helper to check if codes match
+            const codesMatch = (itemCodes: string[], targetCodes: string[]): boolean => {
+              const targetCodesUpper = targetCodes.map(c => c.toUpperCase().trim())
+              const itemCodesUpper = itemCodes.map(c => c.toUpperCase().trim())
+              
+              for (const itemCode of itemCodesUpper) {
+                if (targetCodesUpper.includes(itemCode)) {
+                  return true
+                }
+              }
+              
+              for (const itemCode of itemCodesUpper) {
+                for (const targetCode of targetCodesUpper) {
+                  const itemHasDash = itemCode.includes('-')
+                  const targetHasDash = targetCode.includes('-')
+                  
+                  if (itemHasDash || targetHasDash) {
+                    if (itemCode === targetCode) {
+                      return true
+                    }
+                  } else {
+                    if (itemCode.startsWith(targetCode) || targetCode.startsWith(itemCode)) {
+                      return true
+                    }
+                  }
+                }
+              }
+              
+              return false
+            }
+            
+            // Filter activities for this project
+            const projectActivities = allActivities.filter((activity: any) => {
+              const activityCodes = extractProjectCodes(activity)
+              return codesMatch(activityCodes, targetCodes)
+            })
+            
+            // Sum total_value from all activities
+            projectActivities.forEach((activity: any) => {
+              const rawActivity = (activity as any).raw || {}
+              const activityTotalValue = activity.total_value || 
+                                       parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                       0
+              
+              if (activityTotalValue > 0) {
+                totalAmount += activityTotalValue
+              } else {
+                // Calculate from Rate × Total Units if Total Value not available
+                const rate = activity.rate || 
+                            parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+                            0
+                const totalUnits = activity.total_units || 
+                                activity.planned_units ||
+                                parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                                0
+                
+                if (rate > 0 && totalUnits > 0) {
+                  totalAmount += rate * totalUnits
+                }
+              }
+            })
+          }
+          
+          // ✅ Fallback: If no activities found, use sum of divisions (from Planned KPIs)
+          if (totalAmount === 0) {
+            totalAmount = divisionsList.reduce((sum, div) => sum + div.amount, 0)
+          }
           
           // Handle expand/collapse for better UX (show first 5, then expand)
           const isDivExpanded = expandedDivisions.has(project.id)

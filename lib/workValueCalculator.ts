@@ -217,14 +217,64 @@ export function calculateWorkValueStatus(
         plannedKPIs.forEach((kpi: any) => {
           const rawKpi = (kpi as any).raw || {}
           
-          // ✅ PRIORITY 1: Use Planned Value directly from KPI (most accurate for Total Value)
+          // Get Quantity
+          const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
+          
+          // Find matching activity to get Rate
+          let rate = 0
+          const matchingActivity = allActivities.find((activity: any) => {
+            if (!matchesProject(activity, project)) return false
+            
+            const kpiActivityName = (kpi.activity_name || rawKpi['Activity Name'] || '').toLowerCase().trim()
+            const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+            if (!kpiActivityName || !activityName || kpiActivityName !== activityName) return false
+            
+            // Zone matching (flexible)
+            const kpiZone = (kpi.zone || rawKpi['Zone'] || '').toString().trim()
+            const activityZone = (activity.zone_ref || activity.zone_number || activity.zone || '').toString().trim()
+            if (activityZone && kpiZone && activityZone !== kpiZone) return false
+            
+            return true
+          })
+          
+          if (matchingActivity) {
+            const rawActivity = (matchingActivity as any).raw || {}
+            const totalValueFromActivity = matchingActivity.total_value || 
+                                         parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                         0
+            const totalUnits = matchingActivity.total_units || 
+                            matchingActivity.planned_units ||
+                            parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                            0
+            
+            if (totalUnits > 0 && totalValueFromActivity > 0) {
+              rate = totalValueFromActivity / totalUnits
+            } else if (matchingActivity.rate && matchingActivity.rate > 0) {
+              rate = matchingActivity.rate
+            } else {
+              const rateFromRaw = parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
+              if (rateFromRaw > 0) rate = rateFromRaw
+            }
+          }
+          
+          // ✅ PRIORITY 1: ALWAYS calculate from Quantity × Rate if both are available
+          // This is the most accurate method as it uses the actual rate from the BOQ Activity
+          if (rate > 0 && quantity > 0) {
+            const calculatedValue = quantity * rate
+            if (calculatedValue > 0) {
+              totalValue += calculatedValue
+              return
+            }
+          }
+          
+          // ✅ PRIORITY 2: Use Planned Value directly from KPI (fallback)
           const plannedValue = kpi.planned_value || parseFloat(String(rawKpi['Planned Value'] || '0').replace(/,/g, '')) || 0
           if (plannedValue > 0) {
             totalValue += plannedValue
             return
           }
           
-          // ✅ PRIORITY 2: Fallback to Value field if Planned Value is not available
+          // ✅ PRIORITY 3: Fallback to Value field if Planned Value is not available (but check if it's actually a quantity)
           let kpiValue = 0
           
           // Try raw['Value'] (from database with capital V)
@@ -243,6 +293,24 @@ export function calculateWorkValueStatus(
           if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
             const val = kpi.value
             kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+          }
+          
+          // ✅ CRITICAL CHECK: If Value equals Quantity, it means it's a quantity, not a financial value
+          if (kpiValue > 0 && quantity > 0 && Math.abs(kpiValue - quantity) < 0.01) {
+            // Value equals quantity, so it's not a real financial value - skip
+            kpiValue = 0
+          }
+          
+          // ✅ PRIORITY 4: If still no rate, try to get Rate from KPI raw data and calculate
+          if (kpiValue === 0 && quantity > 0) {
+            const rateFromKPI = parseFloat(String(rawKpi['Rate'] || kpi.rate || '0').replace(/,/g, '')) || 0
+            if (rateFromKPI > 0) {
+              const calculatedFromKPIRate = quantity * rateFromKPI
+              if (calculatedFromKPIRate > 0) {
+                totalValue += calculatedFromKPIRate
+                return
+              }
+            }
           }
           
           if (kpiValue > 0) {

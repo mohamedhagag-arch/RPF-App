@@ -2338,7 +2338,7 @@ export function BOQTableWithCustomization({
         let plannedValue = 0
         if (allKPIs.length > 0 && totalValue > 0) {
           const plannedKPIs = allKPIs
-            .filter((kpi: any) => {
+              .filter((kpi: any) => {
               // Must be Planned type
               const inputType = (kpi.input_type || kpi['Input Type'] || (kpi as any).raw?.['Input Type'] || '').toLowerCase()
               if (inputType !== 'planned') return false
@@ -2362,7 +2362,7 @@ export function BOQTableWithCustomization({
               // Must be Actual type
               const inputType = (kpi.input_type || kpi['Input Type'] || (kpi as any).raw?.['Input Type'] || '').toLowerCase()
               if (inputType !== 'actual') return false
-              
+            
               // Must match activity
               if (!kpiMatchesActivity(kpi, activity)) return false
               

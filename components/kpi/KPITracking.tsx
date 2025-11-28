@@ -2389,16 +2389,16 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     
     // Log calculation summary for debugging
     if (process.env.NODE_ENV === 'development') {
-      console.log(`📊 [Planned Value] Calculated for ${plannedKPIs.length} Planned KPIs:`, {
-        total,
+    console.log(`📊 [Planned Value] Calculated for ${plannedKPIs.length} Planned KPIs:`, {
+      total,
         fromValue,
         fromRateCalculation,
-        skipped,
-        percentages: {
+      skipped,
+      percentages: {
           fromValue: plannedKPIs.length > 0 ? ((fromValue / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%',
           fromRateCalculation: plannedKPIs.length > 0 ? ((fromRateCalculation / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%',
-          skipped: plannedKPIs.length > 0 ? ((skipped / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%'
-        },
+        skipped: plannedKPIs.length > 0 ? ((skipped / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%'
+      },
         note: 'Using Value field (Priority 1) or calculating from Quantity × Rate (Priority 2). Skipping if Value equals Quantity.'
       })
     }

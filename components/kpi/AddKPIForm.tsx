@@ -372,19 +372,19 @@ export function AddKPIForm() {
                         // ✅ Use project_full_code if available, otherwise use project_code
                         const displayCode = project.project_full_code || project.project_code
                         return (
-                          <button
-                            key={project.id}
-                            type="button"
-                            onClick={() => handleProjectSelect(project)}
-                            className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700 last:border-b-0"
-                          >
-                            <div className="font-medium text-gray-900 dark:text-white">
+                        <button
+                          key={project.id}
+                          type="button"
+                          onClick={() => handleProjectSelect(project)}
+                          className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700 last:border-b-0"
+                        >
+                          <div className="font-medium text-gray-900 dark:text-white">
                               {displayCode}
-                            </div>
-                            <div className="text-sm text-gray-500 dark:text-gray-400">
-                              {project.project_name}
-                            </div>
-                          </button>
+                          </div>
+                          <div className="text-sm text-gray-500 dark:text-gray-400">
+                            {project.project_name}
+                          </div>
+                        </button>
                         )
                       })}
                   </div>

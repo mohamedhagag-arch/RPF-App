@@ -30,6 +30,7 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
   const [selectedActivityIds, setSelectedActivityIds] = useState<Set<string>>(new Set())
   const [selectedZones, setSelectedZones] = useState<Set<string>>(new Set())
   const [groupBy, setGroupBy] = useState<'daily' | 'weekly' | 'monthly'>('daily')
+  const [showCombinedView, setShowCombinedView] = useState<boolean>(false)
   
   // Bulk export states
   const [showBulkExportModal, setShowBulkExportModal] = useState(false)
@@ -90,8 +91,8 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
       }
     }
     
-    // Filter by selected zones (multiple selection)
-    if (selectedZones.size > 0) {
+    // Filter by selected zones (multiple selection) - but ignore zones if combined view is enabled
+    if (selectedZones.size > 0 && !showCombinedView) {
       filtered = filtered.filter((activity: BOQActivity) => {
         const rawActivity = (activity as any).raw || {}
         const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim().toUpperCase()
@@ -103,7 +104,7 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
     }
     
     return filtered
-  }, [activities, selectedProject, selectedActivityIds, selectedZones])
+  }, [activities, selectedProject, selectedActivityIds, selectedZones, showCombinedView])
   
   // Get unique activities for dropdown
   const availableActivities = useMemo(() => {
@@ -317,6 +318,34 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
     return true
   }, [zonesMatch])
   
+  // Helper function to match KPI to activity (ignoring zone for combined view)
+  const kpiMatchesActivityCombined = useCallback((kpi: any, activityName: string, projectFullCode: string): boolean => {
+    const rawKPI = (kpi as any).raw || {}
+    
+    // 1. Project Code Matching
+    const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+    const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+    
+    let projectMatch = false
+    if (projectFullCode && projectFullCode.includes('-')) {
+      projectMatch = kpiProjectFullCode === projectFullCode || kpiProjectFullCode.startsWith(projectFullCode.split('-')[0])
+    } else {
+      projectMatch = kpiProjectCode === projectFullCode || kpiProjectFullCode.startsWith(projectFullCode)
+    }
+    
+    if (!projectMatch) return false
+    
+    // 2. Activity Name Matching (case-insensitive, ignore zone)
+    const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || rawKPI['Activity'] || '').toString().trim().toLowerCase()
+    const normalizedActivityName = activityName.toLowerCase().trim()
+    
+    if (!kpiActivityName || !normalizedActivityName) return false
+    if (kpiActivityName !== normalizedActivityName) return false
+    
+    // ✅ For combined view, we ignore zone matching completely
+    return true
+  }, [])
+
   // Calculate chart data for each activity
   const activitiesChartData = useMemo(() => {
     if (!selectedProject || projectActivities.length === 0) return []
@@ -324,6 +353,240 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
     const cutOff = new Date(cutOffDate)
     cutOff.setHours(23, 59, 59, 999)
     
+    const projectFullCode = (selectedProject.project_full_code || `${selectedProject.project_code}${selectedProject.project_sub_code ? `-${selectedProject.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+    
+    // If combined view is enabled, group activities by name
+    if (showCombinedView) {
+      // Group activities by name
+      const activitiesByName = new Map<string, BOQActivity[]>()
+      projectActivities.forEach((activity: BOQActivity) => {
+        const activityName = (activity.activity_name || activity.activity || 'Unknown Activity').toLowerCase().trim()
+        if (!activitiesByName.has(activityName)) {
+          activitiesByName.set(activityName, [])
+        }
+        activitiesByName.get(activityName)!.push(activity)
+      })
+      
+      // Process each unique activity name
+      return Array.from(activitiesByName.entries()).map(([activityName, activitiesWithSameName]) => {
+        // Get all KPIs for this activity name (from all zones)
+        const activityKPIs = kpis.filter((kpi: any) => {
+          try {
+            return kpiMatchesActivityCombined(kpi, activityName, projectFullCode)
+          } catch (error) {
+            console.error('Error matching KPI to activity (combined):', error, { kpi, activityName })
+            return false
+          }
+        })
+        
+        // Use the first activity as the representative activity
+        const representativeActivity = activitiesWithSameName[0]
+        
+        // Continue with the same logic for processing KPIs...
+        // Separate Planned and Actual KPIs
+        const plannedKPIs = activityKPIs.filter((kpi: any) => {
+          const inputType = String(kpi.input_type || (kpi as any).raw?.['Input Type'] || '').trim().toLowerCase()
+          return inputType === 'planned'
+        })
+        
+        const actualKPIs = activityKPIs.filter((kpi: any) => {
+          const inputType = String(kpi.input_type || (kpi as any).raw?.['Input Type'] || '').trim().toLowerCase()
+          return inputType === 'actual'
+        })
+        
+        // Get dates from KPIs and filter by cut-off date
+        const getKPIDate = (kpi: any): Date | null => {
+          const raw = (kpi as any).raw || {}
+          const dayValue = (kpi as any).day || raw['Day'] || ''
+          const actualDateValue = kpi.actual_date || raw['Actual Date'] || ''
+          const targetDateValue = kpi.target_date || raw['Target Date'] || ''
+          const activityDateValue = kpi.activity_date || raw['Activity Date'] || ''
+          
+          let dateStr = ''
+          if (kpi.input_type === 'Actual' && actualDateValue) {
+            dateStr = actualDateValue
+          } else if (kpi.input_type === 'Planned' && targetDateValue) {
+            dateStr = targetDateValue
+          } else if (dayValue) {
+            dateStr = activityDateValue || dayValue
+          } else {
+            dateStr = activityDateValue || actualDateValue || targetDateValue
+          }
+          
+          if (!dateStr) return null
+          
+          try {
+            const date = new Date(dateStr)
+            if (isNaN(date.getTime())) return null
+            return date <= cutOff ? date : null
+          } catch {
+            return null
+          }
+        }
+        
+        // Helper function to get week number (ISO week)
+        const getWeekNumber = (date: Date): number => {
+          const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+          const dayNum = d.getUTCDay() || 7
+          d.setUTCDate(d.getUTCDate() + 4 - dayNum)
+          const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
+          return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
+        }
+        
+        // Helper function to get period key based on groupBy
+        const getPeriodKey = (date: Date): string => {
+          if (groupBy === 'daily') {
+            return date.toISOString().split('T')[0]
+          } else if (groupBy === 'weekly') {
+            // Get week number and year using ISO week calculation
+            const year = date.getFullYear()
+            const weekNumber = getWeekNumber(date)
+            return `${year}-W${weekNumber}`
+          } else { // monthly
+            const year = date.getFullYear()
+            const month = date.getMonth() + 1
+            return `${year}-${month.toString().padStart(2, '0')}`
+          }
+        }
+        
+        // Helper function to format period label
+        const formatPeriodLabel = (periodKey: string, startDate: Date, endDate: Date): string => {
+          if (groupBy === 'daily') {
+            return startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })
+          } else if (groupBy === 'weekly') {
+            return `Week ${periodKey.split('-W')[1]} (${startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
+          } else { // monthly
+            return startDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+          }
+        }
+        
+        // Helper function to get period start and end dates
+        const getPeriodDates = (periodKey: string): { start: Date; end: Date } => {
+          if (groupBy === 'daily') {
+            const date = new Date(periodKey)
+            date.setHours(0, 0, 0, 0)
+            return { start: date, end: date }
+          } else if (groupBy === 'weekly') {
+            const [year, weekStr] = periodKey.split('-W')
+            const weekNumber = parseInt(weekStr)
+            const yearNum = parseInt(year)
+            
+            // Calculate ISO week start (Monday)
+            const simple = new Date(yearNum, 0, 1 + (weekNumber - 1) * 7)
+            const dayOfWeek = simple.getDay()
+            const weekStart = new Date(simple)
+            weekStart.setDate(simple.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1)) // Monday
+            weekStart.setHours(0, 0, 0, 0)
+            
+            const weekEnd = new Date(weekStart)
+            weekEnd.setDate(weekStart.getDate() + 6)
+            weekEnd.setHours(23, 59, 59, 999)
+            return { start: weekStart, end: weekEnd }
+          } else { // monthly
+            const [year, month] = periodKey.split('-')
+            const start = new Date(parseInt(year), parseInt(month) - 1, 1)
+            start.setHours(0, 0, 0, 0)
+            const end = new Date(parseInt(year), parseInt(month), 0)
+            end.setHours(23, 59, 59, 999)
+            return { start, end }
+          }
+        }
+        
+        // Group KPIs by period (daily/weekly/monthly)
+        const periodMap = new Map<string, { planned: number; actual: number; startDate: Date; endDate: Date }>()
+        
+        plannedKPIs.forEach((kpi: any) => {
+          const date = getKPIDate(kpi)
+          if (!date) return
+          
+          const periodKey = getPeriodKey(date)
+          const quantity = parseFloat(String(kpi.quantity || (kpi as any).raw?.['Quantity'] || '0').replace(/,/g, '')) || 0
+          
+          if (!periodMap.has(periodKey)) {
+            const periodDates = getPeriodDates(periodKey)
+            periodMap.set(periodKey, { planned: 0, actual: 0, startDate: periodDates.start, endDate: periodDates.end })
+          }
+          const current = periodMap.get(periodKey)!
+          current.planned += quantity
+        })
+        
+        actualKPIs.forEach((kpi: any) => {
+          const date = getKPIDate(kpi)
+          if (!date) return
+          
+          const periodKey = getPeriodKey(date)
+          const quantity = parseFloat(String(kpi.quantity || (kpi as any).raw?.['Quantity'] || '0').replace(/,/g, '')) || 0
+          
+          if (!periodMap.has(periodKey)) {
+            const periodDates = getPeriodDates(periodKey)
+            periodMap.set(periodKey, { planned: 0, actual: 0, startDate: periodDates.start, endDate: periodDates.end })
+          }
+          const current = periodMap.get(periodKey)!
+          current.actual += quantity
+        })
+        
+        // Convert to array and sort by period start date
+        const chartData = Array.from(periodMap.entries())
+          .map(([periodKey, values]) => {
+            const periodDates = getPeriodDates(periodKey)
+            const startDate = periodDates.start
+            const endDate = periodDates.end
+            
+            // Validate dates before formatting
+            if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+              console.warn(`Invalid dates for periodKey: ${periodKey}`, { startDate, endDate })
+              return null // Skip invalid dates
+            }
+            
+            return {
+              date: startDate,
+              dateStr: periodKey,
+              periodLabel: formatPeriodLabel(periodKey, startDate, endDate),
+              periodStartDate: startDate, // Store the actual date for chart formatting
+              planned: values.planned,
+              actual: values.actual,
+              cumPlanned: 0,
+              cumActual: 0
+            }
+          })
+          .filter((item): item is NonNullable<typeof item> => item !== null) // Filter out null values
+          .sort((a, b) => a.date.getTime() - b.date.getTime())
+        
+        // Calculate cumulative values
+        let cumPlanned = 0
+        let cumActual = 0
+        chartData.forEach((item) => {
+          cumPlanned += item.planned
+          cumActual += item.actual
+          item.cumPlanned = cumPlanned
+          item.cumActual = cumActual
+        })
+        
+        return {
+          activity: {
+            ...representativeActivity,
+            activity_name: activitiesWithSameName[0].activity_name || activitiesWithSameName[0].activity || 'Unknown Activity',
+            // Mark as combined
+            _isCombined: true,
+            _allZones: activitiesWithSameName.map(a => {
+              const rawActivity = (a as any).raw || {}
+              return (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
+            }).filter(z => z).join(', ')
+          },
+          chartData,
+          tableData: chartData.map(item => ({
+            date: item.date,
+            dateStr: item.periodLabel,
+            planned: item.planned,
+            actual: item.actual,
+            cumPlanned: item.cumPlanned,
+            cumActual: item.cumActual
+          }))
+        }
+      })
+    }
+    
+    // Original logic for non-combined view
     return projectActivities.map((activity: BOQActivity) => {
       // Get KPIs for this activity
       const activityKPIs = kpis.filter((kpi: any) => {
@@ -527,7 +790,7 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
         }))
       }
     })
-  }, [selectedProject, projectActivities, kpis, cutOffDate, kpiMatchesActivity, groupBy])
+  }, [selectedProject, projectActivities, kpis, cutOffDate, kpiMatchesActivity, kpiMatchesActivityCombined, groupBy, showCombinedView])
   
   // Export Chart as Image
   const handleExportChart = useCallback(async (activityId: string, activityName: string, format: 'png' | 'jpeg' = 'png') => {
@@ -1402,6 +1665,23 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
             </div>
           )}
           
+          {/* Combined View Checkbox */}
+          {selectedProject && availableActivities.length > 0 && (
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showCombinedView}
+                  onChange={(e) => setShowCombinedView(e.target.checked)}
+                  className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                />
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Combined View (All Zones)
+                </span>
+              </label>
+            </div>
+          )}
+          
           {/* Group By Selection */}
           <div className="flex items-center gap-2">
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">
@@ -1479,11 +1759,15 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
                 <CardTitle className="flex items-center gap-2">
                   <Activity className="h-5 w-5 text-blue-500" />
                   {activityName}
-                  {getActivityZone(activity) && (
+                  {(activity as any)._isCombined ? (
+                    <span className="text-sm font-normal text-blue-600 dark:text-blue-400 ml-2 font-semibold">
+                      (Combined - All Zones: {(activity as any)._allZones || 'N/A'})
+                    </span>
+                  ) : getActivityZone(activity) ? (
                     <span className="text-sm font-normal text-gray-500 dark:text-gray-400 ml-2">
                       (Zone: {getActivityZone(activity)})
                     </span>
-                  )}
+                  ) : null}
                 </CardTitle>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                   {selectedProject?.project_full_code || `${selectedProject?.project_code}${selectedProject?.project_sub_code ? `-${selectedProject.project_sub_code}` : ''}`} - Cut off Date: {new Date(cutOffDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}

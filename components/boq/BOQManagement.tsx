@@ -3035,16 +3035,39 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       const rawKPI = (kpi as any).raw || {}
       const inputType = (kpi.input_type || rawKPI['Input Type'] || '').toString().toLowerCase().trim()
 
-      // ✅ PRIORITY 1: Use Planned/Actual Value directly from KPI (most accurate)
-      if (inputType === 'planned') {
-        const plannedValue = kpi.planned_value || parseFloat(String(rawKPI['Planned Value'] || '0').replace(/,/g, '')) || 0
-        if (plannedValue > 0) return plannedValue
-      } else if (inputType === 'actual') {
-        const actualValue = kpi.actual_value || parseFloat(String(rawKPI['Actual Value'] || '0').replace(/,/g, '')) || 0
-        if (actualValue > 0) return actualValue
+      // Get Quantity
+      const quantity = parseFloat(String(kpi.quantity || rawKPI['Quantity'] || '0').replace(/,/g, '')) || 0
+      
+      // Get Rate from Activity (same logic as getActivityRate)
+      const rawActivity = (activity as any).raw || {}
+      const totalValueFromActivity = activity.total_value || 
+                                   parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                   0
+      const totalUnits = activity.total_units || 
+                      activity.planned_units ||
+                      parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                      0
+      
+      let rate = 0
+      if (totalUnits > 0 && totalValueFromActivity > 0) {
+        rate = totalValueFromActivity / totalUnits
+      } else if (activity.rate && activity.rate > 0) {
+        rate = activity.rate
+      } else {
+        const rateFromRaw = parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
+        if (rateFromRaw > 0) rate = rateFromRaw
       }
       
-      // ✅ PRIORITY 2: Fallback to Value field if Planned/Actual Value is not available
+      // ✅ PRIORITY 1: ALWAYS calculate from Quantity × Rate if both are available
+      // This is the most accurate method as it uses the actual rate from the BOQ Activity
+      if (rate > 0 && quantity > 0) {
+        const calculatedValue = quantity * rate
+        if (calculatedValue > 0) {
+          return calculatedValue
+        }
+      }
+      
+      // ✅ PRIORITY 2: If Rate is not available, try to use Value from KPI (but check if it's actually a quantity)
       let kpiValue = 0
       
       // Try raw['Value'] (from database with capital V)
@@ -3065,8 +3088,35 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
       }
       
+      // ✅ CRITICAL CHECK: If Value equals Quantity, it means it's a quantity, not a financial value
+      // In this case, we cannot use it - return 0 or try Planned/Actual Value
+      if (kpiValue > 0 && quantity > 0 && Math.abs(kpiValue - quantity) < 0.01) {
+        // Value equals quantity, so it's not a real financial value - skip to Planned/Actual Value
+        kpiValue = 0
+      }
+      
       if (kpiValue > 0) {
         return kpiValue
+      }
+      
+      // ✅ PRIORITY 3: Fallback to Planned/Actual Value if available
+      if (inputType === 'planned') {
+        const plannedValue = kpi.planned_value || parseFloat(String(rawKPI['Planned Value'] || '0').replace(/,/g, '')) || 0
+        if (plannedValue > 0) return plannedValue
+      } else if (inputType === 'actual') {
+        const actualValue = kpi.actual_value || parseFloat(String(rawKPI['Actual Value'] || '0').replace(/,/g, '')) || 0
+        if (actualValue > 0) return actualValue
+      }
+      
+      // ✅ PRIORITY 4: If still 0, try to get Rate from KPI raw data and calculate
+      if (quantity > 0) {
+        const rateFromKPI = parseFloat(String(rawKPI['Rate'] || kpi.rate || '0').replace(/,/g, '')) || 0
+        if (rateFromKPI > 0) {
+          const calculatedFromKPIRate = quantity * rateFromKPI
+          if (calculatedFromKPIRate > 0) {
+            return calculatedFromKPIRate
+          }
+        }
       }
       
       return 0
@@ -3154,17 +3204,31 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     // Achievement Rate (by value): Use valueAchievementRate as the main achievement rate
     const achievementRateByValue = valueAchievementRate
     
-    // Total Value: Sum of ALL Planned KPIs (NO date filter) - SAME AS KPI PAGE AND PROJECTS PAGE
-    // Total Value = مجموع جميع Planned KPIs للمشاريع المفلترة بدون فلترة بالتاريخ
-    // This is different from Planned Value which is filtered until yesterday
-    const totalValue = plannedKPIs
-      .reduce((sum, kpi) => {
-        // Find matching activity for this KPI
-        const matchingActivity = filteredActivities.find(activity => kpiMatchesActivity(kpi, activity))
-        if (!matchingActivity) return sum
+    // Total Value: Sum of total_value from ALL filtered activities
+    // Total Value = مجموع total_value من جميع الأنشطة المفلترة
+    // This represents the total contract value for all filtered activities
+    const totalValue = filteredActivities.reduce((sum, activity) => {
+      const rawActivity = (activity as any).raw || {}
+      const activityTotalValue = activity.total_value || 
+                               parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                               0
+      
+      // If total_value is not available, calculate from Rate × Total Units
+      if (activityTotalValue === 0) {
+        const rate = activity.rate || 
+                    parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+                    0
+        const totalUnits = activity.total_units || 
+                        activity.planned_units ||
+                        parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                        0
         
-        const value = getKPIValue(kpi, matchingActivity)
-        return sum + value
+        if (rate > 0 && totalUnits > 0) {
+          return sum + (rate * totalUnits)
+        }
+      }
+      
+      return sum + activityTotalValue
     }, 0)
     
     // Actual Value / Total Value Rate: (Actual Value / Total Value) * 100

@@ -5957,7 +5957,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
           
           // ✅ CRITICAL: If no value found and no rate, skip (NEVER use quantity as value!)
           if (financialValue === 0) {
-            return sum
+          return sum
           }
           
           // ✅ Always return the base financialValue (Actual value remains constant)
@@ -7801,7 +7801,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
             
             if (isExpanded) {
               // ✅ Project is expanded: calculate sum of activities' VM (which is what the project row displays)
-              const project = analytics.project
+      const project = analytics.project
               const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
               const projectActivities = activities.filter((activity: BOQActivity) => {
                 const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
@@ -7921,11 +7921,11 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                   })
                   
                   // Get Virtual Material Percentage from project
-                  let virtualMaterialPercentage = 0
-                  const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
-                  
-                  if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
-                    let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
+      let virtualMaterialPercentage = 0
+      const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
+      
+      if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
+        let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
                     const parsedValue = parseFloat(cleanedValue)
                     if (!isNaN(parsedValue)) {
                       if (parsedValue > 0 && parsedValue <= 1) {
@@ -8056,16 +8056,16 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                   
                   if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
                     let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
-                    const parsedValue = parseFloat(cleanedValue)
-                    if (!isNaN(parsedValue)) {
-                      if (parsedValue > 0 && parsedValue <= 1) {
-                        virtualMaterialPercentage = parsedValue * 100
-                      } else {
-                        virtualMaterialPercentage = parsedValue
-                      }
-                    }
-                  }
-                  
+        const parsedValue = parseFloat(cleanedValue)
+        if (!isNaN(parsedValue)) {
+          if (parsedValue > 0 && parsedValue <= 1) {
+            virtualMaterialPercentage = parsedValue * 100
+          } else {
+            virtualMaterialPercentage = parsedValue
+          }
+        }
+      }
+      
                   if (virtualMaterialPercentage === 0) return
                   
                   // Calculate Planned Virtual Material Amount for this activity in this period
@@ -8106,8 +8106,8 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
               sum += plannedVirtualMaterialAmounts.reduce((s, val) => s + val, 0)
             }
           })
-          
-          return sum
+      
+      return sum
         })()
       : 0
     
@@ -9471,17 +9471,17 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                   {showOuterRangeColumn && outerRangeStart && (
                     viewPlannedValue ? (
                       <th colSpan={2} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: '320px' }}>
-                        <div className="font-bold text-blue-700 dark:text-blue-300">Outer Range</div>
-                        <div className="text-xs font-normal text-gray-500 dark:text-gray-400 mt-1">
-                          {outerRangeStart && dateRange.start ? (
-                            <>
-                              {new Date(outerRangeStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(dateRange.start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                            </>
-                          ) : (
-                            <span>Before Period</span>
-                          )}
-                        </div>
-                      </th>
+                      <div className="font-bold text-blue-700 dark:text-blue-300">Outer Range</div>
+                      <div className="text-xs font-normal text-gray-500 dark:text-gray-400 mt-1">
+                        {outerRangeStart && dateRange.start ? (
+                          <>
+                            {new Date(outerRangeStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(dateRange.start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          </>
+                        ) : (
+                          <span>Before Period</span>
+                        )}
+                      </div>
+                    </th>
                     ) : (
                       <th rowSpan={1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}>
                         <div className="font-bold text-blue-700 dark:text-blue-300">Outer Range</div>
@@ -9511,12 +9511,12 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                     } else {
                       // When viewPlannedValue is disabled, show single column per period
                       return (
-                        <th key={index} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '140px' }}>
-                          <div>{period.label}</div>
-                          <div className="text-xs font-normal text-gray-500 dark:text-gray-400">
-                            {period.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {period.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                          </div>
-                        </th>
+                    <th key={index} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '140px' }}>
+                      <div>{period.label}</div>
+                      <div className="text-xs font-normal text-gray-500 dark:text-gray-400">
+                        {period.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {period.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </div>
+                    </th>
                       )
                     }
                   })}
@@ -9525,9 +9525,9 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                       <div className="font-bold text-gray-900 dark:text-white">Grand Total</div>
                     </th>
                   ) : (
-                    <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '150px' }}>Grand Total</th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '150px' }}>Grand Total</th>
                   )}
-                </tr>
+            </tr>
                 {/* Second row: Sub-headers for Actual and Planned (only when viewPlannedValue is enabled) */}
                 {viewPlannedValue && (
                   <tr className="bg-gray-100 dark:bg-gray-800 border-b-2 border-gray-300 dark:border-gray-600">
@@ -9932,7 +9932,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                       })
                     } else {
                       // Use cache values (from KPIs directly)
-                      const cachedValues = periodValuesCache.get(project.id)
+                    const cachedValues = periodValuesCache.get(project.id)
                       periodValues = cachedValues?.earned || []
                       periodPlannedValues = viewPlannedValue ? (cachedValues?.planned || []) : []
                       periodVirtualMaterialAmounts = showVirtualMaterialValues ? (cachedValues?.virtualMaterialAmount || []) : []
@@ -9945,7 +9945,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                     
                     return (
                       <>
-                        <tr key={project.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                      <tr key={project.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                           <td className="border border-gray-300 dark:border-gray-600 px-2 py-3 text-center" style={{ width: '50px' }}>
                             {projectActivities.length > 0 && (
                               <button
@@ -9969,14 +9969,14 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                               </button>
                             )}
                           </td>
-                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 sticky left-0 z-10 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800" style={{ width: '200px', overflow: 'hidden' }}>
-                            <div className="min-w-0">
-                              <p className="font-semibold text-gray-900 dark:text-white truncate">
-                                {project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`}
-                              </p>
-                              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">{project.project_name}</p>
-                            </div>
-                          </td>
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 sticky left-0 z-10 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800" style={{ width: '200px', overflow: 'hidden' }}>
+                          <div className="min-w-0">
+                            <p className="font-semibold text-gray-900 dark:text-white truncate">
+                              {project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">{project.project_name}</p>
+                  </div>
+                </td>
                         {!hideDivisionsColumn && (
                           <td className="border border-gray-300 dark:border-gray-600 px-4 py-3" style={{ width: '180px', overflow: 'hidden' }}>
                             {divisionsList.length === 0 ? (
@@ -10069,7 +10069,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                               const virtualMaterialAmount = showVirtualMaterialValues 
                                 ? periodVirtualMaterialAmounts.reduce((sum: number, val: number) => sum + val, 0)
                                 : (grandTotal > 0 && virtualMaterialPercentage > 0
-                                  ? grandTotal * (virtualMaterialPercentage / 100)
+                                ? grandTotal * (virtualMaterialPercentage / 100)
                                   : 0)
                               
                               return (
@@ -10175,10 +10175,10 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                                 </td>
                               </>
                             ) : (
-                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}>
-                                {(() => {
-                                  const cachedValues = periodValuesCache.get(project.id)
-                                  const outerRangeValue = cachedValues?.outerRangeValue || 0
+                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}>
+                            {(() => {
+                              const cachedValues = periodValuesCache.get(project.id)
+                              const outerRangeValue = cachedValues?.outerRangeValue || 0
                                   const outerRangeVirtualMaterial = cachedValues?.outerRangeVirtualMaterialAmount || 0
                                   const totalOuterRange = outerRangeValue + outerRangeVirtualMaterial
                                   
@@ -10210,9 +10210,9 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                                         )
                                       )}
                                     </div>
-                                  )
-                                })()}
-                              </td>
+                              )
+                            })()}
+                          </td>
                             )}
                           </>
                         )}
@@ -10223,11 +10223,11 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                           
                           if (viewPlannedValue) {
                             // When viewPlannedValue is enabled, show two separate cells: Actual and Planned
-                            return (
+                          return (
                               <>
                                 {/* Actual Column */}
                                 <td key={`${index}-actual`} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-green-50/30 dark:bg-green-900/10" style={{ width: '140px' }}>
-                                  <div className="space-y-1">
+                                <div className="space-y-1">
                                     {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
                                       <>
                                         {(() => {
@@ -10235,7 +10235,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                                           return (
                                             <>
                                               {/* 1. القيمة الأساسية (Actual) */}
-                                              {value > 0 ? (
+                                  {value > 0 ? (
                                                 <div className="font-medium text-green-600 dark:text-green-400">
                                                   {formatCurrency(value, project.currency)}
                                                 </div>
@@ -10260,9 +10260,9 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                                       </>
                                     ) : (
                                       value > 0 ? (
-                                        <div className="font-medium text-green-600 dark:text-green-400">{formatCurrency(value, project.currency)}</div>
-                                      ) : (
-                                        <div className="text-gray-400">-</div>
+                                    <div className="font-medium text-green-600 dark:text-green-400">{formatCurrency(value, project.currency)}</div>
+                                  ) : (
+                                    <div className="text-gray-400">-</div>
                                       )
                                     )}
                                   </div>
@@ -10277,24 +10277,24 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                                           return (
                                             <>
                                               {/* 1. القيمة الأساسية (Planned) */}
-                                              {plannedValue > 0 ? (
+                                  {plannedValue > 0 ? (
                                                 <div className="font-medium text-blue-600 dark:text-blue-400">
                                                   {formatCurrency(plannedValue, project.currency)}
                                                 </div>
-                                              ) : (
+                                  ) : (
                                                 <div className="text-gray-400">-</div>
-                                              )}
+                                  )}
                                               {/* 2. Virtual Material فقط */}
                                               {periodPlannedVirtualMaterial > 0 && (
-                                                <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                    <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
                                                   {formatCurrency(periodPlannedVirtualMaterial, project.currency)}
-                                                </div>
-                                              )}
+                                    </div>
+                                  )}
                                               {/* 3. Total (Base + VM) - فقط إذا كان هناك VM */}
                                               {periodPlannedVirtualMaterial > 0 && totalPlannedValue > 0 && (
                                                 <div className="text-xs font-bold text-gray-900 dark:text-white">
                                                   {formatCurrency(totalPlannedValue, project.currency)}
-                                                </div>
+                                </div>
                                               )}
                                             </>
                                           )
@@ -10327,8 +10327,8 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                                     </div>
                                   )}
                                 </div>
-                              </td>
-                            )
+                            </td>
+                          )
                           }
                         })}
                         {viewPlannedValue ? (
@@ -10433,8 +10433,8 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                             </td>
                           </>
                         ) : (
-                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '150px' }}>
-                            {(() => {
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '150px' }}>
+                          {(() => {
                               // Calculate Virtual Material Total from periodVirtualMaterialAmounts
                               const grandTotalVirtualMaterial = showVirtualMaterialValues 
                                 ? periodVirtualMaterialAmounts.reduce((sum: number, val: number) => sum + val, 0)
@@ -10455,8 +10455,39 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                         )}
                         </tr>
                         {/* Activity Details Rows */}
-                        {isExpanded && projectActivities.map((activity: BOQActivity) => {
-                          const rawActivity = (activity as any).raw || {}
+                        {isExpanded && (() => {
+                          // Group activities by zone first
+                          const activitiesByZone = new Map<string, BOQActivity[]>()
+                          projectActivities.forEach((activity: BOQActivity) => {
+                            const rawActivity = (activity as any).raw || {}
+                            const zone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '0').toString().trim()
+                            const zoneKey = zone || '0' // Default to '0' if no zone
+                            if (!activitiesByZone.has(zoneKey)) {
+                              activitiesByZone.set(zoneKey, [])
+                            }
+                            activitiesByZone.get(zoneKey)!.push(activity)
+                          })
+                          
+                          // Sort zones for consistent display
+                          const sortedZones = Array.from(activitiesByZone.entries()).sort(([zoneA], [zoneB]) => {
+                            // Extract numeric part for sorting
+                            const numA = parseInt(zoneA.replace(/\D/g, '')) || 0
+                            const numB = parseInt(zoneB.replace(/\D/g, '')) || 0
+                            return numA - numB
+                          })
+                          
+                          // Render activities grouped by zone
+                          return sortedZones.flatMap(([zoneKey, zoneActivities]) => {
+                            // Sort activities within zone by name
+                            const sortedActivities = zoneActivities.sort((a, b) => {
+                              const nameA = (a.activity_name || a.activity || '').toLowerCase().trim()
+                              const nameB = (b.activity_name || b.activity || '').toLowerCase().trim()
+                              return nameA.localeCompare(nameB)
+                            })
+                            
+                            // Return all activities for this zone
+                            return sortedActivities.map((activity: BOQActivity) => {
+                              const rawActivity = (activity as any).raw || {}
                           
                           // Calculate Actual period values for this activity
                           const activityPeriodValues = periods.map((period) => {
@@ -10907,7 +10938,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                               {!hideVirtualMaterialColumn && (
                                 <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right" style={{ width: '180px' }}>
                                   {project.virtual_material_value ? (
-                                    <div className="space-y-1">
+                              <div className="space-y-1">
                                       {(() => {
                                         let virtualMaterialPercentage = 0
                                         const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
@@ -10989,14 +11020,14 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                                                       <div className="text-gray-400">-</div>
                                                     )}
                                                     {periodVirtualMaterial > 0 && (
-                                                      <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                  <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
                                                         {formatCurrency(periodVirtualMaterial, project.currency)}
-                                                      </div>
-                                                    )}
+                                  </div>
+                                )}
                                                     {periodVirtualMaterial > 0 && totalValue > 0 && (
                                                       <div className="text-xs font-bold text-gray-900 dark:text-white">
                                                         {formatCurrency(totalValue, project.currency)}
-                                                      </div>
+                              </div>
                                                     )}
                                                   </>
                                                 )
@@ -11012,7 +11043,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                                         </div>
                                       </td>
                                       <td key={`${index}-planned`} className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-blue-50/30 dark:bg-blue-900/10" style={{ width: '140px' }}>
-                                        <div className="space-y-1">
+                              <div className="space-y-1">
                                           {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
                                             <>
                                               {(() => {
@@ -11025,18 +11056,18 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                                                       <div className="text-gray-400">-</div>
                                                     )}
                                                     {periodPlannedVirtualMaterial > 0 && (
-                                                      <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                  <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
                                                         {formatCurrency(periodPlannedVirtualMaterial, project.currency)}
-                                                      </div>
-                                                    )}
+                                  </div>
+                                )}
                                                     {periodPlannedVirtualMaterial > 0 && totalPlannedValue > 0 && (
                                                       <div className="text-xs font-bold text-gray-900 dark:text-white">
                                                         {formatCurrency(totalPlannedValue, project.currency)}
-                                                      </div>
+                              </div>
                                                     )}
                                                   </>
-                                                )
-                                              })()}
+                            )
+                          })()}
                                             </>
                                           ) : (
                                             plannedValue > 0 ? (
@@ -11046,7 +11077,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                                             )
                                           )}
                                         </div>
-                                      </td>
+                        </td>
                                     </>
                                   )
                                 } else {
@@ -11199,9 +11230,11 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                                   </div>
                                 </td>
                               )}
-                            </tr>
-                          )
-                        })}
+              </tr>
+                            )
+                          })
+                        })
+                      })()}
                       </>
                     )
                   })
@@ -11335,19 +11368,19 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                           </td>
                         </>
                       ) : (
-                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}>
-                          {(() => {
-                            const totalOuterRangeValue = projectsWithWorkInRange.reduce((sum: number, analytics: any) => {
-                              const cachedValues = periodValuesCache.get(analytics.project.id)
-                              return sum + (cachedValues?.outerRangeValue || 0)
-                            }, 0)
-                            return totalOuterRangeValue > 0 ? (
-                              <span className="font-bold text-blue-700 dark:text-blue-300">{formatCurrency(totalOuterRangeValue)}</span>
-                            ) : (
-                              <span className="text-gray-400">-</span>
-                            )
-                          })()}
-                        </td>
+                      <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}>
+                        {(() => {
+                          const totalOuterRangeValue = projectsWithWorkInRange.reduce((sum: number, analytics: any) => {
+                            const cachedValues = periodValuesCache.get(analytics.project.id)
+                            return sum + (cachedValues?.outerRangeValue || 0)
+                          }, 0)
+                          return totalOuterRangeValue > 0 ? (
+                            <span className="font-bold text-blue-700 dark:text-blue-300">{formatCurrency(totalOuterRangeValue)}</span>
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )
+                        })()}
+                      </td>
                       )
                     )}
                     {totals.periodEarnedValueTotals.map((value: number, index: number) => {
@@ -11663,11 +11696,11 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                       
                       if (viewPlannedValue) {
                         // When viewPlannedValue is enabled, show two separate cells: Actual and Planned
-                        return (
+                      return (
                           <>
                             {/* Actual Column */}
                             <td key={`${index}-actual`} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-green-50/30 dark:bg-green-900/10" style={{ width: '140px' }}>
-                              <div className="space-y-1">
+                            <div className="space-y-1">
                                 {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
                                   <>
                                     {(() => {
@@ -11686,7 +11719,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                                           {periodVirtualMaterial > 0 && (
                                             <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
                                               {formatCurrency(periodVirtualMaterial)}
-                                            </div>
+                            </div>
                                           )}
                                           {/* 3. Total (Base + VM) - فقط إذا كان هناك VM */}
                                           {periodVirtualMaterial > 0 && totalValue > 0 && (
@@ -11771,18 +11804,18 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                                   )
                                 })()}
                               </>
-                            ) : (
-                              <span className="text-green-600 dark:text-green-400">{formatCurrency(value)}</span>
-                            )}
-                          </td>
-                        )
+                          ) : (
+                        <span className="text-green-600 dark:text-green-400">{formatCurrency(value)}</span>
+                          )}
+                      </td>
+                      )
                       }
                     })}
-                    {viewPlannedValue ? (
+                      {viewPlannedValue ? (
                       <>
                         {/* Actual Grand Total Column */}
                         <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-green-50/30 dark:bg-green-900/10" style={{ width: '150px' }}>
-                          <div className="space-y-1">
+                        <div className="space-y-1">
                             {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
                               <>
                                 {(() => {
@@ -11801,7 +11834,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                                       {totals.totalVirtualMaterialAmount > 0 && (
                                         <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
                                           {formatCurrency(totals.totalVirtualMaterialAmount)}
-                                        </div>
+                        </div>
                                       )}
                                       {/* 3. Total (Base + VM) - فقط إذا كان هناك VM */}
                                       {totals.totalVirtualMaterialAmount > 0 && totalGrandTotal > 0 && (
@@ -11817,7 +11850,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                               <span className="text-gray-900 dark:text-white font-bold">{formatCurrency(totals.grandTotalEarnedValue)}</span>
                             )}
                           </div>
-                        </td>
+                    </td>
                         {/* Planned Grand Total Column */}
                         <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50/30 dark:bg-blue-900/10" style={{ width: '150px' }}>
                           <div className="space-y-1">

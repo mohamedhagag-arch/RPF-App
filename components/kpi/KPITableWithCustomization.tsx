@@ -751,7 +751,7 @@ export function KPITableWithCustomization({
           })
         }
         
-        // Calculate Rate from matched Activity
+        // Calculate Rate from matched Activity - CRITICAL: We MUST have a rate to calculate financial value
         let rateForValue = 0
         let totalValueFromActivity = 0
         
@@ -769,14 +769,14 @@ export function KPITableWithCustomization({
                               0
               
           // Calculate Rate = Total Value / Total Units
-              if (totalUnits > 0 && totalValueFromActivity > 0) {
-                rateForValue = totalValueFromActivity / totalUnits
+          if (totalUnits > 0 && totalValueFromActivity > 0) {
+            rateForValue = totalValueFromActivity / totalUnits
           } else {
             // Fallback: Try to get rate directly from activity
             rateForValue = matchedActivity.rate || 
                           parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
                                      0
-            }
+          }
             
           // Debug logging
           if (process.env.NODE_ENV === 'development') {
@@ -789,59 +789,143 @@ export function KPITableWithCustomization({
               kpiZoneNum: kpiZoneNum || 'N/A',
               activityZone: activityZone || 'N/A',
               activityZoneNum: activityZoneNum || 'N/A',
-                totalValueFromActivity,
+              totalValueFromActivity,
               totalUnits,
               rateForValue,
               calculation: `${totalValueFromActivity} / ${totalUnits} = ${rateForValue}`
-              })
-            }
-          } else {
-          // Fallback: Try to get rate from KPI raw data
-          rateForValue = parseFloat(String(rawKPIValue['Rate'] || '0').replace(/,/g, '')) || 0
-          
-          if (process.env.NODE_ENV === 'development') {
-            console.warn(`⚠️ [KPI Value] No matching Activity found for "${kpi.activity_name}" (Zone: ${kpiZone || 'N/A'}):`, {
-              kpiProjectCode,
-                kpiActivityName,
-              kpiZone: kpiZone || 'N/A',
-              kpiZoneNum: kpiZoneNum || 'N/A',
-              totalActivities: allActivities.length
             })
           }
         }
         
-        // ✅ PRIORITY: Calculate Total Value = Quantity × Rate
-        let totalValue = quantityForValue * rateForValue
-        
-        // ✅ FALLBACK: If calculated value is 0, try to use Value directly from KPI
-        if (totalValue === 0) {
-          // Priority 1: Use Value directly from KPI if available
-          const valueFromKPI = kpi.value || parseFloat(String(rawKPIValue['Value'] || '0').replace(/,/g, '')) || 0
-          if (valueFromKPI > 0) {
-            totalValue = valueFromKPI
-            if (process.env.NODE_ENV === 'development') {
-              console.log(`✅ [KPI Value] Using Value directly from KPI for "${kpi.activity_name}": ${valueFromKPI}`)
-            }
-          } else {
-            // Priority 2: Try Planned Value or Actual Value based on Input Type
-            if (kpi.input_type === 'Planned') {
-              const plannedValue = kpi.planned_value || parseFloat(String(rawKPIValue['Planned Value'] || '0').replace(/,/g, '')) || 0
-              if (plannedValue > 0) {
-                totalValue = plannedValue
+        // ✅ CRITICAL: If no rate from matched Activity, try multiple fallback strategies
+        if (rateForValue === 0) {
+          // Strategy 1: Try to get rate from KPI raw data
+          rateForValue = parseFloat(String(rawKPIValue['Rate'] || '0').replace(/,/g, '')) || 0
+          
+          // Strategy 2: If still 0, try to find ANY activity with same name and project (ignore zone)
+          if (rateForValue === 0 && allActivities.length > 0 && kpiActivityName) {
+            const anyMatchingActivity = allActivities.find((activity: any) => {
+              const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+              if (!activityName || activityName !== kpiActivityName) return false
+              
+              const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
+              const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+              const projectMatch = (
+                (kpiProjectCode && activityProjectCode && kpiProjectCode === activityProjectCode) ||
+                (kpiProjectFullCode && activityProjectFullCode && kpiProjectFullCode === activityProjectFullCode) ||
+                (kpiProjectCode && activityProjectFullCode && kpiProjectCode === activityProjectFullCode) ||
+                (kpiProjectFullCode && activityProjectCode && kpiProjectFullCode === activityProjectCode)
+              )
+              return projectMatch
+            })
+            
+            if (anyMatchingActivity) {
+              const rawActivity = (anyMatchingActivity as any).raw || {}
+              const totalValue = anyMatchingActivity.total_value || 
+                               parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                               0
+              const totalUnits = anyMatchingActivity.total_units || 
+                               anyMatchingActivity.planned_units ||
+                               parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                               0
+              
+              if (totalUnits > 0 && totalValue > 0) {
+                rateForValue = totalValue / totalUnits
                 if (process.env.NODE_ENV === 'development') {
-                  console.log(`✅ [KPI Value] Using Planned Value from KPI for "${kpi.activity_name}": ${plannedValue}`)
+                  console.log(`✅ [KPI Value] Using Rate from any matching activity (ignoring zone): ${rateForValue}`)
                 }
-              }
-            } else if (kpi.input_type === 'Actual') {
-              const actualValue = kpi.actual_value || parseFloat(String(rawKPIValue['Actual Value'] || '0').replace(/,/g, '')) || 0
-              if (actualValue > 0) {
-                totalValue = actualValue
-                if (process.env.NODE_ENV === 'development') {
-                  console.log(`✅ [KPI Value] Using Actual Value from KPI for "${kpi.activity_name}": ${actualValue}`)
+              } else {
+                rateForValue = anyMatchingActivity.rate || 
+                             parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+                             0
+                if (process.env.NODE_ENV === 'development' && rateForValue > 0) {
+                  console.log(`✅ [KPI Value] Using Rate directly from any matching activity: ${rateForValue}`)
                 }
               }
             }
           }
+          
+          if (process.env.NODE_ENV === 'development') {
+            if (rateForValue > 0) {
+              console.log(`✅ [KPI Value] Final Rate found: ${rateForValue}`)
+            } else {
+              console.warn(`⚠️ [KPI Value] No Rate found for "${kpi.activity_name}" (Zone: ${kpiZone || 'N/A'}):`, {
+                kpiProjectCode,
+                kpiActivityName,
+                kpiZone: kpiZone || 'N/A',
+                kpiZoneNum: kpiZoneNum || 'N/A',
+                totalActivities: allActivities.length,
+                quantityForValue,
+                hasMatchedActivity: !!matchedActivity
+              })
+            }
+          }
+        }
+        
+        // ✅ CRITICAL FIX: ALWAYS calculate from Quantity × Rate if Quantity is available
+        // NEVER use Value from KPI if it equals Quantity (it's a quantity, not a financial value)
+        let totalValue = 0
+        
+        // Get Value from KPI for comparison
+        const valueFromKPI = kpi.value || parseFloat(String(rawKPIValue['Value'] || '0').replace(/,/g, '')) || 0
+        
+        // ✅ CRITICAL CHECK: If Value equals Quantity, it means it's a quantity stored in Value field
+        // In this case, we MUST calculate from Rate × Quantity, never use the Value
+        const isValueActuallyQuantity = valueFromKPI > 0 && quantityForValue > 0 && Math.abs(valueFromKPI - quantityForValue) < 0.01
+        
+        // ✅ PRIORITY 1: Calculate from Quantity × Rate if Quantity is available
+        // This is ALWAYS the correct method when we have a quantity
+        if (quantityForValue > 0) {
+          if (rateForValue > 0) {
+            // We have both Quantity and Rate - calculate the financial value
+            totalValue = quantityForValue * rateForValue
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`✅ [KPI Value] Calculating from Rate × Quantity: ${quantityForValue} × ${rateForValue} = ${totalValue}`)
+            }
+          } else if (isValueActuallyQuantity) {
+            // Value equals quantity, so we cannot use it - we need Rate
+            // Keep totalValue as 0 and show warning
+            if (process.env.NODE_ENV === 'development') {
+              console.warn(`⚠️ [KPI Value] Value equals Quantity (${valueFromKPI}), but no Rate found. Cannot calculate financial value.`)
+            }
+          } else if (valueFromKPI > 0 && !isValueActuallyQuantity) {
+            // Value is different from quantity, so it's a real financial value
+            // But we prefer Rate × Quantity if Rate is available
+            // Since Rate is 0, use Value as fallback
+            totalValue = valueFromKPI
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`✅ [KPI Value] No Rate available, using Value from KPI: ${valueFromKPI}`)
+            }
+          }
+        }
+        
+        // ✅ PRIORITY 2: FALLBACK - If still 0 and no quantity, try Planned Value or Actual Value
+        if (totalValue === 0 && quantityForValue === 0) {
+          if (kpi.input_type === 'Planned') {
+            const plannedValue = kpi.planned_value || parseFloat(String(rawKPIValue['Planned Value'] || '0').replace(/,/g, '')) || 0
+            if (plannedValue > 0) {
+              totalValue = plannedValue
+              if (process.env.NODE_ENV === 'development') {
+                console.log(`✅ [KPI Value] Using Planned Value from KPI for "${kpi.activity_name}": ${plannedValue}`)
+              }
+            }
+          } else if (kpi.input_type === 'Actual') {
+            const actualValue = kpi.actual_value || parseFloat(String(rawKPIValue['Actual Value'] || '0').replace(/,/g, '')) || 0
+            if (actualValue > 0) {
+              totalValue = actualValue
+              if (process.env.NODE_ENV === 'development') {
+                console.log(`✅ [KPI Value] Using Actual Value from KPI for "${kpi.activity_name}": ${actualValue}`)
+              }
+            }
+          }
+        }
+        
+        // ✅ FINAL CHECK: If totalValue is still 0 but we have quantity, and Value equals quantity
+        // This means we couldn't calculate because Rate is missing
+        // In this case, we should NOT display the quantity as value - keep it as 0
+        if (totalValue === 0 && quantityForValue > 0 && isValueActuallyQuantity) {
+          // Explicitly keep as 0 - don't use quantity as value
+          totalValue = 0
         }
         
         // Get project currency
@@ -1035,43 +1119,129 @@ export function KPITableWithCustomization({
                             parseFloat(String(rawActivityVirtual['Rate'] || '0').replace(/,/g, '')) || 
                                      0
           }
-        } else {
-          // Fallback: Try to get rate from KPI raw data
-          rateForVirtual = parseFloat(String(rawKPIVirtual['Rate'] || '0').replace(/,/g, '')) || 0
         }
         
-        // ✅ PRIORITY: Calculate Base Value = Quantity × Rate
-        let baseValue = quantityForVirtual * rateForVirtual
-        
-        // ✅ FALLBACK: If calculated base value is 0, try to use Value directly from KPI
-        if (baseValue === 0) {
-          // Priority 1: Use Value directly from KPI if available
-          const valueFromKPI = kpi.value || parseFloat(String(rawKPIVirtual['Value'] || '0').replace(/,/g, '')) || 0
-          if (valueFromKPI > 0) {
-            baseValue = valueFromKPI
-            if (process.env.NODE_ENV === 'development') {
-              console.log(`✅ [KPI Virtual Value] Using Value directly from KPI for "${kpi.activity_name}": ${valueFromKPI}`)
-            }
-          } else {
-            // Priority 2: Try Planned Value or Actual Value based on Input Type
-            if (kpi.input_type === 'Planned') {
-              const plannedValue = kpi.planned_value || parseFloat(String(rawKPIVirtual['Planned Value'] || '0').replace(/,/g, '')) || 0
-              if (plannedValue > 0) {
-                baseValue = plannedValue
+        // ✅ CRITICAL: If no rate from Activity, try multiple fallback strategies (same as Value column)
+        if (rateForVirtual === 0) {
+          // Strategy 1: Try to get rate from KPI raw data
+          rateForVirtual = parseFloat(String(rawKPIVirtual['Rate'] || '0').replace(/,/g, '')) || 0
+          
+          // Strategy 2: If still 0, try to find ANY activity with same name and project (ignore zone)
+          if (rateForVirtual === 0 && allActivities.length > 0 && kpiActivityNameVirtual) {
+            const anyMatchingActivity = allActivities.find((activity: any) => {
+              const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+              if (!activityName || activityName !== kpiActivityNameVirtual) return false
+              
+              const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
+              const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+              const projectMatch = (
+                (kpiProjectCodeVirtual && activityProjectCode && kpiProjectCodeVirtual === activityProjectCode) ||
+                (kpiProjectFullCodeVirtual && activityProjectFullCode && kpiProjectFullCodeVirtual === activityProjectFullCode) ||
+                (kpiProjectCodeVirtual && activityProjectFullCode && kpiProjectCodeVirtual === activityProjectFullCode) ||
+                (kpiProjectFullCodeVirtual && activityProjectCode && kpiProjectFullCodeVirtual === activityProjectCode)
+              )
+              return projectMatch
+            })
+            
+            if (anyMatchingActivity) {
+              const rawActivity = (anyMatchingActivity as any).raw || {}
+              const totalValue = anyMatchingActivity.total_value || 
+                               parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                               0
+              const totalUnits = anyMatchingActivity.total_units || 
+                               anyMatchingActivity.planned_units ||
+                               parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                               0
+              
+              if (totalUnits > 0 && totalValue > 0) {
+                rateForVirtual = totalValue / totalUnits
                 if (process.env.NODE_ENV === 'development') {
-                  console.log(`✅ [KPI Virtual Value] Using Planned Value from KPI for "${kpi.activity_name}": ${plannedValue}`)
+                  console.log(`✅ [KPI Virtual Value] Using Rate from any matching activity (ignoring zone): ${rateForVirtual}`)
                 }
-              }
-            } else if (kpi.input_type === 'Actual') {
-              const actualValue = kpi.actual_value || parseFloat(String(rawKPIVirtual['Actual Value'] || '0').replace(/,/g, '')) || 0
-              if (actualValue > 0) {
-                baseValue = actualValue
-                if (process.env.NODE_ENV === 'development') {
-                  console.log(`✅ [KPI Virtual Value] Using Actual Value from KPI for "${kpi.activity_name}": ${actualValue}`)
+              } else {
+                rateForVirtual = anyMatchingActivity.rate || 
+                               parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+                               0
+                if (process.env.NODE_ENV === 'development' && rateForVirtual > 0) {
+                  console.log(`✅ [KPI Virtual Value] Using Rate directly from any matching activity: ${rateForVirtual}`)
                 }
               }
             }
           }
+          
+          if (process.env.NODE_ENV === 'development') {
+            if (rateForVirtual > 0) {
+              console.log(`✅ [KPI Virtual Value] Final Rate found: ${rateForVirtual}`)
+            } else {
+              console.warn(`⚠️ [KPI Virtual Value] No Rate found for "${kpi.activity_name}" (Zone: ${kpiZoneVirtual || 'N/A'})`)
+            }
+          }
+        }
+        
+        // ✅ CRITICAL FIX: Use the SAME calculation logic as Value column
+        // This ensures Virtual Value uses the correct financial value (Quantity × Rate), not just quantity
+        let baseValue = 0
+        
+        // Get Value from KPI for comparison
+        const valueFromKPIVirtual = kpi.value || parseFloat(String(rawKPIVirtual['Value'] || '0').replace(/,/g, '')) || 0
+        
+        // ✅ CRITICAL CHECK: If Value equals Quantity, it means it's a quantity stored in Value field
+        // In this case, we MUST calculate from Rate × Quantity, never use the Value
+        const isValueActuallyQuantityVirtual = valueFromKPIVirtual > 0 && quantityForVirtual > 0 && Math.abs(valueFromKPIVirtual - quantityForVirtual) < 0.01
+        
+        // ✅ PRIORITY 1: Calculate from Quantity × Rate if Quantity is available
+        // This is ALWAYS the correct method when we have a quantity
+        if (quantityForVirtual > 0) {
+          if (rateForVirtual > 0) {
+            // We have both Quantity and Rate - calculate the financial value
+            baseValue = quantityForVirtual * rateForVirtual
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`✅ [KPI Virtual Value] Calculating from Rate × Quantity: ${quantityForVirtual} × ${rateForVirtual} = ${baseValue}`)
+            }
+          } else if (isValueActuallyQuantityVirtual) {
+            // Value equals quantity, so we cannot use it - we need Rate
+            // Keep baseValue as 0 and show warning
+            if (process.env.NODE_ENV === 'development') {
+              console.warn(`⚠️ [KPI Virtual Value] Value equals Quantity (${valueFromKPIVirtual}), but no Rate found. Cannot calculate financial value.`)
+            }
+          } else if (valueFromKPIVirtual > 0 && !isValueActuallyQuantityVirtual) {
+            // Value is different from quantity, so it's a real financial value
+            // But we prefer Rate × Quantity if Rate is available
+            // Since Rate is 0, use Value as fallback
+            baseValue = valueFromKPIVirtual
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`✅ [KPI Virtual Value] No Rate available, using Value from KPI: ${valueFromKPIVirtual}`)
+            }
+          }
+        }
+        
+        // ✅ PRIORITY 2: FALLBACK - If still 0 and no quantity, try Planned Value or Actual Value
+        if (baseValue === 0 && quantityForVirtual === 0) {
+          if (kpi.input_type === 'Planned') {
+            const plannedValue = kpi.planned_value || parseFloat(String(rawKPIVirtual['Planned Value'] || '0').replace(/,/g, '')) || 0
+            if (plannedValue > 0) {
+              baseValue = plannedValue
+              if (process.env.NODE_ENV === 'development') {
+                console.log(`✅ [KPI Virtual Value] Using Planned Value from KPI for "${kpi.activity_name}": ${plannedValue}`)
+              }
+            }
+          } else if (kpi.input_type === 'Actual') {
+            const actualValue = kpi.actual_value || parseFloat(String(rawKPIVirtual['Actual Value'] || '0').replace(/,/g, '')) || 0
+            if (actualValue > 0) {
+              baseValue = actualValue
+              if (process.env.NODE_ENV === 'development') {
+                console.log(`✅ [KPI Virtual Value] Using Actual Value from KPI for "${kpi.activity_name}": ${actualValue}`)
+              }
+            }
+          }
+        }
+        
+        // ✅ FINAL CHECK: If baseValue is still 0 but we have quantity, and Value equals quantity
+        // This means we couldn't calculate because Rate is missing
+        // In this case, we should NOT display the quantity as value - keep it as 0
+        if (baseValue === 0 && quantityForVirtual > 0 && isValueActuallyQuantityVirtual) {
+          // Explicitly keep as 0 - don't use quantity as value
+          baseValue = 0
         }
         
         // ✅ Virtual Material calculation (as PERCENTAGE):
