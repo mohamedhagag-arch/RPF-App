@@ -69,7 +69,8 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   const [projectSearch, setProjectSearch] = useState('')
   
   // Form Fields
-  const [projectCode, setProjectCode] = useState(activity?.project_code || '')
+  // ✅ FIX: Use project_full_code first, then project_code as fallback
+  const [projectCode, setProjectCode] = useState(activity?.project_full_code || activity?.project_code || '')
   const [project, setProject] = useState<Project | null>(null)
   const [activityName, setActivityName] = useState(activity?.activity_name || '')
   const [activitySuggestions, setActivitySuggestions] = useState<Activity[]>([])
@@ -393,6 +394,77 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       setAllProjects(projects)
     }
   }, [projects])
+  
+  // ✅ Load project when editing an activity (based on activity's project_full_code or project_code)
+  useEffect(() => {
+    if (activity && allProjects.length > 0) {
+      const activityProjectFullCode = activity.project_full_code || ''
+      const activityProjectCode = activity.project_code || ''
+      
+      // ✅ Skip if project is already correctly loaded
+      if (project && (
+        project.project_full_code?.toUpperCase() === activityProjectFullCode.toUpperCase() ||
+        project.project_code?.toUpperCase() === activityProjectCode.toUpperCase()
+      )) {
+        return
+      }
+      
+      console.log('🔄 Loading project for activity edit mode:', {
+        activityProjectFullCode,
+        activityProjectCode,
+        currentProjectCode: projectCode,
+        currentProject: project?.project_name
+      })
+      
+      // ✅ Priority 1: Find by project_full_code (exact match)
+      let foundProject = allProjects.find(p => 
+        p.project_full_code?.toUpperCase() === activityProjectFullCode.toUpperCase() ||
+        p.project_full_code?.toUpperCase() === activityProjectCode.toUpperCase()
+      )
+      
+      // ✅ Priority 2: Find by project_code if not found
+      if (!foundProject) {
+        foundProject = allProjects.find(p => 
+          p.project_code?.toUpperCase() === activityProjectCode.toUpperCase() ||
+          (activityProjectFullCode && p.project_code?.toUpperCase() === activityProjectFullCode.toUpperCase())
+        )
+      }
+      
+      // ✅ Priority 3: Find by projectCode state if still not found
+      if (!foundProject && projectCode) {
+        foundProject = allProjects.find(p => 
+          p.project_full_code?.toUpperCase() === projectCode.toUpperCase() ||
+          p.project_code?.toUpperCase() === projectCode.toUpperCase()
+        )
+      }
+      
+      if (foundProject) {
+        console.log('✅ Found project for activity:', {
+          name: foundProject.project_name,
+          code: foundProject.project_code,
+          fullCode: foundProject.project_full_code
+        })
+        setProject(foundProject)
+        // ✅ Ensure projectCode uses project_full_code if available
+        const correctProjectCode = foundProject.project_full_code || foundProject.project_code
+        if (correctProjectCode && correctProjectCode !== projectCode) {
+          setProjectCode(correctProjectCode)
+          console.log('✅ Updated projectCode to:', correctProjectCode)
+        }
+      } else {
+        console.warn('⚠️ Project not found for activity:', {
+          activityProjectFullCode,
+          activityProjectCode,
+          projectCode,
+          availableProjects: allProjects.map(p => ({ 
+            code: p.project_code, 
+            fullCode: p.project_full_code,
+            name: p.project_name 
+          }))
+        })
+      }
+    }
+  }, [activity, allProjects])
   
   // ✅ Load divisions from Divisions Management
   useEffect(() => {
@@ -1761,9 +1833,18 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         } else {
           setSuccess(activity ? '✅ Post-completion activity updated successfully!' : '✅ Post-completion activity created successfully!')
         }
-      } else if (autoGenerateKPIs) {
-        // ✅ ALWAYS update/create KPIs when autoGenerateKPIs is enabled, regardless of preview
+      } else if (autoGenerateKPIs || (activity && useVirtualMaterial !== activity.use_virtual_material)) {
+        // ✅ ALWAYS update/create KPIs when:
+        // 1. autoGenerateKPIs is enabled, OR
+        // 2. use_virtual_material has changed (even if autoGenerateKPIs is disabled)
         if (activity) {
+          // ✅ SPECIAL CASE: If only use_virtual_material changed (and autoGenerateKPIs is disabled),
+          // we still need to update KPIs to refresh the Virtual Value column in KPI page
+          const onlyVirtualMaterialChanged = !autoGenerateKPIs && useVirtualMaterial !== activity.use_virtual_material
+          
+          if (onlyVirtualMaterialChanged) {
+            console.log('🔄 Only use_virtual_material changed - updating KPIs to refresh Virtual Value column...')
+          }
           // ✅ EDIT MODE: Always update existing KPIs when any field changes
           console.log('🔄 UPDATING KPIs for existing activity (any change triggers update)...')
           console.log('📦 Activity to update:', {
@@ -1827,6 +1908,19 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
             const updateResult = await updateExistingKPIs(activityData, activity.activity_name, workdaysConfig)
             if (updateResult.success) {
               setSuccess(`✅ Activity updated! ${updateResult.message}`)
+              
+              // ✅ Trigger page refresh to update Virtual Value column in KPI page
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('boq-activity-updated', { 
+                  detail: { 
+                    activityId: activity.id,
+                    activityName: activityData.activity_name,
+                    projectFullCode: activityData.project_full_code,
+                    useVirtualMaterial: activityData.use_virtual_material
+                  } 
+                }))
+                console.log('📢 Dispatched boq-activity-updated event to refresh KPI page activities')
+              }
             } else {
               setSuccess('✅ Activity updated successfully!')
             }
@@ -2081,20 +2175,23 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
               >
                 <span className={project ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}>
                   {projectLoading ? 'Loading projects...' : project ? (() => {
-                    const projectCode = (project.project_code || '').trim()
-                    const projectSubCode = (project.project_sub_code || '').trim()
-                    let projectFullCode = projectCode
-                    if (projectSubCode) {
-                      if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
-                        projectFullCode = projectSubCode
-                      } else {
-                        if (projectSubCode.startsWith('-')) {
-                          projectFullCode = `${projectCode}${projectSubCode}`
+                    // ✅ Use project_full_code if available, otherwise build from project_code and project_sub_code
+                    const projectFullCode = project.project_full_code || (() => {
+                      const projectCode = (project.project_code || '').trim()
+                      const projectSubCode = (project.project_sub_code || '').trim()
+                      if (projectSubCode) {
+                        if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+                          return projectSubCode
                         } else {
-                          projectFullCode = `${projectCode}-${projectSubCode}`
+                          if (projectSubCode.startsWith('-')) {
+                            return `${projectCode}${projectSubCode}`
+                          } else {
+                            return `${projectCode}-${projectSubCode}`
+                          }
                         }
                       }
-                    }
+                      return projectCode
+                    })()
                     return `${projectFullCode} - ${project.project_name}`
                   })() : 'Select a project...'}
                 </span>

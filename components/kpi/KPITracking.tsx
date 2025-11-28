@@ -890,6 +890,21 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage, selectedProjects.join(','), sortColumn, sortDirection])
   
+  // ✅ Listen for BOQ activity updates to refresh activities (for Virtual Value column)
+  useEffect(() => {
+    const handleBOQActivityUpdate = (event: CustomEvent) => {
+      console.log('📢 Received boq-activity-updated event:', event.detail)
+      // Refresh activities to update Virtual Value column
+      fetchKPIPage(currentPage, selectedProjects, '', sortColumn, sortDirection)
+    }
+    
+    window.addEventListener('boq-activity-updated', handleBOQActivityUpdate as EventListener)
+    
+    return () => {
+      window.removeEventListener('boq-activity-updated', handleBOQActivityUpdate as EventListener)
+    }
+  }, [fetchKPIPage, currentPage, selectedProjects, sortColumn, sortDirection])
+  
   // ✅ LEGACY: Keep fetchData for backward compatibility (wraps fetchKPIPage)
   const fetchData = useCallback(async (filterProjects: string[] = []) => {
     await fetchKPIPage(currentPage, filterProjects, '')

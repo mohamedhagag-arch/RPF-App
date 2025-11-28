@@ -222,7 +222,46 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
     return `${names.length} Activities Selected`
   }, [availableActivities, selectedActivityIds])
   
-  // Helper function to match KPI to Activity
+  // Helper function to normalize zone strings
+  const normalizeZone = useCallback((zone: string | null | undefined): string => {
+    if (!zone) return ''
+    return zone.toString().trim().toUpperCase().replace(/\s+/g, ' ')
+  }, [])
+  
+  // Helper function to extract zone number
+  const extractZoneNumber = useCallback((zone: string): string | null => {
+    if (!zone) return null
+    const match = zone.match(/\d+/)
+    return match ? match[0] : null
+  }, [])
+  
+  // Helper function to match zones (FLEXIBLE)
+  const zonesMatch = useCallback((zone1: string, zone2: string): boolean => {
+    if (!zone1 || !zone2) return false
+    
+    const norm1 = normalizeZone(zone1)
+    const norm2 = normalizeZone(zone2)
+    
+    // Exact match (case-insensitive)
+    if (norm1 === norm2) return true
+    
+    // Extract numbers and compare
+    const num1 = extractZoneNumber(norm1)
+    const num2 = extractZoneNumber(norm2)
+    
+    if (num1 && num2 && num1 === num2) {
+      return true
+    }
+    
+    // Check if one contains the other (for cases like "P5066-I2 - 1" vs "1")
+    if (norm1.includes(norm2) || norm2.includes(norm1)) {
+      return true
+    }
+    
+    return false
+  }, [normalizeZone, extractZoneNumber])
+  
+  // Helper function to match KPI to Activity (includes Zone matching)
   const kpiMatchesActivity = useCallback((kpi: any, activity: BOQActivity): boolean => {
     const rawKPI = (kpi as any).raw || {}
     
@@ -255,8 +294,28 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
       activityName.includes(kpiActivityName)
     )
     
-    return activityMatch
-  }, [])
+    if (!activityMatch) return false
+    
+    // 3. Zone Matching (FLEXIBLE - only enforce if both have zones AND they don't match)
+    const rawActivity = (activity as any).raw || {}
+    const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
+    const kpiZone = (kpi.zone || rawKPI['Zone'] || rawKPI['Zone Ref'] || rawKPI['Zone Number'] || '').toString().trim()
+    
+    // Only enforce zone matching if BOTH activity and KPI have zones
+    // If either doesn't have a zone, allow the match (flexible)
+    if (activityZone && kpiZone) {
+      // Both have zones - check if they match
+      // If they don't match, reject (different zones)
+      if (!zonesMatch(activityZone, kpiZone)) {
+        return false
+      }
+    }
+    // If activity has zone but KPI doesn't, allow it (KPI might be general)
+    // If activity doesn't have zone, allow all KPIs (activity is general)
+    // If KPI has zone but activity doesn't, allow it (activity might be general)
+    
+    return true
+  }, [zonesMatch])
   
   // Calculate chart data for each activity
   const activitiesChartData = useMemo(() => {
@@ -267,7 +326,14 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
     
     return projectActivities.map((activity: BOQActivity) => {
       // Get KPIs for this activity
-      const activityKPIs = kpis.filter((kpi: any) => kpiMatchesActivity(kpi, activity))
+      const activityKPIs = kpis.filter((kpi: any) => {
+        try {
+          return kpiMatchesActivity(kpi, activity)
+        } catch (error) {
+          console.error('Error matching KPI to activity:', error, { kpi, activity })
+          return false
+        }
+      })
       
       // Separate Planned and Actual KPIs
       const plannedKPIs = activityKPIs.filter((kpi: any) => {
@@ -829,10 +895,10 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
       const margin = 10
       const contentWidth = pdfWidth - (margin * 2)
       
-      // Helper function to compress image - high quality settings
+      // ✅ Helper function to compress image - keep high quality
       const compressImage = (canvas: HTMLCanvasElement, quality: number = 0.95): Promise<string> => {
         return new Promise((resolve) => {
-          // Only reduce canvas size if extremely large (keep high quality for normal sizes)
+          // Only reduce canvas size if extremely large
           const maxWidth = 3000
           const maxHeight = 2400
           let finalCanvas = canvas
@@ -847,7 +913,7 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
             resizedCanvas.height = newHeight
             const ctx = resizedCanvas.getContext('2d', { willReadFrequently: false })
             if (ctx) {
-              // Use highest quality smoothing
+              // Use high quality smoothing
               ctx.imageSmoothingEnabled = true
               ctx.imageSmoothingQuality = 'high'
               ctx.drawImage(canvas, 0, 0, newWidth, newHeight)
@@ -877,20 +943,17 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
       // Export each activity
       setExportProgress({ current: 0, total: activitiesToExport.length })
       
-      // Optimized html2canvas options - high quality settings
+      // ✅ High quality settings - keep original quality (same as single export)
       const canvasOptions = {
         backgroundColor: '#ffffff',
-        scale: 2.5, // Higher quality scale for better image clarity
+        scale: 2.5, // Keep high quality
         logging: false,
         useCORS: true,
-        removeContainer: false,
-        allowTaint: false,
-        foreignObjectRendering: false, // Disable for better performance
-        cacheBust: false, // Disable cache busting for speed
-        windowWidth: window.innerWidth,
-        windowHeight: window.innerHeight
+        foreignObjectRendering: false,
+        allowTaint: false
       }
       
+      // ✅ CRITICAL FIX: Process activities sequentially with proper delays to prevent freezing
       for (let i = 0; i < activitiesToExport.length; i++) {
         const activityData = activitiesToExport[i]
         const activity = activityData.activity
@@ -900,10 +963,14 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
         // Update progress
         setExportProgress({ current: i + 1, total: activitiesToExport.length })
         
-        // Allow UI to update (reduced delay for faster processing)
-        if (i % 2 === 0) {
-          await new Promise(resolve => setTimeout(resolve, 10))
-        }
+        // ✅ CRITICAL: Force UI update and give browser time to breathe
+        await new Promise(resolve => {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              setTimeout(resolve, 100) // Give browser 100ms to process and free memory
+            })
+          })
+        })
         
         const chartElement = chartRefs.current.get(activityId)
         const tableElement = tableRefs.current.get(activityId)
@@ -918,17 +985,30 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
           pdf.addPage()
         }
         
-        // Capture chart and table in parallel for faster processing
-        const [chartCanvas, tableCanvas] = await Promise.all([
-          html2canvas(chartElement, {
-            ...canvasOptions
-          }),
-          html2canvas(tableElement, {
-            ...canvasOptions,
-            width: tableElement.scrollWidth,
-            height: tableElement.scrollHeight
+        // ✅ CRITICAL: Process sequentially (not parallel) to reduce memory pressure
+        // This prevents browser from freezing when processing many activities
+        const chartCanvas = await html2canvas(chartElement, {
+          ...canvasOptions
+        })
+        
+        // ✅ Allow browser to process and free memory between captures
+        await new Promise(resolve => {
+          requestAnimationFrame(() => {
+            setTimeout(resolve, 50)
           })
-        ])
+        })
+        
+        // ✅ Use same options as single export to maintain table appearance
+        const tableCanvas = await html2canvas(tableElement, {
+          backgroundColor: '#ffffff',
+          scale: 2.5, // Higher quality scale for better image clarity
+          logging: false,
+          useCORS: true,
+          width: tableElement.scrollWidth,
+          height: tableElement.scrollHeight,
+          foreignObjectRendering: false,
+          allowTaint: false
+        })
         
         // Get zone information
         const zone = getActivityZone(activity)
@@ -944,23 +1024,33 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
         const projectInfo = `${selectedProject?.project_full_code || `${selectedProject?.project_code}${selectedProject?.project_sub_code ? `-${selectedProject.project_sub_code}` : ''}`}${zoneInfo} - Cut off Date: ${new Date(cutOffDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
         pdf.text(projectInfo, margin, margin + 18)
         
-        // Compress chart and table in parallel with high quality
-        const [chartImgData, tableImgData] = await Promise.all([
-          compressImage(chartCanvas, 0.95),
-          compressImage(tableCanvas, 0.95)
-        ])
+        // ✅ CRITICAL: Process compression sequentially to reduce memory pressure
+        const chartImgData = await compressImage(chartCanvas, 0.95)
         
+        // ✅ Allow UI to breathe
+        await new Promise(resolve => requestAnimationFrame(resolve))
+        
+        const tableImgData = await compressImage(tableCanvas, 0.95)
+        
+        // ✅ Calculate image dimensions
         const chartImgWidth = contentWidth
         const chartImgHeight = (chartCanvas.height * chartImgWidth) / chartCanvas.width
+        const tableImgWidth = contentWidth
+        const tableImgHeight = (tableCanvas.height * tableImgWidth) / tableCanvas.width
         
         // Add chart to PDF
         let currentY = margin + 25
+        
+        // ✅ Check if chart fits on current page
+        if (currentY + chartImgHeight > pdfHeight - margin) {
+          pdf.addPage()
+          currentY = margin + 10
+        }
+        
         pdf.addImage(chartImgData, 'JPEG', margin, currentY, chartImgWidth, chartImgHeight)
         
         // Add table to PDF
         currentY += chartImgHeight + 10
-        const tableImgWidth = contentWidth
-        const tableImgHeight = (tableCanvas.height * tableImgWidth) / tableCanvas.width
         
         // Check if table fits on current page
         if (currentY + tableImgHeight > pdfHeight - margin) {
@@ -970,6 +1060,36 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
         }
         
         pdf.addImage(tableImgData, 'JPEG', margin, currentY, tableImgWidth, tableImgHeight)
+        
+        // ✅ CRITICAL: Force garbage collection by clearing all references
+        // Clear canvas references immediately
+        if (chartCanvas) {
+          const ctx = chartCanvas.getContext('2d')
+          if (ctx) {
+            ctx.clearRect(0, 0, chartCanvas.width, chartCanvas.height)
+          }
+        }
+        if (tableCanvas) {
+          const ctx = tableCanvas.getContext('2d')
+          if (ctx) {
+            ctx.clearRect(0, 0, tableCanvas.width, tableCanvas.height)
+          }
+        }
+        
+        // ✅ CRITICAL: Give browser significant time to free memory before next activity
+        // This is the key to preventing freezing
+        if (i < activitiesToExport.length - 1) {
+          await new Promise(resolve => {
+            // Use multiple animation frames + delay to ensure browser has time
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                  setTimeout(resolve, 150) // 150ms delay between activities
+                })
+              })
+            })
+          })
+        }
       }
       
       // Save PDF

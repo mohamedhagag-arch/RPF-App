@@ -319,6 +319,104 @@ export function ActivityPeriodicalProgressReportView({
     return availablePeriods.find(p => p.key === selectedPeriod) || null
   }, [availablePeriods, selectedPeriod])
   
+  // Calculate project summary statistics
+  const projectSummary = useMemo(() => {
+    if (!selectedProject || !selectedPeriodData || projectActivities.length === 0) return null
+    
+    const periodStart = selectedPeriodData.start
+    const periodEnd = selectedPeriodData.end
+    periodEnd.setHours(23, 59, 59, 999)
+    
+    // Get all KPIs for this project
+    const projectKPIs = kpis.filter((kpi: any) => {
+      const kpiProjectCode = (kpi.project_code || kpi['Project Code'] || '').toString().trim().toUpperCase()
+      const kpiProjectFullCode = (kpi.project_full_code || kpi['Project Full Code'] || '').toString().trim().toUpperCase()
+      const projectCode = (selectedProject.project_code || '').toString().trim().toUpperCase()
+      const projectFullCode = (selectedProject.project_full_code || `${selectedProject.project_code}${selectedProject.project_sub_code ? `-${selectedProject.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+      
+      return (
+        kpiProjectCode === projectCode ||
+        kpiProjectFullCode === projectFullCode ||
+        kpiProjectCode === projectFullCode ||
+        kpiProjectFullCode === projectCode
+      )
+    })
+    
+    // Calculate totals
+    const totalActivities = projectActivities.length
+    const totalPlannedUnits = projectActivities.reduce((sum, a) => sum + (a.planned_units || a.total_units || 0), 0)
+    const totalActualUnits = projectActivities.reduce((sum, a) => sum + (a.actual_units || 0), 0)
+    
+    // Calculate period KPIs
+    const periodKPIs = projectKPIs.filter((kpi: any) => {
+      const kpiDate = getKPIDate(kpi)
+      return kpiDate && kpiDate >= periodStart && kpiDate <= periodEnd
+    })
+    
+    const periodPlanned = periodKPIs
+      .filter((kpi: any) => getKPIInputType(kpi) === 'planned')
+      .reduce((sum: number, kpi: any) => sum + getKPIQuantity(kpi), 0)
+    
+    const periodActual = periodKPIs
+      .filter((kpi: any) => getKPIInputType(kpi) === 'actual')
+      .reduce((sum: number, kpi: any) => sum + getKPIQuantity(kpi), 0)
+    
+    // Calculate cumulative
+    const cumulativePlanned = projectKPIs
+      .filter((kpi: any) => getKPIInputType(kpi) === 'planned')
+      .reduce((sum: number, kpi: any) => sum + getKPIQuantity(kpi), 0)
+    
+    const cumulativeActual = projectKPIs
+      .filter((kpi: any) => getKPIInputType(kpi) === 'actual')
+      .reduce((sum: number, kpi: any) => sum + getKPIQuantity(kpi), 0)
+    
+    // Calculate financial values
+    const totalValue = projectActivities.reduce((sum, a) => sum + (a.total_value || 0), 0)
+    const plannedValue = projectActivities.reduce((sum, a) => sum + (a.planned_value || 0), 0)
+    const earnedValue = projectActivities.reduce((sum, a) => sum + (a.earned_value || 0), 0)
+    
+    // Calculate progress percentages
+    const overallProgress = totalPlannedUnits > 0 ? (totalActualUnits / totalPlannedUnits) * 100 : 0
+    const periodProgress = periodPlanned > 0 ? (periodActual / periodPlanned) * 100 : 0
+    const cumulativeProgress = cumulativePlanned > 0 ? (cumulativeActual / cumulativePlanned) * 100 : 0
+    const valueProgress = totalValue > 0 ? (earnedValue / totalValue) * 100 : 0
+    
+    // Count activities by status
+    const completedActivities = projectActivities.filter(a => a.activity_completed).length
+    const delayedActivities = projectActivities.filter(a => a.activity_delayed).length
+    const onTrackActivities = projectActivities.filter(a => a.activity_on_track).length
+    
+    // Count zones
+    const uniqueZones = new Set(projectActivities.map(a => a.zone_ref || a.zone_number || 'N/A'))
+    const totalZones = uniqueZones.size
+    
+    // Count divisions
+    const uniqueDivisions = new Set(projectActivities.map(a => a.activity_division || 'Other').filter(Boolean))
+    const totalDivisions = uniqueDivisions.size
+    
+    return {
+      totalActivities,
+      totalPlannedUnits,
+      totalActualUnits,
+      periodPlanned,
+      periodActual,
+      cumulativePlanned,
+      cumulativeActual,
+      totalValue,
+      plannedValue,
+      earnedValue,
+      overallProgress,
+      periodProgress,
+      cumulativeProgress,
+      valueProgress,
+      completedActivities,
+      delayedActivities,
+      onTrackActivities,
+      totalZones,
+      totalDivisions
+    }
+  }, [selectedProject, selectedPeriodData, projectActivities, kpis, getKPIDate, getKPIQuantity, getKPIInputType])
+  
   // Group activities by zone and work type, then calculate all metrics
   const groupedData = useMemo(() => {
     if (!selectedProject || !selectedPeriodData || projectActivities.length === 0) return []
@@ -1289,6 +1387,232 @@ export function ActivityPeriodicalProgressReportView({
         </Card>
       ) : (
         <div className="space-y-6" data-tables-container>
+          {/* Project Overview Section */}
+          {selectedProject && projectSummary && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-xl">Project Overview</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+                    <div className="text-sm text-gray-600 dark:text-gray-400">Project Code</div>
+                    <div className="text-lg font-bold text-gray-900 dark:text-white">
+                      {selectedProject.project_full_code || `${selectedProject.project_code}${selectedProject.project_sub_code ? `-${selectedProject.project_sub_code}` : ''}`}
+                    </div>
+                    <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">{selectedProject.project_name}</div>
+                  </div>
+                  
+                  <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
+                    <div className="text-sm text-gray-600 dark:text-gray-400">Total Activities</div>
+                    <div className="text-lg font-bold text-gray-900 dark:text-white">{projectSummary.totalActivities}</div>
+                    <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                      {projectSummary.completedActivities} Completed, {projectSummary.onTrackActivities} On Track
+                    </div>
+                  </div>
+                  
+                  <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg">
+                    <div className="text-sm text-gray-600 dark:text-gray-400">Zones & Divisions</div>
+                    <div className="text-lg font-bold text-gray-900 dark:text-white">
+                      {projectSummary.totalZones} Zones
+                    </div>
+                    <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                      {projectSummary.totalDivisions} Divisions
+                    </div>
+                  </div>
+                  
+                  <div className="bg-orange-50 dark:bg-orange-900/20 p-4 rounded-lg">
+                    <div className="text-sm text-gray-600 dark:text-gray-400">Project Status</div>
+                    <div className="text-lg font-bold text-gray-900 dark:text-white capitalize">
+                      {selectedProject.project_status || 'N/A'}
+                    </div>
+                    <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                      {projectSummary.delayedActivities} Delayed
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          
+          {/* Overall Progress Summary */}
+          {projectSummary && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-xl">Overall Progress Summary</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
+                    <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">Total Planned Units</div>
+                    <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                      {projectSummary.totalPlannedUnits.toLocaleString('en-US', { maximumFractionDigits: 2 })}
+                    </div>
+                    <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                      Actual: {projectSummary.totalActualUnits.toLocaleString('en-US', { maximumFractionDigits: 2 })}
+                    </div>
+                    <div className="mt-2">
+                      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                        <div 
+                          className="bg-blue-600 h-2 rounded-full" 
+                          style={{ width: `${Math.min(projectSummary.overallProgress, 100)}%` }}
+                        />
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        {projectSummary.overallProgress.toFixed(1)}% Complete
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
+                    <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                      {periodType === 'weekly' ? 'Current Week' : periodType === 'monthly' ? 'Current Month' : 'Current Period'} Progress
+                    </div>
+                    <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                      {projectSummary.periodActual.toLocaleString('en-US', { maximumFractionDigits: 2 })}
+                    </div>
+                    <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                      Planned: {projectSummary.periodPlanned.toLocaleString('en-US', { maximumFractionDigits: 2 })}
+                    </div>
+                    <div className="mt-2">
+                      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                        <div 
+                          className="bg-green-600 h-2 rounded-full" 
+                          style={{ width: `${Math.min(projectSummary.periodProgress, 100)}%` }}
+                        />
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        {projectSummary.periodProgress.toFixed(1)}% of Planned
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
+                    <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">Cumulative Progress</div>
+                    <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                      {projectSummary.cumulativeActual.toLocaleString('en-US', { maximumFractionDigits: 2 })}
+                    </div>
+                    <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                      Planned: {projectSummary.cumulativePlanned.toLocaleString('en-US', { maximumFractionDigits: 2 })}
+                    </div>
+                    <div className="mt-2">
+                      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                        <div 
+                          className="bg-purple-600 h-2 rounded-full" 
+                          style={{ width: `${Math.min(projectSummary.cumulativeProgress, 100)}%` }}
+                        />
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        {projectSummary.cumulativeProgress.toFixed(1)}% of Planned
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
+                    <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">Financial Progress</div>
+                    <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                      {formatCurrency(projectSummary.earnedValue, selectedProject?.currency)}
+                    </div>
+                    <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                      Total: {formatCurrency(projectSummary.totalValue, selectedProject?.currency)}
+                    </div>
+                    <div className="mt-2">
+                      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                        <div 
+                          className="bg-orange-600 h-2 rounded-full" 
+                          style={{ width: `${Math.min(projectSummary.valueProgress, 100)}%` }}
+                        />
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        {projectSummary.valueProgress.toFixed(1)}% Complete
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          
+          {/* Activity Status Summary */}
+          {projectSummary && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-xl">Activity Status Summary</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="flex items-center gap-4 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                    <div className="text-3xl font-bold text-green-600 dark:text-green-400">
+                      {projectSummary.completedActivities}
+                    </div>
+                    <div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">Completed Activities</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        {projectSummary.totalActivities > 0 
+                          ? ((projectSummary.completedActivities / projectSummary.totalActivities) * 100).toFixed(1)
+                          : 0}% of total
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                    <div className="text-3xl font-bold text-blue-600 dark:text-blue-400">
+                      {projectSummary.onTrackActivities}
+                    </div>
+                    <div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">On Track Activities</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        {projectSummary.totalActivities > 0 
+                          ? ((projectSummary.onTrackActivities / projectSummary.totalActivities) * 100).toFixed(1)
+                          : 0}% of total
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-4 p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
+                    <div className="text-3xl font-bold text-red-600 dark:text-red-400">
+                      {projectSummary.delayedActivities}
+                    </div>
+                    <div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">Delayed Activities</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        {projectSummary.totalActivities > 0 
+                          ? ((projectSummary.delayedActivities / projectSummary.totalActivities) * 100).toFixed(1)
+                          : 0}% of total
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          
+          {/* Period Information */}
+          {selectedPeriodData && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-xl">Period Information</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <div className="text-sm text-gray-600 dark:text-gray-400">Period Type</div>
+                    <div className="text-lg font-semibold text-gray-900 dark:text-white capitalize">{periodType}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-600 dark:text-gray-400">Period Range</div>
+                    <div className="text-lg font-semibold text-gray-900 dark:text-white">
+                      {selectedPeriodData.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - {selectedPeriodData.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          
+          {/* Detailed Progress Tables */}
+          <div className="space-y-4">
+            <h4 className="text-lg font-semibold text-gray-900 dark:text-white">Detailed Progress by Zone and Work Type</h4>
           {groupedData.map((group, groupIndex) => (
               <Card key={`${group.zone}-${group.workType}-${groupIndex}`}>
                 <CardHeader>
@@ -1478,6 +1802,7 @@ export function ActivityPeriodicalProgressReportView({
               </CardContent>
             </Card>
           ))}
+          </div>
         </div>
       )}
     </div>
