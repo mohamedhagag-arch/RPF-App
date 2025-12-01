@@ -1,0 +1,1498 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { PermissionPage } from '@/components/ui/PermissionPage'
+import { DynamicTitle } from '@/components/ui/DynamicTitle'
+import { getSupabaseClient } from '@/lib/simpleConnectionManager'
+import { TABLES, Project } from '@/lib/supabase'
+import { mapProjectFromDB, mapKPIFromDB } from '@/lib/dataMappers'
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
+import { Alert } from '@/components/ui/Alert'
+import { Button } from '@/components/ui/Button'
+import { PermissionButton } from '@/components/ui/PermissionButton'
+import { Card } from '@/components/ui/Card'
+import { ArrowLeft, CheckCircle, X, Clock, Target, AlertCircle, User, Mail, Phone, Filter, Search, MessageCircle } from 'lucide-react'
+import { usePermissionGuard } from '@/lib/permissionGuard'
+import { useAuth } from '@/app/providers'
+
+interface PendingKPI {
+  id: string
+  created_at: string
+  created_by?: string // ✅ Creator identifier (email or user ID)
+  // New snake_case fields (from mapKPIFromDB)
+  project_full_code?: string
+  project_code?: string
+  activity_name?: string
+  quantity?: number | string
+  unit?: string
+  target_date?: string
+  section?: string
+  zone?: string
+  value?: number | string
+  approval_status?: 'pending' | 'approved' | 'rejected'
+  approved_by?: string
+  approval_date?: string
+  // Old fields with spaces (for backward compatibility)
+  'Project Full Code'?: string
+  'Project Code'?: string
+  'Activity Name'?: string
+  'Quantity'?: string
+  'Unit'?: string
+  'Target Date'?: string
+  'Section'?: string
+  'Zone'?: string
+  'Value'?: string
+  'Approval Status'?: string
+  'Approved By'?: string
+  'Approval Date'?: string
+  'Recorded By'?: string // Alternative field name for created_by
+}
+
+interface UserInfo {
+  name: string
+  email: string
+  phone_1?: string
+  phone_2?: string
+  role?: string
+  division?: string
+}
+
+export default function PendingApprovalKPIPage() {
+  const router = useRouter()
+  const guard = usePermissionGuard()
+  const { user: authUser, appUser } = useAuth()
+  const [pendingKPIs, setPendingKPIs] = useState<PendingKPI[]>([])
+  const [filteredKPIs, setFilteredKPIs] = useState<PendingKPI[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+  const [processingIds, setProcessingIds] = useState<Set<string>>(new Set())
+  
+  // ✅ Filter state
+  const [selectedProjects, setSelectedProjects] = useState<string[]>([])
+  const [selectedActivities, setSelectedActivities] = useState<string[]>([])
+  const [selectedZones, setSelectedZones] = useState<string[]>([])
+  const [projectSearchTerm, setProjectSearchTerm] = useState('')
+  const [activitySearchTerm, setActivitySearchTerm] = useState('')
+  const [zoneSearchTerm, setZoneSearchTerm] = useState('')
+  
+  // ✅ User info cache (for creator information)
+  const [userInfoCache, setUserInfoCache] = useState<Map<string, UserInfo>>(new Map())
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage, setItemsPerPage] = useState(50) // 50 items per page
+  
+  const supabase = getSupabaseClient()
+
+  useEffect(() => {
+    fetchPendingKPIs()
+    fetchProjects()
+  }, [])
+
+  const fetchPendingKPIs = async () => {
+    try {
+      setLoading(true)
+      setError('')
+
+      // ✅ STRICT FILTER: Only show NEW Actual KPIs that need approval
+      // Strategy: Only show KPIs that have NO approval status (null/empty)
+      // This means they are NEW and haven't been processed yet
+      // OLD KPIs would have been approved or processed already
+      
+      // Fetch ALL Actual KPIs (Supabase default limit is 1000, so we need pagination)
+      // Fetch in chunks until we get all records
+      let allData: any[] = []
+      let offset = 0
+      const chunkSize = 1000
+      let hasMore = true
+      
+      while (hasMore) {
+        const { data: chunkData, error: chunkError } = await supabase
+          .from(TABLES.KPI)
+          .select('*')
+          .eq('Input Type', 'Actual')
+          .order('created_at', { ascending: false })
+          .range(offset, offset + chunkSize - 1)
+        
+        if (chunkError) {
+          throw chunkError
+        }
+        
+        if (!chunkData || chunkData.length === 0) {
+          hasMore = false
+          break
+        }
+        
+        allData = [...allData, ...chunkData]
+        console.log(`📥 Fetched chunk: ${chunkData.length} KPIs (total so far: ${allData.length})`)
+        
+        // If we got less than chunkSize, we're done
+        if (chunkData.length < chunkSize) {
+          hasMore = false
+        } else {
+          offset += chunkSize
+        }
+      }
+      
+      const data = allData
+      const totalFetched = (data || []).length
+      console.log(`📥 Total Actual KPIs fetched: ${totalFetched}`)
+
+      // Debug: Check first few KPIs to see what data we have
+      if (data && data.length > 0) {
+        const sample = data[0] as any
+        console.log('🔍 Sample KPI data:', {
+          id: sample.id,
+          'Approval Status': sample['Approval Status'],
+          'Notes': (sample['Notes'] || '').substring(0, 50),
+          'Input Type': sample['Input Type'],
+          'Activity Name': (sample['Activity Name'] || '').substring(0, 30)
+        })
+      }
+
+      const mappedKPIs = (data || []).map(mapKPIFromDB).filter((kpi: any) => {
+        // ✅ CLEAR FILTER RULE: Show ALL KPIs that DON'T have Approval Status = 'approved'
+        // This includes: null, undefined, empty string, or any value other than 'approved'
+        const rawRow = (data as any[])?.find((r: any) => r.id === kpi.id)
+        if (!rawRow) {
+          console.warn(`⚠️ Could not find raw row for KPI ${kpi.id}`)
+          return false
+        }
+        
+        // Check Approval Status column
+        // If column doesn't exist, dbApprovalStatus will be undefined
+        const dbApprovalStatus = rawRow['Approval Status']
+        
+        // Normalize approval status string
+        let approvalStatusStr = ''
+        if (dbApprovalStatus !== null && dbApprovalStatus !== undefined && dbApprovalStatus !== '') {
+          approvalStatusStr = String(dbApprovalStatus).toLowerCase().trim()
+        }
+        // If approvalStatusStr is still empty, it means null/undefined/empty - needs approval
+        
+        // Check Notes field for approval status (fallback)
+        const notes = rawRow['Notes'] || ''
+        const notesStr = String(notes)
+        const notesHasApproved = notesStr.includes('APPROVED:') && notesStr.includes(':approved:')
+        
+        // ✅ INCLUDE if:
+        //   1. Approval Status is null/undefined/empty (needs approval)
+        //   2. Approval Status exists but is NOT 'approved' (needs approval)
+        //   3. Notes does NOT contain 'APPROVED:approved:' (needs approval)
+        
+        // ✅ EXCLUDE only if:
+        //   1. Approval Status === 'approved' (already approved)
+        //   2. OR Notes contains 'APPROVED:approved:' (already approved via Notes)
+        
+        const isExplicitlyApproved = (
+          approvalStatusStr === 'approved' || 
+          notesHasApproved
+        )
+        
+        if (isExplicitlyApproved) {
+          return false // Exclude - explicitly approved
+        }
+        
+        // ✅ INCLUDE - This KPI needs approval
+        // (Approval Status is null/undefined/empty OR not 'approved', 
+        //  AND Notes doesn't contain approval marker)
+        return true
+      })
+
+      console.log(`✅ Filtered KPIs: Found ${mappedKPIs.length} KPIs that need approval (out of ${totalFetched} total)`)
+      console.log(`📊 Excluded: ${totalFetched - mappedKPIs.length} KPIs (already approved)`)
+      
+      // Debug: Show detailed breakdown
+      if (totalFetched > 0) {
+        const approvalBreakdown = {
+          hasApprovalStatusApproved: 0,
+          hasApprovalStatusOther: 0,
+          hasApprovalNotes: 0,
+          noApprovalAtAll: 0,
+          total: totalFetched
+        }
+        ;(data || []).forEach((row: any) => {
+          const approvalStatus = row['Approval Status']
+          const notes = row['Notes'] || ''
+          const notesStr = String(notes)
+          const hasNotesApproval = notesStr.includes('APPROVED:') && notesStr.includes(':approved:')
+          
+          if (approvalStatus && String(approvalStatus).toLowerCase().trim() === 'approved') {
+            approvalBreakdown.hasApprovalStatusApproved++
+          } else if (approvalStatus !== null && approvalStatus !== undefined && approvalStatus !== '') {
+            approvalBreakdown.hasApprovalStatusOther++
+          } else if (hasNotesApproval) {
+            approvalBreakdown.hasApprovalNotes++
+          } else {
+            approvalBreakdown.noApprovalAtAll++
+          }
+        })
+        console.log('📊 Approval Status Breakdown:', approvalBreakdown)
+        console.log(`   ✅ Should show: ${approvalBreakdown.noApprovalAtAll + approvalBreakdown.hasApprovalStatusOther} KPIs (no approval or other status)`)
+        console.log(`   ❌ Will hide: ${approvalBreakdown.hasApprovalStatusApproved + approvalBreakdown.hasApprovalNotes} KPIs (already approved)`)
+      }
+
+      setPendingKPIs(mappedKPIs as PendingKPI[])
+      setCurrentPage(1) // Reset to first page when data changes
+      
+      // ✅ Load user info for all creators
+      const creatorIds = Array.from(new Set((data as any[])
+        .map((row: any) => row.created_by || row['created_by'] || row['Recorded By'] || null)
+        .filter(Boolean)))
+      
+      if (creatorIds.length > 0) {
+        await loadUserInfo(creatorIds as string[])
+      }
+    } catch (err: any) {
+      console.error('Error fetching pending KPIs:', err)
+      setError(err.message || 'Failed to load pending KPIs')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const fetchProjects = async () => {
+    try {
+      const { data, error: fetchError } = await supabase
+        .from(TABLES.PROJECTS)
+        .select('*')
+        .order('created_at', { ascending: false })
+
+      if (fetchError) {
+        throw fetchError
+      }
+
+      const mappedProjects = (data || []).map(mapProjectFromDB)
+      setProjects(mappedProjects)
+    } catch (err: any) {
+      console.error('Error fetching projects:', err)
+    }
+  }
+
+  const handleApprove = async (kpiId: string) => {
+    if (processingIds.has(kpiId)) return
+
+    try {
+      setProcessingIds(prev => new Set(prev).add(kpiId))
+      setError('')
+      setSuccess('')
+
+      // ✅ Get user identifier (priority: email > appUser email > auth user email > user ID > 'admin')
+      const userEmail = appUser?.email || authUser?.email || guard.user?.email || null
+      const userId = authUser?.id || appUser?.id || guard.user?.id || null
+      const approvedByValue = userEmail || userId || 'admin'
+      
+      // Update using Notes field as temporary storage for approval status
+      // Format: "APPROVED:approved:by:user@email.com:date:2025-01-01"
+      // This works even if Approval Status column doesn't exist yet
+      const approvalNote = `APPROVED:approved:by:${approvedByValue}:date:${new Date().toISOString().split('T')[0]}`
+      
+        // Try to update Approval Status first (if column exists)
+        // Note: Use bracket notation for column name with space
+        let updateError = null
+        try {
+          const updatePayload: any = {}
+          updatePayload['Approval Status'] = 'approved'
+          updatePayload['Approved By'] = approvedByValue
+          updatePayload['Approval Date'] = new Date().toISOString().split('T')[0]
+          
+          console.log('✅ [KPI Approval] Updating KPI with:', {
+            kpiId,
+            updatePayload,
+            userEmail,
+            userId,
+            approvedByValue,
+            authUserEmail: authUser?.email,
+            appUserEmail: appUser?.email,
+            guardUserEmail: guard.user?.email
+          })
+          
+          const { error: statusError, data: updateData } = await (supabase
+            .from(TABLES.KPI) as any)
+            .update(updatePayload)
+            .eq('id', kpiId)
+            .select()
+        
+        updateError = statusError
+        
+        if (!statusError && updateData) {
+          console.log('✅ [KPI Approval] Update successful:', {
+            kpiId,
+            updatedRecord: updateData[0],
+            approvalStatus: updateData[0]?.['Approval Status'],
+            approvedBy: updateData[0]?.['Approved By'],
+            approvalDate: updateData[0]?.['Approval Date'],
+            rawData: updateData[0]
+          })
+          
+          // ✅ VERIFY: Double-check that the data was actually saved
+          const { data: verifyData, error: verifyError } = await supabase
+            .from(TABLES.KPI)
+            .select('*')
+            .eq('id', kpiId)
+            .single()
+          
+          if (!verifyError && verifyData) {
+            console.log('🔍 [KPI Approval] Verification - Data in database:', {
+              approvalStatus: verifyData['Approval Status'],
+              approvedBy: verifyData['Approved By'],
+              approvalDate: verifyData['Approval Date'],
+              notes: verifyData['Notes']
+            })
+          } else {
+            console.error('❌ [KPI Approval] Verification failed:', verifyError)
+          }
+        } else if (statusError) {
+          console.error('❌ [KPI Approval] Update error:', statusError)
+        }
+        
+        // If Approval Status column doesn't exist, update Notes instead
+        if (statusError && (statusError.message?.includes('Approval Status') || statusError.message?.includes('column') || statusError.message?.includes('does not exist') || statusError.message?.includes('not found'))) {
+          console.log('⚠️ Approval Status column not found, using Notes field instead')
+          // Try to update Notes with approval info AND also try to update individual columns if they exist
+          const notesUpdatePayload: any = {
+            'Notes': approvalNote
+          }
+          
+          // Try to update Approved By and Approval Date separately (they might exist even if Approval Status doesn't)
+          try {
+            const { error: approvedByError } = await (supabase
+              .from(TABLES.KPI) as any)
+              .update({ 'Approved By': approvedByValue })
+              .eq('id', kpiId)
+            
+            if (!approvedByError) {
+              console.log('✅ Updated Approved By column')
+            }
+          } catch (e) {
+            console.log('⚠️ Approved By column not found, will use Notes only')
+          }
+          
+          try {
+            const { error: approvalDateError } = await (supabase
+              .from(TABLES.KPI) as any)
+              .update({ 'Approval Date': new Date().toISOString().split('T')[0] })
+              .eq('id', kpiId)
+            
+            if (!approvalDateError) {
+              console.log('✅ Updated Approval Date column')
+            }
+          } catch (e) {
+            console.log('⚠️ Approval Date column not found, will use Notes only')
+          }
+          
+          const { error: notesError } = await (supabase
+            .from(TABLES.KPI) as any)
+            .update(notesUpdatePayload)
+            .eq('id', kpiId)
+          
+          updateError = notesError
+        }
+      } catch (e: any) {
+        // Fallback to Notes if update fails
+        console.log('⚠️ Using Notes field as fallback:', e.message || e)
+        try {
+          const { error: notesError } = await (supabase
+            .from(TABLES.KPI) as any)
+            .update({
+              'Notes': approvalNote
+            })
+            .eq('id', kpiId)
+          
+          updateError = notesError
+        } catch (notesErr: any) {
+          console.error('Error updating Notes:', notesErr)
+          updateError = notesErr
+        }
+      }
+
+      if (updateError) {
+        console.error('Error updating Approval Status:', updateError)
+        throw updateError
+      }
+
+      setSuccess(`KPI approved successfully!`)
+      
+      // Remove from list
+      setPendingKPIs(prev => prev.filter(kpi => kpi.id !== kpiId))
+      
+      // Refresh list after short delay
+      setTimeout(() => {
+        fetchPendingKPIs()
+      }, 1000)
+
+    } catch (err: any) {
+      console.error('Error approving KPI:', err)
+      setError(err.message || 'Failed to approve KPI')
+    } finally {
+      setProcessingIds(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(kpiId)
+        return newSet
+      })
+    }
+  }
+
+  const handleReject = async (kpiId: string) => {
+    if (processingIds.has(kpiId)) return
+
+    try {
+      setProcessingIds(prev => new Set(prev).add(kpiId))
+      setError('')
+      setSuccess('')
+
+      // ✅ Get user identifier (priority: email > appUser email > auth user email > user ID > 'admin')
+      const userEmail = appUser?.email || authUser?.email || guard.user?.email || null
+      const userId = authUser?.id || appUser?.id || guard.user?.id || null
+      const approvedByValue = userEmail || userId || 'admin'
+      
+      // Update using Notes field as temporary storage for approval status
+      const rejectionNote = `APPROVED:rejected:by:${approvedByValue}:date:${new Date().toISOString().split('T')[0]}`
+      
+      // Try to update Approval Status first (if column exists)
+      // Note: Use bracket notation for column name with space
+      let updateError = null
+      try {
+        const updatePayload: any = {}
+        updatePayload['Approval Status'] = 'rejected'
+        updatePayload['Approved By'] = approvedByValue
+        updatePayload['Approval Date'] = new Date().toISOString().split('T')[0]
+        
+        const { error: statusError } = await (supabase
+          .from(TABLES.KPI) as any)
+          .update(updatePayload)
+          .eq('id', kpiId)
+      
+      updateError = statusError
+        
+        // If Approval Status column doesn't exist, update Notes instead
+        if (statusError && (statusError.message?.includes('Approval Status') || statusError.message?.includes('column') || statusError.message?.includes('does not exist'))) {
+          console.log('⚠️ Approval Status column not found, using Notes field instead')
+          const { error: notesError } = await (supabase
+            .from(TABLES.KPI) as any)
+            .update({
+              'Notes': rejectionNote
+            })
+            .eq('id', kpiId)
+          
+          updateError = notesError
+        }
+      } catch (e: any) {
+        // Fallback to Notes if update fails
+        console.log('⚠️ Using Notes field as fallback:', e.message || e)
+        try {
+          const { error: notesError } = await (supabase
+            .from(TABLES.KPI) as any)
+            .update({
+              'Notes': rejectionNote
+            })
+            .eq('id', kpiId)
+          
+          updateError = notesError
+        } catch (notesErr: any) {
+          console.error('Error updating Notes:', notesErr)
+          updateError = notesErr
+        }
+      }
+
+      if (updateError) {
+        console.error('Error updating Approval Status:', updateError)
+        throw updateError
+      }
+
+      setSuccess(`KPI rejected successfully!`)
+      
+      // Remove from list
+      setPendingKPIs(prev => prev.filter(kpi => kpi.id !== kpiId))
+      
+      // Refresh list after short delay
+      setTimeout(() => {
+        fetchPendingKPIs()
+      }, 1000)
+
+    } catch (err: any) {
+      console.error('Error rejecting KPI:', err)
+      setError(err.message || 'Failed to reject KPI')
+    } finally {
+      setProcessingIds(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(kpiId)
+        return newSet
+      })
+    }
+  }
+
+  const handleBulkApprove = async () => {
+    if (pendingKPIs.length === 0) return
+
+    // Get count of all pending KPIs (not just displayed)
+    const { count: totalPendingCount } = await supabase
+      .from(TABLES.KPI)
+      .select('*', { count: 'exact', head: true })
+      .eq('Input Type', 'Actual')
+    
+    const confirmMessage = totalPendingCount && totalPendingCount > pendingKPIs.length
+      ? `Are you sure you want to approve ALL ${totalPendingCount} pending Actual KPIs? (Currently showing ${pendingKPIs.length})`
+      : `Are you sure you want to approve all ${pendingKPIs.length} pending KPIs?`
+    
+    if (!confirm(confirmMessage)) {
+      return
+    }
+
+    try {
+      setLoading(true)
+      setError('')
+      setSuccess('')
+
+      // ✅ EFFICIENT BULK APPROVE: Process all Actual KPIs in chunks
+      // This approach fetches and updates in chunks to handle large datasets
+      console.log('🚀 Starting bulk approve for ALL Actual KPIs without approval status...')
+      
+      // ✅ Get user identifier (priority: email > appUser email > auth user email > user ID > 'admin')
+      const userEmail = appUser?.email || authUser?.email || guard.user?.email || null
+      const userId = authUser?.id || appUser?.id || guard.user?.id || null
+      const approvedByValue = userEmail || userId || 'admin'
+      
+      const fetchChunkSize = 1000 // Fetch 1000 at a time
+      const updateChunkSize = 50 // Update 50 at a time (smaller batches for updates)
+      let offset = 0
+      let totalApproved = 0
+      let hasMore = true
+      const approvalNote = `APPROVED:approved:by:${approvedByValue}:date:${new Date().toISOString().split('T')[0]}`
+      
+      // Process in chunks until no more records
+      while (hasMore) {
+        // Fetch chunk of Actual KPIs that need approval
+        // Use select('*') to get all columns including Approval Status if it exists
+        const { data: chunkData, error: chunkError } = await supabase
+          .from(TABLES.KPI)
+          .select('*')
+          .eq('Input Type', 'Actual')
+          .range(offset, offset + fetchChunkSize - 1)
+        
+        if (chunkError) {
+          console.error(`Error fetching chunk at offset ${offset}:`, chunkError)
+          throw chunkError
+        }
+        
+        if (!chunkData || chunkData.length === 0) {
+          hasMore = false
+          break
+        }
+        
+        // Filter to only those that need approval (no approval status)
+        const idsToApprove = chunkData
+          .filter((row: any) => {
+            const approvalStatus = row['Approval Status'] || null
+            const notes = row['Notes'] || ''
+            const hasApproval = approvalStatus || (notes && String(notes).includes('APPROVED:'))
+            return !hasApproval // Include if no approval status
+          })
+          .map((row: any) => row.id)
+        
+        // Process updates in smaller batches to avoid "Bad Request" errors
+        if (idsToApprove.length > 0) {
+          for (let i = 0; i < idsToApprove.length; i += updateChunkSize) {
+            const batchIds = idsToApprove.slice(i, i + updateChunkSize)
+            
+            // Try to update using Approval Status column first
+            let batchError = null
+            try {
+              // Use bracket notation for column name with space
+              const updatePayload: any = {}
+              updatePayload['Approval Status'] = 'approved'
+              updatePayload['Approved By'] = approvedByValue
+              updatePayload['Approval Date'] = new Date().toISOString().split('T')[0]
+              
+              const { error: statusError } = await (supabase
+                .from(TABLES.KPI) as any)
+                .update(updatePayload)
+                .in('id', batchIds)
+              
+              batchError = statusError
+              
+              // If Approval Status column doesn't exist, use Notes field
+              if (statusError && (statusError.message?.includes('Approval Status') || statusError.message?.includes('column') || statusError.message?.includes('does not exist'))) {
+                console.log(`⚠️ Approval Status column not found for batch ${i}, using Notes field instead`)
+                const { error: notesError } = await (supabase
+                  .from(TABLES.KPI) as any)
+                  .update({
+                    'Notes': approvalNote
+                  })
+                  .in('id', batchIds)
+                
+                batchError = notesError
+              }
+            } catch (e: any) {
+              // Fallback to Notes if update fails
+              console.log(`⚠️ Using Notes field as fallback for batch ${i}:`, e.message || e)
+              try {
+                const { error: notesError } = await (supabase
+                  .from(TABLES.KPI) as any)
+                  .update({
+                    'Notes': approvalNote
+                  })
+                  .in('id', batchIds)
+                
+                batchError = notesError
+              } catch (notesErr: any) {
+                console.error(`Error updating Notes for batch ${i}:`, notesErr)
+                batchError = notesErr
+              }
+            }
+            
+            if (batchError) {
+              console.error(`Error updating batch ${i} at offset ${offset}:`, batchError)
+              // Continue to next batch instead of throwing
+            } else {
+              totalApproved += batchIds.length
+              console.log(`✅ Approved ${batchIds.length} KPIs in batch ${i} (total: ${totalApproved})`)
+              // Update progress message
+              setSuccess(`Processing... Approved ${totalApproved} KPIs so far...`)
+            }
+            
+            // Small delay to avoid overwhelming the database
+            await new Promise(resolve => setTimeout(resolve, 100))
+          }
+        }
+        
+        // Check if we've processed all records
+        if (chunkData.length < fetchChunkSize) {
+          hasMore = false
+        } else {
+          offset += fetchChunkSize
+        }
+      }
+      
+      if (totalApproved > 0) {
+        setSuccess(`Successfully approved ${totalApproved} Actual KPIs!`)
+      } else {
+        setError('No KPIs were found that need approval')
+      }
+      
+      // Refresh the list
+      setTimeout(() => {
+        fetchPendingKPIs()
+      }, 1000)
+
+    } catch (err: any) {
+      console.error('Error bulk approving KPIs:', err)
+      setError(err.message || 'Failed to approve KPIs')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // ✅ Load user info from users table
+  const loadUserInfo = async (userIds: string[]) => {
+    try {
+      const userMap = new Map<string, UserInfo>()
+      
+      for (const userId of userIds) {
+        if (!userId || userId === 'System' || userId === 'Unknown' || userInfoCache.has(userId)) {
+          continue
+        }
+        
+        // Check if it's an email
+        if (userId.includes('@')) {
+          try {
+            const { data: userByEmail, error: emailError } = await supabase
+              .from('users')
+              .select('id, email, full_name, phone_1, phone_2, role, division')
+              .eq('email', userId)
+              .single()
+            
+            if (!emailError && userByEmail) {
+              const userData = userByEmail as any
+              userMap.set(userId, {
+                name: userData.full_name || userData.email?.split('@')[0] || userId,
+                email: userData.email || userId,
+                phone_1: userData.phone_1,
+                phone_2: userData.phone_2,
+                role: userData.role,
+                division: userData.division
+              })
+            } else {
+              // If not found, use email as name
+              userMap.set(userId, { name: userId.split('@')[0], email: userId })
+            }
+          } catch (e: any) {
+            userMap.set(userId, { name: userId.split('@')[0], email: userId })
+          }
+        } else {
+          // Try to find by ID
+          try {
+            const { data: userById, error: idError } = await supabase
+              .from('users')
+              .select('id, email, full_name, phone_1, phone_2, role, division')
+              .eq('id', userId)
+              .single()
+            
+            if (!idError && userById) {
+              const userData = userById as any
+              userMap.set(userId, {
+                name: userData.full_name || userData.email?.split('@')[0] || userId,
+                email: userData.email || userId,
+                phone_1: userData.phone_1,
+                phone_2: userData.phone_2,
+                role: userData.role,
+                division: userData.division
+              })
+            } else {
+              userMap.set(userId, { name: userId, email: '' })
+            }
+          } catch (e: any) {
+            userMap.set(userId, { name: userId, email: '' })
+          }
+        }
+      }
+      
+      // Update cache
+      setUserInfoCache(prev => {
+        const newCache = new Map(prev)
+        Array.from(userMap.entries()).forEach(([key, value]) => {
+          newCache.set(key, value)
+        })
+        return newCache
+      })
+    } catch (err: any) {
+      console.error('Error loading user info:', err)
+    }
+  }
+  
+  // ✅ Get user info for a KPI creator
+  const getCreatorInfo = (kpi: PendingKPI): UserInfo | null => {
+    const creatorId = kpi.created_by || (kpi as any)['created_by'] || (kpi as any)['Recorded By'] || null
+    if (!creatorId) return null
+    return userInfoCache.get(creatorId) || null
+  }
+  
+  // ✅ Helper to clean phone number for WhatsApp link
+  const cleanPhoneNumber = (phone: string): string => {
+    // Remove all non-digit characters except +
+    return phone.replace(/[^\d+]/g, '')
+  }
+  
+  // ✅ Get WhatsApp link for a phone number
+  const getWhatsAppLink = (phone: string): string => {
+    const cleanPhone = cleanPhoneNumber(phone)
+    return `https://wa.me/${cleanPhone}`
+  }
+  
+  // Helper to get field value (handles both old and new field names)
+  const getField = (kpi: PendingKPI, field: string): any => {
+    // Try new snake_case first
+    const snakeCase = field.toLowerCase().replace(/\s+/g, '_')
+    if (snakeCase in kpi) {
+      return (kpi as any)[snakeCase]
+    }
+    // Try old camelCase with spaces
+    if (field in kpi) {
+      return (kpi as any)[field]
+    }
+    // Try common variations
+    if (field === 'Project Code') {
+      return kpi.project_code || kpi['Project Code'] || ''
+    }
+    if (field === 'Project Full Code') {
+      return kpi.project_full_code || kpi['Project Full Code'] || ''
+    }
+    if (field === 'Activity Name') {
+      return kpi.activity_name || kpi['Activity Name'] || ''
+    }
+    if (field === 'Quantity') {
+      return kpi.quantity || kpi['Quantity'] || '0'
+    }
+    if (field === 'Target Date') {
+      return kpi.target_date || kpi['Target Date'] || ''
+    }
+    if (field === 'Value') {
+      return kpi.value || kpi['Value'] || '0'
+    }
+    if (field === 'Unit') {
+      return kpi.unit || kpi['Unit'] || ''
+    }
+    return ''
+  }
+  
+  const getProjectName = (projectCode: string) => {
+    if (!projectCode) return 'N/A'
+    // ✅ Search by both project_full_code and project_code
+    const project = projects.find(p => 
+      p.project_full_code === projectCode || 
+      p.project_code === projectCode ||
+      p.project_full_code === projectCode.trim() ||
+      p.project_code === projectCode.trim()
+    )
+    return project?.project_name || projectCode || 'N/A'
+  }
+  
+  // ✅ Get unique values for filters
+  const uniqueProjects = Array.from(new Set(pendingKPIs.map(kpi => 
+    getField(kpi, 'Project Full Code') || getField(kpi, 'Project Code') || ''
+  ).filter(Boolean))).sort()
+  
+  const uniqueActivities = Array.from(new Set(pendingKPIs.map(kpi => 
+    getField(kpi, 'Activity Name') || ''
+  ).filter(Boolean))).sort()
+  
+  const uniqueZones = Array.from(new Set(pendingKPIs.map(kpi => 
+    getField(kpi, 'Zone') || ''
+  ).filter(Boolean))).sort()
+  
+  // ✅ Filter KPIs based on selected filters
+  useEffect(() => {
+    let filtered = [...pendingKPIs]
+    
+    // Filter by Projects
+    if (selectedProjects.length > 0) {
+      filtered = filtered.filter(kpi => {
+        const projectCode = getField(kpi, 'Project Full Code') || getField(kpi, 'Project Code') || ''
+        return selectedProjects.includes(projectCode)
+      })
+    }
+    
+    // Filter by Activities
+    if (selectedActivities.length > 0) {
+      filtered = filtered.filter(kpi => {
+        const activityName = getField(kpi, 'Activity Name') || ''
+        return selectedActivities.includes(activityName)
+      })
+    }
+    
+    // Filter by Zones
+    if (selectedZones.length > 0) {
+      filtered = filtered.filter(kpi => {
+        const zone = getField(kpi, 'Zone') || ''
+        return selectedZones.includes(zone)
+      })
+    }
+    
+    setFilteredKPIs(filtered)
+    setCurrentPage(1) // Reset to first page when filters change
+  }, [pendingKPIs, selectedProjects, selectedActivities, selectedZones])
+
+  if (loading && pendingKPIs.length === 0) {
+    return (
+      <PermissionPage 
+        permission="kpi.need_to_submit"
+        accessDeniedTitle="Access Required"
+        accessDeniedMessage="You need permission to view KPIs pending submission. Please contact your administrator."
+      >
+        <DynamicTitle pageTitle="Pending Approval KPIs" />
+        <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+          <div className="text-center">
+            <LoadingSpinner size="lg" />
+            <p className="mt-4 text-gray-600 dark:text-gray-400">Loading pending KPIs...</p>
+          </div>
+        </div>
+      </PermissionPage>
+    )
+  }
+
+  return (
+    <PermissionPage 
+      permission="kpi.need_to_submit"
+      accessDeniedTitle="Access Required"
+      accessDeniedMessage="You need permission to view KPIs pending submission. Please contact your administrator."
+    >
+      <DynamicTitle pageTitle="Pending Approval KPIs" />
+      
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-purple-50/20 dark:from-gray-900 dark:via-gray-900 dark:to-gray-900">
+        {/* Header */}
+        <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10">
+          <div className="w-full mx-auto px-4 sm:px-6 py-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <Button
+                  variant="ghost"
+                  onClick={() => router.push('/kpi')}
+                  className="flex items-center gap-2"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Back to KPI
+                </Button>
+                
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+                    Need to Submit / Pending Approval
+                  </h1>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                    Review and approve Actual KPIs added by engineers
+                  </p>
+                </div>
+              </div>
+
+              {pendingKPIs.length > 0 && guard.hasAccess('kpi.approve') && (
+                <Button
+                  onClick={handleBulkApprove}
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                >
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  Approve All ({pendingKPIs.length})
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="w-full mx-auto px-4 sm:px-6 py-6">
+          {/* Alerts */}
+          {error && (
+            <Alert variant="error" className="mb-4">
+              {error}
+              <Button variant="ghost" size="sm" onClick={() => setError('')} className="ml-2">
+                <X className="h-4 w-4" />
+              </Button>
+            </Alert>
+          )}
+          {success && (
+            <Alert variant="success" className="mb-4">
+              {success}
+              <Button variant="ghost" size="sm" onClick={() => setSuccess('')} className="ml-2">
+                <X className="h-4 w-4" />
+              </Button>
+            </Alert>
+          )}
+
+          {/* ✅ Filters Section */}
+          <Card className="mb-6">
+            <div className="p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Filter className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Filters</h2>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Projects Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Projects
+                  </label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search projects..."
+                      value={projectSearchTerm}
+                      onChange={(e) => setProjectSearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm"
+                    />
+                  </div>
+                  <div className="mt-2 max-h-40 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-md p-2">
+                    {uniqueProjects
+                      .filter(p => !projectSearchTerm || p.toLowerCase().includes(projectSearchTerm.toLowerCase()))
+                      .map(project => (
+                        <label key={project} className="flex items-center gap-2 p-1 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selectedProjects.includes(project)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedProjects([...selectedProjects, project])
+                              } else {
+                                setSelectedProjects(selectedProjects.filter(p => p !== project))
+                              }
+                            }}
+                            className="rounded"
+                          />
+                          <span className="text-sm text-gray-700 dark:text-gray-300">{project}</span>
+                        </label>
+                      ))}
+                  </div>
+                </div>
+                
+                {/* Activities Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Activities
+                  </label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search activities..."
+                      value={activitySearchTerm}
+                      onChange={(e) => setActivitySearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm"
+                    />
+                  </div>
+                  <div className="mt-2 max-h-40 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-md p-2">
+                    {uniqueActivities
+                      .filter(a => !activitySearchTerm || a.toLowerCase().includes(activitySearchTerm.toLowerCase()))
+                      .map(activity => (
+                        <label key={activity} className="flex items-center gap-2 p-1 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selectedActivities.includes(activity)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedActivities([...selectedActivities, activity])
+                              } else {
+                                setSelectedActivities(selectedActivities.filter(a => a !== activity))
+                              }
+                            }}
+                            className="rounded"
+                          />
+                          <span className="text-sm text-gray-700 dark:text-gray-300 truncate" title={activity}>{activity}</span>
+                        </label>
+                      ))}
+                  </div>
+                </div>
+                
+                {/* Zones Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Zones
+                  </label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search zones..."
+                      value={zoneSearchTerm}
+                      onChange={(e) => setZoneSearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm"
+                    />
+                  </div>
+                  <div className="mt-2 max-h-40 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-md p-2">
+                    {uniqueZones
+                      .filter(z => !zoneSearchTerm || z.toLowerCase().includes(zoneSearchTerm.toLowerCase()))
+                      .map(zone => (
+                        <label key={zone} className="flex items-center gap-2 p-1 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selectedZones.includes(zone)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedZones([...selectedZones, zone])
+                              } else {
+                                setSelectedZones(selectedZones.filter(z => z !== zone))
+                              }
+                            }}
+                            className="rounded"
+                          />
+                          <span className="text-sm text-gray-700 dark:text-gray-300">{zone}</span>
+                        </label>
+                      ))}
+                  </div>
+                </div>
+              </div>
+              
+              {/* Clear Filters Button */}
+              {(selectedProjects.length > 0 || selectedActivities.length > 0 || selectedZones.length > 0) && (
+                <div className="mt-4">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setSelectedProjects([])
+                      setSelectedActivities([])
+                      setSelectedZones([])
+                      setProjectSearchTerm('')
+                      setActivitySearchTerm('')
+                      setZoneSearchTerm('')
+                    }}
+                  >
+                    <X className="w-4 h-4 mr-2" />
+                    Clear All Filters
+                  </Button>
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {/* Summary Card */}
+          <Card className="mb-6">
+            <div className="p-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-6">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 bg-yellow-100 dark:bg-yellow-900/30 rounded-full flex items-center justify-center">
+                      <Clock className="w-6 h-6 text-yellow-600 dark:text-yellow-400" />
+                    </div>
+                    <div>
+                      <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                        {filteredKPIs.length}
+                      </div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">
+                        {filteredKPIs.length === pendingKPIs.length ? 'Pending KPIs' : `Filtered (${pendingKPIs.length} total)`}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          {/* Pagination Controls - Top */}
+          {filteredKPIs.length > itemsPerPage && (
+            <div className="mb-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="text-sm text-gray-600 dark:text-gray-400">
+                Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredKPIs.length)} of {filteredKPIs.length} KPIs
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                >
+                  First
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                >
+                  Previous
+                </Button>
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(5, Math.ceil(filteredKPIs.length / itemsPerPage)) }, (_, i) => {
+                    const totalPages = Math.ceil(filteredKPIs.length / itemsPerPage)
+                    let pageNum: number
+                    
+                    if (totalPages <= 5) {
+                      pageNum = i + 1
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i
+                    } else {
+                      pageNum = currentPage - 2 + i
+                    }
+                    
+                    return (
+                      <Button
+                        key={pageNum}
+                        variant={currentPage === pageNum ? "primary" : "outline"}
+                        size="sm"
+                        onClick={() => setCurrentPage(pageNum)}
+                        className="min-w-[40px]"
+                      >
+                        {pageNum}
+                      </Button>
+                    )
+                  })}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.min(Math.ceil(filteredKPIs.length / itemsPerPage), prev + 1))}
+                  disabled={currentPage >= Math.ceil(filteredKPIs.length / itemsPerPage)}
+                >
+                  Next
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(Math.ceil(filteredKPIs.length / itemsPerPage))}
+                  disabled={currentPage >= Math.ceil(filteredKPIs.length / itemsPerPage)}
+                >
+                  Last
+                </Button>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600 dark:text-gray-400">Items per page:</span>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value))
+                    setCurrentPage(1)
+                  }}
+                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm"
+                >
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={200}>200</option>
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* KPIs List */}
+          {filteredKPIs.length === 0 ? (
+            <Card>
+              <div className="p-12 text-center">
+                <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
+                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+                  No Pending KPIs
+                </h3>
+                <p className="text-gray-600 dark:text-gray-400">
+                  All Actual KPIs have been approved or there are no pending approvals.
+                </p>
+              </div>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              {(() => {
+                // Calculate pagination
+                const startIndex = (currentPage - 1) * itemsPerPage
+                const endIndex = startIndex + itemsPerPage
+                const paginatedKPIs = filteredKPIs.slice(startIndex, endIndex)
+                
+                return paginatedKPIs.map((kpi) => (
+                <Card key={kpi.id} className="hover:shadow-lg transition-shadow">
+                  <div className="p-6">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-3">
+                          <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
+                            <Target className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                          </div>
+                          <div>
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                              {getField(kpi, 'Activity Name') || 'N/A'}
+                            </h3>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">
+                              Project: {getProjectName(getField(kpi, 'Project Full Code') || getField(kpi, 'Project Code') || '')} ({getField(kpi, 'Project Full Code') || getField(kpi, 'Project Code') || 'N/A'})
+                            </p>
+                            {getField(kpi, 'Zone') && (
+                              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                Zone: {getField(kpi, 'Zone')}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* ✅ Creator Information */}
+                        {(() => {
+                          const creatorInfo = getCreatorInfo(kpi)
+                          if (creatorInfo) {
+                            return (
+                              <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                                  <span className="text-sm font-semibold text-gray-900 dark:text-white">Created By:</span>
+                                  <span className="text-sm text-gray-700 dark:text-gray-300">{creatorInfo.name}</span>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-3 text-xs">
+                                  {/* Email */}
+                                  {creatorInfo.email && (
+                                    <a 
+                                      href={`mailto:${creatorInfo.email}`}
+                                      className="flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline transition-colors"
+                                    >
+                                      <Mail className="w-4 h-4" />
+                                      <span>{creatorInfo.email}</span>
+                                    </a>
+                                  )}
+                                  
+                                  {/* Phone 1 */}
+                                  {creatorInfo.phone_1 && (
+                                    <div className="flex items-center gap-2">
+                                      <a 
+                                        href={`tel:${creatorInfo.phone_1}`}
+                                        className="flex items-center gap-1 text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline transition-colors"
+                                      >
+                                        <Phone className="w-4 h-4" />
+                                        <span>{creatorInfo.phone_1}</span>
+                                      </a>
+                                      <a 
+                                        href={getWhatsAppLink(creatorInfo.phone_1)}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-1 text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 transition-colors"
+                                        title={`WhatsApp: ${creatorInfo.phone_1}`}
+                                      >
+                                        <MessageCircle className="w-4 h-4" />
+                                      </a>
+                                    </div>
+                                  )}
+                                  
+                                  {/* Phone 2 */}
+                                  {creatorInfo.phone_2 && (
+                                    <div className="flex items-center gap-2">
+                                      <a 
+                                        href={`tel:${creatorInfo.phone_2}`}
+                                        className="flex items-center gap-1 text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline transition-colors"
+                                      >
+                                        <Phone className="w-4 h-4" />
+                                        <span>{creatorInfo.phone_2}</span>
+                                      </a>
+                                      <a 
+                                        href={getWhatsAppLink(creatorInfo.phone_2)}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-1 text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 transition-colors"
+                                        title={`WhatsApp: ${creatorInfo.phone_2}`}
+                                      >
+                                        <MessageCircle className="w-4 h-4" />
+                                      </a>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          }
+                          return null
+                        })()}
+
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4">
+                          <div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Quantity</div>
+                            <div className="text-sm font-medium text-gray-900 dark:text-white">
+                              {getField(kpi, 'Quantity') || '0'} {getField(kpi, 'Unit') || ''}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Target Date</div>
+                            <div className="text-sm font-medium text-gray-900 dark:text-white">
+                              {(() => {
+                                const targetDate = getField(kpi, 'Target Date')
+                                if (!targetDate || targetDate === '' || targetDate === 'N/A') return 'N/A'
+                                try {
+                                  return new Date(targetDate).toLocaleDateString()
+                                } catch {
+                                  return targetDate || 'N/A'
+                                }
+                              })()}
+                            </div>
+                          </div>
+                          {(() => {
+                            const value = getField(kpi, 'Value')
+                            const numValue = parseFloat(String(value || '0'))
+                            return numValue > 0 ? (
+                              <div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Value</div>
+                                <div className="text-sm font-medium text-gray-900 dark:text-white">
+                                  ${numValue.toLocaleString()}
+                                </div>
+                              </div>
+                            ) : null
+                          })()}
+                          <div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Created</div>
+                            <div className="text-sm font-medium text-gray-900 dark:text-white">
+                              {(() => {
+                                try {
+                                  return kpi.created_at ? new Date(kpi.created_at).toLocaleDateString() : 'N/A'
+                                } catch {
+                                  return 'N/A'
+                                }
+                              })()}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <PermissionButton
+                          permission="kpi.approve"
+                          onClick={() => handleApprove(kpi.id)}
+                          disabled={processingIds.has(kpi.id)}
+                          className="bg-green-600 hover:bg-green-700 text-white"
+                        >
+                          {processingIds.has(kpi.id) ? (
+                            <>
+                              <LoadingSpinner size="sm" />
+                              Processing...
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle className="w-4 h-4 mr-2" />
+                              Approve
+                            </>
+                          )}
+                        </PermissionButton>
+                        <PermissionButton
+                          permission="kpi.approve"
+                          onClick={() => handleReject(kpi.id)}
+                          disabled={processingIds.has(kpi.id)}
+                          variant="outline"
+                          className="border-red-300 text-red-600 hover:bg-red-50"
+                        >
+                          <X className="w-4 h-4 mr-2" />
+                          Reject
+                        </PermissionButton>
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+                ))
+              })()}
+            </div>
+          )}
+
+          {/* Pagination Controls - Bottom */}
+          {filteredKPIs.length > itemsPerPage && (
+            <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="text-sm text-gray-600 dark:text-gray-400">
+                Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredKPIs.length)} of {filteredKPIs.length} KPIs
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                >
+                  First
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                >
+                  Previous
+                </Button>
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(5, Math.ceil(filteredKPIs.length / itemsPerPage)) }, (_, i) => {
+                    const totalPages = Math.ceil(filteredKPIs.length / itemsPerPage)
+                    let pageNum: number
+                    
+                    if (totalPages <= 5) {
+                      pageNum = i + 1
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i
+                    } else {
+                      pageNum = currentPage - 2 + i
+                    }
+                    
+                    return (
+                      <Button
+                        key={pageNum}
+                        variant={currentPage === pageNum ? "primary" : "outline"}
+                        size="sm"
+                        onClick={() => setCurrentPage(pageNum)}
+                        className="min-w-[40px]"
+                      >
+                        {pageNum}
+                      </Button>
+                    )
+                  })}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.min(Math.ceil(filteredKPIs.length / itemsPerPage), prev + 1))}
+                  disabled={currentPage >= Math.ceil(filteredKPIs.length / itemsPerPage)}
+                >
+                  Next
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(Math.ceil(filteredKPIs.length / itemsPerPage))}
+                  disabled={currentPage >= Math.ceil(filteredKPIs.length / itemsPerPage)}
+                >
+                  Last
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </PermissionPage>
+  )
+}
+

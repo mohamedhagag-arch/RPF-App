@@ -1,0 +1,18 @@
+# Vercel redirects file
+# Handle client-side routing
+
+# Redirect all routes to index.html for SPA behavior
+/*    /index.html   200
+
+# API routes
+/api/*  /api/:splat  200
+
+# Static files
+/_next/static/*  /_next/static/:splat  200
+/static/*  /static/:splat  200
+
+# Images
+/images/*  /images/:splat  200
+
+# Favicon
+/favicon.ico  /favicon.ico  200

@@ -1,0 +1,33 @@
+Project Type,Project Type Code,Project Type Description,Activity Name,Activity Name (Arabic),Activity Description,Default Unit,Estimated Rate,Category,Typical Duration (Days),Division,Display Order,Is Active
+Infrastructure,INF,Infrastructure and civil engineering projects,Site Preparation,إعداد الموقع,Site clearing leveling and preparation works,Square Meter,5.00,Preparation,5,Civil Division,1,Yes
+Infrastructure,INF,Infrastructure and civil engineering projects,Excavation,أعمال الحفر,Earth excavation and soil removal,Cubic Meter,12.00,Earthwork,10,Civil Division,2,Yes
+Infrastructure,INF,Infrastructure and civil engineering projects,Bored Piling,الحفر الممل,Deep foundation work using bored piles,Meter,150.00,Piling,30,Civil Division,3,Yes
+Infrastructure,INF,Infrastructure and civil engineering projects,Pile Cap Construction,بناء تاج الخوازيق,Construction of pile caps and foundation elements,Cubic Meter,85.00,Foundation,15,Civil Division,4,Yes
+Infrastructure,INF,Infrastructure and civil engineering projects,Steel Reinforcement,تسليح الحديد,Steel reinforcement installation and fixing,Ton,200.00,Steel,10,Civil Division,5,Yes
+Infrastructure,INF,Infrastructure and civil engineering projects,Concrete Works,أعمال الخرسانة,Concrete casting curing and finishing,Cubic Meter,75.00,Concrete,15,Civil Division,6,Yes
+Infrastructure,INF,Infrastructure and civil engineering projects,Waterproofing,أعمال العزل المائي,Waterproofing and damp proofing works,Square Meter,25.00,Waterproofing,8,Civil Division,7,Yes
+Infrastructure,INF,Infrastructure and civil engineering projects,Backfilling,أعمال الردم,Backfilling and compaction works,Cubic Meter,8.00,Earthwork,5,Civil Division,8,Yes
+Residential,RES,Residential building projects including villas apartments and housing complexes,Site Survey,المساحة الميدانية,Land survey and site measurement,LS,500.00,Survey,2,Survey Division,1,Yes
+Residential,RES,Residential building projects including villas apartments and housing complexes,Foundation Excavation,حفر الأساسات,Foundation excavation and preparation,Cubic Meter,15.00,Foundation,8,Civil Division,2,Yes
+Residential,RES,Residential building projects including villas apartments and housing complexes,Foundation Concrete,خرسانة الأساسات,Foundation concrete casting and curing,Cubic Meter,80.00,Concrete,5,Civil Division,3,Yes
+Residential,RES,Residential building projects including villas apartments and housing complexes,Block Work,أعمال البناء,Masonry and block construction,Square Meter,25.00,Masonry,20,Construction Division,4,Yes
+Residential,RES,Residential building projects including villas apartments and housing complexes,Roof Slab,بلاطة السقف,Roof slab construction and finishing,Square Meter,45.00,Concrete,12,Civil Division,5,Yes
+Residential,RES,Residential building projects including villas apartments and housing complexes,Plastering,أعمال البياض,Wall and ceiling plastering,Square Meter,15.00,Finishing,12,Construction Division,6,Yes
+Residential,RES,Residential building projects including villas apartments and housing complexes,Tiling,أعمال البلاط,Floor and wall tiling works,Square Meter,35.00,Finishing,8,Construction Division,7,Yes
+Residential,RES,Residential building projects including villas apartments and housing complexes,Painting,أعمال الدهان,Interior and exterior painting,Square Meter,12.00,Finishing,6,Construction Division,8,Yes
+Residential,RES,Residential building projects including villas apartments and housing complexes,Electrical Installation,التوصيلات الكهربائية,Electrical wiring and fixtures installation,LS,1500.00,Electrical,10,Electrical Division,9,Yes
+Residential,RES,Residential building projects including villas apartments and housing complexes,Plumbing Installation,التوصيلات الصحية,Plumbing and sanitary installation,LS,1200.00,Plumbing,8,Plumbing Division,10,Yes
+Residential,RES,Residential building projects including villas apartments and housing complexes,Landscaping,أعمال التنسيق,Garden and landscaping works,Square Meter,20.00,Landscaping,5,Landscaping Division,11,Yes
+Commercial,COM,Commercial and office building projects,Steel Structure,الهيكل المعدني,Steel structure fabrication and erection,Ton,300.00,Steel,45,Steel Division,1,Yes
+Commercial,COM,Commercial and office building projects,Glass Facade,الواجهة الزجاجية,Glass facade installation,Square Meter,120.00,Facade,25,Facade Division,2,Yes
+Commercial,COM,Commercial and office building projects,Elevator Installation,تركيب المصاعد,Elevator and lift installation,LS,25000.00,Mechanical,20,Mechanical Division,3,Yes
+Commercial,COM,Commercial and office building projects,HVAC Systems,أنظمة التكييف,Heating ventilation and air conditioning systems,LS,15000.00,HVAC,30,HVAC Division,4,Yes
+Commercial,COM,Commercial and office building projects,Fire Safety Systems,أنظمة السلامة من الحرائق,Fire detection and suppression systems,LS,8000.00,Safety,15,Safety Division,5,Yes
+Industrial,IND,Industrial and manufacturing facilities,Heavy Machinery Installation,تركيب المعدات الثقيلة,Installation of heavy industrial machinery,LS,5000.00,Mechanical,60,Mechanical Division,1,Yes
+Industrial,IND,Industrial and manufacturing facilities,Electrical Systems,النظم الكهربائية,Electrical installation and wiring,LS,2500.00,Electrical,30,Electrical Division,2,Yes
+Industrial,IND,Industrial and manufacturing facilities,Process Piping,أنابيب العمليات,Process piping and industrial plumbing,LS,3000.00,Piping,25,Piping Division,3,Yes
+Industrial,IND,Industrial and manufacturing facilities,Control Systems,أنظمة التحكم,Industrial control and automation systems,LS,4000.00,Automation,20,Automation Division,4,Yes
+Healthcare,HTH,Healthcare and medical facilities,Medical Gas Systems,أنظمة الغازات الطبية,Medical gas piping and systems,LS,8000.00,Medical,40,Medical Division,1,Yes
+Healthcare,HTH,Healthcare and medical facilities,Clean Room Construction,بناء الغرف النظيفة,Clean room and sterile environment construction,Square Meter,500.00,Specialized,35,Specialized Division,2,Yes
+Healthcare,HTH,Healthcare and medical facilities,Medical Equipment Installation,تركيب المعدات الطبية,Medical equipment and device installation,LS,12000.00,Medical,25,Medical Division,3,Yes
+Healthcare,HTH,Healthcare and medical facilities,Specialized HVAC,أنظمة التكييف المتخصصة,Specialized HVAC for medical facilities,LS,10000.00,HVAC,30,HVAC Division,4,Yes

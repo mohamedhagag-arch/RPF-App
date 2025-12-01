@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+
+Disallow: /api/
+Disallow: /admin/
+Disallow: /_next/
+Disallow: /static/
+Disallow: /scripts/
+Disallow: /Database/
+
+Sitemap: https://rabat-mvp.vercel.app/sitemap.xml

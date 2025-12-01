@@ -1,0 +1,122 @@
+{
+  "project_type": {
+    "name": "Infrastructure",
+    "code": "INF",
+    "description": "Infrastructure and civil engineering projects",
+    "is_active": true
+  },
+  "activities": [
+    {
+      "project_type": "Infrastructure",
+      "activity_name": "Site Preparation",
+      "activity_name_ar": "إعداد الموقع",
+      "description": "Site clearing, leveling, and preparation works",
+      "default_unit": "Square Meter",
+      "estimated_rate": 5.00,
+      "category": "Preparation",
+      "typical_duration": 5,
+      "division": "Civil Division",
+      "display_order": 1,
+      "is_active": true
+    },
+    {
+      "project_type": "Infrastructure",
+      "activity_name": "Excavation",
+      "activity_name_ar": "أعمال الحفر",
+      "description": "Earth excavation and soil removal",
+      "default_unit": "Cubic Meter",
+      "estimated_rate": 12.00,
+      "category": "Earthwork",
+      "typical_duration": 10,
+      "division": "Civil Division",
+      "display_order": 2,
+      "is_active": true
+    },
+    {
+      "project_type": "Infrastructure",
+      "activity_name": "Bored Piling",
+      "activity_name_ar": "الحفر الممل",
+      "description": "Deep foundation work using bored piles",
+      "default_unit": "Meter",
+      "estimated_rate": 150.00,
+      "category": "Piling",
+      "typical_duration": 30,
+      "division": "Civil Division",
+      "display_order": 3,
+      "is_active": true
+    },
+    {
+      "project_type": "Infrastructure",
+      "activity_name": "Pile Cap Construction",
+      "activity_name_ar": "بناء تاج الخوازيق",
+      "description": "Construction of pile caps and foundation elements",
+      "default_unit": "Cubic Meter",
+      "estimated_rate": 85.00,
+      "category": "Foundation",
+      "typical_duration": 15,
+      "division": "Civil Division",
+      "display_order": 4,
+      "is_active": true
+    },
+    {
+      "project_type": "Infrastructure",
+      "activity_name": "Steel Reinforcement",
+      "activity_name_ar": "تسليح الحديد",
+      "description": "Steel reinforcement installation and fixing",
+      "default_unit": "Ton",
+      "estimated_rate": 200.00,
+      "category": "Steel",
+      "typical_duration": 10,
+      "division": "Civil Division",
+      "display_order": 5,
+      "is_active": true
+    },
+    {
+      "project_type": "Infrastructure",
+      "activity_name": "Concrete Works",
+      "activity_name_ar": "أعمال الخرسانة",
+      "description": "Concrete casting, curing, and finishing",
+      "default_unit": "Cubic Meter",
+      "estimated_rate": 75.00,
+      "category": "Concrete",
+      "typical_duration": 15,
+      "division": "Civil Division",
+      "display_order": 6,
+      "is_active": true
+    },
+    {
+      "project_type": "Infrastructure",
+      "activity_name": "Waterproofing",
+      "activity_name_ar": "أعمال العزل المائي",
+      "description": "Waterproofing and damp proofing works",
+      "default_unit": "Square Meter",
+      "estimated_rate": 25.00,
+      "category": "Waterproofing",
+      "typical_duration": 8,
+      "division": "Civil Division",
+      "display_order": 7,
+      "is_active": true
+    },
+    {
+      "project_type": "Infrastructure",
+      "activity_name": "Backfilling",
+      "activity_name_ar": "أعمال الردم",
+      "description": "Backfilling and compaction works",
+      "default_unit": "Cubic Meter",
+      "estimated_rate": 8.00,
+      "category": "Earthwork",
+      "typical_duration": 5,
+      "division": "Civil Division",
+      "display_order": 8,
+      "is_active": true
+    }
+  ],
+  "metadata": {
+    "exported_at": "2025-01-20T15:30:00.000Z",
+    "version": "1.0",
+    "type_name": "Infrastructure",
+    "total_activities": 8,
+    "exported_by": "admin@alrabat.com",
+    "system_version": "1.0.0"
+  }
+}

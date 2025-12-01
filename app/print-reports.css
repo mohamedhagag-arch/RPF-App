@@ -1,0 +1,634 @@
+/* ============================================
+   Print Styles for Professional Reports
+   ============================================ */
+
+@media print {
+  /* Reset and Page Setup */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  @page {
+    size: A4 landscape;
+    margin: 1cm;
+  }
+
+  @page :first {
+    margin-top: 1cm;
+  }
+  
+  /* Landscape page margins */
+  @page :left {
+    margin-left: 0.8cm;
+    margin-right: 0.8cm;
+  }
+  
+  @page :right {
+    margin-left: 0.8cm;
+    margin-right: 0.8cm;
+  }
+
+  /* Body and Root */
+  body {
+    background: white !important;
+    color: #000 !important;
+    font-family: 'Arial', 'Helvetica', sans-serif;
+    font-size: 10pt;
+    line-height: 1.5;
+  }
+
+  /* Hide non-printable elements */
+  .no-print,
+  nav,
+  aside,
+  header,
+  footer,
+  button,
+  .print-hide,
+  [data-print="hide"] {
+    display: none !important;
+  }
+
+  /* Page Breaks */
+  .page-break-before {
+    page-break-before: always;
+  }
+
+  .page-break-after {
+    page-break-after: always;
+  }
+
+  .avoid-break {
+    page-break-inside: avoid;
+  }
+
+  /* Report Header - Simple */
+  .report-header {
+    display: block !important;
+    margin-bottom: 15px;
+  }
+
+  .report-title {
+    font-size: 12pt;
+    font-weight: bold;
+    color: #000;
+    text-align: center;
+    margin: 10px 0;
+  }
+
+  /* Report Footer */
+  .report-footer {
+    display: block !important;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 15px 1.5cm;
+    border-top: 2px solid #e5e7eb;
+    background: white;
+    font-size: 8pt;
+    color: #666;
+  }
+
+  .report-footer-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  /* Statistics Cards - Compact and Simple */
+  .stat-card, 
+  .stat-card-grid > *,
+  [class*="Card"],
+  [class*="CardContent"] {
+    border: 1px solid #000 !important;
+    border-radius: 0 !important;
+    padding: 6px !important;
+    margin: 0 0 5px 0 !important;
+    background: white !important;
+    page-break-inside: avoid;
+  }
+  
+  /* Simplify stat values */
+  .stat-card p,
+  .stat-card-grid p {
+    color: #000 !important;
+    margin: 2px 0 !important;
+    line-height: 1.3 !important;
+  }
+  
+  /* Make stat numbers compact */
+  .text-3xl, .text-2xl, .text-xl {
+    font-size: 11pt !important;
+    font-weight: bold !important;
+    color: #000 !important;
+    margin: 2px 0 !important;
+  }
+  
+  .text-sm {
+    font-size: 8pt !important;
+    color: #666 !important;
+    margin: 1px 0 !important;
+  }
+  
+  .text-xs {
+    font-size: 7pt !important;
+    color: #666 !important;
+    margin: 1px 0 !important;
+  }
+  
+  /* Hide large text in cards */
+  [class*="text-3xl"],
+  [class*="text-2xl"] {
+    font-size: 10pt !important;
+  }
+
+  /* Tables - Optimized for Landscape Printing */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    margin: 10px 0 !important;
+    page-break-inside: auto;
+    font-size: 7pt !important;
+    table-layout: auto !important;
+  }
+
+  /* Remove sticky positioning in print */
+  th.sticky,
+  td.sticky,
+  thead.sticky,
+  [class*="sticky"] {
+    position: static !important;
+    z-index: auto !important;
+  }
+
+  /* Ensure all table columns are visible in print */
+  table,
+  thead,
+  tbody,
+  tr,
+  th,
+  td {
+    display: table !important;
+    visibility: visible !important;
+  }
+
+  /* Remove overflow restrictions in print */
+  [class*="overflow"],
+  .overflow-x-auto,
+  .overflow-y-auto {
+    overflow: visible !important;
+    max-height: none !important;
+    height: auto !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+    position: static !important;
+  }
+
+  tfoot {
+    display: table-footer-group !important;
+  }
+
+  tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+
+  th {
+    background: #f5f5f5 !important;
+    color: #000 !important;
+    padding: 4px 3px !important;
+    text-align: left;
+    font-weight: bold;
+    border: 1px solid #000 !important;
+    font-size: 7pt !important;
+    white-space: nowrap !important;
+  }
+
+  td {
+    padding: 3px 2px !important;
+    border: 1px solid #000 !important;
+    color: #000 !important;
+    font-size: 7pt !important;
+    white-space: nowrap !important;
+  }
+
+  tbody tr:nth-child(even) {
+    background: #fafafa !important;
+  }
+
+  tbody tr:nth-child(odd) {
+    background: white !important;
+  }
+
+  /* Weekly Revenue Table Specific Styles */
+  table[style*="tableLayout"] {
+    width: 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* Ensure table fits on landscape page */
+  .overflow-x-auto table {
+    width: auto !important;
+    min-width: 100% !important;
+  }
+
+  /* Progress Bars - Compact */
+  .progress-bar-container,
+  .bg-gray-200,
+  .rounded-full {
+    width: 60px !important;
+    height: 4px !important;
+    background: #fff !important;
+    border: 1px solid #000 !important;
+    overflow: hidden;
+    display: inline-block !important;
+    border-radius: 0 !important;
+  }
+
+  .progress-bar-fill,
+  .bg-blue-600,
+  .bg-green-600,
+  [class*="h-2"],
+  [class*="h-4"] {
+    height: 4px !important;
+    background: #000 !important;
+    border-radius: 0 !important;
+  }
+
+  /* Badges - Compact */
+  .status-badge, 
+  span[class*="badge"], 
+  span[class*="rounded-full"],
+  span[class*="inline-flex"],
+  span[class*="px-3"] {
+    display: inline-block !important;
+    padding: 2px 6px !important;
+    border: 1px solid #000 !important;
+    background: white !important;
+    color: #000 !important;
+    border-radius: 0 !important;
+    font-size: 7pt !important;
+    font-weight: bold !important;
+    margin: 0 !important;
+  }
+
+  /* Sections - Compact */
+  .report-section {
+    margin-bottom: 15px;
+    page-break-inside: avoid;
+  }
+
+  .report-section-title, h3, h4, h2 {
+    font-size: 11pt !important;
+    font-weight: bold !important;
+    color: #000 !important;
+    margin: 10px 0 5px 0 !important;
+    padding-bottom: 3px !important;
+    border-bottom: 1px solid #000 !important;
+  }
+  
+  h1 {
+    font-size: 14pt !important;
+    margin: 5px 0 !important;
+  }
+
+  /* Grid Layouts - Compact */
+  .grid {
+    display: grid !important;
+    gap: 5px !important;
+  }
+
+  .grid-cols-2 {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  .grid-cols-3 {
+    grid-template-columns: repeat(3, 1fr) !important;
+  }
+
+  .grid-cols-4 {
+    grid-template-columns: repeat(4, 1fr) !important;
+  }
+  
+  .grid-cols-5 {
+    grid-template-columns: repeat(5, 1fr) !important;
+  }
+
+  /* Charts and Visualizations */
+  .chart-container {
+    page-break-inside: avoid;
+    margin: 20px 0;
+  }
+
+  /* Signatures Section */
+  .signatures-section {
+    margin-top: 50px;
+    page-break-inside: avoid;
+  }
+
+  .signature-box {
+    border-top: 2px solid #000;
+    padding-top: 5px;
+    margin-top: 40px;
+    text-align: center;
+    font-size: 9pt;
+  }
+
+  /* Remove icons and decorative elements from print */
+  svg, 
+  .lucide-react,
+  [class*="icon"],
+  .Icon,
+  button svg,
+  .no-print svg {
+    display: none !important;
+  }
+  
+  /* Hide icon containers */
+  .flex.items-center.justify-between > *:last-child:has(svg) {
+    display: none !important;
+  }
+
+  /* Summary Boxes */
+  .summary-box {
+    border: 2px solid #1e40af;
+    padding: 20px;
+    margin: 20px 0;
+    border-radius: 8px;
+    background: #eff6ff !important;
+    page-break-inside: avoid;
+  }
+
+  .summary-box-title {
+    font-size: 14pt;
+    font-weight: bold;
+    color: #1e40af;
+    margin-bottom: 15px;
+  }
+
+  /* Lists */
+  ul, ol {
+    margin: 10px 0;
+    padding-left: 20px;
+  }
+
+  li {
+    margin: 5px 0;
+    line-height: 1.6;
+  }
+
+  /* Emphasis */
+  .highlight {
+    background: #fef3c7 !important;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: bold;
+  }
+
+  .important {
+    color: #dc2626 !important;
+    font-weight: bold;
+  }
+
+  /* Watermark (optional) */
+  .watermark {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-45deg);
+    font-size: 72pt;
+    color: #f3f4f6;
+    opacity: 0.1;
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  /* Page Numbers */
+  .page-number::after {
+    counter-increment: page;
+    content: "Page " counter(page);
+  }
+
+  /* Links */
+  a {
+    color: #1e40af;
+    text-decoration: none;
+  }
+
+  a::after {
+    content: " (" attr(href) ")";
+    font-size: 8pt;
+    color: #666;
+  }
+
+  /* Fix for dark mode elements */
+  .dark\:bg-gray-800,
+  .dark\:bg-gray-900,
+  .dark\:text-white,
+  .dark\:text-gray-100 {
+    background: white !important;
+    color: #000 !important;
+  }
+
+  /* Remove all decorative elements */
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+    border-radius: 0 !important;
+  }
+  
+  /* Compact spacing */
+  .space-y-6 > * {
+    margin-top: 10px !important;
+    margin-bottom: 10px !important;
+  }
+  
+  .space-y-4 > * {
+    margin-top: 8px !important;
+    margin-bottom: 8px !important;
+  }
+  
+  .gap-4, .gap-6 {
+    gap: 5px !important;
+  }
+  
+  /* Simplify all backgrounds */
+  .bg-gradient-to-br,
+  .bg-gradient-to-r,
+  [class*="gradient"],
+  [class*="bg-blue"],
+  [class*="bg-green"],
+  [class*="bg-purple"],
+  [class*="bg-orange"],
+  [class*="bg-red"],
+  [class*="bg-cyan"],
+  [class*="bg-indigo"],
+  [class*="bg-emerald"],
+  [class*="from-"],
+  [class*="to-"] {
+    background: white !important;
+    color: #000 !important;
+    border: 1px solid #000 !important;
+    padding: 5px !important;
+  }
+  
+  /* Compact all padding and margins */
+  .p-6, .p-4, .p-3, .p-2 {
+    padding: 4px !important;
+  }
+  
+  .px-6, .px-4, .px-3 {
+    padding-left: 4px !important;
+    padding-right: 4px !important;
+  }
+  
+  .py-6, .py-4, .py-3 {
+    padding-top: 3px !important;
+    padding-bottom: 3px !important;
+  }
+  
+  .mb-6, .mb-4, .mb-3, .mb-2 {
+    margin-bottom: 5px !important;
+  }
+  
+  .mt-6, .mt-4, .mt-3, .mt-2 {
+    margin-top: 5px !important;
+  }
+  
+  .my-6, .my-4, .my-3 {
+    margin-top: 5px !important;
+    margin-bottom: 5px !important;
+  }
+  
+  /* Force all text to be smaller */
+  p, span, div, td, th, li {
+    font-size: 7pt !important;
+    line-height: 1.3 !important;
+  }
+
+  /* Weekly Revenue Table - Special Print Styles */
+  .print-table-container {
+    overflow: visible !important;
+    max-height: none !important;
+    height: auto !important;
+  }
+
+  .print-table {
+    width: 100% !important;
+    min-width: 100% !important;
+    font-size: 6pt !important;
+  }
+
+  .print-table th,
+  .print-table td {
+    font-size: 6pt !important;
+    padding: 2px 3px !important;
+    white-space: normal !important;
+    word-wrap: break-word !important;
+  }
+
+  .print-table thead th {
+    background: #f0f0f0 !important;
+    font-weight: bold !important;
+    border: 1px solid #000 !important;
+    position: static !important;
+  }
+
+  .print-table tbody td {
+    border: 1px solid #ccc !important;
+  }
+
+  /* Remove sticky in print */
+  .print-table th.sticky,
+  .print-table td.sticky {
+    position: static !important;
+    z-index: auto !important;
+    background: inherit !important;
+  }
+  
+  /* Force all headings to be smaller */
+  h1 { font-size: 12pt !important; }
+  h2 { font-size: 11pt !important; }
+  h3 { font-size: 10pt !important; }
+  h4 { font-size: 9pt !important; }
+  h5, h6 { font-size: 8pt !important; }
+  
+  /* Compact font weights */
+  .font-bold, strong {
+    font-weight: bold !important;
+  }
+  
+  .font-medium {
+    font-weight: normal !important;
+  }
+
+  /* Ensure visibility of important elements */
+  .print-show {
+    display: block !important;
+  }
+
+  .print-inline {
+    display: inline !important;
+  }
+
+  .print-flex {
+    display: flex !important;
+  }
+
+  /* Ensure table rows don't break across pages */
+  .print-table tbody tr {
+    page-break-inside: avoid !important;
+    page-break-after: auto !important;
+  }
+
+  /* Table header repeat on each page */
+  .print-table thead {
+    display: table-header-group !important;
+  }
+
+  /* Compact table spacing for print */
+  .print-table th,
+  .print-table td {
+    padding: 2px 3px !important;
+    line-height: 1.2 !important;
+  }
+
+  /* Ensure all columns are visible in print */
+  .print-table-container {
+    width: 100% !important;
+    overflow: visible !important;
+    max-height: none !important;
+  }
+
+  .print-table {
+    width: 100% !important;
+    table-layout: auto !important;
+  }
+
+  /* Remove shadows and effects in print */
+  [class*="shadow"],
+  [class*="rounded"] {
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+
+  /* Confidentiality Notice */
+  .confidential {
+    text-align: center;
+    font-size: 8pt;
+    color: #dc2626;
+    font-weight: bold;
+    margin-top: 30px;
+    padding: 10px;
+    border: 2px solid #dc2626;
+    border-radius: 4px;
+    background: #fee2e2 !important;
+  }
+}
+
