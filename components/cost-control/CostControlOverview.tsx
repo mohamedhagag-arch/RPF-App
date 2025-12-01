@@ -29,27 +29,33 @@ export default function CostControlOverview() {
       const supabase = getSupabaseClient()
       
       // Load MANPOWER stats
-      const { count: manpowerCount } = await supabase
+      const { count: manpowerCount, error: countError } = await supabase
         .from('CCD - MANPOWER')
         .select('*', { count: 'exact', head: true })
-        .catch(() => ({ count: 0 }))
       
       // Load MANPOWER totals
-      const { data: manpowerData } = await supabase
+      const { data: manpowerData, error: dataError } = await supabase
         .from('CCD - MANPOWER')
         .select('"Total Hours", Cost')
         .limit(10000) // Limit for performance
-        .catch(() => ({ data: [] }))
       
-      const totalHours = manpowerData?.reduce((sum, record) => {
+      if (countError) {
+        console.error('Error loading manpower count:', countError)
+      }
+      
+      if (dataError) {
+        console.error('Error loading manpower data:', dataError)
+      }
+
+      const totalHours = (manpowerData || []).reduce((sum, record) => {
         const hours = parseFloat(String(record['Total Hours'] || 0)) || 0
         return sum + hours
-      }, 0) || 0
+      }, 0)
       
-      const totalCost = manpowerData?.reduce((sum, record) => {
+      const totalCost = (manpowerData || []).reduce((sum, record) => {
         const cost = parseFloat(String(record['Cost'] || 0)) || 0
         return sum + cost
-      }, 0) || 0
+      }, 0)
 
       setStats({
         totalBudget: 0, // TODO: Calculate from budget tables
