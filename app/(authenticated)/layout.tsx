@@ -201,6 +201,7 @@ export default function AuthenticatedLayout({
     if (pathname === '/reports') return 'reports'
     if (pathname === '/cost-control') return 'cost-control'
     if (pathname === '/cost-control/manpower') return 'cost-control/manpower'
+    if (pathname === '/cost-control/attendance') return 'cost-control/attendance'
     if (pathname === '/settings') {
       // Check if it's user form tab
       if (typeof window !== 'undefined') {
@@ -237,6 +238,8 @@ export default function AuthenticatedLayout({
       router.push('/cost-control')
     } else if (tab === 'cost-control/manpower') {
       router.push('/cost-control/manpower')
+    } else if (tab === 'cost-control/attendance') {
+      router.push('/cost-control/attendance')
     } else {
       router.push(`/${tab}`)
     }

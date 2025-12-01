@@ -32,6 +32,7 @@ import {
   FormInput,
   DollarSign,
   UserCheck,
+  Calendar,
   type LucideIcon
 } from 'lucide-react'
 
@@ -73,6 +74,7 @@ const sidebarItems: SidebarItem[] = [
     badgeColor: 'bg-gradient-to-br from-yellow-500 to-orange-500',
     subItems: [
       { icon: UserCheck, label: 'MANPOWER', tab: 'cost-control/manpower', badgeIcon: Users, badgeColor: 'bg-gradient-to-br from-blue-500 to-indigo-500' },
+      { icon: Calendar, label: 'Attendance', tab: 'cost-control/attendance', badgeIcon: Calendar, badgeColor: 'bg-gradient-to-br from-green-500 to-emerald-500' },
     ]
   },
   { 
@@ -127,6 +129,7 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
     // Cost Control
     if (tab === 'cost-control') return '/cost-control'
     if (tab === 'cost-control/manpower') return '/cost-control/manpower'
+    if (tab === 'cost-control/attendance') return '/cost-control/attendance'
     return `/${tab}`
   }
 
@@ -164,7 +167,7 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
       setExpandedItems(prev => new Set(prev).add('forms'))
     }
     // Auto-expand cost-control if any sub-item is active
-    if (activeTab === 'cost-control/manpower') {
+    if (activeTab === 'cost-control/manpower' || activeTab === 'cost-control/attendance') {
       setExpandedItems(prev => new Set(prev).add('cost-control'))
     }
   }, [activeTab])
@@ -206,6 +209,7 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
           return item.subItems.some(subItem => {
             switch (subItem.tab) {
               case 'cost-control/manpower':
+              case 'cost-control/attendance':
                 return guard.hasAccess('reports.view') // Using reports.view as default permission
               default:
                 return false
@@ -274,6 +278,7 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
             case 'reports':
               return guard.hasAccess('reports.view')
             case 'cost-control/manpower':
+            case 'cost-control/attendance':
               return guard.hasAccess('reports.view') // Using reports.view as default permission
             case 'forms/boq':
               // ✅ Admin always has access, others need boq.create or boq.edit
