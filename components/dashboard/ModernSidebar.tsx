@@ -75,6 +75,7 @@ const sidebarItems: SidebarItem[] = [
     subItems: [
       { icon: UserCheck, label: 'MANPOWER', tab: 'cost-control/manpower', badgeIcon: Users, badgeColor: 'bg-gradient-to-br from-blue-500 to-indigo-500' },
       { icon: Calendar, label: 'Attendance', tab: 'cost-control/attendance', badgeIcon: Calendar, badgeColor: 'bg-gradient-to-br from-green-500 to-emerald-500' },
+      { icon: UserCheck, label: 'Check-In/Out', tab: 'cost-control/attendance/check-in-out', badgeIcon: UserCheck, badgeColor: 'bg-gradient-to-br from-blue-500 to-indigo-500' },
     ]
   },
   { 
@@ -167,7 +168,7 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
       setExpandedItems(prev => new Set(prev).add('forms'))
     }
     // Auto-expand cost-control if any sub-item is active
-    if (activeTab === 'cost-control/manpower' || activeTab === 'cost-control/attendance') {
+    if (activeTab === 'cost-control/manpower' || activeTab === 'cost-control/attendance' || activeTab === 'cost-control/attendance/check-in-out') {
       setExpandedItems(prev => new Set(prev).add('cost-control'))
     }
   }, [activeTab])
@@ -210,6 +211,7 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
             switch (subItem.tab) {
               case 'cost-control/manpower':
               case 'cost-control/attendance':
+              case 'cost-control/attendance/check-in-out':
                 return guard.hasAccess('reports.view') // Using reports.view as default permission
               default:
                 return false
@@ -279,6 +281,7 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
               return guard.hasAccess('reports.view')
             case 'cost-control/manpower':
             case 'cost-control/attendance':
+            case 'cost-control/attendance/check-in-out':
               return guard.hasAccess('reports.view') // Using reports.view as default permission
             case 'forms/boq':
               // ✅ Admin always has access, others need boq.create or boq.edit

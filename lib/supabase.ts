@@ -15,7 +15,12 @@ export const TABLES = {
   USERS: 'users',
   COMPANY_SETTINGS: 'company_settings',                // ✅ NEW: Company settings table
   HOLIDAYS: 'holidays',                                 // ✅ NEW: Holidays table
-  MANPOWER: 'CCD - MANPOWER'                           // ✅ NEW: MANPOWER table for Cost Control
+  MANPOWER: 'CCD - MANPOWER',                          // ✅ NEW: MANPOWER table for Cost Control
+  // ✅ Attendance System Tables
+  ATTENDANCE_EMPLOYEES: 'attendance_employees',        // ✅ Employees for attendance
+  ATTENDANCE_RECORDS: 'attendance_records',            // ✅ Attendance records
+  ATTENDANCE_LOCATIONS: 'attendance_locations',        // ✅ Locations for GPS tracking
+  ATTENDANCE_SETTINGS: 'attendance_settings'          // ✅ Attendance system settings
 } as const
 
 // Backward compatibility alias
@@ -192,4 +197,69 @@ export interface Holiday {
   created_by: string
   created_at?: string
   updated_at?: string
+}
+
+// ✅ Attendance System Interfaces
+export interface AttendanceEmployee {
+  id: string
+  employee_code: string
+  name: string
+  job_title?: string
+  department?: string
+  phone_number?: string
+  email?: string
+  profile_pic_url?: string
+  status: 'Active' | 'Inactive'
+  user_id?: string // Link to auth.users if employee has login
+  qr_code?: string // Unique QR code for employee (format: EMP-XXXXXXXX)
+  created_at: string
+  updated_at: string
+}
+
+export interface AttendanceRecord {
+  id: string
+  employee_id: string
+  check_time: string // Time only (HH:mm)
+  date: string // Date (YYYY-MM-DD)
+  type: 'Check-In' | 'Check-Out'
+  location_id?: string
+  latitude?: number
+  longitude?: number
+  notes?: string
+  work_duration_hours?: number
+  is_late: boolean
+  is_early: boolean
+  created_at: string
+  employee?: AttendanceEmployee
+  location?: AttendanceLocation
+}
+
+export interface AttendanceLocation {
+  id: string
+  name: string
+  latitude: number
+  longitude: number
+  radius_meters: number
+  description?: string
+  is_active: boolean
+  created_at: string
+}
+
+export interface AttendanceSettings {
+  id: string
+  key: string
+  value: string
+  description?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface AttendanceStats {
+  total_employees: number
+  present_today: number
+  absent_today: number
+  late_today: number
+  on_time_today: number
+  attendance_rate: number
+  average_hours: number
 }
