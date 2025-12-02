@@ -26,9 +26,27 @@ export function LoginForm() {
   const [forgotPassword, setForgotPassword] = useState(false)
   const [isFocused, setIsFocused] = useState({ email: false, password: false })
   const [isSubmitting, setIsSubmitting] = useState(false) // ✅ حماية من الطلبات المتعددة
+  const [rateLimitCooldown, setRateLimitCooldown] = useState(0) // ✅ Cooldown timer
+  const [lastAttemptTime, setLastAttemptTime] = useState(0) // ✅ Track last attempt time
   
   const supabase = getSupabaseClient()
   const router = useRouter()
+
+  // ✅ Rate limiting cooldown timer
+  useEffect(() => {
+    if (rateLimitCooldown > 0) {
+      const timer = setInterval(() => {
+        setRateLimitCooldown(prev => {
+          if (prev <= 1) {
+            clearInterval(timer)
+            return 0
+          }
+          return prev - 1
+        })
+      }, 1000)
+      return () => clearInterval(timer)
+    }
+  }, [rateLimitCooldown])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -38,11 +56,25 @@ export function LoginForm() {
       console.log('⚠️ Login request already in progress, ignoring duplicate submission')
       return
     }
+
+    // ✅ Check rate limit cooldown
+    if (rateLimitCooldown > 0) {
+      setError(`Too many login attempts. Please wait ${rateLimitCooldown} seconds before trying again.`)
+      return
+    }
+
+    // ✅ Local rate limiting: Prevent requests faster than 2 seconds
+    const now = Date.now()
+    if (lastAttemptTime > 0 && (now - lastAttemptTime) < 2000) {
+      setError('Please wait a moment before trying again.')
+      return
+    }
     
     setIsSubmitting(true)
     setLoading(true)
     setError('')
     setSuccess('')
+    setLastAttemptTime(now)
 
     try {
       if (forgotPassword) {
@@ -72,20 +104,61 @@ export function LoginForm() {
         setSuccess('Account created successfully! Please check your email to verify your account.')
         setIsSignUp(false)
       } else {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        })
+        // ✅ Retry logic with exponential backoff for rate limit errors
+        let retries = 0
+        const maxRetries = 2
+        let lastError: any = null
+
+        while (retries <= maxRetries) {
+          try {
+            const { error } = await supabase.auth.signInWithPassword({
+              email,
+              password,
+            })
+            
+            if (error) throw error
+            
+            // Success - redirect
+            router.push('/dashboard')
+            return
+          } catch (err: any) {
+            lastError = err
+            
+            // ✅ Check if it's a rate limit error
+            if (err.status === 429 || err.message?.includes('429') || err.message?.includes('Too Many Requests') || err.message?.includes('rate limit')) {
+              if (retries < maxRetries) {
+                // Exponential backoff: wait 2^retries seconds
+                const waitTime = Math.pow(2, retries) * 1000
+                console.log(`⚠️ Rate limit hit, retrying after ${waitTime}ms (attempt ${retries + 1}/${maxRetries + 1})`)
+                await new Promise(resolve => setTimeout(resolve, waitTime))
+                retries++
+                continue
+              } else {
+                // Max retries reached, set cooldown
+                setRateLimitCooldown(300) // 5 minutes cooldown
+                throw err
+              }
+            } else {
+              // Not a rate limit error, throw immediately
+              throw err
+            }
+          }
+        }
         
-        if (error) throw error
-        
-        router.push('/dashboard')
+        // If we get here, all retries failed
+        throw lastError
       }
     } catch (error: any) {
       // ✅ معالجة خاصة لخطأ 429 (Too Many Requests)
-      if (error.status === 429 || error.message?.includes('429') || error.message?.includes('Too Many Requests')) {
-        setError('Too many login attempts. Please wait a few minutes before trying again.')
+      if (error.status === 429 || error.message?.includes('429') || error.message?.includes('Too Many Requests') || error.message?.includes('rate limit')) {
+        const cooldownMinutes = Math.ceil(rateLimitCooldown / 60)
+        setError(`Too many login attempts. Please wait ${cooldownMinutes} minute${cooldownMinutes > 1 ? 's' : ''} before trying again.`)
         console.error('❌ Rate limit exceeded:', error)
+        
+        // Set cooldown if not already set
+        if (rateLimitCooldown === 0) {
+          setRateLimitCooldown(300) // 5 minutes
+        }
       } else if (error.message?.includes('Invalid login credentials')) {
         setError('Invalid email or password. Please check your credentials and try again.')
       } else {
@@ -167,7 +240,14 @@ export function LoginForm() {
             {error && (
               <Alert variant="error" className="flex items-center space-x-2 bg-red-500/20 border-red-500/50 text-red-200 backdrop-blur-sm">
                 <AlertCircle className="h-4 w-4" />
-                <span>{error}</span>
+                <div className="flex-1">
+                  <span>{error}</span>
+                  {rateLimitCooldown > 0 && (
+                    <div className="mt-2 text-xs text-red-300/80">
+                      Cooldown: {Math.floor(rateLimitCooldown / 60)}:{(rateLimitCooldown % 60).toString().padStart(2, '0')}
+                    </div>
+                  )}
+                </div>
               </Alert>
             )}
 
