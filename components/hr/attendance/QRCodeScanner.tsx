@@ -57,12 +57,15 @@ export function QRCodeScanner({
         }
       } catch (err: any) {
         console.error('Error initializing cameras:', err)
-        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        const errorMessage = err?.message || err?.toString() || 'Unknown error'
+        if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
           setError('Camera permission denied. Please allow camera access and refresh the page.')
-        } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        } else if (err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError') {
           setError('No camera found. Please connect a camera and refresh the page.')
+        } else if (err?.name === 'NotReadableError' || err?.name === 'TrackStartError') {
+          setError('Camera is already in use by another application. Please close other apps using the camera.')
         } else {
-          setError('Failed to access camera: ' + err.message)
+          setError(`Failed to access camera: ${errorMessage}`)
         }
       }
     }
@@ -112,33 +115,56 @@ export function QRCodeScanner({
           }
         )
         setScanning(true)
+        setError('') // Clear any previous errors
       } catch (deviceError: any) {
         // If device ID fails, try with facingMode
         console.log('Device ID failed, trying with facingMode...', deviceError)
-        await scanner.start(
-          { facingMode: 'environment' }, // Prefer back camera
-          {
-            fps: 10,
-            qrbox: { width: 250, height: 250 },
-            aspectRatio: 1.0,
-          },
-          (decodedText) => {
-            handleQRCodeScanned(decodedText)
-          },
-          (errorMessage) => {
-            // Ignore scanning errors
+        try {
+          // Try to stop any partial initialization
+          try {
+            await scanner.stop()
+          } catch (stopError) {
+            // Ignore stop errors
           }
-        )
-        setScanning(true)
+        } catch (cleanupError) {
+          // Ignore cleanup errors
+        }
+        
+        try {
+          await scanner.start(
+            { facingMode: 'environment' }, // Prefer back camera
+            {
+              fps: 10,
+              qrbox: { width: 250, height: 250 },
+              aspectRatio: 1.0,
+            },
+            (decodedText) => {
+              handleQRCodeScanned(decodedText)
+            },
+            (errorMessage) => {
+              // Ignore scanning errors
+            }
+          )
+          setScanning(true)
+          setError('') // Clear any previous errors
+        } catch (facingModeError: any) {
+          // If both methods fail, throw the original error
+          throw deviceError
+        }
       }
     } catch (err: any) {
       console.error('Error starting scanner:', err)
-      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      const errorMessage = err?.message || err?.toString() || 'Unknown error'
+      if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
         setError('Camera permission denied. Please allow camera access in your browser settings.')
-      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+      } else if (err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError') {
         setError('No camera found. Please connect a camera.')
+      } else if (err?.name === 'NotReadableError' || err?.name === 'TrackStartError') {
+        setError('Camera is already in use by another application. Please close other apps using the camera.')
+      } else if (err?.message?.includes('No MultiFormat Readers')) {
+        setError('QR code scanner initialization failed. Please refresh the page and try again.')
       } else {
-        setError('Failed to start camera: ' + err.message)
+        setError(`Failed to start camera: ${errorMessage}`)
       }
     }
   }
