@@ -532,7 +532,7 @@ export default function CheckInOutPage() {
                   </CardTitle>
                   <Button
                     variant="outline"
-                    size="default"
+                    size="md"
                     onClick={() => {
                       setQrCheckType('Check-In')
                       setShowQRScanner(true)
