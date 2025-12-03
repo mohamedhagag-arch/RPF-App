@@ -438,7 +438,8 @@ export default function CheckInOutPage() {
         .eq('type', 'Check-In')
 
       if (existingRecords && existingRecords.length > 0) {
-        setSuccessMessage(`✅ ${employee.name} - Already checked in today at ${existingRecords[0].check_time}`)
+        const existingRecord = existingRecords[0] as any
+        setSuccessMessage(`✅ ${employee.name} - Already checked in today at ${existingRecord.check_time}`)
         setCheckingIn(false)
         setTimeout(() => setSuccessMessage(''), 3000)
         return
@@ -515,14 +516,16 @@ export default function CheckInOutPage() {
         .single()
 
       if (existingCheckOut) {
-        setSuccessMessage(`✅ ${employee.name} - Already checked out today at ${existingCheckOut.check_time}`)
+        const existingCheckOutRecord = existingCheckOut as any
+        setSuccessMessage(`✅ ${employee.name} - Already checked out today at ${existingCheckOutRecord.check_time}`)
         setCheckingOut(false)
         setTimeout(() => setSuccessMessage(''), 3000)
         return
       }
 
       // Calculate work hours
-      const checkInTime = new Date(`${today}T${checkInRecord.check_time}:00`)
+      const checkInRecordTyped = checkInRecord as any
+      const checkInTime = new Date(`${today}T${checkInRecordTyped.check_time}:00`)
       const checkOutTime = new Date(`${today}T${checkTime}:00`)
       const workHours = (checkOutTime.getTime() - checkInTime.getTime()) / (1000 * 60 * 60)
 
@@ -534,7 +537,7 @@ export default function CheckInOutPage() {
         latitude: location.latitude,
         longitude: location.longitude,
         location_id: nearestLocation?.id || null,
-        work_duration_hours: Math.max(0, workHours.toFixed(2)),
+        work_duration_hours: Math.max(0, parseFloat(workHours.toFixed(2))),
         notes: `Auto check-out via QR code`
       }
 
