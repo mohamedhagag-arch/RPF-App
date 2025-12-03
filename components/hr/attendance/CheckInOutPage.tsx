@@ -392,11 +392,168 @@ export default function CheckInOutPage() {
     }
   }
 
-  const handleQRScanSuccess = (employee: AttendanceEmployee) => {
-    setSelectedEmployee(employee)
-    setShowQRScanner(false)
-    setSuccessMessage(`✅ Employee selected: ${employee.name}`)
-    setTimeout(() => setSuccessMessage(''), 2000)
+  const handleQRScanSuccess = async (employee: AttendanceEmployee) => {
+    try {
+      // Set the employee
+      setSelectedEmployee(employee)
+      
+      // Don't close the scanner - keep it open for continuous scanning
+      // setShowQRScanner(false) // Commented out for continuous scanning
+      
+      // Automatically perform check-in or check-out based on qrCheckType
+      if (qrCheckType === 'Check-In') {
+        // Auto check-in
+        await handleCheckInForEmployee(employee)
+      } else {
+        // Auto check-out
+        await handleCheckOutForEmployee(employee)
+      }
+    } catch (error: any) {
+      console.error('Error in QR scan success:', error)
+      setErrorMessage('Failed to process QR scan: ' + error.message)
+    }
+  }
+
+  const handleCheckInForEmployee = async (employee: AttendanceEmployee) => {
+    if (!location) {
+      setErrorMessage('Please enable location services')
+      return
+    }
+
+    setCheckingIn(true)
+    setErrorMessage('')
+    setSuccessMessage('')
+
+    try {
+      const today = new Date().toISOString().split('T')[0]
+      const checkTime = currentTime.toTimeString().split(' ')[0].substring(0, 5)
+
+      // Check if already checked in today
+      const { data: existingRecords } = await supabase
+        .from(TABLES.ATTENDANCE_RECORDS)
+        // @ts-ignore
+        .select('*')
+        .eq('employee_id', employee.id)
+        .eq('date', today)
+        .eq('type', 'Check-In')
+
+      if (existingRecords && existingRecords.length > 0) {
+        setSuccessMessage(`✅ ${employee.name} - Already checked in today at ${existingRecords[0].check_time}`)
+        setCheckingIn(false)
+        setTimeout(() => setSuccessMessage(''), 3000)
+        return
+      }
+
+      const record = {
+        employee_id: employee.id,
+        date: today,
+        check_time: checkTime,
+        type: 'Check-In' as const,
+        latitude: location.latitude,
+        longitude: location.longitude,
+        location_id: nearestLocation?.id || null,
+        notes: `Auto check-in via QR code`
+      }
+
+      const { error: insertError } = await supabase
+        .from(TABLES.ATTENDANCE_RECORDS)
+        // @ts-ignore
+        .insert([record])
+
+      if (insertError) throw insertError
+
+      setSuccessMessage(`✅ ${employee.name} - Checked in successfully at ${checkTime}`)
+      await loadTodayRecords(employee.id)
+      setTimeout(() => setSuccessMessage(''), 3000)
+    } catch (err: any) {
+      setErrorMessage(`Failed to check in ${employee.name}: ` + err.message)
+      console.error('Check-in error:', err)
+    } finally {
+      setCheckingIn(false)
+    }
+  }
+
+  const handleCheckOutForEmployee = async (employee: AttendanceEmployee) => {
+    if (!location) {
+      setErrorMessage('Please enable location services')
+      return
+    }
+
+    setCheckingOut(true)
+    setErrorMessage('')
+    setSuccessMessage('')
+
+    try {
+      const today = new Date().toISOString().split('T')[0]
+      const checkTime = currentTime.toTimeString().split(' ')[0].substring(0, 5)
+
+      // Get today's check-in
+      const { data: checkInRecord } = await supabase
+        .from(TABLES.ATTENDANCE_RECORDS)
+        // @ts-ignore
+        .select('*')
+        .eq('employee_id', employee.id)
+        .eq('date', today)
+        .eq('type', 'Check-In')
+        .single()
+
+      if (!checkInRecord) {
+        setErrorMessage(`❌ ${employee.name} - Must check in first before checking out`)
+        setCheckingOut(false)
+        setTimeout(() => setErrorMessage(''), 3000)
+        return
+      }
+
+      // Check if already checked out today
+      const { data: existingCheckOut } = await supabase
+        .from(TABLES.ATTENDANCE_RECORDS)
+        // @ts-ignore
+        .select('*')
+        .eq('employee_id', employee.id)
+        .eq('date', today)
+        .eq('type', 'Check-Out')
+        .single()
+
+      if (existingCheckOut) {
+        setSuccessMessage(`✅ ${employee.name} - Already checked out today at ${existingCheckOut.check_time}`)
+        setCheckingOut(false)
+        setTimeout(() => setSuccessMessage(''), 3000)
+        return
+      }
+
+      // Calculate work hours
+      const checkInTime = new Date(`${today}T${checkInRecord.check_time}:00`)
+      const checkOutTime = new Date(`${today}T${checkTime}:00`)
+      const workHours = (checkOutTime.getTime() - checkInTime.getTime()) / (1000 * 60 * 60)
+
+      const record = {
+        employee_id: employee.id,
+        date: today,
+        check_time: checkTime,
+        type: 'Check-Out' as const,
+        latitude: location.latitude,
+        longitude: location.longitude,
+        location_id: nearestLocation?.id || null,
+        work_duration_hours: Math.max(0, workHours.toFixed(2)),
+        notes: `Auto check-out via QR code`
+      }
+
+      const { error: insertError } = await supabase
+        .from(TABLES.ATTENDANCE_RECORDS)
+        // @ts-ignore
+        .insert([record])
+
+      if (insertError) throw insertError
+
+      setSuccessMessage(`✅ ${employee.name} - Checked out successfully at ${checkTime} (${workHours.toFixed(2)}h worked)`)
+      await loadTodayRecords(employee.id)
+      setTimeout(() => setSuccessMessage(''), 3000)
+    } catch (err: any) {
+      setErrorMessage(`Failed to check out ${employee.name}: ` + err.message)
+      console.error('Check-out error:', err)
+    } finally {
+      setCheckingOut(false)
+    }
   }
 
   const getTodayStats = () => {

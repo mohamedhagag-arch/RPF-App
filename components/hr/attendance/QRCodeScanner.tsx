@@ -272,20 +272,27 @@ export function QRCodeScanner({
         return
       }
 
-      setSuccess(`Employee found: ${employee.name} (${employee.employee_code})`)
+      setSuccess(`✅ ${employee.name} (${employee.employee_code}) - تم المسح بنجاح`)
       
-      // Stop scanning
-      stopScanning()
-
-      // Call success callback
+      // Call success callback immediately (don't stop scanning for continuous mode)
+      onScanSuccess(employee)
+      
+      // Clear success message after 2 seconds to prepare for next scan
       setTimeout(() => {
-        onScanSuccess(employee!)
-        if (onClose) onClose()
-      }, 1000)
+        setSuccess('')
+        setError('')
+      }, 2000)
+
+      // Don't stop scanning - keep it open for continuous scanning
+      // The scanner will continue to scan the next QR code automatically
 
     } catch (err: any) {
       setError('Failed to process QR code: ' + err.message)
       console.error('Error processing QR code:', err)
+      // Clear error after 2 seconds to prepare for next scan
+      setTimeout(() => {
+        setError('')
+      }, 2000)
     }
   }
 
@@ -368,6 +375,11 @@ export function QRCodeScanner({
             </div>
           ) : (
             <div className="space-y-2">
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mb-2">
+                <p className="text-sm text-blue-800 dark:text-blue-200 text-center">
+                  📷 <strong>وضع المسح المستمر:</strong> وجه الكاميرا إلى QR Code - سيتم المسح تلقائياً
+                </p>
+              </div>
               <div
                 id="qr-reader"
                 className="w-full rounded-lg overflow-hidden border-2 border-gray-300"
