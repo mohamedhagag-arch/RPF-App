@@ -95,6 +95,14 @@ export function QRCodeScanner({
         return
       }
 
+      // Ensure the DOM element exists before creating scanner
+      const qrReaderElement = document.getElementById('qr-reader')
+      if (!qrReaderElement) {
+        setError('QR scanner element not found. Please refresh the page.')
+        console.error('Element with id="qr-reader" not found in DOM')
+        return
+      }
+
       const scanner = new Html5Qrcode('qr-reader')
       scannerRef.current = scanner
 
@@ -339,6 +347,13 @@ export function QRCodeScanner({
 
         {/* QR Code Scanner */}
         <div className="space-y-4">
+          {/* Always render the qr-reader element, but hide it when not scanning */}
+          <div
+            id="qr-reader"
+            className={`w-full rounded-lg overflow-hidden border-2 border-gray-300 ${!scanning ? 'hidden' : ''}`}
+            style={{ minHeight: '300px' }}
+          />
+          
           {!scanning ? (
             <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50">
               <Camera className="w-16 h-16 text-gray-400 mb-4" />
@@ -350,11 +365,6 @@ export function QRCodeScanner({
             </div>
           ) : (
             <div className="space-y-2">
-              <div
-                id="qr-reader"
-                className="w-full rounded-lg overflow-hidden border-2 border-gray-300"
-                style={{ minHeight: '300px' }}
-              />
               <Button onClick={stopScanning} variant="outline" className="w-full">
                 <CameraOff className="w-4 h-4 mr-2" />
                 Stop Scanner
