@@ -60,6 +60,13 @@ export default function CheckInOutPage() {
   const [successMessage, setSuccessMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
   const [isGettingLocation, setIsGettingLocation] = useState(false)
+  const [scannedEmployees, setScannedEmployees] = useState<Array<{
+    employee: AttendanceEmployee
+    timestamp: Date
+    type: 'Check-In' | 'Check-Out'
+    status: 'success' | 'error'
+    message: string
+  }>>([])
   
   // Refs
   const locationWatchId = useRef<number | null>(null)
@@ -400,24 +407,50 @@ export default function CheckInOutPage() {
       // Don't close the scanner - keep it open for continuous scanning
       // setShowQRScanner(false) // Commented out for continuous scanning
       
+      let result: { status: 'success' | 'error', message: string } = { status: 'success', message: '' }
+      
       // Automatically perform check-in or check-out based on qrCheckType
       if (qrCheckType === 'Check-In') {
         // Auto check-in
-        await handleCheckInForEmployee(employee)
+        result = await handleCheckInForEmployee(employee)
       } else {
         // Auto check-out
-        await handleCheckOutForEmployee(employee)
+        result = await handleCheckOutForEmployee(employee)
       }
+      
+      // Add to scanned employees list
+      setScannedEmployees(prev => [
+        {
+          employee,
+          timestamp: new Date(),
+          type: qrCheckType,
+          status: result.status,
+          message: result.message
+        },
+        ...prev.slice(0, 49) // Keep last 50 records
+      ])
     } catch (error: any) {
       console.error('Error in QR scan success:', error)
       setErrorMessage('Failed to process QR scan: ' + error.message)
+      
+      // Add error to scanned employees list
+      setScannedEmployees(prev => [
+        {
+          employee,
+          timestamp: new Date(),
+          type: qrCheckType,
+          status: 'error',
+          message: 'Failed to process: ' + error.message
+        },
+        ...prev.slice(0, 49)
+      ])
     }
   }
 
-  const handleCheckInForEmployee = async (employee: AttendanceEmployee) => {
+  const handleCheckInForEmployee = async (employee: AttendanceEmployee): Promise<{ status: 'success' | 'error', message: string }> => {
     if (!location) {
       setErrorMessage('Please enable location services')
-      return
+      return { status: 'error', message: 'Location services not enabled' }
     }
 
     setCheckingIn(true)
@@ -439,10 +472,11 @@ export default function CheckInOutPage() {
 
       if (existingRecords && existingRecords.length > 0) {
         const existingRecord = existingRecords[0] as any
-        setErrorMessage(`⚠️ ${employee.name} - Already checked in today at ${existingRecord.check_time}. Duplicate check-in prevented.`)
+        const message = `Already checked in today at ${existingRecord.check_time}`
+        setErrorMessage(`⚠️ ${employee.name} - ${message}. Duplicate check-in prevented.`)
         setCheckingIn(false)
         setTimeout(() => setErrorMessage(''), 4000)
-        return
+        return { status: 'error', message }
       }
 
       const record = {
@@ -463,24 +497,29 @@ export default function CheckInOutPage() {
 
       if (insertError) throw insertError
 
-      setSuccessMessage(`✅ ${employee.name} - Checked in successfully at ${checkTime}`)
+      const message = `Checked in successfully at ${checkTime}`
+      setSuccessMessage(`✅ ${employee.name} - ${message}`)
       await loadTodayRecords(employee.id)
       setTimeout(() => setSuccessMessage(''), 3000)
       
       // Update selected employee to show updated records
       setSelectedEmployee(employee)
+      
+      return { status: 'success', message }
     } catch (err: any) {
+      const errorMsg = `Failed to check in: ${err.message}`
       setErrorMessage(`Failed to check in ${employee.name}: ` + err.message)
       console.error('Check-in error:', err)
+      return { status: 'error', message: errorMsg }
     } finally {
       setCheckingIn(false)
     }
   }
 
-  const handleCheckOutForEmployee = async (employee: AttendanceEmployee) => {
+  const handleCheckOutForEmployee = async (employee: AttendanceEmployee): Promise<{ status: 'success' | 'error', message: string }> => {
     if (!location) {
       setErrorMessage('Please enable location services')
-      return
+      return { status: 'error', message: 'Location services not enabled' }
     }
 
     setCheckingOut(true)
@@ -502,10 +541,11 @@ export default function CheckInOutPage() {
         .single()
 
       if (!checkInRecord) {
-        setErrorMessage(`❌ ${employee.name} - Must check in first before checking out`)
+        const message = 'Must check in first before checking out'
+        setErrorMessage(`❌ ${employee.name} - ${message}`)
         setCheckingOut(false)
         setTimeout(() => setErrorMessage(''), 3000)
-        return
+        return { status: 'error', message }
       }
 
       // Check if already checked out today
@@ -520,10 +560,11 @@ export default function CheckInOutPage() {
 
       if (existingCheckOut) {
         const existingCheckOutRecord = existingCheckOut as any
-        setSuccessMessage(`✅ ${employee.name} - Already checked out today at ${existingCheckOutRecord.check_time}`)
+        const message = `Already checked out today at ${existingCheckOutRecord.check_time}`
+        setSuccessMessage(`✅ ${employee.name} - ${message}`)
         setCheckingOut(false)
         setTimeout(() => setSuccessMessage(''), 3000)
-        return
+        return { status: 'error', message }
       }
 
       // Calculate work hours
@@ -551,12 +592,17 @@ export default function CheckInOutPage() {
 
       if (insertError) throw insertError
 
-      setSuccessMessage(`✅ ${employee.name} - Checked out successfully at ${checkTime} (${workHours.toFixed(2)}h worked)`)
+      const message = `Checked out successfully at ${checkTime} (${workHours.toFixed(2)}h worked)`
+      setSuccessMessage(`✅ ${employee.name} - ${message}`)
       await loadTodayRecords(employee.id)
       setTimeout(() => setSuccessMessage(''), 3000)
+      
+      return { status: 'success', message }
     } catch (err: any) {
+      const errorMsg = `Failed to check out: ${err.message}`
       setErrorMessage(`Failed to check out ${employee.name}: ` + err.message)
       console.error('Check-out error:', err)
+      return { status: 'error', message: errorMsg }
     } finally {
       setCheckingOut(false)
     }
@@ -917,26 +963,120 @@ export default function CheckInOutPage() {
       {/* QR Scanner Modal */}
       {showQRScanner && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-7xl w-full max-h-[95vh] overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col">
+            <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between">
                 <h3 className="text-2xl font-bold text-gray-900 dark:text-white">
-                  Scan QR Code
+                  Scan QR Code - {qrCheckType}
                 </h3>
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setShowQRScanner(false)}
+                  onClick={() => {
+                    setShowQRScanner(false)
+                    setScannedEmployees([]) // Clear list when closing
+                  }}
                   className="rounded-full"
                 >
                   <XCircle className="h-5 w-5" />
                 </Button>
               </div>
-              <QRCodeScanner
-                onScanSuccess={handleQRScanSuccess}
-                onClose={() => setShowQRScanner(false)}
-                checkType={qrCheckType}
-              />
+            </div>
+            <div className="flex-1 overflow-hidden flex gap-4 p-6">
+              {/* Scanner Section */}
+              <div className="flex-1 min-w-0">
+                <QRCodeScanner
+                  onScanSuccess={handleQRScanSuccess}
+                  onClose={() => {
+                    setShowQRScanner(false)
+                    setScannedEmployees([])
+                  }}
+                  checkType={qrCheckType}
+                />
+              </div>
+              
+              {/* Scanned Employees List */}
+              <div className="w-80 bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden">
+                <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-indigo-500 to-purple-600">
+                  <h4 className="text-lg font-bold text-white flex items-center gap-2">
+                    <CheckCircle className="h-5 w-5" />
+                    Scanned Employees ({scannedEmployees.length})
+                  </h4>
+                </div>
+                <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                  {scannedEmployees.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                      <User className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">No scans yet</p>
+                      <p className="text-xs mt-1">Scanned employees will appear here</p>
+                    </div>
+                  ) : (
+                    scannedEmployees.map((item, index) => (
+                      <div
+                        key={index}
+                        className={`p-3 rounded-lg border-2 transition-all animate-in slide-in-from-right ${
+                          item.status === 'success'
+                            ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+                            : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              {item.status === 'success' ? (
+                                <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400 flex-shrink-0" />
+                              ) : (
+                                <XCircle className="h-4 w-4 text-red-600 dark:text-red-400 flex-shrink-0" />
+                              )}
+                              <p className="font-semibold text-sm text-gray-900 dark:text-white truncate">
+                                {item.employee.name}
+                              </p>
+                            </div>
+                            <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">
+                              {item.employee.employee_code}
+                            </p>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className={`text-xs px-2 py-0.5 rounded ${
+                                item.type === 'Check-In'
+                                  ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                                  : 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300'
+                              }`}>
+                                {item.type}
+                              </span>
+                            </div>
+                            <p className={`text-xs ${
+                              item.status === 'success'
+                                ? 'text-green-700 dark:text-green-300'
+                                : 'text-red-700 dark:text-red-300'
+                            }`}>
+                              {item.message}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                              {item.timestamp.toLocaleTimeString('en-US', { 
+                                hour: '2-digit', 
+                                minute: '2-digit',
+                                second: '2-digit'
+                              })}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                {scannedEmployees.length > 0 && (
+                  <div className="p-3 border-t border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setScannedEmployees([])}
+                      className="w-full text-xs"
+                    >
+                      Clear List
+                    </Button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
