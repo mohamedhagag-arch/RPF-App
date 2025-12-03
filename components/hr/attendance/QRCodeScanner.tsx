@@ -26,6 +26,7 @@ export function QRCodeScanner({
   const [success, setSuccess] = useState('')
   const [cameraId, setCameraId] = useState<string | null>(null)
   const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([])
+  const lastScannedRef = useRef<{ qrCode: string; timestamp: number } | null>(null)
 
   useEffect(() => {
     // Request camera permission first, then get available cameras
@@ -211,6 +212,21 @@ export function QRCodeScanner({
         setError('Invalid QR code: Empty code')
         return
       }
+
+      // Prevent duplicate scans of the same QR code within 5 seconds
+      const now = Date.now()
+      const lastScanned = lastScannedRef.current
+      
+      if (lastScanned && lastScanned.qrCode === qrCode) {
+        const timeSinceLastScan = now - lastScanned.timestamp
+        if (timeSinceLastScan < 5000) { // 5 seconds cooldown
+          console.log('⚠️ Duplicate scan prevented - same QR code scanned too soon')
+          return // Ignore duplicate scan
+        }
+      }
+
+      // Update last scanned QR code and timestamp
+      lastScannedRef.current = { qrCode, timestamp: now }
 
       let employee: AttendanceEmployee | null = null
 

@@ -67,6 +67,7 @@ export default function CheckInOutPage() {
     status: 'success' | 'error'
     message: string
   }>>([])
+  const recentlyProcessedRef = useRef<Map<string, number>>(new Map()) // employee_id -> timestamp
   
   // Refs
   const locationWatchId = useRef<number | null>(null)
@@ -401,6 +402,37 @@ export default function CheckInOutPage() {
 
   const handleQRScanSuccess = async (employee: AttendanceEmployee) => {
     try {
+      // Prevent processing the same employee within 3 seconds
+      const now = Date.now()
+      const lastProcessed = recentlyProcessedRef.current.get(employee.id)
+      
+      if (lastProcessed && (now - lastProcessed) < 3000) {
+        console.log(`⚠️ Duplicate scan prevented for ${employee.name} - processed too recently`)
+        // Still add to list but mark as duplicate
+        setScannedEmployees(prev => [
+          {
+            employee,
+            timestamp: new Date(),
+            type: qrCheckType,
+            status: 'error',
+            message: 'Duplicate scan - already processed recently'
+          },
+          ...prev.slice(0, 49)
+        ])
+        return
+      }
+
+      // Mark as processed
+      recentlyProcessedRef.current.set(employee.id, now)
+      
+      // Clean up old entries (older than 10 seconds)
+      const tenSecondsAgo = now - 10000
+      for (const [empId, timestamp] of recentlyProcessedRef.current.entries()) {
+        if (timestamp < tenSecondsAgo) {
+          recentlyProcessedRef.current.delete(empId)
+        }
+      }
+
       // Set the employee
       setSelectedEmployee(employee)
       
