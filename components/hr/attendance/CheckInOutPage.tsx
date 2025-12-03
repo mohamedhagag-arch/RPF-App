@@ -997,9 +997,9 @@ export default function CheckInOutPage() {
       {showQRScanner && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-0 md:p-4 animate-in fade-in duration-200">
           <div className="bg-white dark:bg-gray-800 rounded-none md:rounded-2xl shadow-2xl max-w-7xl w-full h-full md:h-auto md:max-h-[95vh] overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col">
-            <div className="p-3 md:p-6 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+            <div className="p-4 md:p-6 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg md:text-2xl font-bold text-gray-900 dark:text-white">
+                <h3 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white">
                   Scan QR Code - {qrCheckType}
                 </h3>
                 <Button
@@ -1011,11 +1011,11 @@ export default function CheckInOutPage() {
                   }}
                   className="rounded-full"
                 >
-                  <XCircle className="h-5 w-5" />
+                  <XCircle className="h-6 w-6 md:h-5 md:w-5" />
                 </Button>
               </div>
             </div>
-            <div className="flex-1 overflow-hidden flex flex-col md:flex-row gap-2 md:gap-4 p-2 md:p-6">
+            <div className="flex-1 overflow-hidden flex flex-col md:flex-row gap-3 md:gap-4 p-3 md:p-6">
               {/* Scanner Section */}
               <div className="flex-1 min-w-0 flex flex-col">
                 <QRCodeScanner
@@ -1029,47 +1029,47 @@ export default function CheckInOutPage() {
               </div>
               
               {/* Scanned Employees List */}
-              <div className="w-full md:w-80 h-48 md:h-auto bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden flex-shrink-0">
-                <div className="p-2 md:p-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-indigo-500 to-purple-600 flex-shrink-0">
-                  <h4 className="text-sm md:text-lg font-bold text-white flex items-center gap-2">
-                    <CheckCircle className="h-4 w-4 md:h-5 md:w-5" />
+              <div className="w-full md:w-80 h-64 md:h-auto bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden flex-shrink-0">
+                <div className="p-3 md:p-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-indigo-500 to-purple-600 flex-shrink-0">
+                  <h4 className="text-base md:text-lg font-bold text-white flex items-center gap-2">
+                    <CheckCircle className="h-5 w-5 md:h-5 md:w-5" />
                     Scanned ({scannedEmployees.length})
                   </h4>
                 </div>
-                <div className="flex-1 overflow-y-auto p-2 md:p-3 space-y-1 md:space-y-2">
+                <div className="flex-1 overflow-y-auto p-3 md:p-3 space-y-2 md:space-y-2">
                   {scannedEmployees.length === 0 ? (
-                    <div className="text-center py-4 md:py-8 text-gray-500 dark:text-gray-400">
-                      <User className="h-8 w-8 md:h-12 md:w-12 mx-auto mb-2 opacity-50" />
-                      <p className="text-xs md:text-sm">No scans yet</p>
-                      <p className="text-[10px] md:text-xs mt-1">Scanned employees will appear here</p>
+                    <div className="text-center py-6 md:py-8 text-gray-500 dark:text-gray-400">
+                      <User className="h-10 w-10 md:h-12 md:w-12 mx-auto mb-3 opacity-50" />
+                      <p className="text-sm md:text-sm font-medium">No scans yet</p>
+                      <p className="text-xs md:text-xs mt-1">Scanned employees will appear here</p>
                     </div>
                   ) : (
                     scannedEmployees.map((item, index) => (
                       <div
                         key={index}
-                        className={`p-2 md:p-3 rounded-lg border-2 transition-all animate-in slide-in-from-right ${
+                        className={`p-3 md:p-3 rounded-lg border-2 transition-all animate-in slide-in-from-right ${
                           item.status === 'success'
                             ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
                             : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
                         }`}
                       >
-                        <div className="flex items-start justify-between gap-1 md:gap-2">
+                        <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1 md:gap-2 mb-0.5 md:mb-1">
+                            <div className="flex items-center gap-2 mb-1">
                               {item.status === 'success' ? (
-                                <CheckCircle className="h-3 w-3 md:h-4 md:w-4 text-green-600 dark:text-green-400 flex-shrink-0" />
+                                <CheckCircle className="h-4 w-4 md:h-4 md:w-4 text-green-600 dark:text-green-400 flex-shrink-0" />
                               ) : (
-                                <XCircle className="h-3 w-3 md:h-4 md:w-4 text-red-600 dark:text-red-400 flex-shrink-0" />
+                                <XCircle className="h-4 w-4 md:h-4 md:w-4 text-red-600 dark:text-red-400 flex-shrink-0" />
                               )}
-                              <p className="font-semibold text-xs md:text-sm text-gray-900 dark:text-white truncate">
+                              <p className="font-semibold text-sm md:text-sm text-gray-900 dark:text-white truncate">
                                 {item.employee.name}
                               </p>
                             </div>
-                            <p className="text-[10px] md:text-xs text-gray-600 dark:text-gray-400 mb-0.5 md:mb-1">
+                            <p className="text-xs md:text-xs text-gray-600 dark:text-gray-400 mb-1">
                               {item.employee.employee_code}
                             </p>
-                            <div className="flex items-center gap-1 md:gap-2 mb-0.5 md:mb-1">
-                              <span className={`text-[10px] md:text-xs px-1.5 md:px-2 py-0.5 rounded ${
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className={`text-xs md:text-xs px-2 md:px-2 py-1 md:py-0.5 rounded font-medium ${
                                 item.type === 'Check-In'
                                   ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
                                   : 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300'
@@ -1077,14 +1077,14 @@ export default function CheckInOutPage() {
                                 {item.type}
                               </span>
                             </div>
-                            <p className={`text-[10px] md:text-xs line-clamp-1 ${
+                            <p className={`text-xs md:text-xs line-clamp-2 ${
                               item.status === 'success'
                                 ? 'text-green-700 dark:text-green-300'
                                 : 'text-red-700 dark:text-red-300'
                             }`}>
                               {item.message}
                             </p>
-                            <p className="text-[10px] md:text-xs text-gray-500 dark:text-gray-500 mt-0.5 md:mt-1">
+                            <p className="text-xs md:text-xs text-gray-500 dark:text-gray-500 mt-1 font-medium">
                               {item.timestamp.toLocaleTimeString('en-US', { 
                                 hour: '2-digit', 
                                 minute: '2-digit',
@@ -1098,12 +1098,12 @@ export default function CheckInOutPage() {
                   )}
                 </div>
                 {scannedEmployees.length > 0 && (
-                  <div className="p-2 md:p-3 border-t border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 flex-shrink-0">
+                  <div className="p-3 md:p-3 border-t border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 flex-shrink-0">
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => setScannedEmployees([])}
-                      className="w-full text-xs py-1.5 md:py-2"
+                      className="w-full text-sm md:text-xs py-2 md:py-2 font-medium"
                     >
                       Clear List
                     </Button>
