@@ -272,7 +272,7 @@ export function QRCodeScanner({
         return
       }
 
-      setSuccess(`✅ ${employee.name} (${employee.employee_code}) - تم المسح بنجاح`)
+      setSuccess(`✅ Scanned: ${employee.name} (${employee.employee_code})`)
       
       // Call success callback immediately (don't stop scanning for continuous mode)
       onScanSuccess(employee)
@@ -365,27 +365,52 @@ export function QRCodeScanner({
         {/* QR Code Scanner */}
         <div className="space-y-4">
           {!scanning ? (
-            <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50">
-              <Camera className="w-16 h-16 text-gray-400 mb-4" />
-              <p className="text-gray-600 mb-4">Click to start scanning QR code</p>
-              <Button onClick={startScanning} disabled={!cameraId}>
-                <Camera className="w-4 h-4 mr-2" />
+            <div className="flex flex-col items-center justify-center p-12 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 transition-all hover:border-indigo-400 dark:hover:border-indigo-500">
+              <div className="relative mb-6">
+                <div className="absolute inset-0 bg-indigo-500/20 rounded-full blur-xl"></div>
+                <Camera className="w-20 h-20 text-indigo-500 dark:text-indigo-400 relative z-10" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Ready to Scan</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-6 text-center max-w-sm">
+                Click the button below to start scanning QR codes. The camera will stay open for continuous scanning.
+              </p>
+              <Button 
+                onClick={startScanning} 
+                disabled={!cameraId}
+                className="px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white shadow-lg hover:shadow-xl transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+              >
+                <Camera className="w-5 h-5 mr-2" />
                 Start Scanner
               </Button>
+              {!cameraId && (
+                <p className="text-xs text-red-500 dark:text-red-400 mt-2">No camera available</p>
+              )}
             </div>
           ) : (
-            <div className="space-y-2">
-              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mb-2">
-                <p className="text-sm text-blue-800 dark:text-blue-200 text-center">
-                  📷 <strong>وضع المسح المستمر:</strong> وجه الكاميرا إلى QR Code - سيتم المسح تلقائياً
-                </p>
+            <div className="space-y-3">
+              <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3 shadow-sm">
+                <div className="flex items-center justify-center gap-2">
+                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                  <p className="text-sm font-medium text-green-800 dark:text-green-200">
+                    <strong>Continuous Scan Mode Active:</strong> Point camera at QR Code - Auto scan enabled
+                  </p>
+                </div>
               </div>
-              <div
-                id="qr-reader"
-                className="w-full rounded-lg overflow-hidden border-2 border-gray-300"
-                style={{ minHeight: '300px' }}
-              />
-              <Button onClick={stopScanning} variant="outline" className="w-full">
+              <div className="relative">
+                <div
+                  id="qr-reader"
+                  className="w-full rounded-xl overflow-hidden border-2 border-indigo-300 dark:border-indigo-700 shadow-lg"
+                  style={{ minHeight: '350px', backgroundColor: '#000' }}
+                />
+                <div className="absolute top-2 right-2 bg-black/50 text-white px-2 py-1 rounded text-xs font-medium">
+                  Live Camera
+                </div>
+              </div>
+              <Button 
+                onClick={stopScanning} 
+                variant="outline" 
+                className="w-full border-2 border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:border-red-400 dark:hover:border-red-600 transition-all"
+              >
                 <CameraOff className="w-4 h-4 mr-2" />
                 Stop Scanner
               </Button>

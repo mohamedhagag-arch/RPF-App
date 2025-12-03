@@ -428,7 +428,7 @@ export default function CheckInOutPage() {
       const today = new Date().toISOString().split('T')[0]
       const checkTime = currentTime.toTimeString().split(' ')[0].substring(0, 5)
 
-      // Check if already checked in today
+      // Check if already checked in today - prevent duplicate check-ins
       const { data: existingRecords } = await supabase
         .from(TABLES.ATTENDANCE_RECORDS)
         // @ts-ignore
@@ -439,9 +439,9 @@ export default function CheckInOutPage() {
 
       if (existingRecords && existingRecords.length > 0) {
         const existingRecord = existingRecords[0] as any
-        setSuccessMessage(`✅ ${employee.name} - Already checked in today at ${existingRecord.check_time}`)
+        setErrorMessage(`⚠️ ${employee.name} - Already checked in today at ${existingRecord.check_time}. Duplicate check-in prevented.`)
         setCheckingIn(false)
-        setTimeout(() => setSuccessMessage(''), 3000)
+        setTimeout(() => setErrorMessage(''), 4000)
         return
       }
 
@@ -466,6 +466,9 @@ export default function CheckInOutPage() {
       setSuccessMessage(`✅ ${employee.name} - Checked in successfully at ${checkTime}`)
       await loadTodayRecords(employee.id)
       setTimeout(() => setSuccessMessage(''), 3000)
+      
+      // Update selected employee to show updated records
+      setSelectedEmployee(employee)
     } catch (err: any) {
       setErrorMessage(`Failed to check in ${employee.name}: ` + err.message)
       console.error('Check-in error:', err)
