@@ -427,7 +427,8 @@ export default function CheckInOutPage() {
       
       // Clean up old entries (older than 10 seconds)
       const tenSecondsAgo = now - 10000
-      for (const [empId, timestamp] of recentlyProcessedRef.current.entries()) {
+      const entriesToCheck = Array.from(recentlyProcessedRef.current.entries())
+      for (const [empId, timestamp] of entriesToCheck) {
         if (timestamp < tenSecondsAgo) {
           recentlyProcessedRef.current.delete(empId)
         }
