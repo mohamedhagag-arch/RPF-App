@@ -8,10 +8,13 @@ import { Alert } from '@/components/ui/Alert'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { 
   Users, Plus, Edit, Trash2, Search, X, CheckCircle, AlertCircle, 
-  Building, Phone, Mail, UserCheck, Filter, QrCode
+  Building, Phone, Mail, UserCheck, Filter, QrCode, Download, 
+  FileText, FileSpreadsheet, CheckSquare, Square
 } from 'lucide-react'
 import { supabase, TABLES, AttendanceEmployee } from '@/lib/supabase'
 import { QRCodeDisplay } from './QRCodeDisplay'
+import { useQRSettings } from '@/hooks/useQRSettings'
+import { QRRenderer } from './QRRenderer'
 
 export function EmployeesManagement() {
   const [employees, setEmployees] = useState<AttendanceEmployee[]>([])
@@ -23,6 +26,9 @@ export function EmployeesManagement() {
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingEmployee, setEditingEmployee] = useState<AttendanceEmployee | null>(null)
   const [viewingQRCode, setViewingQRCode] = useState<AttendanceEmployee | null>(null)
+  const [selectedEmployees, setSelectedEmployees] = useState<Set<string>>(new Set())
+  const [isExporting, setIsExporting] = useState(false)
+  const { settings: qrSettings } = useQRSettings()
   const [formData, setFormData] = useState({
     employee_code: '',
     name: '',
@@ -223,6 +229,489 @@ export function EmployeesManagement() {
     const matchesStatus = filterStatus === 'all' || emp.status === filterStatus
     return matchesSearch && matchesStatus
   })
+
+  // Selection handlers
+  const toggleEmployeeSelection = (employeeId: string) => {
+    setSelectedEmployees(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(employeeId)) {
+        newSet.delete(employeeId)
+      } else {
+        newSet.add(employeeId)
+      }
+      return newSet
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedEmployees.size === filteredEmployees.length) {
+      setSelectedEmployees(new Set())
+    } else {
+      setSelectedEmployees(new Set(filteredEmployees.map(emp => emp.id)))
+    }
+  }
+
+  const getSelectedEmployees = (): AttendanceEmployee[] => {
+    return filteredEmployees.filter(emp => selectedEmployees.has(emp.id))
+  }
+
+  // Helper function to render QR code with settings to PNG
+  const renderQRCodeToImage = async (qrCode: string, size: number = 400): Promise<string> => {
+    return new Promise(async (resolve, reject) => {
+      try {
+        const html2canvas = (await import('html2canvas')).default
+        const React = await import('react')
+        const { createRoot } = await import('react-dom/client')
+        
+        // Create a temporary container
+        const tempDiv = document.createElement('div')
+        tempDiv.id = `qr-export-${Date.now()}`
+        tempDiv.style.position = 'absolute'
+        tempDiv.style.left = '-9999px'
+        tempDiv.style.top = '0'
+        tempDiv.style.width = `${size}px`
+        tempDiv.style.height = `${size}px`
+        tempDiv.style.backgroundColor = qrSettings.backgroundColor || '#FFFFFF'
+        tempDiv.style.padding = `${(qrSettings.marginSize || 0) * 4}px`
+        tempDiv.style.display = 'flex'
+        tempDiv.style.alignItems = 'center'
+        tempDiv.style.justifyContent = 'center'
+        document.body.appendChild(tempDiv)
+
+        // Render QRRenderer into the temp div
+        const qrElement = React.createElement(QRRenderer, {
+          qrCode,
+          settings: qrSettings,
+          gradientId: qrSettings.useGradient ? `qr-gradient-export-${Date.now()}` : undefined
+        })
+
+        const root = createRoot(tempDiv)
+        root.render(qrElement)
+
+        // Wait for rendering and images to load
+        await new Promise(resolve => setTimeout(resolve, 800))
+
+        // Convert to canvas
+        const canvas = await html2canvas(tempDiv, {
+          backgroundColor: qrSettings.backgroundColor || '#FFFFFF',
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          width: size,
+          height: size,
+          allowTaint: true
+        })
+
+        // Convert to data URL
+        const dataUrl = canvas.toDataURL('image/png', 1.0)
+        
+        // Cleanup
+        root.unmount()
+        document.body.removeChild(tempDiv)
+
+        resolve(dataUrl)
+      } catch (err: any) {
+        console.error('Error rendering QR code to image:', err)
+        reject(err)
+      }
+    })
+  }
+
+  // Helper function to render Arabic text as image for PDF with better quality
+  const renderArabicTextAsImage = async (text: string, fontSize: number = 12, isBold: boolean = false): Promise<string | null> => {
+    const hasArabic = /[\u0600-\u06FF]/.test(text)
+    if (!hasArabic) return null
+
+    try {
+      const html2canvas = (await import('html2canvas')).default
+      
+      // Create a more robust container for Arabic text
+      const tempDiv = document.createElement('div')
+      tempDiv.style.position = 'fixed' // Use fixed instead of absolute for better rendering
+      tempDiv.style.left = '0'
+      tempDiv.style.top = '0'
+      tempDiv.style.width = '800px' // Fixed width for consistent rendering
+      tempDiv.style.height = '100px'
+      tempDiv.style.fontSize = `${fontSize * 2.5}px` // Larger font for better quality
+      tempDiv.style.fontWeight = isBold ? '700' : '400'
+      tempDiv.style.fontFamily = '"Cairo", "Arial", "Tahoma", sans-serif' // Multiple fallbacks
+      tempDiv.style.color = '#000000'
+      tempDiv.style.backgroundColor = '#FFFFFF'
+      tempDiv.style.padding = '15px 20px'
+      tempDiv.style.direction = 'rtl'
+      tempDiv.style.textAlign = 'center'
+      tempDiv.style.whiteSpace = 'nowrap'
+      tempDiv.style.lineHeight = '1.5'
+      tempDiv.style.letterSpacing = '0px' // Remove letter spacing for Arabic
+      tempDiv.style.display = 'flex'
+      tempDiv.style.alignItems = 'center'
+      tempDiv.style.justifyContent = 'center'
+      tempDiv.style.overflow = 'hidden'
+      // @ts-ignore - CSS vendor prefixes
+      tempDiv.style.webkitFontSmoothing = 'antialiased'
+      // @ts-ignore - CSS vendor prefixes
+      tempDiv.style.mozOsxFontSmoothing = 'grayscale'
+      tempDiv.style.textRendering = 'optimizeLegibility'
+      
+      // Use innerHTML to ensure proper text rendering
+      tempDiv.innerHTML = `<span style="display: inline-block; direction: rtl; unicode-bidi: bidi-override;">${text}</span>`
+      
+      document.body.appendChild(tempDiv)
+
+      // Wait longer for font to load and render
+      await new Promise(r => setTimeout(r, 500))
+      
+      // Force layout recalculation
+      tempDiv.offsetHeight
+      
+      const canvas = await html2canvas(tempDiv, {
+        backgroundColor: '#FFFFFF',
+        scale: 5, // Very high scale for crisp text
+        useCORS: true,
+        logging: false,
+        width: tempDiv.offsetWidth,
+        height: tempDiv.offsetHeight,
+        windowWidth: tempDiv.offsetWidth,
+        windowHeight: tempDiv.offsetHeight,
+        allowTaint: false,
+        removeContainer: true,
+        onclone: (clonedDoc) => {
+          // Ensure font is loaded in cloned document
+          const clonedDiv = clonedDoc.querySelector('div')
+          if (clonedDiv) {
+            clonedDiv.style.fontFamily = '"Cairo", "Arial", "Tahoma", sans-serif'
+          }
+        }
+      })
+      
+      const dataUrl = canvas.toDataURL('image/png', 1.0) // Maximum quality
+      document.body.removeChild(tempDiv)
+      return dataUrl
+    } catch (err) {
+      console.error('Error rendering Arabic text:', err)
+      return null
+    }
+  }
+
+  // Export QR Codes to PDF using pdfmake (with Arabic text as images)
+  const exportQRCodesToPDF = async () => {
+    const selected = getSelectedEmployees()
+    if (selected.length === 0) {
+      setError('Please select at least one employee')
+      return
+    }
+
+    setIsExporting(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      // Dynamically import pdfmake
+      // @ts-ignore - pdfmake types may not be available
+      const pdfMake = await import('pdfmake/build/pdfmake')
+      // @ts-ignore - pdfmake types may not be available
+      const pdfFonts = await import('pdfmake/build/vfs_fonts')
+      
+      // Set up pdfmake fonts
+      // @ts-ignore
+      if (pdfMake.default && pdfFonts.default) {
+        // @ts-ignore
+        pdfMake.default.vfs = pdfFonts.default.pdfMake?.vfs || pdfFonts.default
+      }
+      
+      // Define document content
+      const docDefinition: any = {
+        pageSize: 'A4',
+        pageOrientation: 'portrait',
+        pageMargins: [40, 60, 40, 60],
+        defaultStyle: {
+          font: 'Roboto',
+          fontSize: 10,
+        },
+        content: []
+      }
+
+      // Process each employee
+      for (let i = 0; i < selected.length; i++) {
+        const employee = selected[i]
+        
+        // Add new page for each employee (except first)
+        if (i > 0) {
+          docDefinition.content.push({ text: '', pageBreak: 'before' })
+        }
+
+        // Ensure QR code exists
+        const qrCode = await ensureQRCode(employee)
+        
+        // Generate QR code with custom settings
+        const qrDataUrl = await renderQRCodeToImage(qrCode, 400)
+
+        // Employee page content
+        const employeeContent: any[] = [
+          // Title
+          {
+            text: 'Employee QR Code',
+            fontSize: 18,
+            bold: true,
+            alignment: 'center',
+            margin: [0, 0, 0, 20]
+          },
+          // QR Code Image
+          {
+            image: qrDataUrl,
+            width: 150,
+            height: 150,
+            alignment: 'center',
+            margin: [0, 0, 0, 20]
+          }
+        ]
+
+        // Employee Name - render as image if Arabic
+        const nameImage = await renderArabicTextAsImage(employee.name, 16, true)
+        if (nameImage) {
+          employeeContent.push({
+            image: nameImage,
+            width: 180,
+            height: 35,
+            alignment: 'center',
+            margin: [0, 0, 0, 15]
+          })
+        } else {
+          employeeContent.push({
+            text: employee.name,
+            fontSize: 14,
+            bold: true,
+            alignment: 'center',
+            margin: [0, 0, 0, 10]
+          })
+        }
+
+        // Employee Code
+        const codeText = `Code: ${employee.employee_code}`
+        const codeImage = await renderArabicTextAsImage(codeText, 14, false)
+        if (codeImage) {
+          employeeContent.push({
+            image: codeImage,
+            width: 160,
+            height: 28,
+            alignment: 'center',
+            margin: [0, 0, 0, 12]
+          })
+        } else {
+          employeeContent.push({
+            text: codeText,
+            fontSize: 12,
+            alignment: 'center',
+            margin: [0, 0, 0, 8]
+          })
+        }
+
+        // Department
+        if (employee.department) {
+          const deptText = `Department: ${employee.department}`
+          const deptImage = await renderArabicTextAsImage(deptText, 14, false)
+          if (deptImage) {
+            employeeContent.push({
+              image: deptImage,
+              width: 180,
+              height: 28,
+              alignment: 'center',
+              margin: [0, 0, 0, 12]
+            })
+          } else {
+            employeeContent.push({
+              text: deptText,
+              fontSize: 12,
+              alignment: 'center',
+              margin: [0, 0, 0, 8]
+            })
+          }
+        }
+
+        // Job Title
+        if (employee.job_title) {
+          const jobText = `Job Title: ${employee.job_title}`
+          const jobImage = await renderArabicTextAsImage(jobText, 14, false)
+          if (jobImage) {
+            employeeContent.push({
+              image: jobImage,
+              width: 180,
+              height: 28,
+              alignment: 'center',
+              margin: [0, 0, 0, 12]
+            })
+          } else {
+            employeeContent.push({
+              text: jobText,
+              fontSize: 12,
+              alignment: 'center',
+              margin: [0, 0, 0, 8]
+            })
+          }
+        }
+
+        // QR Code Value at bottom
+        const qrCodePreview = qrCode.length > 50 ? qrCode.substring(0, 50) + '...' : qrCode
+        employeeContent.push({
+          text: `QR Code: ${qrCodePreview}`,
+          fontSize: 8,
+          italics: true,
+          alignment: 'center',
+          margin: [0, 40, 0, 0]
+        })
+
+        docDefinition.content.push(...employeeContent)
+      }
+
+      // Create and download PDF
+      // @ts-ignore
+      const pdfDocGenerator = pdfMake.default.createPdf(docDefinition)
+      const fileName = `Employee_QR_Codes_${new Date().toISOString().split('T')[0]}.pdf`
+      pdfDocGenerator.download(fileName)
+      
+      setSuccess(`Successfully exported ${selected.length} QR code(s) to PDF`)
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err: any) {
+      setError('Failed to export PDF: ' + err.message)
+      console.error('Error exporting PDF:', err)
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  // Export QR Codes to Excel with Images
+  const exportQRCodesToExcel = async () => {
+    const selected = getSelectedEmployees()
+    if (selected.length === 0) {
+      setError('Please select at least one employee')
+      return
+    }
+
+    setIsExporting(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      // Dynamically import ExcelJS
+      const ExcelJS = await import('exceljs')
+      
+      // Create workbook
+      const workbook = new ExcelJS.Workbook()
+      const worksheet = workbook.addWorksheet('Employee QR Codes')
+
+      // Set column headers
+      worksheet.columns = [
+        { header: 'Employee Code', key: 'employee_code', width: 15 },
+        { header: 'Name', key: 'name', width: 25 },
+        { header: 'Department', key: 'department', width: 20 },
+        { header: 'Job Title', key: 'job_title', width: 20 },
+        { header: 'Email', key: 'email', width: 30 },
+        { header: 'Phone', key: 'phone', width: 15 },
+        { header: 'Status', key: 'status', width: 10 },
+        { header: 'QR Code Value', key: 'qr_code', width: 50 },
+        { header: 'QR Code Image', key: 'qr_image', width: 20 }
+      ]
+
+      // Style header row
+      worksheet.getRow(1).font = { bold: true }
+      worksheet.getRow(1).fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFE0E0E0' }
+      }
+
+      // Process each employee
+      for (let i = 0; i < selected.length; i++) {
+        const employee = selected[i]
+        const rowNumber = i + 2 // Start from row 2 (after header)
+        
+        // Ensure QR code exists
+        const qrCode = await ensureQRCode(employee)
+        
+        // Generate QR code with custom settings
+        const qrDataUrl = await renderQRCodeToImage(qrCode, 200)
+
+        // Convert base64 to Uint8Array (browser compatible)
+        const base64Data = qrDataUrl.replace(/^data:image\/png;base64,/, '')
+        const binaryString = atob(base64Data)
+        const bytes = new Uint8Array(binaryString.length)
+        for (let j = 0; j < binaryString.length; j++) {
+          bytes[j] = binaryString.charCodeAt(j)
+        }
+
+        // Add row data
+        const row = worksheet.addRow({
+          employee_code: employee.employee_code,
+          name: employee.name,
+          department: employee.department || '',
+          job_title: employee.job_title || '',
+          email: employee.email || '',
+          phone: employee.phone_number || '',
+          status: employee.status,
+          qr_code: qrCode
+        })
+
+        // Set row height for QR code image
+        row.height = 150
+
+        // Add QR code image to the last column
+        const imageId = workbook.addImage({
+          buffer: bytes.buffer,
+          extension: 'png'
+        })
+
+        // Get the column index for QR Code Image (column I = 9)
+        const qrImageCol = worksheet.getColumn('qr_image')
+        const qrImageColIndex = qrImageCol.number
+
+        // Add image to worksheet
+        worksheet.addImage(imageId, {
+          tl: { col: qrImageColIndex - 1, row: rowNumber - 1 },
+          ext: { width: 150, height: 150 }
+        })
+
+        // Center align all cells
+        row.eachCell((cell) => {
+          cell.alignment = { vertical: 'middle', horizontal: 'center' }
+        })
+
+        // Left align text columns (not QR code column)
+        row.getCell('employee_code').alignment = { vertical: 'middle', horizontal: 'left' }
+        row.getCell('name').alignment = { vertical: 'middle', horizontal: 'left' }
+        row.getCell('department').alignment = { vertical: 'middle', horizontal: 'left' }
+        row.getCell('job_title').alignment = { vertical: 'middle', horizontal: 'left' }
+        row.getCell('email').alignment = { vertical: 'middle', horizontal: 'left' }
+        row.getCell('phone').alignment = { vertical: 'middle', horizontal: 'left' }
+        row.getCell('status').alignment = { vertical: 'middle', horizontal: 'center' }
+        row.getCell('qr_code').alignment = { vertical: 'middle', horizontal: 'left' }
+      }
+
+      // Save Excel file
+      const fileName = `Employee_QR_Codes_${new Date().toISOString().split('T')[0]}.xlsx`
+      const buffer = await workbook.xlsx.writeBuffer()
+      
+      // Create blob and download
+      const blob = new Blob([buffer], { 
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+      })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = fileName
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+      
+      setSuccess(`Successfully exported ${selected.length} QR code(s) to Excel with images`)
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err: any) {
+      setError('Failed to export Excel: ' + err.message)
+      console.error('Error exporting Excel:', err)
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   const departments = Array.from(new Set(employees.map(emp => emp.department).filter(Boolean)))
 
@@ -445,10 +934,46 @@ export function EmployeesManagement() {
         </Card>
       )}
 
-      {/* Filters */}
+      {/* Filters & Bulk Actions */}
       <Card>
         <CardHeader>
-          <CardTitle>Search & Filter</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>Search & Filter</CardTitle>
+            {selectedEmployees.size > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600 dark:text-gray-400">
+                  {selectedEmployees.size} selected
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={exportQRCodesToPDF}
+                  disabled={isExporting}
+                  className="gap-2"
+                >
+                  <FileText className="h-4 w-4" />
+                  Export PDF
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={exportQRCodesToExcel}
+                  disabled={isExporting}
+                  className="gap-2"
+                >
+                  <FileSpreadsheet className="h-4 w-4" />
+                  Export Excel
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSelectedEmployees(new Set())}
+                >
+                  Clear
+                </Button>
+              </div>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           <div className="flex gap-4">
@@ -477,7 +1002,29 @@ export function EmployeesManagement() {
       {/* Employees List */}
       <Card>
         <CardHeader>
-          <CardTitle>Employees ({filteredEmployees.length})</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>Employees ({filteredEmployees.length})</CardTitle>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={toggleSelectAll}
+                className="gap-2"
+              >
+                {selectedEmployees.size === filteredEmployees.length && filteredEmployees.length > 0 ? (
+                  <>
+                    <CheckSquare className="h-4 w-4" />
+                    Deselect All
+                  </>
+                ) : (
+                  <>
+                    <Square className="h-4 w-4" />
+                    Select All
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
@@ -485,6 +1032,17 @@ export function EmployeesManagement() {
               filteredEmployees.map((employee) => (
                 <div key={employee.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
                   <div className="flex items-center space-x-4">
+                    <button
+                      onClick={() => toggleEmployeeSelection(employee.id)}
+                      className="flex-shrink-0 w-5 h-5 border-2 rounded flex items-center justify-center transition-colors hover:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      title={selectedEmployees.has(employee.id) ? 'Deselect' : 'Select'}
+                    >
+                      {selectedEmployees.has(employee.id) ? (
+                        <CheckSquare className="h-4 w-4 text-indigo-600" />
+                      ) : (
+                        <Square className="h-4 w-4 text-gray-400" />
+                      )}
+                    </button>
                     <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
                       employee.status === 'Active' ? 'bg-green-100' : 'bg-red-100'
                     }`}>
