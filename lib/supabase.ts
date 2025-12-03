@@ -20,7 +20,8 @@ export const TABLES = {
   ATTENDANCE_EMPLOYEES: 'attendance_employees',        // ✅ Employees for attendance
   ATTENDANCE_RECORDS: 'attendance_records',            // ✅ Attendance records
   ATTENDANCE_LOCATIONS: 'attendance_locations',        // ✅ Locations for GPS tracking
-  ATTENDANCE_SETTINGS: 'attendance_settings'          // ✅ Attendance system settings
+  ATTENDANCE_SETTINGS: 'attendance_settings',          // ✅ Attendance system settings
+  HR_MANPOWER: 'hr_manpower'                            // ✅ HR Manpower table
 } as const
 
 // Backward compatibility alias
@@ -242,6 +243,7 @@ export interface AttendanceLocation {
   radius_meters: number
   description?: string
   is_active: boolean
+  is_favorite?: boolean // ✅ Mark location as favorite/highlighted
   created_at: string
 }
 
@@ -262,4 +264,21 @@ export interface AttendanceStats {
   on_time_today: number
   attendance_rate: number
   average_hours: number
+}
+
+// ✅ HR Manpower Interface
+export interface HRManpower {
+  id: string
+  employee_code: string
+  employee_name: string
+  designation: string
+  status: 'Active' | 'Inactive' | 'On Leave'
+  department?: string
+  phone_number?: string
+  email?: string
+  hire_date?: string
+  notes?: string
+  created_at: string
+  updated_at: string
+  created_by?: string
 }

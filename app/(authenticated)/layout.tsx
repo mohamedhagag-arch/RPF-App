@@ -173,7 +173,7 @@ export default function AuthenticatedLayout({
       const redirectTimer = setTimeout(() => {
         if (typeof window !== 'undefined' && !user) {
           const currentPath = window.location.pathname
-          const protectedRoutes = ['/dashboard', '/projects', '/boq', '/kpi', '/reports', '/settings', '/profile', '/directory']
+          const protectedRoutes = ['/dashboard', '/projects', '/boq', '/kpi', '/reports', '/settings', '/profile', '/directory', '/hr', '/cost-control']
           const isOnProtectedRoute = protectedRoutes.some(route => currentPath.startsWith(route))
           
           // Only redirect if we're on a protected route and still no user
@@ -201,8 +201,6 @@ export default function AuthenticatedLayout({
     if (pathname === '/reports') return 'reports'
     if (pathname === '/cost-control') return 'cost-control'
     if (pathname === '/cost-control/manpower') return 'cost-control/manpower'
-    if (pathname === '/cost-control/attendance') return 'cost-control/attendance'
-    if (pathname === '/cost-control/attendance/check-in-out') return 'cost-control/attendance/check-in-out'
     if (pathname === '/settings') {
       // Check if it's user form tab
       if (typeof window !== 'undefined') {
@@ -214,6 +212,10 @@ export default function AuthenticatedLayout({
     if (pathname === '/profile' || pathname.startsWith('/profile/')) return 'profile'
     if (pathname === '/directory') return 'directory'
     if (pathname === '/planning') return 'planning'
+    if (pathname === '/hr') return 'hr'
+    if (pathname === '/hr/manpower') return 'hr/manpower'
+    if (pathname === '/hr/attendance') return 'hr/attendance'
+    if (pathname === '/hr/attendance/check-in-out') return 'hr/attendance/check-in-out'
     return 'dashboard'
   }
 
@@ -239,10 +241,14 @@ export default function AuthenticatedLayout({
       router.push('/cost-control')
     } else if (tab === 'cost-control/manpower') {
       router.push('/cost-control/manpower')
-    } else if (tab === 'cost-control/attendance') {
-      router.push('/cost-control/attendance')
-    } else if (tab === 'cost-control/attendance/check-in-out') {
-      router.push('/cost-control/attendance/check-in-out')
+    } else if (tab === 'hr') {
+      router.push('/hr')
+    } else if (tab === 'hr/manpower') {
+      router.push('/hr/manpower')
+    } else if (tab === 'hr/attendance') {
+      router.push('/hr/attendance')
+    } else if (tab === 'hr/attendance/check-in-out') {
+      router.push('/hr/attendance/check-in-out')
     } else {
       router.push(`/${tab}`)
     }

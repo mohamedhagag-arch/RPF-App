@@ -33,6 +33,7 @@ import {
   DollarSign,
   UserCheck,
   Calendar,
+  Briefcase,
   type LucideIcon
 } from 'lucide-react'
 
@@ -74,8 +75,18 @@ const sidebarItems: SidebarItem[] = [
     badgeColor: 'bg-gradient-to-br from-yellow-500 to-orange-500',
     subItems: [
       { icon: UserCheck, label: 'MANPOWER', tab: 'cost-control/manpower', badgeIcon: Users, badgeColor: 'bg-gradient-to-br from-blue-500 to-indigo-500' },
-      { icon: Calendar, label: 'Attendance', tab: 'cost-control/attendance', badgeIcon: Calendar, badgeColor: 'bg-gradient-to-br from-green-500 to-emerald-500' },
-      { icon: UserCheck, label: 'Check-In/Out', tab: 'cost-control/attendance/check-in-out', badgeIcon: UserCheck, badgeColor: 'bg-gradient-to-br from-blue-500 to-indigo-500' },
+    ]
+  },
+  { 
+    icon: Briefcase, 
+    label: 'HR', 
+    tab: 'hr',
+    badgeIcon: Briefcase, 
+    badgeColor: 'bg-gradient-to-br from-pink-500 to-rose-500',
+    subItems: [
+      { icon: Users, label: 'Manpower', tab: 'hr/manpower', badgeIcon: Users, badgeColor: 'bg-gradient-to-br from-blue-500 to-indigo-500' },
+      { icon: Calendar, label: 'Attendance', tab: 'hr/attendance', badgeIcon: Calendar, badgeColor: 'bg-gradient-to-br from-green-500 to-emerald-500' },
+      { icon: UserCheck, label: 'Check-In/Out', tab: 'hr/attendance/check-in-out', badgeIcon: UserCheck, badgeColor: 'bg-gradient-to-br from-blue-500 to-indigo-500' },
     ]
   },
   { 
@@ -130,7 +141,11 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
     // Cost Control
     if (tab === 'cost-control') return '/cost-control'
     if (tab === 'cost-control/manpower') return '/cost-control/manpower'
-    if (tab === 'cost-control/attendance') return '/cost-control/attendance'
+    // HR
+    if (tab === 'hr') return '/hr'
+    if (tab === 'hr/manpower') return '/hr/manpower'
+    if (tab === 'hr/attendance') return '/hr/attendance'
+    if (tab === 'hr/attendance/check-in-out') return '/hr/attendance/check-in-out'
     return `/${tab}`
   }
 
@@ -171,6 +186,10 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
     if (activeTab === 'cost-control/manpower' || activeTab === 'cost-control/attendance' || activeTab === 'cost-control/attendance/check-in-out') {
       setExpandedItems(prev => new Set(prev).add('cost-control'))
     }
+    // Auto-expand hr if any sub-item is active
+    if (activeTab === 'hr/manpower' || activeTab === 'hr/attendance' || activeTab === 'hr/attendance/check-in-out') {
+      setExpandedItems(prev => new Set(prev).add('hr'))
+    }
   }, [activeTab])
 
   // تحميل إعدادات الشركة من قاعدة البيانات
@@ -210,8 +229,21 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
           return item.subItems.some(subItem => {
             switch (subItem.tab) {
               case 'cost-control/manpower':
-              case 'cost-control/attendance':
-              case 'cost-control/attendance/check-in-out':
+                return guard.hasAccess('reports.view') // Using reports.view as default permission
+              default:
+                return false
+            }
+          })
+        }
+        return guard.hasAccess('reports.view')
+      case 'hr':
+        // Show hr if user has access to any sub-item
+        if (item.subItems) {
+          return item.subItems.some(subItem => {
+            switch (subItem.tab) {
+              case 'hr/manpower':
+              case 'hr/attendance':
+              case 'hr/attendance/check-in-out':
                 return guard.hasAccess('reports.view') // Using reports.view as default permission
               default:
                 return false
@@ -280,8 +312,10 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
             case 'reports':
               return guard.hasAccess('reports.view')
             case 'cost-control/manpower':
-            case 'cost-control/attendance':
-            case 'cost-control/attendance/check-in-out':
+              return guard.hasAccess('reports.view') // Using reports.view as default permission
+            case 'hr/manpower':
+            case 'hr/attendance':
+            case 'hr/attendance/check-in-out':
               return guard.hasAccess('reports.view') // Using reports.view as default permission
             case 'forms/boq':
               // ✅ Admin always has access, others need boq.create or boq.edit
