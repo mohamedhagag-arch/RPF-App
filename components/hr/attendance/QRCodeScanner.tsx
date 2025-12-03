@@ -95,9 +95,16 @@ export function QRCodeScanner({
         return
       }
 
+      // Set scanning state first to render the element
+      setScanning(true)
+      
+      // Wait for the DOM to update and element to be rendered
+      await new Promise(resolve => setTimeout(resolve, 100))
+
       // Ensure the DOM element exists before creating scanner
       const qrReaderElement = document.getElementById('qr-reader')
       if (!qrReaderElement) {
+        setScanning(false)
         setError('QR scanner element not found. Please refresh the page.')
         console.error('Element with id="qr-reader" not found in DOM')
         return
@@ -114,6 +121,9 @@ export function QRCodeScanner({
             fps: 10,
             qrbox: { width: 250, height: 250 },
             aspectRatio: 1.0,
+            videoConstraints: {
+              facingMode: 'environment' // Prefer back camera
+            }
           },
           (decodedText) => {
             handleQRCodeScanned(decodedText)
@@ -122,8 +132,8 @@ export function QRCodeScanner({
             // Ignore scanning errors (they're frequent during scanning)
           }
         )
-        setScanning(true)
         setError('') // Clear any previous errors
+        console.log('✅ Camera started successfully')
       } catch (deviceError: any) {
         // If device ID fails, try with facingMode
         console.log('Device ID failed, trying with facingMode...', deviceError)
@@ -347,13 +357,6 @@ export function QRCodeScanner({
 
         {/* QR Code Scanner */}
         <div className="space-y-4">
-          {/* Always render the qr-reader element, but hide it when not scanning */}
-          <div
-            id="qr-reader"
-            className={`w-full rounded-lg overflow-hidden border-2 border-gray-300 ${!scanning ? 'hidden' : ''}`}
-            style={{ minHeight: '300px' }}
-          />
-          
           {!scanning ? (
             <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50">
               <Camera className="w-16 h-16 text-gray-400 mb-4" />
@@ -365,6 +368,11 @@ export function QRCodeScanner({
             </div>
           ) : (
             <div className="space-y-2">
+              <div
+                id="qr-reader"
+                className="w-full rounded-lg overflow-hidden border-2 border-gray-300"
+                style={{ minHeight: '300px' }}
+              />
               <Button onClick={stopScanning} variant="outline" className="w-full">
                 <CameraOff className="w-4 h-4 mr-2" />
                 Stop Scanner
