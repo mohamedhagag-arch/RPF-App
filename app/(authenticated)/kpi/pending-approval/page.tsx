@@ -12,7 +12,7 @@ import { Alert } from '@/components/ui/Alert'
 import { Button } from '@/components/ui/Button'
 import { PermissionButton } from '@/components/ui/PermissionButton'
 import { Card } from '@/components/ui/Card'
-import { ArrowLeft, CheckCircle, X, Clock, Target, AlertCircle, User, Mail, Phone, Filter, Search, MessageCircle } from 'lucide-react'
+import { ArrowLeft, CheckCircle, X, Clock, Target, AlertCircle, User, Mail, Phone, Filter, Search, MessageCircle, Edit, Save, RotateCcw, Trash2, CheckSquare, Square } from 'lucide-react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { useAuth } from '@/app/providers'
 
@@ -80,6 +80,25 @@ export default function PendingApprovalKPIPage() {
   
   // ✅ User info cache (for creator information)
   const [userInfoCache, setUserInfoCache] = useState<Map<string, UserInfo>>(new Map())
+  
+  // ✅ Edit KPI state
+  const [editingKPI, setEditingKPI] = useState<PendingKPI | null>(null)
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [rejectingKPIId, setRejectingKPIId] = useState<string | null>(null)
+  const [rejectionReason, setRejectionReason] = useState('')
+  const [showRejectModal, setShowRejectModal] = useState(false)
+  
+  // ✅ Tab state
+  const [activeTab, setActiveTab] = useState<'pending' | 'rejected'>('pending')
+  
+  // ✅ Rejected KPIs state
+  const [rejectedKPIs, setRejectedKPIs] = useState<PendingKPI[]>([])
+  const [filteredRejectedKPIs, setFilteredRejectedKPIs] = useState<PendingKPI[]>([])
+  const [loadingRejected, setLoadingRejected] = useState(false)
+  
+  // ✅ Selection state
+  const [selectedPendingKPIs, setSelectedPendingKPIs] = useState<Set<string>>(new Set())
+  const [selectedRejectedKPIs, setSelectedRejectedKPIs] = useState<Set<string>>(new Set())
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
@@ -272,13 +291,167 @@ export default function PendingApprovalKPIPage() {
     }
   }
 
-  const handleApprove = async (kpiId: string) => {
+  const fetchRejectedKPIs = async () => {
+    try {
+      setLoadingRejected(true)
+      setError('')
+
+      // Fetch rejected KPIs from kpi_rejected table
+      let allData: any[] = []
+      let offset = 0
+      const chunkSize = 1000
+      let hasMore = true
+      
+      while (hasMore) {
+        const { data: chunkData, error: chunkError } = await supabase
+          .from(TABLES.KPI_REJECTED)
+          .select('*')
+          .order('Rejected Date', { ascending: false })
+          .range(offset, offset + chunkSize - 1)
+        
+        if (chunkError) {
+          throw chunkError
+        }
+        
+        if (!chunkData || chunkData.length === 0) {
+          hasMore = false
+          break
+        }
+        
+        allData = [...allData, ...chunkData]
+        
+        if (chunkData.length < chunkSize) {
+          hasMore = false
+        } else {
+          offset += chunkSize
+        }
+      }
+      
+      const mappedKPIs = (allData || []).map(mapKPIFromDB)
+      setRejectedKPIs(mappedKPIs as PendingKPI[])
+      setFilteredRejectedKPIs(mappedKPIs as PendingKPI[])
+      
+      // Load user info for creators
+      const creatorIds = Array.from(new Set((allData as any[])
+        .map((row: any) => row.created_by || row['created_by'] || row['Recorded By'] || null)
+        .filter(Boolean)))
+      
+      if (creatorIds.length > 0) {
+        await loadUserInfo(creatorIds as string[])
+      }
+    } catch (err: any) {
+      console.error('Error fetching rejected KPIs:', err)
+      setError(err.message || 'Failed to load rejected KPIs')
+    } finally {
+      setLoadingRejected(false)
+    }
+  }
+
+  const handleEdit = (kpi: PendingKPI) => {
+    setEditingKPI(kpi)
+    setShowEditModal(true)
+  }
+
+  const handleSaveEdit = async (editedKPI: PendingKPI) => {
+    if (!editedKPI || !editedKPI.id) return
+
+    try {
+      setError('')
+      setSuccess('')
+
+      // ✅ Check if this is a rejected KPI or pending KPI
+      const isRejected = activeTab === 'rejected' || rejectedKPIs.some(k => k.id === editedKPI.id)
+
+      // ✅ Prepare update payload with edited fields
+      const updatePayload: any = {}
+      
+      // Update all editable fields
+      if (editedKPI.project_full_code !== undefined) updatePayload['Project Full Code'] = editedKPI.project_full_code
+      if (editedKPI.project_code !== undefined) updatePayload['Project Code'] = editedKPI.project_code
+      if (editedKPI.activity_name !== undefined) updatePayload['Activity Name'] = editedKPI.activity_name
+      if (editedKPI.quantity !== undefined) updatePayload['Quantity'] = String(editedKPI.quantity)
+      if (editedKPI.unit !== undefined) updatePayload['Unit'] = editedKPI.unit
+      if (editedKPI.target_date !== undefined) updatePayload['Target Date'] = editedKPI.target_date
+      if (editedKPI.section !== undefined) updatePayload['Section'] = editedKPI.section
+      if (editedKPI.zone !== undefined) updatePayload['Zone'] = editedKPI.zone
+      if (editedKPI.value !== undefined) updatePayload['Value'] = String(editedKPI.value)
+
+      if (isRejected) {
+        // Update rejected KPI
+        const { error: updateError } = await (supabase
+          .from(TABLES.KPI_REJECTED) as any)
+          .update(updatePayload)
+          .eq('id', editedKPI.id)
+
+        if (updateError) {
+          throw updateError
+        }
+
+        setSuccess('Rejected KPI updated successfully!')
+        
+        // Refresh rejected list
+        setTimeout(() => {
+          fetchRejectedKPIs()
+        }, 500)
+      } else {
+        // Update pending KPI
+        const { error: updateError } = await (supabase
+          .from(TABLES.KPI) as any)
+          .update(updatePayload)
+          .eq('id', editedKPI.id)
+
+        if (updateError) {
+          throw updateError
+        }
+
+        setSuccess('KPI updated successfully!')
+        
+        // Refresh pending list
+        setTimeout(() => {
+          fetchPendingKPIs()
+        }, 500)
+      }
+
+      setShowEditModal(false)
+      setEditingKPI(null)
+
+    } catch (err: any) {
+      console.error('Error updating KPI:', err)
+      setError(err.message || 'Failed to update KPI')
+    }
+  }
+
+  const handleApprove = async (kpiId: string, editedData?: Partial<PendingKPI>, isRejected: boolean = false) => {
     if (processingIds.has(kpiId)) return
 
     try {
       setProcessingIds(prev => new Set(prev).add(kpiId))
       setError('')
       setSuccess('')
+
+      // ✅ If edited data is provided, update the KPI first
+      if (editedData && Object.keys(editedData).length > 0) {
+        const updatePayload: any = {}
+        
+        if (editedData.project_full_code !== undefined) updatePayload['Project Full Code'] = editedData.project_full_code
+        if (editedData.project_code !== undefined) updatePayload['Project Code'] = editedData.project_code
+        if (editedData.activity_name !== undefined) updatePayload['Activity Name'] = editedData.activity_name
+        if (editedData.quantity !== undefined) updatePayload['Quantity'] = String(editedData.quantity)
+        if (editedData.unit !== undefined) updatePayload['Unit'] = editedData.unit
+        if (editedData.target_date !== undefined) updatePayload['Target Date'] = editedData.target_date
+        if (editedData.section !== undefined) updatePayload['Section'] = editedData.section
+        if (editedData.zone !== undefined) updatePayload['Zone'] = editedData.zone
+        if (editedData.value !== undefined) updatePayload['Value'] = String(editedData.value)
+
+        const { error: updateError } = await (supabase
+          .from(TABLES.KPI) as any)
+          .update(updatePayload)
+          .eq('id', kpiId)
+
+        if (updateError) {
+          throw updateError
+        }
+      }
 
       // ✅ Get user identifier (priority: email > appUser email > auth user email > user ID > 'admin')
       const userEmail = appUser?.email || authUser?.email || guard.user?.email || null
@@ -436,7 +609,13 @@ export default function PendingApprovalKPIPage() {
     }
   }
 
-  const handleReject = async (kpiId: string) => {
+  const handleRejectClick = (kpiId: string) => {
+    setRejectingKPIId(kpiId)
+    setRejectionReason('')
+    setShowRejectModal(true)
+  }
+
+  const handleReject = async (kpiId: string, rejectionReason?: string) => {
     if (processingIds.has(kpiId)) return
 
     try {
@@ -447,63 +626,56 @@ export default function PendingApprovalKPIPage() {
       // ✅ Get user identifier (priority: email > appUser email > auth user email > user ID > 'admin')
       const userEmail = appUser?.email || authUser?.email || guard.user?.email || null
       const userId = authUser?.id || appUser?.id || guard.user?.id || null
-      const approvedByValue = userEmail || userId || 'admin'
+      const rejectedByValue = userEmail || userId || 'admin'
       
-      // Update using Notes field as temporary storage for approval status
-      const rejectionNote = `APPROVED:rejected:by:${approvedByValue}:date:${new Date().toISOString().split('T')[0]}`
-      
-      // Try to update Approval Status first (if column exists)
-      // Note: Use bracket notation for column name with space
-      let updateError = null
-      try {
-        const updatePayload: any = {}
-        updatePayload['Approval Status'] = 'rejected'
-        updatePayload['Approved By'] = approvedByValue
-        updatePayload['Approval Date'] = new Date().toISOString().split('T')[0]
-        
-        const { error: statusError } = await (supabase
-          .from(TABLES.KPI) as any)
-          .update(updatePayload)
-          .eq('id', kpiId)
-      
-      updateError = statusError
-        
-        // If Approval Status column doesn't exist, update Notes instead
-        if (statusError && (statusError.message?.includes('Approval Status') || statusError.message?.includes('column') || statusError.message?.includes('does not exist'))) {
-          console.log('⚠️ Approval Status column not found, using Notes field instead')
-          const { error: notesError } = await (supabase
-            .from(TABLES.KPI) as any)
-            .update({
-              'Notes': rejectionNote
-            })
-            .eq('id', kpiId)
-          
-          updateError = notesError
-        }
-      } catch (e: any) {
-        // Fallback to Notes if update fails
-        console.log('⚠️ Using Notes field as fallback:', e.message || e)
-        try {
-          const { error: notesError } = await (supabase
-            .from(TABLES.KPI) as any)
-            .update({
-              'Notes': rejectionNote
-            })
-            .eq('id', kpiId)
-          
-          updateError = notesError
-        } catch (notesErr: any) {
-          console.error('Error updating Notes:', notesErr)
-          updateError = notesErr
-        }
+      // ✅ Step 1: Fetch the KPI data from the main table
+      const { data: kpiData, error: fetchError } = await supabase
+        .from(TABLES.KPI)
+        .select('*')
+        .eq('id', kpiId)
+        .single()
+
+      if (fetchError || !kpiData) {
+        throw new Error(fetchError?.message || 'Failed to fetch KPI data')
       }
 
-      if (updateError) {
-        console.error('Error updating Approval Status:', updateError)
-        throw updateError
+      // ✅ Step 2: Prepare data for rejected table (copy all fields)
+      // Convert kpiData to a plain object to avoid TypeScript spread issues
+      const kpiDataObj = kpiData as Record<string, any>
+      const rejectedData: any = {
+        ...kpiDataObj,
+        'Original KPI ID': kpiId,
+        'Rejection Reason': rejectionReason || 'No reason provided',
+        'Rejected By': rejectedByValue,
+        'Rejected Date': new Date().toISOString()
       }
 
-      setSuccess(`KPI rejected successfully!`)
+      // Remove the id field so a new UUID is generated
+      delete rejectedData.id
+
+      // ✅ Step 3: Insert into rejected table
+      const { error: insertError } = await supabase
+        .from(TABLES.KPI_REJECTED)
+        .insert(rejectedData)
+
+      if (insertError) {
+        console.error('Error inserting into rejected table:', insertError)
+        throw insertError
+      }
+
+      // ✅ Step 4: Delete from main KPI table (to keep it separate)
+      const { error: deleteError } = await supabase
+        .from(TABLES.KPI)
+        .delete()
+        .eq('id', kpiId)
+
+      if (deleteError) {
+        console.error('Error deleting from main table:', deleteError)
+        // Don't throw - the data is already in rejected table
+        // Just log the error
+      }
+
+      setSuccess(`KPI rejected and moved to rejected table successfully!`)
       
       // Remove from list
       setPendingKPIs(prev => prev.filter(kpi => kpi.id !== kpiId))
@@ -522,6 +694,519 @@ export default function PendingApprovalKPIPage() {
         newSet.delete(kpiId)
         return newSet
       })
+    }
+  }
+
+  // ✅ Restore rejected KPI (move back to main table)
+  const handleRestoreRejected = async (rejectedKpiId: string) => {
+    if (processingIds.has(rejectedKpiId)) return
+
+    try {
+      setProcessingIds(prev => new Set(prev).add(rejectedKpiId))
+      setError('')
+      setSuccess('')
+
+      // ✅ Step 1: Fetch the rejected KPI data
+      const { data: rejectedData, error: fetchError } = await supabase
+        .from(TABLES.KPI_REJECTED)
+        .select('*')
+        .eq('id', rejectedKpiId)
+        .single()
+
+      if (fetchError || !rejectedData) {
+        throw new Error(fetchError?.message || 'Failed to fetch rejected KPI data')
+      }
+
+      // ✅ Step 2: Prepare data for main table (remove rejection-specific fields)
+      const kpiDataObj = rejectedData as Record<string, any>
+      const mainTableData: any = { ...kpiDataObj }
+      
+      // Remove rejection-specific fields
+      delete mainTableData['Rejection Reason']
+      delete mainTableData['Rejected By']
+      delete mainTableData['Rejected Date']
+      delete mainTableData['Original KPI ID']
+      delete mainTableData.id // Generate new ID
+
+      // ✅ Step 3: Insert into main KPI table
+      const { error: insertError } = await supabase
+        .from(TABLES.KPI)
+        .insert(mainTableData)
+
+      if (insertError) {
+        console.error('Error inserting into main table:', insertError)
+        throw insertError
+      }
+
+      // ✅ Step 4: Delete from rejected table
+      const { error: deleteError } = await supabase
+        .from(TABLES.KPI_REJECTED)
+        .delete()
+        .eq('id', rejectedKpiId)
+
+      if (deleteError) {
+        console.error('Error deleting from rejected table:', deleteError)
+        // Don't throw - the data is already in main table
+      }
+
+      setSuccess(`KPI restored successfully!`)
+      
+      // Remove from rejected list
+      setRejectedKPIs(prev => prev.filter(kpi => kpi.id !== rejectedKpiId))
+      setFilteredRejectedKPIs(prev => prev.filter(kpi => kpi.id !== rejectedKpiId))
+      
+      // Refresh lists after short delay
+      setTimeout(() => {
+        fetchRejectedKPIs()
+        fetchPendingKPIs()
+      }, 1000)
+
+    } catch (err: any) {
+      console.error('Error restoring rejected KPI:', err)
+      setError(err.message || 'Failed to restore KPI')
+    } finally {
+      setProcessingIds(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(rejectedKpiId)
+        return newSet
+      })
+    }
+  }
+
+  // ✅ Approve rejected KPI (move to main table and approve it)
+  const handleApproveRejected = async (rejectedKpiId: string, editedData?: Partial<PendingKPI>) => {
+    if (processingIds.has(rejectedKpiId)) return
+
+    try {
+      setProcessingIds(prev => new Set(prev).add(rejectedKpiId))
+      setError('')
+      setSuccess('')
+
+      // ✅ Step 1: Fetch the rejected KPI data
+      const { data: rejectedData, error: fetchError } = await supabase
+        .from(TABLES.KPI_REJECTED)
+        .select('*')
+        .eq('id', rejectedKpiId)
+        .single()
+
+      if (fetchError || !rejectedData) {
+        throw new Error(fetchError?.message || 'Failed to fetch rejected KPI data')
+      }
+
+      // ✅ Step 2: Prepare data for main table
+      const kpiDataObj = rejectedData as Record<string, any>
+      const mainTableData: any = { ...kpiDataObj }
+      
+      // Remove rejection-specific fields
+      delete mainTableData['Rejection Reason']
+      delete mainTableData['Rejected By']
+      delete mainTableData['Rejected Date']
+      delete mainTableData['Original KPI ID']
+      delete mainTableData.id // Generate new ID
+
+      // ✅ Step 3: Apply edited data if provided
+      if (editedData && Object.keys(editedData).length > 0) {
+        if (editedData.project_full_code !== undefined) mainTableData['Project Full Code'] = editedData.project_full_code
+        if (editedData.project_code !== undefined) mainTableData['Project Code'] = editedData.project_code
+        if (editedData.activity_name !== undefined) mainTableData['Activity Name'] = editedData.activity_name
+        if (editedData.quantity !== undefined) mainTableData['Quantity'] = String(editedData.quantity)
+        if (editedData.unit !== undefined) mainTableData['Unit'] = editedData.unit
+        if (editedData.target_date !== undefined) mainTableData['Target Date'] = editedData.target_date
+        if (editedData.section !== undefined) mainTableData['Section'] = editedData.section
+        if (editedData.zone !== undefined) mainTableData['Zone'] = editedData.zone
+        if (editedData.value !== undefined) mainTableData['Value'] = String(editedData.value)
+      }
+
+      // ✅ Step 4: Insert into main KPI table
+      const { data: insertedData, error: insertError } = await supabase
+        .from(TABLES.KPI)
+        .insert(mainTableData)
+        .select()
+        .single()
+
+      if (insertError || !insertedData) {
+        console.error('Error inserting into main table:', insertError)
+        throw insertError || new Error('Failed to insert KPI')
+      }
+
+      // ✅ Step 5: Approve the inserted KPI
+      const userEmail = appUser?.email || authUser?.email || guard.user?.email || null
+      const userId = authUser?.id || appUser?.id || guard.user?.id || null
+      const approvedByValue = userEmail || userId || 'admin'
+
+      const updatePayload: any = {}
+      updatePayload['Approval Status'] = 'approved'
+      updatePayload['Approved By'] = approvedByValue
+      updatePayload['Approval Date'] = new Date().toISOString().split('T')[0]
+
+      const insertedKpiId = (insertedData as any)?.id
+      if (!insertedKpiId) {
+        throw new Error('Failed to get inserted KPI ID')
+      }
+
+      const { error: approveError } = await (supabase
+        .from(TABLES.KPI) as any)
+        .update(updatePayload)
+        .eq('id', insertedKpiId)
+
+      if (approveError) {
+        console.error('Error approving KPI:', approveError)
+        // Don't throw - the KPI is already in main table
+      }
+
+      // ✅ Step 6: Delete from rejected table
+      const { error: deleteError } = await supabase
+        .from(TABLES.KPI_REJECTED)
+        .delete()
+        .eq('id', rejectedKpiId)
+
+      if (deleteError) {
+        console.error('Error deleting from rejected table:', deleteError)
+        // Don't throw - the data is already in main table
+      }
+
+      setSuccess(`KPI approved and moved to main table successfully!`)
+      
+      // Remove from rejected list
+      setRejectedKPIs(prev => prev.filter(kpi => kpi.id !== rejectedKpiId))
+      setFilteredRejectedKPIs(prev => prev.filter(kpi => kpi.id !== rejectedKpiId))
+      
+      // Refresh lists after short delay
+      setTimeout(() => {
+        fetchRejectedKPIs()
+        fetchPendingKPIs()
+      }, 1000)
+
+    } catch (err: any) {
+      console.error('Error approving rejected KPI:', err)
+      setError(err.message || 'Failed to approve KPI')
+    } finally {
+      setProcessingIds(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(rejectedKpiId)
+        return newSet
+      })
+    }
+  }
+
+  // ✅ Delete pending KPI
+  const handleDeletePending = async (kpiId: string) => {
+    if (processingIds.has(kpiId)) return
+
+    if (!confirm('Are you sure you want to delete this KPI? This action cannot be undone.')) {
+      return
+    }
+
+    try {
+      setProcessingIds(prev => new Set(prev).add(kpiId))
+      setError('')
+      setSuccess('')
+
+      const { error: deleteError } = await supabase
+        .from(TABLES.KPI)
+        .delete()
+        .eq('id', kpiId)
+
+      if (deleteError) {
+        throw deleteError
+      }
+
+      setSuccess('KPI deleted successfully!')
+      
+      // Remove from list
+      setPendingKPIs(prev => prev.filter(kpi => kpi.id !== kpiId))
+      setFilteredKPIs(prev => prev.filter(kpi => kpi.id !== kpiId))
+      
+      // Refresh list after short delay
+      setTimeout(() => {
+        fetchPendingKPIs()
+      }, 500)
+
+    } catch (err: any) {
+      console.error('Error deleting KPI:', err)
+      setError(err.message || 'Failed to delete KPI')
+    } finally {
+      setProcessingIds(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(kpiId)
+        return newSet
+      })
+    }
+  }
+
+  // ✅ Delete rejected KPI
+  const handleDeleteRejected = async (rejectedKpiId: string) => {
+    if (processingIds.has(rejectedKpiId)) return
+
+    if (!confirm('Are you sure you want to permanently delete this rejected KPI? This action cannot be undone.')) {
+      return
+    }
+
+    try {
+      setProcessingIds(prev => new Set(prev).add(rejectedKpiId))
+      setError('')
+      setSuccess('')
+
+      const { error: deleteError } = await supabase
+        .from(TABLES.KPI_REJECTED)
+        .delete()
+        .eq('id', rejectedKpiId)
+
+      if (deleteError) {
+        throw deleteError
+      }
+
+      setSuccess('Rejected KPI deleted successfully!')
+      
+      // Remove from list
+      setRejectedKPIs(prev => prev.filter(kpi => kpi.id !== rejectedKpiId))
+      setFilteredRejectedKPIs(prev => prev.filter(kpi => kpi.id !== rejectedKpiId))
+      
+      // Refresh list after short delay
+      setTimeout(() => {
+        fetchRejectedKPIs()
+      }, 500)
+
+    } catch (err: any) {
+      console.error('Error deleting rejected KPI:', err)
+      setError(err.message || 'Failed to delete rejected KPI')
+    } finally {
+      setProcessingIds(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(rejectedKpiId)
+        return newSet
+      })
+    }
+  }
+
+  // ✅ Selection handlers for Pending KPIs
+  const handleSelectPendingKPI = (kpiId: string) => {
+    setSelectedPendingKPIs(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(kpiId)) {
+        newSet.delete(kpiId)
+      } else {
+        newSet.add(kpiId)
+      }
+      return newSet
+    })
+  }
+
+  const handleSelectAllPendingKPIs = () => {
+    const currentKPIs = filteredKPIs.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+    const allSelected = currentKPIs.every(kpi => selectedPendingKPIs.has(kpi.id))
+    
+    if (allSelected) {
+      // Deselect all on current page
+      const newSet = new Set(selectedPendingKPIs)
+      currentKPIs.forEach(kpi => newSet.delete(kpi.id))
+      setSelectedPendingKPIs(newSet)
+    } else {
+      // Select all on current page
+      const newSet = new Set(selectedPendingKPIs)
+      currentKPIs.forEach(kpi => newSet.add(kpi.id))
+      setSelectedPendingKPIs(newSet)
+    }
+  }
+
+  // ✅ Selection handlers for Rejected KPIs
+  const handleSelectRejectedKPI = (kpiId: string) => {
+    setSelectedRejectedKPIs(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(kpiId)) {
+        newSet.delete(kpiId)
+      } else {
+        newSet.add(kpiId)
+      }
+      return newSet
+    })
+  }
+
+  const handleSelectAllRejectedKPIs = () => {
+    const currentKPIs = filteredRejectedKPIs.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+    const allSelected = currentKPIs.every(kpi => selectedRejectedKPIs.has(kpi.id))
+    
+    if (allSelected) {
+      // Deselect all on current page
+      const newSet = new Set(selectedRejectedKPIs)
+      currentKPIs.forEach(kpi => newSet.delete(kpi.id))
+      setSelectedRejectedKPIs(newSet)
+    } else {
+      // Select all on current page
+      const newSet = new Set(selectedRejectedKPIs)
+      currentKPIs.forEach(kpi => newSet.add(kpi.id))
+      setSelectedRejectedKPIs(newSet)
+    }
+  }
+
+  // ✅ Bulk operations for Pending KPIs
+  const handleBulkApprovePending = async () => {
+    if (selectedPendingKPIs.size === 0) return
+
+    if (!confirm(`Are you sure you want to approve ${selectedPendingKPIs.size} selected KPIs?`)) {
+      return
+    }
+
+    try {
+      setError('')
+      setSuccess('')
+      const ids = Array.from(selectedPendingKPIs)
+      
+      for (const kpiId of ids) {
+        await handleApprove(kpiId)
+      }
+
+      setSuccess(`Successfully approved ${ids.length} KPIs!`)
+      setSelectedPendingKPIs(new Set())
+      
+      setTimeout(() => {
+        fetchPendingKPIs()
+      }, 1000)
+    } catch (err: any) {
+      console.error('Error bulk approving KPIs:', err)
+      setError(err.message || 'Failed to approve some KPIs')
+    }
+  }
+
+  const handleBulkRejectPending = async () => {
+    if (selectedPendingKPIs.size === 0) return
+
+    const reason = prompt(`Enter rejection reason for ${selectedPendingKPIs.size} KPIs:`)
+    if (!reason) return
+
+    try {
+      setError('')
+      setSuccess('')
+      const ids = Array.from(selectedPendingKPIs)
+      
+      for (const kpiId of ids) {
+        await handleReject(kpiId, reason)
+      }
+
+      setSuccess(`Successfully rejected ${ids.length} KPIs!`)
+      setSelectedPendingKPIs(new Set())
+      
+      setTimeout(() => {
+        fetchPendingKPIs()
+      }, 1000)
+    } catch (err: any) {
+      console.error('Error bulk rejecting KPIs:', err)
+      setError(err.message || 'Failed to reject some KPIs')
+    }
+  }
+
+  const handleBulkDeletePending = async () => {
+    if (selectedPendingKPIs.size === 0) return
+
+    if (!confirm(`Are you sure you want to permanently delete ${selectedPendingKPIs.size} selected KPIs? This action cannot be undone.`)) {
+      return
+    }
+
+    try {
+      setError('')
+      setSuccess('')
+      const ids = Array.from(selectedPendingKPIs)
+      
+      for (const kpiId of ids) {
+        await handleDeletePending(kpiId)
+      }
+
+      setSuccess(`Successfully deleted ${ids.length} KPIs!`)
+      setSelectedPendingKPIs(new Set())
+      
+      setTimeout(() => {
+        fetchPendingKPIs()
+      }, 500)
+    } catch (err: any) {
+      console.error('Error bulk deleting KPIs:', err)
+      setError(err.message || 'Failed to delete some KPIs')
+    }
+  }
+
+  // ✅ Bulk operations for Rejected KPIs
+  const handleBulkApproveRejected = async () => {
+    if (selectedRejectedKPIs.size === 0) return
+
+    if (!confirm(`Are you sure you want to approve ${selectedRejectedKPIs.size} selected rejected KPIs?`)) {
+      return
+    }
+
+    try {
+      setError('')
+      setSuccess('')
+      const ids = Array.from(selectedRejectedKPIs)
+      
+      for (const kpiId of ids) {
+        await handleApproveRejected(kpiId)
+      }
+
+      setSuccess(`Successfully approved ${ids.length} rejected KPIs!`)
+      setSelectedRejectedKPIs(new Set())
+      
+      setTimeout(() => {
+        fetchRejectedKPIs()
+        fetchPendingKPIs()
+      }, 1000)
+    } catch (err: any) {
+      console.error('Error bulk approving rejected KPIs:', err)
+      setError(err.message || 'Failed to approve some KPIs')
+    }
+  }
+
+  const handleBulkRestoreRejected = async () => {
+    if (selectedRejectedKPIs.size === 0) return
+
+    if (!confirm(`Are you sure you want to restore ${selectedRejectedKPIs.size} selected rejected KPIs?`)) {
+      return
+    }
+
+    try {
+      setError('')
+      setSuccess('')
+      const ids = Array.from(selectedRejectedKPIs)
+      
+      for (const kpiId of ids) {
+        await handleRestoreRejected(kpiId)
+      }
+
+      setSuccess(`Successfully restored ${ids.length} rejected KPIs!`)
+      setSelectedRejectedKPIs(new Set())
+      
+      setTimeout(() => {
+        fetchRejectedKPIs()
+        fetchPendingKPIs()
+      }, 1000)
+    } catch (err: any) {
+      console.error('Error bulk restoring rejected KPIs:', err)
+      setError(err.message || 'Failed to restore some KPIs')
+    }
+  }
+
+  const handleBulkDeleteRejected = async () => {
+    if (selectedRejectedKPIs.size === 0) return
+
+    if (!confirm(`Are you sure you want to permanently delete ${selectedRejectedKPIs.size} selected rejected KPIs? This action cannot be undone.`)) {
+      return
+    }
+
+    try {
+      setError('')
+      setSuccess('')
+      const ids = Array.from(selectedRejectedKPIs)
+      
+      for (const kpiId of ids) {
+        await handleDeleteRejected(kpiId)
+      }
+
+      setSuccess(`Successfully deleted ${ids.length} rejected KPIs!`)
+      setSelectedRejectedKPIs(new Set())
+      
+      setTimeout(() => {
+        fetchRejectedKPIs()
+      }, 500)
+    } catch (err: any) {
+      console.error('Error bulk deleting rejected KPIs:', err)
+      setError(err.message || 'Failed to delete some KPIs')
     }
   }
 
@@ -830,50 +1515,82 @@ export default function PendingApprovalKPIPage() {
     return project?.project_name || projectCode || 'N/A'
   }
   
-  // ✅ Get unique values for filters
-  const uniqueProjects = Array.from(new Set(pendingKPIs.map(kpi => 
+  // ✅ Get unique values for filters (based on active tab)
+  const currentKPIs = activeTab === 'pending' ? pendingKPIs : rejectedKPIs
+  const uniqueProjects = Array.from(new Set(currentKPIs.map(kpi => 
     getField(kpi, 'Project Full Code') || getField(kpi, 'Project Code') || ''
   ).filter(Boolean))).sort()
   
-  const uniqueActivities = Array.from(new Set(pendingKPIs.map(kpi => 
+  const uniqueActivities = Array.from(new Set(currentKPIs.map(kpi => 
     getField(kpi, 'Activity Name') || ''
   ).filter(Boolean))).sort()
   
-  const uniqueZones = Array.from(new Set(pendingKPIs.map(kpi => 
+  const uniqueZones = Array.from(new Set(currentKPIs.map(kpi => 
     getField(kpi, 'Zone') || ''
   ).filter(Boolean))).sort()
   
   // ✅ Filter KPIs based on selected filters
   useEffect(() => {
-    let filtered = [...pendingKPIs]
-    
-    // Filter by Projects
-    if (selectedProjects.length > 0) {
-      filtered = filtered.filter(kpi => {
-        const projectCode = getField(kpi, 'Project Full Code') || getField(kpi, 'Project Code') || ''
-        return selectedProjects.includes(projectCode)
-      })
+    if (activeTab === 'pending') {
+      let filtered = [...pendingKPIs]
+      
+      // Filter by Projects
+      if (selectedProjects.length > 0) {
+        filtered = filtered.filter(kpi => {
+          const projectCode = getField(kpi, 'Project Full Code') || getField(kpi, 'Project Code') || ''
+          return selectedProjects.includes(projectCode)
+        })
+      }
+      
+      // Filter by Activities
+      if (selectedActivities.length > 0) {
+        filtered = filtered.filter(kpi => {
+          const activityName = getField(kpi, 'Activity Name') || ''
+          return selectedActivities.includes(activityName)
+        })
+      }
+      
+      // Filter by Zones
+      if (selectedZones.length > 0) {
+        filtered = filtered.filter(kpi => {
+          const zone = getField(kpi, 'Zone') || ''
+          return selectedZones.includes(zone)
+        })
+      }
+      
+      setFilteredKPIs(filtered)
+    } else {
+      let filtered = [...rejectedKPIs]
+      
+      // Filter by Projects
+      if (selectedProjects.length > 0) {
+        filtered = filtered.filter(kpi => {
+          const projectCode = getField(kpi, 'Project Full Code') || getField(kpi, 'Project Code') || ''
+          return selectedProjects.includes(projectCode)
+        })
+      }
+      
+      // Filter by Activities
+      if (selectedActivities.length > 0) {
+        filtered = filtered.filter(kpi => {
+          const activityName = getField(kpi, 'Activity Name') || ''
+          return selectedActivities.includes(activityName)
+        })
+      }
+      
+      // Filter by Zones
+      if (selectedZones.length > 0) {
+        filtered = filtered.filter(kpi => {
+          const zone = getField(kpi, 'Zone') || ''
+          return selectedZones.includes(zone)
+        })
+      }
+      
+      setFilteredRejectedKPIs(filtered)
     }
     
-    // Filter by Activities
-    if (selectedActivities.length > 0) {
-      filtered = filtered.filter(kpi => {
-        const activityName = getField(kpi, 'Activity Name') || ''
-        return selectedActivities.includes(activityName)
-      })
-    }
-    
-    // Filter by Zones
-    if (selectedZones.length > 0) {
-      filtered = filtered.filter(kpi => {
-        const zone = getField(kpi, 'Zone') || ''
-        return selectedZones.includes(zone)
-      })
-    }
-    
-    setFilteredKPIs(filtered)
     setCurrentPage(1) // Reset to first page when filters change
-  }, [pendingKPIs, selectedProjects, selectedActivities, selectedZones])
+  }, [activeTab, pendingKPIs, rejectedKPIs, selectedProjects, selectedActivities, selectedZones])
 
   if (loading && pendingKPIs.length === 0) {
     return (
@@ -926,7 +1643,55 @@ export default function PendingApprovalKPIPage() {
                 </div>
               </div>
 
-              {pendingKPIs.length > 0 && guard.hasAccess('kpi.approve') && (
+              {/* ✅ Tab Navigation - Enhanced Design */}
+              <div className="mt-6">
+                <div className="inline-flex items-center gap-1 bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl rounded-2xl p-1.5 border border-gray-200/50 dark:border-gray-700/50 shadow-lg">
+                  <button
+                    onClick={() => setActiveTab('pending')}
+                    className={`relative px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 min-w-[180px] ${
+                      activeTab === 'pending'
+                        ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg scale-105 transform'
+                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100'
+                    }`}
+                  >
+                    <Clock className={`w-5 h-5 ${activeTab === 'pending' ? 'text-white' : 'text-yellow-500'}`} />
+                    <span>Pending Approval</span>
+                    <span className={`ml-1.5 px-2 py-0.5 rounded-full text-xs font-bold ${
+                      activeTab === 'pending'
+                        ? 'bg-white/20 text-white'
+                        : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400'
+                    }`}>
+                      {pendingKPIs.length}
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveTab('rejected')
+                      if (rejectedKPIs.length === 0) {
+                        fetchRejectedKPIs()
+                      }
+                    }}
+                    className={`relative px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 min-w-[180px] ${
+                      activeTab === 'rejected'
+                        ? 'bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-lg scale-105 transform'
+                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100'
+                    }`}
+                  >
+                    <X className={`w-5 h-5 ${activeTab === 'rejected' ? 'text-white' : 'text-red-500'}`} />
+                    <span>Rejected KPIs</span>
+                    <span className={`ml-1.5 px-2 py-0.5 rounded-full text-xs font-bold ${
+                      activeTab === 'rejected'
+                        ? 'bg-white/20 text-white'
+                        : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+                    }`}>
+                      {rejectedKPIs.length}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* ✅ Approve All Button - Always visible */}
+              {activeTab === 'pending' && pendingKPIs.length > 0 && guard.hasAccess('kpi.approve') && (
                 <Button
                   onClick={handleBulkApprove}
                   className="bg-green-600 hover:bg-green-700 text-white"
@@ -1112,15 +1877,26 @@ export default function PendingApprovalKPIPage() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-6">
                   <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 bg-yellow-100 dark:bg-yellow-900/30 rounded-full flex items-center justify-center">
-                      <Clock className="w-6 h-6 text-yellow-600 dark:text-yellow-400" />
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                      activeTab === 'pending' 
+                        ? 'bg-yellow-100 dark:bg-yellow-900/30' 
+                        : 'bg-red-100 dark:bg-red-900/30'
+                    }`}>
+                      {activeTab === 'pending' ? (
+                        <Clock className="w-6 h-6 text-yellow-600 dark:text-yellow-400" />
+                      ) : (
+                        <X className="w-6 h-6 text-red-600 dark:text-red-400" />
+                      )}
                     </div>
                     <div>
                       <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                        {filteredKPIs.length}
+                        {activeTab === 'pending' ? filteredKPIs.length : filteredRejectedKPIs.length}
                       </div>
                       <div className="text-sm text-gray-600 dark:text-gray-400">
-                        {filteredKPIs.length === pendingKPIs.length ? 'Pending KPIs' : `Filtered (${pendingKPIs.length} total)`}
+                        {activeTab === 'pending' 
+                          ? (filteredKPIs.length === pendingKPIs.length ? 'Pending KPIs' : `Filtered (${pendingKPIs.length} total)`)
+                          : (filteredRejectedKPIs.length === rejectedKPIs.length ? 'Rejected KPIs' : `Filtered (${rejectedKPIs.length} total)`)
+                        }
                       </div>
                     </div>
                   </div>
@@ -1129,8 +1905,67 @@ export default function PendingApprovalKPIPage() {
             </div>
           </Card>
 
-          {/* Pagination Controls - Top */}
-          {filteredKPIs.length > itemsPerPage && (
+          {/* ✅ Tab Content */}
+          {activeTab === 'pending' ? (
+            <>
+              {/* ✅ Selection Header for Pending KPIs */}
+              {filteredKPIs.length > 0 && (
+                <div className="mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={handleSelectAllPendingKPIs}
+                      className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
+                    >
+                      {(() => {
+                        const currentKPIs = filteredKPIs.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+                        const allSelected = currentKPIs.length > 0 && currentKPIs.every(kpi => selectedPendingKPIs.has(kpi.id))
+                        return allSelected ? (
+                          <CheckSquare className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                        ) : (
+                          <Square className="w-5 h-5 text-gray-400" />
+                        )
+                      })()}
+                      <span>Select All ({selectedPendingKPIs.size} selected)</span>
+                    </button>
+                  </div>
+                  {selectedPendingKPIs.size > 0 && guard.hasAccess('kpi.approve') && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <div className="text-sm text-blue-700 dark:text-blue-300 font-medium mr-2">
+                        {selectedPendingKPIs.size} item{selectedPendingKPIs.size !== 1 ? 's' : ''} selected
+                      </div>
+                      <Button
+                        onClick={handleBulkApprovePending}
+                        size="sm"
+                        className="bg-green-600 hover:bg-green-700 text-white"
+                      >
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        Approve ({selectedPendingKPIs.size})
+                      </Button>
+                      <Button
+                        onClick={handleBulkRejectPending}
+                        size="sm"
+                        variant="outline"
+                        className="border-red-300 text-red-600 hover:bg-red-50"
+                      >
+                        <X className="h-4 w-4 mr-2" />
+                        Reject ({selectedPendingKPIs.size})
+                      </Button>
+                      <Button
+                        onClick={handleBulkDeletePending}
+                        size="sm"
+                        variant="outline"
+                        className="border-gray-300 text-gray-600 hover:bg-gray-50"
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Delete ({selectedPendingKPIs.size})
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Pagination Controls - Top */}
+              {filteredKPIs.length > itemsPerPage && (
             <div className="mb-6 flex flex-col sm:flex-row items-center justify-between gap-4">
               <div className="text-sm text-gray-600 dark:text-gray-400">
                 Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredKPIs.length)} of {filteredKPIs.length} KPIs
@@ -1216,8 +2051,8 @@ export default function PendingApprovalKPIPage() {
             </div>
           )}
 
-          {/* KPIs List */}
-          {filteredKPIs.length === 0 ? (
+              {/* KPIs List */}
+              {filteredKPIs.length === 0 ? (
             <Card>
               <div className="p-12 text-center">
                 <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
@@ -1238,15 +2073,28 @@ export default function PendingApprovalKPIPage() {
                 const paginatedKPIs = filteredKPIs.slice(startIndex, endIndex)
                 
                 return paginatedKPIs.map((kpi) => (
-                <Card key={kpi.id} className="hover:shadow-lg transition-shadow">
+                <Card key={kpi.id} className={`hover:shadow-lg transition-shadow ${selectedPendingKPIs.has(kpi.id) ? 'ring-2 ring-blue-500 bg-blue-50/50 dark:bg-blue-900/10' : ''}`}>
                   <div className="p-6">
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-3">
-                          <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
-                            <Target className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                          </div>
-                          <div>
+                      <div className="flex items-center gap-3 flex-1">
+                        {/* ✅ Checkbox for individual selection */}
+                        <button
+                          onClick={() => handleSelectPendingKPI(kpi.id)}
+                          className="flex-shrink-0 mt-1"
+                          title={selectedPendingKPIs.has(kpi.id) ? 'Deselect' : 'Select'}
+                        >
+                          {selectedPendingKPIs.has(kpi.id) ? (
+                            <CheckSquare className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                          ) : (
+                            <Square className="w-5 h-5 text-gray-400 hover:text-gray-600 transition-colors" />
+                          )}
+                        </button>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
+                              <Target className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                            </div>
+                            <div>
                             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                               {getField(kpi, 'Activity Name') || 'N/A'}
                             </h3>
@@ -1380,9 +2228,19 @@ export default function PendingApprovalKPIPage() {
                             </div>
                           </div>
                         </div>
+                        </div>
                       </div>
 
                       <div className="flex flex-col sm:flex-row gap-2">
+                        <PermissionButton
+                          permission="kpi.approve"
+                          onClick={() => handleEdit(kpi)}
+                          variant="outline"
+                          className="border-blue-300 text-blue-600 hover:bg-blue-50"
+                        >
+                          <Edit className="w-4 h-4 mr-2" />
+                          Edit
+                        </PermissionButton>
                         <PermissionButton
                           permission="kpi.approve"
                           onClick={() => handleApprove(kpi.id)}
@@ -1403,13 +2261,23 @@ export default function PendingApprovalKPIPage() {
                         </PermissionButton>
                         <PermissionButton
                           permission="kpi.approve"
-                          onClick={() => handleReject(kpi.id)}
+                          onClick={() => handleRejectClick(kpi.id)}
                           disabled={processingIds.has(kpi.id)}
                           variant="outline"
                           className="border-red-300 text-red-600 hover:bg-red-50"
                         >
                           <X className="w-4 h-4 mr-2" />
                           Reject
+                        </PermissionButton>
+                        <PermissionButton
+                          permission="kpi.approve"
+                          onClick={() => handleDeletePending(kpi.id)}
+                          disabled={processingIds.has(kpi.id)}
+                          variant="outline"
+                          className="border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-800"
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Delete
                         </PermissionButton>
                       </div>
                     </div>
@@ -1420,78 +2288,661 @@ export default function PendingApprovalKPIPage() {
             </div>
           )}
 
-          {/* Pagination Controls - Bottom */}
-          {filteredKPIs.length > itemsPerPage && (
-            <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="text-sm text-gray-600 dark:text-gray-400">
-                Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredKPIs.length)} of {filteredKPIs.length} KPIs
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(1)}
-                  disabled={currentPage === 1}
-                >
-                  First
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                  disabled={currentPage === 1}
-                >
-                  Previous
-                </Button>
-                <div className="flex items-center gap-1">
-                  {Array.from({ length: Math.min(5, Math.ceil(filteredKPIs.length / itemsPerPage)) }, (_, i) => {
-                    const totalPages = Math.ceil(filteredKPIs.length / itemsPerPage)
-                    let pageNum: number
-                    
-                    if (totalPages <= 5) {
-                      pageNum = i + 1
-                    } else if (currentPage <= 3) {
-                      pageNum = i + 1
-                    } else if (currentPage >= totalPages - 2) {
-                      pageNum = totalPages - 4 + i
-                    } else {
-                      pageNum = currentPage - 2 + i
-                    }
-                    
-                    return (
-                      <Button
-                        key={pageNum}
-                        variant={currentPage === pageNum ? "primary" : "outline"}
-                        size="sm"
-                        onClick={() => setCurrentPage(pageNum)}
-                        className="min-w-[40px]"
-                      >
-                        {pageNum}
-                      </Button>
-                    )
-                  })}
+              {/* Pagination Controls - Bottom */}
+              {filteredKPIs.length > itemsPerPage && (
+                <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="text-sm text-gray-600 dark:text-gray-400">
+                    Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredKPIs.length)} of {filteredKPIs.length} KPIs
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(1)}
+                      disabled={currentPage === 1}
+                    >
+                      First
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                      disabled={currentPage === 1}
+                    >
+                      Previous
+                    </Button>
+                    <div className="flex items-center gap-1">
+                      {Array.from({ length: Math.min(5, Math.ceil(filteredKPIs.length / itemsPerPage)) }, (_, i) => {
+                        const totalPages = Math.ceil(filteredKPIs.length / itemsPerPage)
+                        let pageNum: number
+                        
+                        if (totalPages <= 5) {
+                          pageNum = i + 1
+                        } else if (currentPage <= 3) {
+                          pageNum = i + 1
+                        } else if (currentPage >= totalPages - 2) {
+                          pageNum = totalPages - 4 + i
+                        } else {
+                          pageNum = currentPage - 2 + i
+                        }
+                        
+                        return (
+                          <Button
+                            key={pageNum}
+                            variant={currentPage === pageNum ? "primary" : "outline"}
+                            size="sm"
+                            onClick={() => setCurrentPage(pageNum)}
+                            className="min-w-[40px]"
+                          >
+                            {pageNum}
+                          </Button>
+                        )
+                      })}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(prev => Math.min(Math.ceil(filteredKPIs.length / itemsPerPage), prev + 1))}
+                      disabled={currentPage >= Math.ceil(filteredKPIs.length / itemsPerPage)}
+                    >
+                      Next
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(Math.ceil(filteredKPIs.length / itemsPerPage))}
+                      disabled={currentPage >= Math.ceil(filteredKPIs.length / itemsPerPage)}
+                    >
+                      Last
+                    </Button>
+                  </div>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(prev => Math.min(Math.ceil(filteredKPIs.length / itemsPerPage), prev + 1))}
-                  disabled={currentPage >= Math.ceil(filteredKPIs.length / itemsPerPage)}
-                >
-                  Next
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(Math.ceil(filteredKPIs.length / itemsPerPage))}
-                  disabled={currentPage >= Math.ceil(filteredKPIs.length / itemsPerPage)}
-                >
-                  Last
-                </Button>
-              </div>
-            </div>
+              )}
+            </>
+          ) : (
+            <>
+              {/* ✅ Selection Header for Rejected KPIs */}
+              {filteredRejectedKPIs.length > 0 && (
+                <div className="mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-700">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={handleSelectAllRejectedKPIs}
+                      className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
+                    >
+                      {(() => {
+                        const currentKPIs = filteredRejectedKPIs.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+                        const allSelected = currentKPIs.length > 0 && currentKPIs.every(kpi => selectedRejectedKPIs.has(kpi.id))
+                        return allSelected ? (
+                          <CheckSquare className="w-5 h-5 text-red-600 dark:text-red-400" />
+                        ) : (
+                          <Square className="w-5 h-5 text-gray-400" />
+                        )
+                      })()}
+                      <span>Select All ({selectedRejectedKPIs.size} selected)</span>
+                    </button>
+                  </div>
+                  {selectedRejectedKPIs.size > 0 && guard.hasAccess('kpi.approve') && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <div className="text-sm text-red-700 dark:text-red-300 font-medium mr-2">
+                        {selectedRejectedKPIs.size} item{selectedRejectedKPIs.size !== 1 ? 's' : ''} selected
+                      </div>
+                      <Button
+                        onClick={handleBulkApproveRejected}
+                        size="sm"
+                        className="bg-green-600 hover:bg-green-700 text-white"
+                      >
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        Approve ({selectedRejectedKPIs.size})
+                      </Button>
+                      <Button
+                        onClick={handleBulkRestoreRejected}
+                        size="sm"
+                        variant="outline"
+                        className="border-purple-300 text-purple-600 hover:bg-purple-50"
+                      >
+                        <RotateCcw className="h-4 w-4 mr-2" />
+                        Restore ({selectedRejectedKPIs.size})
+                      </Button>
+                      <Button
+                        onClick={handleBulkDeleteRejected}
+                        size="sm"
+                        variant="outline"
+                        className="border-gray-300 text-gray-600 hover:bg-gray-50"
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Delete ({selectedRejectedKPIs.size})
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Rejected KPIs List */}
+              {loadingRejected ? (
+                <Card>
+                  <div className="p-12 text-center">
+                    <LoadingSpinner size="lg" />
+                    <p className="mt-4 text-gray-600 dark:text-gray-400">Loading rejected KPIs...</p>
+                  </div>
+                </Card>
+              ) : filteredRejectedKPIs.length === 0 ? (
+                <Card>
+                  <div className="p-12 text-center">
+                    <X className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+                      No Rejected KPIs
+                    </h3>
+                    <p className="text-gray-600 dark:text-gray-400">
+                      There are no rejected KPIs to display.
+                    </p>
+                  </div>
+                </Card>
+              ) : (
+                <div className="space-y-4">
+                  {(() => {
+                    const startIndex = (currentPage - 1) * itemsPerPage
+                    const endIndex = startIndex + itemsPerPage
+                    const paginatedKPIs = filteredRejectedKPIs.slice(startIndex, endIndex)
+                    
+                    return paginatedKPIs.map((kpi) => (
+                      <Card key={kpi.id} className={`hover:shadow-lg transition-shadow border-l-4 border-l-red-500 ${selectedRejectedKPIs.has(kpi.id) ? 'ring-2 ring-red-500 bg-red-50/50 dark:bg-red-900/10' : ''}`}>
+                        <div className="p-6">
+                          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                            <div className="flex items-center gap-3 flex-1">
+                              {/* ✅ Checkbox for individual selection */}
+                              <button
+                                onClick={() => handleSelectRejectedKPI(kpi.id)}
+                                className="flex-shrink-0 mt-1"
+                                title={selectedRejectedKPIs.has(kpi.id) ? 'Deselect' : 'Select'}
+                              >
+                                {selectedRejectedKPIs.has(kpi.id) ? (
+                                  <CheckSquare className="w-5 h-5 text-red-600 dark:text-red-400" />
+                                ) : (
+                                  <Square className="w-5 h-5 text-gray-400 hover:text-gray-600 transition-colors" />
+                                )}
+                              </button>
+                              <div className="flex-1">
+                                <div className="flex items-center gap-3 mb-3">
+                                  <div className="w-10 h-10 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center">
+                                    <X className="w-5 h-5 text-red-600 dark:text-red-400" />
+                                  </div>
+                                  <div>
+                                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                                    {getField(kpi, 'Activity Name') || 'N/A'}
+                                  </h3>
+                                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                                    Project: {getProjectName(getField(kpi, 'Project Full Code') || getField(kpi, 'Project Code') || '')} ({getField(kpi, 'Project Full Code') || getField(kpi, 'Project Code') || 'N/A'})
+                                  </p>
+                                  {getField(kpi, 'Zone') && (
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                      Zone: {getField(kpi, 'Zone')}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Rejection Info */}
+                              {(kpi as any)['Rejection Reason'] && (
+                                <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-700">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400" />
+                                    <span className="text-sm font-semibold text-gray-900 dark:text-white">Rejection Reason:</span>
+                                  </div>
+                                  <p className="text-sm text-gray-700 dark:text-gray-300 ml-6">
+                                    {(kpi as any)['Rejection Reason']}
+                                  </p>
+                                  {(kpi as any)['Rejected By'] && (
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 ml-6">
+                                      Rejected by: {(kpi as any)['Rejected By']} • {(kpi as any)['Rejected Date'] ? new Date((kpi as any)['Rejected Date']).toLocaleDateString() : 'N/A'}
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Creator Information */}
+                              {(() => {
+                                const creatorInfo = getCreatorInfo(kpi)
+                                if (creatorInfo) {
+                                  return (
+                                    <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700">
+                                      <div className="flex items-center gap-2 mb-2">
+                                        <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                                        <span className="text-sm font-semibold text-gray-900 dark:text-white">Created By:</span>
+                                        <span className="text-sm text-gray-700 dark:text-gray-300">{creatorInfo.name}</span>
+                                      </div>
+                                      <div className="flex flex-wrap items-center gap-3 text-xs">
+                                        {creatorInfo.email && (
+                                          <a 
+                                            href={`mailto:${creatorInfo.email}`}
+                                            className="flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline transition-colors"
+                                          >
+                                            <Mail className="w-4 h-4" />
+                                            <span>{creatorInfo.email}</span>
+                                          </a>
+                                        )}
+                                        {creatorInfo.phone_1 && (
+                                          <a 
+                                            href={`tel:${creatorInfo.phone_1}`}
+                                            className="flex items-center gap-1 text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:underline transition-colors"
+                                          >
+                                            <Phone className="w-4 h-4" />
+                                            <span>{creatorInfo.phone_1}</span>
+                                          </a>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )
+                                }
+                                return null
+                              })()}
+
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4">
+                                <div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Quantity</div>
+                                  <div className="text-sm font-medium text-gray-900 dark:text-white">
+                                    {getField(kpi, 'Quantity') || '0'} {getField(kpi, 'Unit') || ''}
+                                  </div>
+                                </div>
+                                <div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Target Date</div>
+                                  <div className="text-sm font-medium text-gray-900 dark:text-white">
+                                    {(() => {
+                                      const targetDate = getField(kpi, 'Target Date')
+                                      if (!targetDate || targetDate === '' || targetDate === 'N/A') return 'N/A'
+                                      try {
+                                        return new Date(targetDate).toLocaleDateString()
+                                      } catch {
+                                        return targetDate || 'N/A'
+                                      }
+                                    })()}
+                                  </div>
+                                </div>
+                                {(() => {
+                                  const value = getField(kpi, 'Value')
+                                  const numValue = parseFloat(String(value || '0'))
+                                  return numValue > 0 ? (
+                                    <div>
+                                      <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Value</div>
+                                      <div className="text-sm font-medium text-gray-900 dark:text-white">
+                                        ${numValue.toLocaleString()}
+                                      </div>
+                                    </div>
+                                  ) : null
+                                })()}
+                                <div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Rejected Date</div>
+                                  <div className="text-sm font-medium text-gray-900 dark:text-white">
+                                    {(() => {
+                                      try {
+                                        return (kpi as any)['Rejected Date'] ? new Date((kpi as any)['Rejected Date']).toLocaleDateString() : 'N/A'
+                                      } catch {
+                                        return 'N/A'
+                                      }
+                                    })()}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* ✅ Action Buttons for Rejected KPIs */}
+                              <div className="flex flex-col sm:flex-row gap-2 mt-4">
+                              <PermissionButton
+                                permission="kpi.approve"
+                                onClick={() => handleEdit(kpi)}
+                                variant="outline"
+                                className="border-blue-300 text-blue-600 hover:bg-blue-50"
+                              >
+                                <Edit className="w-4 h-4 mr-2" />
+                                Edit
+                              </PermissionButton>
+                              <PermissionButton
+                                permission="kpi.approve"
+                                onClick={() => {
+                                  if (editingKPI && editingKPI.id === kpi.id) {
+                                    // If editing, approve with edited data
+                                    handleApproveRejected(kpi.id, editingKPI)
+                                    setShowEditModal(false)
+                                    setEditingKPI(null)
+                                  } else {
+                                    // Direct approve
+                                    handleApproveRejected(kpi.id)
+                                  }
+                                }}
+                                disabled={processingIds.has(kpi.id)}
+                                className="bg-green-600 hover:bg-green-700 text-white"
+                              >
+                                {processingIds.has(kpi.id) ? (
+                                  <>
+                                    <LoadingSpinner size="sm" />
+                                    Processing...
+                                  </>
+                                ) : (
+                                  <>
+                                    <CheckCircle className="w-4 h-4 mr-2" />
+                                    Approve
+                                  </>
+                                )}
+                              </PermissionButton>
+                              <PermissionButton
+                                permission="kpi.approve"
+                                onClick={() => handleRestoreRejected(kpi.id)}
+                                disabled={processingIds.has(kpi.id)}
+                                variant="outline"
+                                className="border-purple-300 text-purple-600 hover:bg-purple-50"
+                              >
+                                <RotateCcw className="w-4 h-4 mr-2" />
+                                Restore
+                              </PermissionButton>
+                              <PermissionButton
+                                permission="kpi.approve"
+                                onClick={() => handleDeleteRejected(kpi.id)}
+                                disabled={processingIds.has(kpi.id)}
+                                variant="outline"
+                                className="border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-800"
+                              >
+                                <Trash2 className="w-4 h-4 mr-2" />
+                                Delete
+                              </PermissionButton>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </Card>
+                    ))
+                  })()}
+                </div>
+              )}
+
+              {/* Pagination Controls for Rejected KPIs */}
+              {filteredRejectedKPIs.length > itemsPerPage && (
+                <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="text-sm text-gray-600 dark:text-gray-400">
+                    Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredRejectedKPIs.length)} of {filteredRejectedKPIs.length} Rejected KPIs
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(1)}
+                      disabled={currentPage === 1}
+                    >
+                      First
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                      disabled={currentPage === 1}
+                    >
+                      Previous
+                    </Button>
+                    <div className="flex items-center gap-1">
+                      {Array.from({ length: Math.min(5, Math.ceil(filteredRejectedKPIs.length / itemsPerPage)) }, (_, i) => {
+                        const totalPages = Math.ceil(filteredRejectedKPIs.length / itemsPerPage)
+                        let pageNum: number
+                        
+                        if (totalPages <= 5) {
+                          pageNum = i + 1
+                        } else if (currentPage <= 3) {
+                          pageNum = i + 1
+                        } else if (currentPage >= totalPages - 2) {
+                          pageNum = totalPages - 4 + i
+                        } else {
+                          pageNum = currentPage - 2 + i
+                        }
+                        
+                        return (
+                          <Button
+                            key={pageNum}
+                            variant={currentPage === pageNum ? "primary" : "outline"}
+                            size="sm"
+                            onClick={() => setCurrentPage(pageNum)}
+                            className="min-w-[40px]"
+                          >
+                            {pageNum}
+                          </Button>
+                        )
+                      })}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(prev => Math.min(Math.ceil(filteredRejectedKPIs.length / itemsPerPage), prev + 1))}
+                      disabled={currentPage >= Math.ceil(filteredRejectedKPIs.length / itemsPerPage)}
+                    >
+                      Next
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(Math.ceil(filteredRejectedKPIs.length / itemsPerPage))}
+                      disabled={currentPage >= Math.ceil(filteredRejectedKPIs.length / itemsPerPage)}
+                    >
+                      Last
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
+
+      {/* ✅ Edit KPI Modal */}
+      {showEditModal && editingKPI && (
+        <div className="fixed inset-0 bg-black/50 dark:bg-black/70 z-50 flex items-center justify-center p-4">
+          <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Edit KPI</h2>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setShowEditModal(false)
+                    setEditingKPI(null)
+                  }}
+                >
+                  <X className="w-5 h-5" />
+                </Button>
+              </div>
+
+              <div className="space-y-4">
+                {/* Project Full Code */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Project Full Code
+                  </label>
+                  <input
+                    type="text"
+                    value={editingKPI.project_full_code || editingKPI['Project Full Code'] || ''}
+                    onChange={(e) => setEditingKPI({ ...editingKPI, project_full_code: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
+                  />
+                </div>
+
+                {/* Activity Name */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Activity Name
+                  </label>
+                  <input
+                    type="text"
+                    value={editingKPI?.activity_name || editingKPI?.['Activity Name'] || ''}
+                    onChange={(e) => editingKPI && setEditingKPI({ ...editingKPI, activity_name: e.target.value, id: editingKPI.id })}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
+                  />
+                </div>
+
+                {/* Quantity */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Quantity
+                  </label>
+                  <input
+                    type="text"
+                    value={editingKPI?.quantity || editingKPI?.['Quantity'] || ''}
+                    onChange={(e) => editingKPI && setEditingKPI({ ...editingKPI, quantity: e.target.value, id: editingKPI.id })}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
+                  />
+                </div>
+
+                {/* Unit */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Unit
+                  </label>
+                  <input
+                    type="text"
+                    value={editingKPI?.unit || editingKPI?.['Unit'] || ''}
+                    onChange={(e) => editingKPI && setEditingKPI({ ...editingKPI, unit: e.target.value, id: editingKPI.id })}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
+                  />
+                </div>
+
+                {/* Target Date */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Target Date
+                  </label>
+                  <input
+                    type="date"
+                    value={editingKPI?.target_date || editingKPI?.['Target Date'] || ''}
+                    onChange={(e) => editingKPI && setEditingKPI({ ...editingKPI, target_date: e.target.value, id: editingKPI.id })}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
+                  />
+                </div>
+
+                {/* Section */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Section
+                  </label>
+                  <input
+                    type="text"
+                    value={editingKPI?.section || editingKPI?.['Section'] || ''}
+                    onChange={(e) => editingKPI && setEditingKPI({ ...editingKPI, section: e.target.value, id: editingKPI.id })}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
+                  />
+                </div>
+
+                {/* Zone */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Zone
+                  </label>
+                  <input
+                    type="text"
+                    value={editingKPI?.zone || editingKPI?.['Zone'] || ''}
+                    onChange={(e) => editingKPI && setEditingKPI({ ...editingKPI, zone: e.target.value, id: editingKPI.id })}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
+                  />
+                </div>
+
+                {/* Value */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Value
+                  </label>
+                  <input
+                    type="text"
+                    value={editingKPI?.value || editingKPI?.['Value'] || ''}
+                    onChange={(e) => editingKPI && setEditingKPI({ ...editingKPI, value: e.target.value, id: editingKPI.id })}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 mt-6">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowEditModal(false)
+                    setEditingKPI(null)
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (editingKPI) {
+                      handleSaveEdit(editingKPI)
+                    }
+                  }}
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  Save Changes
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* ✅ Reject KPI Modal */}
+      {showRejectModal && rejectingKPIId && (
+        <div className="fixed inset-0 bg-black/50 dark:bg-black/70 z-50 flex items-center justify-center p-4">
+          <Card className="w-full max-w-md">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Reject KPI</h2>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setShowRejectModal(false)
+                    setRejectingKPIId(null)
+                    setRejectionReason('')
+                  }}
+                >
+                  <X className="w-5 h-5" />
+                </Button>
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Rejection Reason (Optional)
+                </label>
+                <textarea
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                  placeholder="Enter reason for rejection..."
+                  rows={4}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowRejectModal(false)
+                    setRejectingKPIId(null)
+                    setRejectionReason('')
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (rejectingKPIId) {
+                      handleReject(rejectingKPIId, rejectionReason || undefined)
+                      setShowRejectModal(false)
+                      setRejectingKPIId(null)
+                      setRejectionReason('')
+                    }
+                  }}
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                >
+                  <X className="w-4 h-4 mr-2" />
+                  Reject KPI
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
     </PermissionPage>
   )
 }

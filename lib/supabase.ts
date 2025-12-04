@@ -24,7 +24,8 @@ export const TABLES = {
   HR_MANPOWER: 'hr_manpower',                          // ✅ HR Manpower table
   DESIGNATION_RATES: 'designation_rates',              // ✅ Designation hourly rates table
   MACHINE_LIST: 'machine_list',                        // ✅ Machine list table
-  MACHINERY_DAY_RATES: 'machinery_day_rates'           // ✅ Machinery day rates table
+  MACHINERY_DAY_RATES: 'machinery_day_rates',          // ✅ Machinery day rates table
+  KPI_REJECTED: 'kpi_rejected'                         // ✅ Rejected KPIs table (temporary storage)
 } as const
 
 // Backward compatibility alias
