@@ -34,6 +34,9 @@ import {
   UserCheck,
   Calendar,
   Briefcase,
+  FileCheck,
+  Clock,
+  Database,
   type LucideIcon
 } from 'lucide-react'
 
@@ -67,16 +70,18 @@ const sidebarItems: SidebarItem[] = [
       { icon: BarChart3, label: 'Reports', tab: 'reports' },
     ]
   },
-  { 
-    icon: DollarSign, 
-    label: 'Cost Control', 
-    tab: 'cost-control',
-    badgeIcon: DollarSign, 
-    badgeColor: 'bg-gradient-to-br from-yellow-500 to-orange-500',
-    subItems: [
-      { icon: UserCheck, label: 'MANPOWER', tab: 'cost-control/manpower', badgeIcon: Users, badgeColor: 'bg-gradient-to-br from-blue-500 to-indigo-500' },
-    ]
-  },
+      { 
+        icon: DollarSign, 
+        label: 'Cost Control', 
+        tab: 'cost-control',
+        badgeIcon: DollarSign, 
+        badgeColor: 'bg-gradient-to-br from-yellow-500 to-orange-500',
+        subItems: [
+          { icon: UserCheck, label: 'MANPOWER', tab: 'cost-control/manpower', badgeIcon: Users, badgeColor: 'bg-gradient-to-br from-blue-500 to-indigo-500' },
+          { icon: Clock, label: 'Designation Rates', tab: 'cost-control/designation-rates', badgeIcon: Clock, badgeColor: 'bg-gradient-to-br from-purple-500 to-pink-500' },
+          { icon: Database, label: 'Machine List', tab: 'cost-control/machine-list', badgeIcon: Database, badgeColor: 'bg-gradient-to-br from-cyan-500 to-blue-500' },
+        ]
+      },
   { 
     icon: Briefcase, 
     label: 'HR', 
@@ -87,6 +92,7 @@ const sidebarItems: SidebarItem[] = [
       { icon: Users, label: 'Manpower', tab: 'hr/manpower', badgeIcon: Users, badgeColor: 'bg-gradient-to-br from-blue-500 to-indigo-500' },
       { icon: Calendar, label: 'Attendance', tab: 'hr/attendance', badgeIcon: Calendar, badgeColor: 'bg-gradient-to-br from-green-500 to-emerald-500' },
       { icon: UserCheck, label: 'Check-In/Out', tab: 'hr/attendance/check-in-out', badgeIcon: UserCheck, badgeColor: 'bg-gradient-to-br from-blue-500 to-indigo-500' },
+      { icon: FileCheck, label: 'Review Attendance', tab: 'hr/attendance/review', badgeIcon: FileCheck, badgeColor: 'bg-gradient-to-br from-purple-500 to-pink-500' },
     ]
   },
   { 
@@ -141,11 +147,14 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
     // Cost Control
     if (tab === 'cost-control') return '/cost-control'
     if (tab === 'cost-control/manpower') return '/cost-control/manpower'
+    if (tab === 'cost-control/designation-rates') return '/cost-control/designation-rates'
+    if (tab === 'cost-control/machine-list') return '/cost-control/machine-list'
     // HR
     if (tab === 'hr') return '/hr'
     if (tab === 'hr/manpower') return '/hr/manpower'
     if (tab === 'hr/attendance') return '/hr/attendance'
     if (tab === 'hr/attendance/check-in-out') return '/hr/attendance/check-in-out'
+    if (tab === 'hr/attendance/review') return '/hr/attendance/review'
     return `/${tab}`
   }
 
@@ -187,7 +196,7 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
       setExpandedItems(prev => new Set(prev).add('cost-control'))
     }
     // Auto-expand hr if any sub-item is active
-    if (activeTab === 'hr/manpower' || activeTab === 'hr/attendance' || activeTab === 'hr/attendance/check-in-out') {
+    if (activeTab === 'hr/manpower' || activeTab === 'hr/attendance' || activeTab === 'hr/attendance/check-in-out' || activeTab === 'hr/attendance/review') {
       setExpandedItems(prev => new Set(prev).add('hr'))
     }
   }, [activeTab])
@@ -215,6 +224,21 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
     
     loadCompanySettings()
   }, [])
+
+  // Auto-expand parent items based on active tab
+  useEffect(() => {
+    if (pathname === '/cost-control/manpower' || 
+        pathname === '/cost-control/designation-rates' || 
+        pathname === '/cost-control/machine-list') {
+      setExpandedItems(prev => new Set([...Array.from(prev), 'cost-control']))
+    }
+    if (pathname === '/hr/manpower' || 
+        pathname === '/hr/attendance' || 
+        pathname === '/hr/attendance/check-in-out' || 
+        pathname === '/hr/attendance/review') {
+      setExpandedItems(prev => new Set([...Array.from(prev), 'hr']))
+    }
+  }, [pathname])
 
   // Filter items based on permissions
   const visibleItems = sidebarItems.filter((item) => {
@@ -244,6 +268,7 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
               case 'hr/manpower':
               case 'hr/attendance':
               case 'hr/attendance/check-in-out':
+              case 'hr/attendance/review':
                 return guard.hasAccess('reports.view') // Using reports.view as default permission
               default:
                 return false
@@ -312,10 +337,13 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
             case 'reports':
               return guard.hasAccess('reports.view')
             case 'cost-control/manpower':
+            case 'cost-control/designation-rates':
+            case 'cost-control/machine-list':
               return guard.hasAccess('reports.view') // Using reports.view as default permission
             case 'hr/manpower':
             case 'hr/attendance':
             case 'hr/attendance/check-in-out':
+            case 'hr/attendance/review':
               return guard.hasAccess('reports.view') // Using reports.view as default permission
             case 'forms/boq':
               // ✅ Admin always has access, others need boq.create or boq.edit

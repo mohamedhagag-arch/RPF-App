@@ -201,6 +201,8 @@ export default function AuthenticatedLayout({
     if (pathname === '/reports') return 'reports'
     if (pathname === '/cost-control') return 'cost-control'
     if (pathname === '/cost-control/manpower') return 'cost-control/manpower'
+    if (pathname === '/cost-control/designation-rates') return 'cost-control/designation-rates'
+    if (pathname === '/cost-control/machine-list') return 'cost-control/machine-list'
     if (pathname === '/settings') {
       // Check if it's user form tab
       if (typeof window !== 'undefined') {
@@ -216,6 +218,7 @@ export default function AuthenticatedLayout({
     if (pathname === '/hr/manpower') return 'hr/manpower'
     if (pathname === '/hr/attendance') return 'hr/attendance'
     if (pathname === '/hr/attendance/check-in-out') return 'hr/attendance/check-in-out'
+    if (pathname === '/hr/attendance/review') return 'hr/attendance/review'
     return 'dashboard'
   }
 
@@ -241,6 +244,10 @@ export default function AuthenticatedLayout({
       router.push('/cost-control')
     } else if (tab === 'cost-control/manpower') {
       router.push('/cost-control/manpower')
+    } else if (tab === 'cost-control/designation-rates') {
+      router.push('/cost-control/designation-rates')
+    } else if (tab === 'cost-control/machine-list') {
+      router.push('/cost-control/machine-list')
     } else if (tab === 'hr') {
       router.push('/hr')
     } else if (tab === 'hr/manpower') {
@@ -249,6 +256,8 @@ export default function AuthenticatedLayout({
       router.push('/hr/attendance')
     } else if (tab === 'hr/attendance/check-in-out') {
       router.push('/hr/attendance/check-in-out')
+    } else if (tab === 'hr/attendance/review') {
+      router.push('/hr/attendance/review')
     } else {
       router.push(`/${tab}`)
     }

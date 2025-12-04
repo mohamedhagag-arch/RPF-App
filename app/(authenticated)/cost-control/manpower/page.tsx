@@ -10,7 +10,7 @@ import { Alert } from '@/components/ui/Alert'
 import { UserCheck, Download, RefreshCw, Search, X, CheckCircle, AlertCircle, Filter, SlidersHorizontal, Calendar, DollarSign, Clock, Database, ArrowRight, Plus, Save, Edit, Trash2, CheckSquare, Square } from 'lucide-react'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { useRouter } from 'next/navigation'
-import { TABLES } from '@/lib/supabase'
+import { TABLES, DesignationRate } from '@/lib/supabase'
 import { mapProjectFromDB } from '@/lib/dataMappers'
 import { buildProjectFullCode } from '@/lib/projectDataFetcher'
 import type { Project } from '@/lib/supabase'
@@ -81,6 +81,10 @@ export default function ManpowerPage() {
   const [isSelectMode, setIsSelectMode] = useState(false)
   const [deleteLoading, setDeleteLoading] = useState<string | null>(null) // ID of record being deleted
   
+  // ✅ Designation Rates State
+  const [designationRates, setDesignationRates] = useState<DesignationRate[]>([])
+  const [selectedDesignationRate, setSelectedDesignationRate] = useState<DesignationRate | null>(null)
+  
   // ✅ Advanced Filters State
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
   const [filters, setFilters] = useState({
@@ -107,6 +111,22 @@ export default function ManpowerPage() {
   // ✅ Extract time only from datetime-local or time string
   const extractTimeOnly = (datetimeValue: string): string => {
     if (!datetimeValue) return ''
+    
+    // Handle 12-hour format with AM/PM (e.g., "6:45 PM", "7:00 AM")
+    const time12HourMatch = datetimeValue.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
+    if (time12HourMatch) {
+      let hours = parseInt(time12HourMatch[1])
+      const minutes = time12HourMatch[2]
+      const period = time12HourMatch[3].toUpperCase()
+      
+      if (period === 'PM' && hours !== 12) {
+        hours += 12
+      } else if (period === 'AM' && hours === 12) {
+        hours = 0
+      }
+      
+      return `${hours.toString().padStart(2, '0')}:${minutes}`
+    }
     
     // If already in time format (HH:mm)
     if (/^\d{2}:\d{2}$/.test(datetimeValue)) {
@@ -241,26 +261,63 @@ export default function ManpowerPage() {
     return Math.max(0, overtime) // Return 0 if negative
   }
 
+  // ✅ Calculate Cost based on Designation Rate
+  const calculateCost = (
+    designation: string,
+    standardHours: number,
+    overtimeHours: number
+  ): number => {
+    if (!designation || designationRates.length === 0) return 0
+
+    const rate = designationRates.find(r => 
+      r.designation.toLowerCase() === designation.toLowerCase()
+    )
+
+    if (!rate) return 0
+
+    const hourlyRate = rate.hourly_rate
+    // Use overtime_hourly_rate if it exists (not null and not undefined), otherwise use 1.5 × hourly_rate
+    const overtimeRate = (rate.overtime_hourly_rate != null && rate.overtime_hourly_rate !== undefined) 
+      ? rate.overtime_hourly_rate 
+      : (hourlyRate * 1.5)
+
+    const standardCost = standardHours * hourlyRate
+    const overtimeCost = overtimeHours * overtimeRate
+
+    return standardCost + overtimeCost
+  }
+
   // ✅ Auto-calculate Total Hours and Overtime when Start, Finish, or Standard Working Hours change
   useEffect(() => {
     if (formData.start && formData.finish) {
       const totalHours = calculateTotalHours(formData.start, formData.finish)
       const overtime = calculateOvertime(totalHours, formData.standardWorkingHours)
+      const standardHours = parseFloat(formData.standardWorkingHours) || 8
+      const overtimeHours = Math.max(0, totalHours - standardHours)
+      
+      // Recalculate cost if designation is selected
+      let newCost = formData.cost
+      if (formData.designation) {
+        const calculatedCost = calculateCost(formData.designation, standardHours, overtimeHours)
+        newCost = calculatedCost > 0 ? calculatedCost.toFixed(2) : ''
+      }
       
       setFormData((prev) => ({
         ...prev,
         totalHours: totalHours > 0 ? totalHours.toFixed(2) : '',
-        overtime: overtime > 0 ? overtime.toFixed(2) : '0'
+        overtime: overtime > 0 ? overtime.toFixed(2) : '0',
+        cost: newCost
       }))
     } else {
       // Clear if start or finish is empty
       setFormData((prev) => ({
         ...prev,
         totalHours: '',
-        overtime: ''
+        overtime: '',
+        cost: formData.designation ? prev.cost : '' // Keep cost if designation is set
       }))
     }
-  }, [formData.start, formData.finish, formData.standardWorkingHours, formData.date])
+  }, [formData.start, formData.finish, formData.standardWorkingHours, formData.date, formData.designation, designationRates])
 
   // ✅ Load projects from Projects table (same as Projects page)
   const loadAvailableProjects = async () => {
@@ -323,9 +380,30 @@ export default function ManpowerPage() {
     }
   }
 
-  // ✅ Load projects on mount
+  // ✅ Fetch Designation Rates
+  const fetchDesignationRates = async () => {
+    try {
+      const { data, error } = await supabase
+        .from(TABLES.DESIGNATION_RATES)
+        // @ts-ignore
+        .select('*')
+        .order('designation', { ascending: true })
+
+      if (error) {
+        console.error('Error fetching designation rates:', error)
+        return
+      }
+      setDesignationRates((data || []) as any)
+      console.log('✅ Loaded designation rates:', (data || []).length)
+    } catch (err: any) {
+      console.error('Error fetching designation rates:', err)
+    }
+  }
+
+  // ✅ Load projects and designation rates on mount
   useEffect(() => {
     loadAvailableProjects()
+    fetchDesignationRates()
   }, [])
 
   // ✅ Direct search function that accepts project code as parameter
@@ -554,11 +632,39 @@ export default function ManpowerPage() {
   // ✅ Edit Preview Record
   const editPreviewRecord = (index: number) => {
     const record = previewRecords[index]
+    
+    // Find matching designation rate if designation exists
+    let matchingRate: DesignationRate | null = null
+    if (record.designation && designationRates.length > 0) {
+      const designationValue = record.designation.trim()
+      
+      // Try exact match (case-sensitive)
+      matchingRate = designationRates.find(r => r.designation === designationValue) || null
+      
+      // Try case-insensitive match
+      if (!matchingRate) {
+        matchingRate = designationRates.find(r => 
+          r.designation.toLowerCase().trim() === designationValue.toLowerCase().trim()
+        ) || null
+      }
+      
+      // Try partial match (contains)
+      if (!matchingRate) {
+        matchingRate = designationRates.find(r => 
+          r.designation.toLowerCase().includes(designationValue.toLowerCase()) ||
+          designationValue.toLowerCase().includes(r.designation.toLowerCase())
+        ) || null
+      }
+    }
+    
+    // Use the matching rate's designation if found, otherwise use the original value
+    const finalDesignationValue = matchingRate ? matchingRate.designation : record.designation
+    
     setFormData({
       date: record.date,
       projectCode: record.projectCode,
       labourCode: record.labourCode,
-      designation: record.designation,
+      designation: finalDesignationValue, // Use matching rate's designation to ensure dropdown selection works
       start: record.start,
       finish: record.finish,
       standardWorkingHours: '8',
@@ -566,6 +672,10 @@ export default function ManpowerPage() {
       totalHours: record.totalHours,
       cost: record.cost
     })
+    
+    // Set selected designation rate for dropdown
+    setSelectedDesignationRate(matchingRate)
+    
     setEditingPreviewIndex(index)
     setFormError('')
   }
@@ -852,15 +962,61 @@ export default function ManpowerPage() {
     const startValue = (rawRecord['START'] || rawRecord['start'] || record.start || '').toString()
     const finishValue = (rawRecord['FINISH'] || rawRecord['finish'] || record.finish || '').toString()
     
+    console.log('🔍 Editing record - Raw values:', {
+      dateValue,
+      startValue,
+      finishValue,
+      designation: rawRecord['Designation'] || rawRecord['designation'] || record.designation,
+      rawRecordKeys: Object.keys(rawRecord)
+    })
+    
     // Extract time only for form (but keep full datetime for calculations)
     const startTimeOnly = extractTimeOnly(startValue)
     const finishTimeOnly = extractTimeOnly(finishValue)
+    
+    console.log('⏰ Extracted times:', { startTimeOnly, finishTimeOnly, originalStart: startValue, originalFinish: finishValue })
+    
+    // Extract designation - normalize the value (trim and handle case variations)
+    const designationValue = (rawRecord['Designation'] || rawRecord['designation'] || record.designation || '').toString().trim()
+    
+    console.log('💼 Designation value:', designationValue, 'Available rates:', designationRates.length)
+    
+    // Find matching designation rate if designation exists
+    // Try exact match first, then case-insensitive, then partial match
+    let matchingRate: DesignationRate | null = null
+    if (designationValue && designationRates.length > 0) {
+      // Try exact match (case-sensitive)
+      matchingRate = designationRates.find(r => r.designation === designationValue) || null
+      
+      // Try case-insensitive match
+      if (!matchingRate) {
+        matchingRate = designationRates.find(r => 
+          r.designation.toLowerCase().trim() === designationValue.toLowerCase().trim()
+        ) || null
+      }
+      
+      // Try partial match (contains)
+      if (!matchingRate) {
+        matchingRate = designationRates.find(r => 
+          r.designation.toLowerCase().includes(designationValue.toLowerCase()) ||
+          designationValue.toLowerCase().includes(r.designation.toLowerCase())
+        ) || null
+      }
+      
+      console.log('✅ Found matching rate:', matchingRate ? matchingRate.designation : 'None', {
+        searched: designationValue,
+        availableDesignations: designationRates.map(r => r.designation).slice(0, 5)
+      })
+    }
+    
+    // Use the matching rate's designation if found, otherwise use the original value
+    const finalDesignationValue = matchingRate ? matchingRate.designation : designationValue
     
     setFormData({
       date: convertDateToInputFormat(dateValue),
       projectCode: (rawRecord['PROJECT CODE'] || rawRecord['project_code'] || record.project_code || '').toString(),
       labourCode: (rawRecord['LABOUR CODE'] || rawRecord['labour_code'] || record.labour_code || '').toString(),
-      designation: (rawRecord['Designation'] || rawRecord['designation'] || record.designation || '').toString(),
+      designation: finalDesignationValue, // Use matching rate's designation to ensure dropdown selection works
       start: startTimeOnly, // Store time only in form
       finish: finishTimeOnly, // Store time only in form
       standardWorkingHours: '8',
@@ -868,6 +1024,16 @@ export default function ManpowerPage() {
       totalHours: (rawRecord['Total Hours'] || rawRecord['total_hours'] || record.total_hours || 0).toString(),
       cost: (rawRecord['Cost'] || rawRecord['cost'] || record.cost || 0).toString()
     })
+    
+    // Set selected designation rate for dropdown
+    setSelectedDesignationRate(matchingRate)
+    
+    console.log('📝 Form data set:', {
+      designation: finalDesignationValue,
+      matchingRateFound: !!matchingRate,
+      originalDesignation: designationValue
+    })
+    
     setShowAddForm(true)
     setFormError('')
     setFormSuccess('')
@@ -1447,15 +1613,73 @@ export default function ManpowerPage() {
                           {/* Designation */}
                           <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                              Designation <span className="text-gray-400">(Optional)</span>
+                              Designation <span className="text-gray-400">(Optional - Auto-calculates cost)</span>
                             </label>
-                            <input
-                              type="text"
-                              placeholder="e.g., Engineer, Technician"
-                              value={formData.designation}
-                              onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
-                              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                            />
+                            <div className="relative">
+                              <select
+                                value={formData.designation}
+                                onChange={(e) => {
+                                  const designation = e.target.value
+                                  const rate = designationRates.find(r => 
+                                    r.designation.toLowerCase() === designation.toLowerCase()
+                                  )
+                                  setSelectedDesignationRate(rate || null)
+                                  
+                                  // Recalculate cost if we have hours
+                                  if (formData.totalHours && formData.standardWorkingHours) {
+                                    const totalHours = parseFloat(formData.totalHours) || 0
+                                    const standardHours = parseFloat(formData.standardWorkingHours) || 8
+                                    const overtimeHours = Math.max(0, totalHours - standardHours)
+                                    const calculatedCost = calculateCost(designation, standardHours, overtimeHours)
+                                    
+                                    setFormData(prev => ({
+                                      ...prev,
+                                      designation,
+                                      cost: calculatedCost > 0 ? calculatedCost.toFixed(2) : ''
+                                    }))
+                                  } else {
+                                    setFormData(prev => ({ ...prev, designation }))
+                                  }
+                                }}
+                                className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none cursor-pointer"
+                              >
+                                <option value="">Select Designation...</option>
+                                {designationRates.length > 0 ? (
+                                  designationRates.map((rate) => (
+                                    <option key={rate.id} value={rate.designation}>
+                                      {rate.designation} - ${rate.hourly_rate}/hr
+                                      {rate.overtime_hourly_rate ? ` (OT: $${rate.overtime_hourly_rate}/hr)` : ` (OT: $${(rate.hourly_rate * 1.5).toFixed(2)}/hr)`}
+                                    </option>
+                                  ))
+                                ) : (
+                                  <option value="" disabled>Loading designations...</option>
+                                )}
+                              </select>
+                              <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none z-10">
+                                <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                </svg>
+                              </div>
+                              {selectedDesignationRate && (() => {
+                          const rate = selectedDesignationRate!
+                          const hourlyRate = rate.hourly_rate
+                          const overtimeHourlyRate = rate.overtime_hourly_rate
+                          // Use overtime_hourly_rate if it exists, otherwise use 1.5 × hourly_rate
+                          const overtimeRate: number = (overtimeHourlyRate != null && overtimeHourlyRate !== undefined)
+                            ? Number(overtimeHourlyRate)
+                            : (hourlyRate * 1.5)
+                                return (
+                                  <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                                    <span className="font-medium">Rate:</span> ${hourlyRate}/hr
+                                    {(overtimeHourlyRate != null && overtimeHourlyRate !== undefined) ? (
+                                      <span className="ml-2">Overtime: ${overtimeHourlyRate}/hr</span>
+                                    ) : (
+                                      <span className="ml-2">Overtime: ${overtimeRate.toFixed(2)}/hr (1.5x)</span>
+                                    )}
+                                  </div>
+                                )
+                              })()}
+                            </div>
                           </div>
 
                           {/* START */}
@@ -1662,17 +1886,30 @@ export default function ManpowerPage() {
                               value={formData.standardWorkingHours}
                               onChange={(e) => {
                                 const value = e.target.value
-                                setFormData({ ...formData, standardWorkingHours: value })
-                                // Recalculate overtime when standard hours change
+                                const standardHours = parseFloat(value) || 8
+                                
+                                // Recalculate overtime and cost when standard hours change
                                 if (formData.start && formData.finish) {
                                   const totalHours = calculateTotalHours(formData.start, formData.finish)
                                   const overtime = calculateOvertime(totalHours, value)
+                                  const overtimeHours = Math.max(0, totalHours - standardHours)
+                                  
+                                  // Recalculate cost if designation is selected
+                                  let newCost = formData.cost
+                                  if (formData.designation) {
+                                    const calculatedCost = calculateCost(formData.designation, standardHours, overtimeHours)
+                                    newCost = calculatedCost > 0 ? calculatedCost.toFixed(2) : ''
+                                  }
+                                  
                                   setFormData((prev) => ({
                                     ...prev,
                                     standardWorkingHours: value,
                                     totalHours: totalHours > 0 ? totalHours.toFixed(2) : '',
-                                    overtime: overtime > 0 ? overtime.toFixed(2) : '0'
+                                    overtime: overtime > 0 ? overtime.toFixed(2) : '0',
+                                    cost: newCost
                                   }))
+                                } else {
+                                  setFormData({ ...formData, standardWorkingHours: value })
                                 }
                               }}
                               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent"
@@ -2131,15 +2368,73 @@ export default function ManpowerPage() {
                     {/* Designation */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Designation <span className="text-gray-400">(Optional)</span>
+                        Designation <span className="text-gray-400">(Optional - Auto-calculates cost)</span>
                       </label>
-                      <input
-                        type="text"
-                        placeholder="e.g., Engineer, Technician"
-                        value={formData.designation}
-                        onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                      />
+                      <div className="relative">
+                        <select
+                          value={formData.designation}
+                          onChange={(e) => {
+                            const designation = e.target.value
+                            const rate = designationRates.find(r => 
+                              r.designation.toLowerCase() === designation.toLowerCase()
+                            )
+                            setSelectedDesignationRate(rate || null)
+                            
+                            // Recalculate cost if we have hours
+                            if (formData.totalHours && formData.standardWorkingHours) {
+                              const totalHours = parseFloat(formData.totalHours) || 0
+                              const standardHours = parseFloat(formData.standardWorkingHours) || 8
+                              const overtimeHours = Math.max(0, totalHours - standardHours)
+                              const calculatedCost = calculateCost(designation, standardHours, overtimeHours)
+                              
+                              setFormData(prev => ({
+                                ...prev,
+                                designation,
+                                cost: calculatedCost > 0 ? calculatedCost.toFixed(2) : ''
+                              }))
+                            } else {
+                              setFormData(prev => ({ ...prev, designation }))
+                            }
+                          }}
+                          className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none cursor-pointer"
+                        >
+                          <option value="">Select Designation...</option>
+                          {designationRates.length > 0 ? (
+                            designationRates.map((rate) => (
+                              <option key={rate.id} value={rate.designation}>
+                                {rate.designation} - ${rate.hourly_rate}/hr
+                                {rate.overtime_hourly_rate ? ` (OT: $${rate.overtime_hourly_rate}/hr)` : ` (OT: $${(rate.hourly_rate * 1.5).toFixed(2)}/hr)`}
+                              </option>
+                            ))
+                          ) : (
+                            <option value="" disabled>Loading designations...</option>
+                          )}
+                        </select>
+                        <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none z-10">
+                          <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </div>
+                        {selectedDesignationRate && (() => {
+                          const rate = selectedDesignationRate!
+                          const hourlyRate = rate.hourly_rate
+                          const overtimeHourlyRate = rate.overtime_hourly_rate
+                          // Use overtime_hourly_rate if it exists, otherwise use 1.5 × hourly_rate
+                          const overtimeRate: number = (overtimeHourlyRate != null && overtimeHourlyRate !== undefined)
+                            ? Number(overtimeHourlyRate)
+                            : (hourlyRate * 1.5)
+                          return (
+                            <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                              <span className="font-medium">Rate:</span> ${hourlyRate}/hr
+                              {(overtimeHourlyRate != null && overtimeHourlyRate !== undefined) ? (
+                                <span className="ml-2">Overtime: ${overtimeHourlyRate}/hr</span>
+                              ) : (
+                                <span className="ml-2">Overtime: ${overtimeRate.toFixed(2)}/hr (1.5x)</span>
+                              )}
+                            </div>
+                          )
+                        })()}
+                      </div>
                     </div>
 
                     {/* START */}
@@ -2346,17 +2641,30 @@ export default function ManpowerPage() {
                         value={formData.standardWorkingHours}
                         onChange={(e) => {
                           const value = e.target.value
-                          setFormData({ ...formData, standardWorkingHours: value })
-                          // Recalculate overtime when standard hours change
+                          const standardHours = parseFloat(value) || 8
+                          
+                          // Recalculate overtime and cost when standard hours change
                           if (formData.start && formData.finish) {
                             const totalHours = calculateTotalHours(formData.start, formData.finish)
                             const overtime = calculateOvertime(totalHours, value)
+                            const overtimeHours = Math.max(0, totalHours - standardHours)
+                            
+                            // Recalculate cost if designation is selected
+                            let newCost = formData.cost
+                            if (formData.designation) {
+                              const calculatedCost = calculateCost(formData.designation, standardHours, overtimeHours)
+                              newCost = calculatedCost > 0 ? calculatedCost.toFixed(2) : ''
+                            }
+                            
                             setFormData((prev) => ({
                               ...prev,
                               standardWorkingHours: value,
                               totalHours: totalHours > 0 ? totalHours.toFixed(2) : '',
-                              overtime: overtime > 0 ? overtime.toFixed(2) : '0'
+                              overtime: overtime > 0 ? overtime.toFixed(2) : '0',
+                              cost: newCost
                             }))
+                          } else {
+                            setFormData({ ...formData, standardWorkingHours: value })
                           }
                         }}
                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent"
@@ -2408,16 +2716,45 @@ export default function ManpowerPage() {
                     {/* Cost */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Cost <span className="text-gray-400">(Optional)</span>
+                        <DollarSign className="h-4 w-4 inline mr-1" />
+                        Cost <span className="text-gray-400">
+                          {formData.designation ? '(Auto-calculated from Designation Rate)' : '(Optional)'}
+                        </span>
                       </label>
                       <input
                         type="number"
                         step="0.01"
-                        placeholder="e.g., 8000"
+                        placeholder={formData.designation ? "Auto-calculated" : "e.g., 8000"}
                         value={formData.cost}
                         onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                        readOnly={!!formData.designation}
+                        disabled={!!formData.designation}
+                        className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg ${
+                          formData.designation 
+                            ? 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 cursor-not-allowed' 
+                            : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white'
+                        } focus:ring-2 focus:ring-green-500 focus:border-transparent`}
                       />
+                      {formData.designation && formData.cost && selectedDesignationRate && (() => {
+                        const rate = selectedDesignationRate!
+                        // Use overtime_hourly_rate if it exists, otherwise use 1.5 × hourly_rate
+                        const overtimeRate: number = (rate.overtime_hourly_rate != null && rate.overtime_hourly_rate !== undefined)
+                          ? Number(rate.overtime_hourly_rate)
+                          : (rate.hourly_rate * 1.5)
+                        return (
+                          <p className="mt-1 text-xs text-green-600 dark:text-green-400">
+                            ✓ Calculated: {formData.standardWorkingHours || 8} standard hours × ${rate.hourly_rate}/hr
+                            {parseFloat(formData.overtime || '0') > 0 && (
+                              <span className="ml-1">
+                                + {formData.overtime} overtime hours × ${overtimeRate.toFixed(2)}/hr
+                                {(rate.overtime_hourly_rate == null || rate.overtime_hourly_rate === undefined) && (
+                                  <span className="text-gray-500"> (1.5x)</span>
+                                )}
+                              </span>
+                            )}
+                          </p>
+                        )
+                      })()}
                     </div>
                   </div>
 

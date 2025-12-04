@@ -65,7 +65,8 @@ import {
   Check,
   Percent,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Loader2
 } from 'lucide-react'
 
 interface IntelligentProjectFormProps {
@@ -80,9 +81,21 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   
+  // Duplicate check state
+  const [duplicateCheck, setDuplicateCheck] = useState<{
+    checking: boolean
+    isDuplicate: boolean
+    message: string
+  }>({
+    checking: false,
+    isDuplicate: false,
+    message: ''
+  })
+  
   // Form Fields
   const [projectCode, setProjectCode] = useState('')
   const [projectSubCode, setProjectSubCode] = useState('')
+  const [subCodeNumber, setSubCodeNumber] = useState('01') // Only the number part (e.g., "01", "02")
   const [projectName, setProjectName] = useState('')
   const [projectDescription, setProjectDescription] = useState('')
   const [projectTypes, setProjectTypes] = useState<string[]>([])
@@ -339,6 +352,19 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
     if (project) {
       setProjectCode(project.project_code)
       setProjectSubCode(project.project_sub_code || '')
+      // Extract sub-code part from full sub-code if it exists
+      if (project.project_sub_code) {
+        const parts = project.project_sub_code.split('-')
+        if (parts.length > 1) {
+          // Get everything after the first '-' (in case sub-code contains '-')
+          const subPart = parts.slice(1).join('-') // Join in case sub-code has multiple '-'
+          setSubCodeNumber(subPart || '01')
+        } else {
+          setSubCodeNumber('01')
+        }
+      } else {
+        setSubCodeNumber('01')
+      }
       setProjectName(project.project_name)
       setProjectDescription(project.project_description || '')
       setProjectTypes(project.project_type ? project.project_type.split(', ') : [])
@@ -545,13 +571,24 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
     loadProjectScopes()
   }, [])
   
-  // Auto-generate sub-code when project code changes
+  // ✅ Update full sub-code when project code or sub-code part changes
+  // Format: {Project Code}-{Sub-Code} (e.g., P8889-01 or P8889-ABC)
   useEffect(() => {
-    if (autoSubCode && projectCode) {
-      const subCode = generateProjectSubCode(projectCode, '01')
-      setProjectSubCode(subCode)
+    if (projectCode && codeValidation.valid) {
+      const trimmedCode = projectCode.trim().toUpperCase()
+      const subPart = subCodeNumber.trim() || '01' // Allow any text, default to '01' if empty
+      const newSubCode = `${trimmedCode}-${subPart}`
+      
+      // Only update if different to avoid unnecessary re-renders
+      if (newSubCode !== projectSubCode) {
+        setProjectSubCode(newSubCode)
+      }
+    } else if (projectCode && !codeValidation.valid) {
+      // If code is invalid, clear sub-code
+      setProjectSubCode('')
+      setSubCodeNumber('01')
     }
-  }, [projectCode, autoSubCode])
+  }, [projectCode, codeValidation.valid, subCodeNumber]) // Update when any of these change
   
   // Validate project code
   useEffect(() => {
@@ -810,6 +847,94 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
         throw new Error(codeValidation.message || 'Invalid project code')
       }
       
+      // ✅ Check for duplicate project code + sub-code combination
+      // Only check if this is a new project (not editing)
+      if (!project) {
+        const supabaseClient = getSupabaseClient()
+        const trimmedCode = projectCode.trim().toUpperCase()
+        // Extract sub-code part for duplicate check
+        let trimmedSubCode: string | null = null
+        if (projectSubCode) {
+          const fullSubCode = projectSubCode.trim()
+          // If it starts with project code and has a dash, extract the sub-code part
+          if (fullSubCode.startsWith(trimmedCode + '-')) {
+            // Get everything after "{Project Code}-"
+            trimmedSubCode = fullSubCode.substring(trimmedCode.length + 1).trim() || null
+          } else if (fullSubCode) {
+            // If it doesn't match format, use as is
+            trimmedSubCode = fullSubCode
+          }
+        }
+        
+        // Check if a project with the same code + sub-code combination exists
+        // Database uses "Project Code" and "Project Sub-Code" column names
+        try {
+          // Fetch all projects with matching code
+          const { data: allProjects, error: fetchError } = await supabaseClient
+            .from(TABLES.PROJECTS)
+            // @ts-ignore
+            .select('id, "Project Code", "Project Sub-Code"')
+          
+          if (fetchError) {
+            console.error('Error fetching projects for duplicate check:', fetchError)
+            // Don't block creation if fetch fails
+          } else if (allProjects && allProjects.length > 0) {
+            // ✅ CRITICAL: Check for exact match of BOTH Code AND Sub-Code
+            // A project is considered duplicate ONLY if BOTH Code AND Sub-Code match exactly
+            const matchingProjects = allProjects.filter((p: any) => {
+              const existingCode = (p['Project Code'] || '').toString().trim().toUpperCase()
+              let existingSubCodePart: string | null = null
+              
+              // Extract sub-code part from existing project (same way we extract from input)
+              const existingSubCodeFull = (p['Project Sub-Code'] || '').toString().trim() || null
+              if (existingSubCodeFull) {
+                if (existingSubCodeFull.startsWith(existingCode + '-')) {
+                  // Get everything after "{Project Code}-"
+                  existingSubCodePart = existingSubCodeFull.substring(existingCode.length + 1).trim() || null
+                } else {
+                  // If it doesn't match format, use as is
+                  existingSubCodePart = existingSubCodeFull
+                }
+              }
+              
+              // Step 1: Check if Project Code matches
+              if (existingCode !== trimmedCode) return false
+              
+              // Step 2: Check if Sub-Code matches exactly (case-sensitive comparison)
+              // Case 1: Both have sub-codes - must match exactly
+              if (trimmedSubCode && existingSubCodePart) {
+                return existingSubCodePart === trimmedSubCode
+              }
+              // Case 2: Both are null/empty - they match (same project without sub-code)
+              else if (!trimmedSubCode && !existingSubCodePart) {
+                return true
+              }
+              // Case 3: One has sub-code, the other doesn't - they are DIFFERENT projects
+              else {
+                return false
+              }
+            })
+            
+            // ✅ If exact match found (Code + Sub-Code), it's a duplicate - BLOCK creation
+            if (matchingProjects.length > 0) {
+              const newSubCode = trimmedSubCode || '(no sub-code)'
+              throw new Error(
+                `⚠️ Project with code "${trimmedCode}" and sub-code "${newSubCode}" already exists! ` +
+                `Each project must have a unique combination of Code + Sub-Code. ` +
+                `Please use a different code or sub-code combination.`
+              )
+            }
+          }
+        } catch (duplicateErr: any) {
+          // Re-throw if it's our custom error message
+          if (duplicateErr.message && duplicateErr.message.includes('already exists')) {
+            throw duplicateErr
+          }
+          // For other errors, log but don't block creation
+          console.warn('Error checking for duplicate project, proceeding with creation:', duplicateErr)
+        }
+      }
+      
       const projectData: Partial<Project> & { project_status?: string } = {
         project_code: projectCode.trim().toUpperCase(),
         project_sub_code: projectSubCode.trim() || undefined,
@@ -932,7 +1057,154 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
     }
   }
   
-  const isFormValid = projectCode && projectName && codeValidation.valid
+  // ✅ Real-time duplicate check when project code or sub-code changes
+  useEffect(() => {
+    // Only check for duplicates if:
+    // 1. This is a new project (not editing)
+    // 2. Project code is not empty
+    // Note: We check even if codeValidation.valid is false, to show feedback when user types
+    if (project || !projectCode.trim()) {
+      setDuplicateCheck({ checking: false, isDuplicate: false, message: '' })
+      return
+    }
+
+    // If code format is invalid, don't check for duplicates yet
+    if (!codeValidation.valid) {
+      setDuplicateCheck({ checking: false, isDuplicate: false, message: '' })
+      return
+    }
+
+    // Debounce the check to avoid too many API calls
+    const timeoutId = setTimeout(async () => {
+      const trimmedCode = projectCode.trim().toUpperCase()
+      // Extract sub-code part for duplicate check
+      // projectSubCode format: {Project Code}-{Sub-Code}
+      // We need to compare the FULL sub-code (including Project Code) with database values
+      let trimmedSubCode: string | null = null
+      if (projectSubCode) {
+        const fullSubCode = projectSubCode.trim()
+        // If it starts with project code and has a dash, extract the sub-code part
+        if (fullSubCode.startsWith(trimmedCode + '-')) {
+          // Get everything after "{Project Code}-"
+          trimmedSubCode = fullSubCode.substring(trimmedCode.length + 1).trim() || null
+        } else if (fullSubCode) {
+          // If it doesn't match format, use as is
+          trimmedSubCode = fullSubCode
+        }
+      }
+
+      if (!trimmedCode) {
+        setDuplicateCheck({ checking: false, isDuplicate: false, message: '' })
+        return
+      }
+
+      setDuplicateCheck({ checking: true, isDuplicate: false, message: '' })
+
+      try {
+        const supabaseClient = getSupabaseClient()
+        
+        // Fetch all projects with matching code
+        const { data: allProjects, error: fetchError } = await supabaseClient
+          .from(TABLES.PROJECTS)
+          // @ts-ignore
+          .select('id, "Project Code", "Project Sub-Code"')
+        
+        if (fetchError) {
+          console.error('Error checking for duplicate:', fetchError)
+          setDuplicateCheck({ checking: false, isDuplicate: false, message: '' })
+          return
+        }
+
+        if (allProjects && allProjects.length > 0) {
+          // ✅ CRITICAL: Check for exact match of BOTH Code AND Sub-Code
+          // A project is considered duplicate ONLY if BOTH Code AND Sub-Code match exactly
+          const matchingProjects = allProjects.filter((p: any) => {
+            const existingCode = (p['Project Code'] || '').toString().trim().toUpperCase()
+            let existingSubCodePart: string | null = null
+            
+            // Extract sub-code part from existing project (same way we extract from input)
+            const existingSubCodeFull = (p['Project Sub-Code'] || '').toString().trim() || null
+            if (existingSubCodeFull) {
+              if (existingSubCodeFull.startsWith(existingCode + '-')) {
+                // Get everything after "{Project Code}-"
+                existingSubCodePart = existingSubCodeFull.substring(existingCode.length + 1).trim() || null
+              } else {
+                // If it doesn't match format, use as is
+                existingSubCodePart = existingSubCodeFull
+              }
+            }
+            
+            // Step 1: Check if Project Code matches
+            if (existingCode !== trimmedCode) return false
+            
+            // Step 2: Check if Sub-Code matches exactly (case-sensitive comparison)
+            // Case 1: Both have sub-codes - must match exactly
+            if (trimmedSubCode && existingSubCodePart) {
+              return existingSubCodePart === trimmedSubCode
+            }
+            // Case 2: Both are null/empty - they match (same project without sub-code)
+            else if (!trimmedSubCode && !existingSubCodePart) {
+              return true
+            }
+            // Case 3: One has sub-code, the other doesn't - they are DIFFERENT projects
+            else {
+              return false
+            }
+          })
+          
+          // ✅ If exact match found (Code + Sub-Code), it's a duplicate
+          if (matchingProjects.length > 0) {
+            const newSubCode = trimmedSubCode || '(no sub-code)'
+            const existingProject = matchingProjects[0] as any
+            const existingSubCode = (existingProject['Project Sub-Code'] || '').toString().trim() || '(no sub-code)'
+            setDuplicateCheck({
+              checking: false,
+              isDuplicate: true,
+              message: `⚠️ Project with code "${trimmedCode}" and sub-code "${newSubCode}" already exists! Each project must have a unique combination of Code + Sub-Code.`
+            })
+          } else {
+            // ✅ Check if there are projects with same Code but different Sub-Code
+            // This is ALLOWED (large projects split into smaller ones)
+            const sameCodeProjects = allProjects.filter((p: any) => {
+              const existingCode = (p['Project Code'] || '').toString().trim().toUpperCase()
+              return existingCode === trimmedCode
+            })
+            
+            if (sameCodeProjects.length > 0) {
+              // Get list of existing sub-codes for this project code
+              const existingSubCodes = sameCodeProjects
+                .map((p: any) => (p['Project Sub-Code'] || '').toString().trim() || '(no sub-code)')
+                .filter((sub: string) => sub !== '(no sub-code)')
+              
+              const subCodesList = existingSubCodes.length > 0 
+                ? ` (Existing sub-codes: ${existingSubCodes.join(', ')})`
+                : ''
+              
+              // Same code exists but with different sub-code - this is OK (large projects split into smaller ones)
+              setDuplicateCheck({
+                checking: false,
+                isDuplicate: false,
+                message: `ℹ️ Projects with code "${trimmedCode}" exist with different sub-codes.${subCodesList} This is allowed for large projects split into smaller ones.`
+              })
+            } else {
+              // No projects with this code exist - it's available
+              setDuplicateCheck({ checking: false, isDuplicate: false, message: '' })
+            }
+          }
+        } else {
+          // No projects in database - code is available
+          setDuplicateCheck({ checking: false, isDuplicate: false, message: '' })
+        }
+      } catch (err: any) {
+        console.error('Error checking for duplicate:', err)
+        setDuplicateCheck({ checking: false, isDuplicate: false, message: '' })
+      }
+    }, 500) // Debounce 500ms
+
+    return () => clearTimeout(timeoutId)
+  }, [projectCode, projectSubCode, codeValidation.valid, project])
+
+  const isFormValid = projectCode && projectName && codeValidation.valid && !duplicateCheck.isDuplicate
   
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
@@ -1008,13 +1280,37 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                 placeholder="e.g., P5074, PRJ-2024-001"
                 required
                 disabled={loading}
-                className={!codeValidation.valid ? 'border-red-500' : ''}
+                className={
+                  !codeValidation.valid || duplicateCheck.isDuplicate 
+                    ? 'border-red-500' 
+                    : duplicateCheck.message && !duplicateCheck.isDuplicate
+                    ? 'border-blue-500'
+                    : ''
+                }
               />
               {!codeValidation.valid && codeValidation.message && (
                 <p className="text-xs text-red-600 mt-1">⚠️ {codeValidation.message}</p>
               )}
-              {codeValidation.valid && projectCode && (
+              {codeValidation.valid && projectCode && !duplicateCheck.checking && !duplicateCheck.isDuplicate && (
                 <p className="text-xs text-green-600 mt-1">✅ Valid project code</p>
+              )}
+              {duplicateCheck.checking && (
+                <p className="text-xs text-blue-600 mt-1 flex items-center gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Checking for duplicates...
+                </p>
+              )}
+              {duplicateCheck.isDuplicate && (
+                <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" />
+                  {duplicateCheck.message}
+                </p>
+              )}
+              {!duplicateCheck.isDuplicate && duplicateCheck.message && !duplicateCheck.checking && (
+                <p className="text-xs text-blue-600 mt-1 flex items-center gap-1">
+                  <Info className="h-3 w-3" />
+                  {duplicateCheck.message}
+                </p>
               )}
             </div>
             
@@ -1024,28 +1320,74 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                 <Hash className="inline h-4 w-4 mr-1" />
                 Project Sub-Code
               </label>
-              <div className="flex gap-2">
-                <Input
-                  value={projectSubCode}
-                  onChange={(e) => {
-                    setProjectSubCode(e.target.value.toUpperCase())
-                    setAutoSubCode(false)
-                  }}
-                  placeholder="Auto-generated or custom"
-                  disabled={loading}
-                  className="flex-1"
-                />
+              <div className="flex gap-2 items-center">
+                {/* ✅ Project Code Part (Read-only) */}
+                <div className="flex items-center gap-0">
+                  <Input
+                    value={projectCode && codeValidation.valid ? `${projectCode.trim().toUpperCase()}-` : ''}
+                    readOnly
+                    disabled={loading || !projectCode || !codeValidation.valid}
+                    className="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 cursor-not-allowed font-mono min-w-[120px] border-r-0 rounded-r-none"
+                    placeholder="Code-"
+                  />
+                  {/* ✅ Sub-Code Part (Editable) - Can be numbers or text */}
+                  <Input
+                    type="text"
+                    value={subCodeNumber}
+                    onChange={(e) => {
+                      const inputValue = e.target.value.trim()
+                      // Allow any text (numbers, letters, etc.) - no restrictions
+                      setSubCodeNumber(inputValue)
+                      setAutoSubCode(false)
+                    }}
+                    onBlur={(e) => {
+                      // On blur, if empty, set default to '01'
+                      const value = e.target.value.trim()
+                      if (value === '') {
+                        setSubCodeNumber('01')
+                      }
+                    }}
+                    placeholder="01 or text"
+                    disabled={loading || !projectCode || !codeValidation.valid}
+                    className={`font-mono min-w-[80px] text-center border-l-0 rounded-l-none ${
+                      duplicateCheck.isDuplicate ? 'border-red-500' : ''
+                    }`}
+                  />
+                </div>
                 <button
                   type="button"
-                  onClick={() => setAutoSubCode(true)}
+                  onClick={() => {
+                    setAutoSubCode(true)
+                    setSubCodeNumber('01')
+                  }}
                   className="px-3 py-2 text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-600 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
-                  title="Auto-generate sub-code"
+                  title="Reset to 01"
+                  disabled={loading || !projectCode || !codeValidation.valid}
                 >
-                  🔄 Auto
+                  🔄 Reset
                 </button>
               </div>
               {autoSubCode && (
                 <p className="text-xs text-blue-600 mt-1">💡 Auto-generated from project code</p>
+              )}
+              {/* ✅ Show duplicate check messages for Sub-Code as well */}
+              {duplicateCheck.checking && projectCode && codeValidation.valid && (
+                <p className="text-xs text-blue-600 mt-1 flex items-center gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Checking for duplicates...
+                </p>
+              )}
+              {duplicateCheck.isDuplicate && projectCode && codeValidation.valid && (
+                <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" />
+                  {duplicateCheck.message}
+                </p>
+              )}
+              {!duplicateCheck.isDuplicate && duplicateCheck.message && !duplicateCheck.checking && projectCode && codeValidation.valid && (
+                <p className="text-xs text-blue-600 mt-1 flex items-center gap-1">
+                  <Info className="h-3 w-3" />
+                  {duplicateCheck.message}
+                </p>
               )}
             </div>
           </div>

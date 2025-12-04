@@ -21,7 +21,10 @@ export const TABLES = {
   ATTENDANCE_RECORDS: 'attendance_records',            // ✅ Attendance records
   ATTENDANCE_LOCATIONS: 'attendance_locations',        // ✅ Locations for GPS tracking
   ATTENDANCE_SETTINGS: 'attendance_settings',          // ✅ Attendance system settings
-  HR_MANPOWER: 'hr_manpower'                            // ✅ HR Manpower table
+  HR_MANPOWER: 'hr_manpower',                          // ✅ HR Manpower table
+  DESIGNATION_RATES: 'designation_rates',              // ✅ Designation hourly rates table
+  MACHINE_LIST: 'machine_list',                        // ✅ Machine list table
+  MACHINERY_DAY_RATES: 'machinery_day_rates'           // ✅ Machinery day rates table
 } as const
 
 // Backward compatibility alias
@@ -231,8 +234,13 @@ export interface AttendanceRecord {
   is_late: boolean
   is_early: boolean
   created_at: string
+  created_by?: string // User ID who created the record
+  updated_by?: string // User ID who last updated the record
+  updated_at?: string // Last update timestamp
   employee?: AttendanceEmployee
   location?: AttendanceLocation
+  created_by_user?: User // User who created the record
+  updated_by_user?: User // User who last updated the record
 }
 
 export interface AttendanceLocation {
@@ -245,6 +253,19 @@ export interface AttendanceLocation {
   is_active: boolean
   is_favorite?: boolean // ✅ Mark location as favorite/highlighted
   created_at: string
+}
+
+export interface DesignationRate {
+  id: string
+  designation: string
+  hourly_rate: number
+  overtime_hourly_rate?: number | null
+  off_day_hourly_rate?: number | null
+  authority?: string | null // General Authority or specific authority
+  created_at: string
+  updated_at: string
+  created_by?: string | null
+  updated_by?: string | null
 }
 
 export interface AttendanceSettings {
@@ -281,4 +302,30 @@ export interface HRManpower {
   created_at: string
   updated_at: string
   created_by?: string
+}
+
+export interface Machine {
+  id: string
+  code: string
+  name: string
+  rate: number
+  machine_full_name?: string | null
+  rental?: string | null // "R" for rented, or rental cost as text
+  created_at: string
+  updated_at: string
+  created_by?: string | null
+  updated_by?: string | null
+}
+
+export interface MachineryDayRate {
+  id: string
+  code: string
+  description?: string | null
+  rate: number
+  efficiency?: number | null // Percentage (default 100)
+  created_at: string
+  updated_at: string
+  created_by?: string | null
+  updated_by?: string | null
+  machine?: Machine // Joined machine data
 }
