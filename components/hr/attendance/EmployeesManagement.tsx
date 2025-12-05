@@ -851,17 +851,17 @@ export function EmployeesManagement() {
           <PermissionButton
             permission="hr.attendance.employees.create"
             onClick={() => {
-              setShowAddForm(true)
-              setEditingEmployee(null)
-              setFormData({
-                employee_code: '',
-                name: '',
-                job_title: '',
-                department: '',
-                phone_number: '',
-                email: '',
-                status: 'Active'
-              })
+            setShowAddForm(true)
+            setEditingEmployee(null)
+            setFormData({
+              employee_code: '',
+              name: '',
+              job_title: '',
+              department: '',
+              phone_number: '',
+              email: '',
+              status: 'Active'
+            })
             }}
           >
             <Plus className="h-4 w-4 mr-2" />

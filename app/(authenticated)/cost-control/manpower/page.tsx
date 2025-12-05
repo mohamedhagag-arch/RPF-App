@@ -3446,29 +3446,29 @@ export default function ManpowerPage() {
                             <td className="px-4 py-3 whitespace-nowrap text-center">
                               <div className="flex items-center justify-center gap-2">
                                 {canEdit && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleEditRecord(record)}
-                                    className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
-                                    title="Edit"
-                                  >
-                                    <Edit className="h-4 w-4" />
-                                  </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleEditRecord(record)}
+                                  className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                                  title="Edit"
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </button>
                                 )}
                                 {canDelete && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDeleteRecord(recordId)}
-                                    disabled={deleteLoading === recordId}
-                                    className="p-1 text-red-600 hover:text-red-800 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors disabled:opacity-50"
-                                    title="Delete"
-                                  >
-                                    {deleteLoading === recordId ? (
-                                      <RefreshCw className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                      <Trash2 className="h-4 w-4" />
-                                    )}
-                                  </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteRecord(recordId)}
+                                  disabled={deleteLoading === recordId}
+                                  className="p-1 text-red-600 hover:text-red-800 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors disabled:opacity-50"
+                                  title="Delete"
+                                >
+                                  {deleteLoading === recordId ? (
+                                    <RefreshCw className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-4 w-4" />
+                                  )}
+                                </button>
                                 )}
                                 {!canEdit && !canDelete && (
                                   <span className="text-xs text-gray-400">-</span>

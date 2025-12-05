@@ -362,16 +362,16 @@ export function RolesManagement() {
         }
       } else if (editingRole) {
         // Update existing custom role
-        const roleKey = formData.role_name.toLowerCase().replace(/\s+/g, '_')
-        
-        const roleData = {
-          role_key: roleKey,
-          role_name: formData.role_name.trim(),
-          description: formData.description.trim() || null,
-          permissions: formData.permissions,
-          updated_at: new Date().toISOString()
-        }
-        
+      const roleKey = formData.role_name.toLowerCase().replace(/\s+/g, '_')
+      
+      const roleData = {
+        role_key: roleKey,
+        role_name: formData.role_name.trim(),
+        description: formData.description.trim() || null,
+        permissions: formData.permissions,
+        updated_at: new Date().toISOString()
+      }
+      
         const { error: updateError } = await (supabase as any)
           .from('custom_roles')
           .update(roleData as any)
@@ -702,8 +702,8 @@ export function RolesManagement() {
                     <div className="flex items-center gap-2">
                       {role.type === 'default' ? (
                         <>
-                          <Button
-                            variant="outline"
+                        <Button
+                          variant="outline"
                             onClick={() => handleEditDefaultRole(role.key)}
                             className="h-9 w-9 p-0 !px-0 flex items-center justify-center border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800"
                             title="Edit Default Role"
@@ -723,14 +723,14 @@ export function RolesManagement() {
                         <>
                           <Button
                             variant="outline"
-                            onClick={() => handleEditRole(customRoles.find(r => r.role_key === role.key)!)}
+                          onClick={() => handleEditRole(customRoles.find(r => r.role_key === role.key)!)}
                             className="h-9 w-9 p-0 !px-0 flex items-center justify-center border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800"
                             title="Edit Role"
-                          >
+                        >
                             <Edit className="h-4 w-4 text-gray-700 dark:text-gray-300" />
-                          </Button>
-                          <Button
-                            variant="outline"
+                        </Button>
+                        <Button
+                          variant="outline"
                             onClick={() => handleCloneRole(role.key, 'custom')}
                             className="h-9 w-9 p-0 !px-0 flex items-center justify-center border-blue-300 dark:border-blue-600 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20"
                             title="Clone Role"
@@ -739,12 +739,12 @@ export function RolesManagement() {
                           </Button>
                           <Button
                             variant="outline"
-                            onClick={() => handleDeleteRole(customRoles.find(r => r.role_key === role.key)!)}
+                          onClick={() => handleDeleteRole(customRoles.find(r => r.role_key === role.key)!)}
                             className="h-9 w-9 p-0 !px-0 flex items-center justify-center border-red-300 dark:border-red-600 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
                             title="Delete Role"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                         </>
                       )}
                     </div>

@@ -308,7 +308,7 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
       const defaultPerms = DEFAULT_ROLE_PERMISSIONS[user.role] || []
       setSelectedPermissions(defaultPerms)
       setCurrentRolePermissions(defaultPerms) // Update current role permissions state
-      setCustomMode(false)
+    setCustomMode(false)
     }
   }
 

@@ -95,6 +95,9 @@ export function EnhancedSmartActualKPIForm({
   // Store actual quantities from database
   const [actualQuantities, setActualQuantities] = useState<Map<string, number>>(new Map())
   
+  // ✅ Store all KPIs (Planned and Actual) for calculating quantities like BOQ
+  const [allKPIs, setAllKPIs] = useState<any[]>([])
+  
   // Date editing state
   const [isEditingDate, setIsEditingDate] = useState(false)
   
@@ -569,40 +572,203 @@ export function EnhancedSmartActualKPIForm({
   }
   
   // ============================================
+  // ✅ HELPER FUNCTIONS: For calculating quantities like BOQ
+  // ============================================
+  
+  // Helper: Check if KPI date is until yesterday
+  const isKPIUntilYesterday = (kpi: any, inputType: 'planned' | 'actual'): boolean => {
+    const rawKPI = (kpi as any).raw || {}
+    
+    // Calculate yesterday date
+    const yesterday = new Date()
+    yesterday.setDate(yesterday.getDate() - 1)
+    yesterday.setHours(23, 59, 59, 999) // End of yesterday
+    
+    // Get date based on input type
+    let kpiDateStr = ''
+    if (inputType === 'planned') {
+      kpiDateStr = rawKPI['Date'] ||
+                  kpi.date ||
+                  kpi.target_date || 
+                  kpi.activity_date || 
+                  rawKPI['Target Date'] || 
+                  rawKPI['Activity Date'] ||
+                  kpi['Target Date'] || 
+                  kpi['Activity Date'] ||
+                  kpi.created_at ||
+                  ''
+    } else {
+      kpiDateStr = kpi.actual_date || 
+                  kpi.activity_date || 
+                  kpi['Actual Date'] || 
+                  kpi['Activity Date'] || 
+                  rawKPI['Actual Date'] || 
+                  rawKPI['Activity Date'] ||
+                  kpi.created_at ||
+                  ''
+    }
+    
+    // If no date, include it (assume valid)
+    if (!kpiDateStr) return true
+    
+    try {
+      const kpiDate = new Date(kpiDateStr)
+      if (isNaN(kpiDate.getTime())) return true // Include if invalid date
+      return kpiDate <= yesterday
+    } catch {
+      return true // Include if date parsing fails
+    }
+  }
+  
+  // Helper: Match KPI to activity (strict matching like BOQ)
+  const kpiMatchesActivityStrict = (kpi: any, activity: BOQActivity): boolean => {
+    const rawKPI = (kpi as any).raw || {}
+    const projectFullCode = (selectedProject?.project_full_code || selectedProject?.project_code || '').toString().trim().toUpperCase()
+    const projectCode = (selectedProject?.project_code || '').toString().trim().toUpperCase()
+    
+    // 1. Project Code Matching
+    const kpiProjectCode = (kpi.project_code || kpi['Project Code'] || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+    const kpiProjectFullCode = (kpi.project_full_code || kpi['Project Full Code'] || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+    const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
+    const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+    
+    let projectMatch = false
+    if (activityProjectFullCode && activityProjectFullCode.includes('-')) {
+      // Activity has sub-code - KPI MUST have EXACT Project Full Code match
+      if (kpiProjectFullCode && kpiProjectFullCode === activityProjectFullCode) {
+        projectMatch = true
+      }
+    } else {
+      // Activity has no sub-code - Match by Project Code or Project Full Code
+      projectMatch = (
+        (kpiProjectCode && activityProjectCode && kpiProjectCode === activityProjectCode) ||
+        (kpiProjectFullCode && activityProjectFullCode && kpiProjectFullCode === activityProjectFullCode) ||
+        (kpiProjectCode && activityProjectFullCode && kpiProjectCode === activityProjectFullCode) ||
+        (kpiProjectFullCode && activityProjectCode && kpiProjectFullCode === activityProjectCode)
+      )
+    }
+    
+    if (!projectMatch) return false
+    
+    // 2. Activity Name Matching
+    const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPI['Activity Name'] || '').toLowerCase().trim()
+    const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+    const activityMatch = kpiActivityName && activityName && (
+      kpiActivityName === activityName || 
+      kpiActivityName.includes(activityName) || 
+      activityName.includes(kpiActivityName)
+    )
+    if (!activityMatch) return false
+    
+    // 3. Zone Matching (strict)
+    const kpiZoneRaw = (kpi['Zone'] || kpi['Zone Number'] || rawKPI['Zone'] || rawKPI['Zone Number'] || '').toString().trim()
+    const activityZoneRaw = (activity.zone_ref || activity.zone_number || '').toString().trim()
+    
+    if (activityZoneRaw && activityZoneRaw.trim() !== '') {
+      // Activity has zone - KPI MUST have zone and they MUST match
+      if (!kpiZoneRaw || kpiZoneRaw.trim() === '') {
+        return false
+      }
+      
+      // Use zonesMatch for accurate zone matching
+      return zonesMatch(activityZoneRaw, kpiZoneRaw, projectFullCode, projectCode)
+    }
+    
+    // If activity has no zone, accept KPI (with or without zone)
+    return true
+  }
+  
+  // Helper: Extract quantity from KPI
+  const getKPIQuantity = (kpi: any): number => {
+    const raw = (kpi as any).raw || {}
+    const quantityStr = String(
+      kpi.quantity || 
+      kpi['Quantity'] || 
+      kpi.Quantity ||
+      raw['Quantity'] || 
+      raw.Quantity ||
+      '0'
+    ).replace(/,/g, '').trim()
+    return parseFloat(quantityStr) || 0
+  }
+  
+  // ============================================
   // ✅ HELPER FUNCTION: Get Activity Quantities
   // Purpose: Show Done and Total for each activity BEFORE clicking
+  // ✅ UPDATED: Now uses same logic as BOQ Quantities column
   // ============================================
   
   /**
    * Get Done and Total quantities for an activity
    * 
+   * ✅ UPDATED LOGIC (same as BOQ Quantities column):
+   * 
+   * Total: From BOQ Activity (total_units or planned_units)
+   * Planned: Sum of Planned KPIs until yesterday (with Zone matching) - LIKE BOQ
+   * Done (Actual): Sum of Actual KPIs until yesterday (with Zone matching) - LIKE BOQ
+   * 
    * Priority for Done:
    *   1. completedActivitiesData (temporary session data)
-   *   2. actualQuantities (calculated from Actual KPIs in database - filtered by Project Full Code and Zone)
-   *   3. activity.actual_units (from BOQ Activity - immediate fallback)
+   *   2. Calculated from Actual KPIs until yesterday (filtered by Project Full Code and Zone)
+   *   3. activity.actual_units (from BOQ Activity - fallback)
    * 
    * Priority for Total:
-   *   1. activity.planned_units (from BOQ Activity - THE ONLY SOURCE OF TRUTH)
-   *   2. activity.total_units (fallback if planned_units not available)
+   *   1. activity.total_units (from BOQ Activity)
+   *   2. activity.planned_units (fallback if total_units not available)
    * 
-   * ✅ CRITICAL: Total MUST come from BOQ Activity, NOT from Planned KPIs
-   * BOQ Activity is the source of truth for planned quantities
+   * Priority for Planned (display):
+   *   1. Sum of Planned KPIs until yesterday (with Zone matching) - LIKE BOQ
+   *   2. activity.planned_units (fallback if no Planned KPIs)
    */
-  const getActivityQuantities = (activity: BOQActivity): { done: number; total: number; unit: string } => {
-    // ✅ Calculate Total (Planned) - ONLY from BOQ Activity
-    // Priority 1: planned_units from BOQ Activity
-    // Priority 2: total_units from BOQ Activity (if planned_units not available)
-    let total = parseFloat(String(activity.planned_units || '0')) || 0
-    if (total === 0) {
-      total = parseFloat(String(activity.total_units || '0')) || 0
+  const getActivityQuantities = (activity: BOQActivity): { done: number; total: number; planned: number; unit: string } => {
+    // ✅ Calculate Total - from BOQ Activity (same as BOQ)
+    const rawActivityQuantities = (activity as any).raw || {}
+    let total = activity.total_units || 
+                parseFloat(String(rawActivityQuantities['Total Units'] || '0').replace(/,/g, '')) || 
+                activity.planned_units ||
+                parseFloat(String(rawActivityQuantities['Planned Units'] || '0').replace(/,/g, '')) || 
+                0
+    
+    // ✅ Calculate Planned: Sum of Planned KPIs until yesterday (with Zone matching) - LIKE BOQ
+    let planned = 0
+    if (allKPIs.length > 0) {
+      const plannedKPIs = allKPIs.filter((kpi: any) => {
+        const inputType = (kpi.input_type || kpi['Input Type'] || (kpi as any).raw?.['Input Type'] || '').toLowerCase()
+        return inputType === 'planned'
+      })
+      
+      const matchedPlannedKPIs = plannedKPIs.filter((kpi: any) => kpiMatchesActivityStrict(kpi, activity))
+      const plannedKPIsUntilYesterday = matchedPlannedKPIs.filter((kpi: any) => isKPIUntilYesterday(kpi, 'planned'))
+      planned = plannedKPIsUntilYesterday.reduce((sum: number, kpi: any) => {
+        return sum + getKPIQuantity(kpi)
+      }, 0)
     }
     
-    // Calculate Done (Actual) - from Actual KPIs filtered by Project Full Code and Zone
+    // If no Planned KPIs, use planned_units from BOQ Activity as fallback
+    if (planned === 0) {
+      planned = parseFloat(String(activity.planned_units || '0')) || 0
+    }
+    
+    // ✅ Calculate Done (Actual): Sum of Actual KPIs until yesterday (with Zone matching) - LIKE BOQ
     let done = 0
     const completedData = completedActivitiesData.get(activity.id)
     if (completedData && completedData['Quantity']) {
+      // Use temporary session data first
       done = parseFloat(String(completedData['Quantity'])) || 0
+    } else if (allKPIs.length > 0) {
+      // Calculate from Actual KPIs until yesterday (like BOQ)
+      const actualKPIs = allKPIs.filter((kpi: any) => {
+        const inputType = (kpi.input_type || kpi['Input Type'] || (kpi as any).raw?.['Input Type'] || '').toLowerCase()
+        return inputType === 'actual'
+      })
+      
+      const matchedActualKPIs = actualKPIs.filter((kpi: any) => kpiMatchesActivityStrict(kpi, activity))
+      const actualKPIsUntilYesterday = matchedActualKPIs.filter((kpi: any) => isKPIUntilYesterday(kpi, 'actual'))
+      done = actualKPIsUntilYesterday.reduce((sum: number, kpi: any) => {
+        return sum + getKPIQuantity(kpi)
+      }, 0)
     } else {
+      // Fallback to cached actualQuantities or activity.actual_units
       done = actualQuantities.get(activity.id) ?? 0
       if (done === 0) {
         done = parseFloat(String(activity.actual_units || '0')) || 0
@@ -612,6 +778,7 @@ export function EnhancedSmartActualKPIForm({
     return {
       done,
       total,
+      planned,
       unit: activity.unit || ''
     }
   }
@@ -713,6 +880,54 @@ export function EnhancedSmartActualKPIForm({
     
     calculateActualUnits()
   }, [selectedProject, projectActivities])
+
+  // ✅ Fetch all KPIs (Planned and Actual) for calculating quantities like BOQ
+  useEffect(() => {
+    const fetchAllKPIs = async () => {
+      if (!selectedProject) {
+        setAllKPIs([])
+        return
+      }
+      
+      const projectFullCode = (selectedProject.project_full_code || selectedProject.project_code || '').toString().trim().toUpperCase()
+      
+      try {
+        const { getSupabaseClient, executeQuery } = await import('@/lib/simpleConnectionManager')
+        const { TABLES } = await import('@/lib/supabase')
+        const supabase = getSupabaseClient()
+        
+        // Fetch all KPIs (Planned and Actual) for this project
+        let query = supabase
+          .from(TABLES.KPI)
+          .select('id, "Quantity", "Input Type", "Zone", "Zone Number", "Activity Name", "Project Full Code", "Project Code", "Date", "Target Date", "Activity Date", "Actual Date", created_at, input_type, quantity, date, target_date, activity_date, actual_date, project_code, project_full_code, activity_name')
+        
+        // Filter by Project Full Code if available
+        if (projectFullCode) {
+          query = query.eq('Project Full Code', projectFullCode)
+        }
+        
+        const result = await executeQuery(async () => query)
+        let allKPIsData = result.data || []
+        
+        // Client-side filter to ensure exact Project Full Code match
+        if (projectFullCode) {
+          const targetFullCode = projectFullCode.toString().trim().toUpperCase()
+          allKPIsData = allKPIsData.filter((kpi: any) => {
+            const kpiFullCode = (kpi['Project Full Code'] || '').toString().trim().toUpperCase()
+            return kpiFullCode === targetFullCode
+          })
+        }
+        
+        setAllKPIs(allKPIsData)
+        console.log(`✅ Fetched ${allKPIsData.length} KPIs for project ${projectFullCode}`)
+      } catch (err: any) {
+        console.error('❌ Error fetching all KPIs:', err)
+        setAllKPIs([])
+      }
+    }
+    
+    fetchAllKPIs()
+  }, [selectedProject])
 
   // Auto-fill form when activity is selected
   useEffect(() => {
@@ -1619,7 +1834,9 @@ export function EnhancedSmartActualKPIForm({
                     const isCurrent = projectActivities.findIndex(a => a.id === activity.id) === currentActivityIndex
                     
                     // ✅ Get Done and Total quantities (calculated from database or fallback to activity data)
-                    const { done: doneActual, total: totalPlanned, unit } = getActivityQuantities(activity)
+                    // Total should be from BOQ Activity (like BOQ Quantities column)
+                    const { done: doneActual, total, planned, unit } = getActivityQuantities(activity)
+                    // ✅ Use total (from BOQ Activity) for display, not planned (from Planned KPIs)
                     
                     return (
                       <div
@@ -1676,7 +1893,7 @@ export function EnhancedSmartActualKPIForm({
                               </div>
                               <div className="flex items-center gap-1.5">
                                 <span className="text-xs text-gray-500 dark:text-gray-400">Total:</span>
-                                <span className="text-xs font-bold text-gray-900 dark:text-white">{totalPlanned.toLocaleString()}</span>
+                                <span className="text-xs font-bold text-gray-900 dark:text-white">{total.toLocaleString()}</span>
                               </div>
                               {unit && (
                                 <span className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{unit}</span>
@@ -1902,7 +2119,9 @@ export function EnhancedSmartActualKPIForm({
                     const isCurrent = index === currentActivityIndex
                     
                     // ✅ Get Done and Total quantities (calculated from database or fallback to activity data)
-                    const { done: doneActual, total: totalPlanned, unit } = getActivityQuantities(activity)
+                    // Total should be from BOQ Activity (like BOQ Quantities column)
+                    const { done: doneActual, total, planned, unit } = getActivityQuantities(activity)
+                    // ✅ Use total (from BOQ Activity) for display, not planned (from Planned KPIs)
                     
                     return (
                       <div
@@ -1959,7 +2178,7 @@ export function EnhancedSmartActualKPIForm({
                               </div>
                               <div className="flex items-center gap-1.5">
                                 <span className="text-xs text-gray-500 dark:text-gray-400">Total:</span>
-                                <span className="text-xs font-bold text-gray-900 dark:text-white">{totalPlanned.toLocaleString()}</span>
+                                <span className="text-xs font-bold text-gray-900 dark:text-white">{total.toLocaleString()}</span>
                               </div>
                               {unit && (
                                 <span className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{unit}</span>
@@ -2482,20 +2701,22 @@ export function EnhancedSmartActualKPIForm({
                       Active
                     </span>
                     {(() => {
-                      // ✅ Total comes directly from BOQ Activity (planned_units or total_units)
-                      const activityPlannedUnits = currentActivity?.planned_units || 0
-                      const activityTotalUnits = currentActivity?.total_units || 0
-                      const plannedToShow = activityPlannedUnits > 0 ? activityPlannedUnits : activityTotalUnits
+                      // ✅ Get quantities using same logic as BOQ Quantities column
+                      const { done, total, planned, unit } = getActivityQuantities(currentActivity)
                       
-                      if (plannedToShow > 0) {
+                      // ✅ Show Total from BOQ Activity (like BOQ Quantities column - Total field)
+                      // Total comes from BOQ Activity (total_units or planned_units), not from Planned KPIs
+                      const totalToShow = total
+                      
+                      if (totalToShow > 0) {
                         return (
                           <div className="text-right">
                             <span className="text-xs text-gray-500 dark:text-gray-400">Planned:</span>
                             <span className="text-sm font-semibold text-gray-900 dark:text-white ml-1">
-                              {plannedToShow.toLocaleString()} {currentActivity.unit || ''}
+                              {totalToShow.toLocaleString()} {unit || currentActivity.unit || ''}
                             </span>
                             <span className="text-[10px] text-blue-600 dark:text-blue-400 block mt-0.5">
-                              (from KPIs - see Quantity Summary below)
+                              (from BOQ Activity - see Quantity Summary below)
                             </span>
                           </div>
                         )

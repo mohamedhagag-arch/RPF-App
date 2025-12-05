@@ -44,8 +44,9 @@ export function EnhancedQuantitySummary({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [totals, setTotals] = useState({
-    totalPlanned: 0,
-    totalActual: 0,
+    total: 0, // ✅ Total from BOQ Activity (total_units or planned_units)
+    totalPlanned: 0, // Planned from Planned KPIs until yesterday
+    totalActual: 0, // Actual from Actual KPIs until yesterday
     remaining: 0,
     progress: 0
   })
@@ -188,6 +189,53 @@ export function EnhancedQuantitySummary({
   }
 
   /**
+   * Check if KPI date is until yesterday (like BOQ)
+   */
+  const isKPIUntilYesterday = (kpi: any, inputType: 'planned' | 'actual'): boolean => {
+    const rawKPI = (kpi as any).raw || {}
+    
+    // Calculate yesterday date
+    const yesterday = new Date()
+    yesterday.setDate(yesterday.getDate() - 1)
+    yesterday.setHours(23, 59, 59, 999) // End of yesterday
+    
+    // Get date based on input type
+    let kpiDateStr = ''
+    if (inputType === 'planned') {
+      kpiDateStr = rawKPI['Date'] ||
+                  kpi.date ||
+                  kpi.target_date || 
+                  kpi.activity_date || 
+                  rawKPI['Target Date'] || 
+                  rawKPI['Activity Date'] ||
+                  kpi['Target Date'] || 
+                  kpi['Activity Date'] ||
+                  kpi.created_at ||
+                  ''
+    } else {
+      kpiDateStr = kpi.actual_date || 
+                  kpi.activity_date || 
+                  kpi['Actual Date'] || 
+                  kpi['Activity Date'] || 
+                  rawKPI['Actual Date'] || 
+                  rawKPI['Activity Date'] ||
+                  kpi.created_at ||
+                  ''
+    }
+    
+    // If no date, include it (assume valid)
+    if (!kpiDateStr) return true
+    
+    try {
+      const kpiDate = new Date(kpiDateStr)
+      if (isNaN(kpiDate.getTime())) return true // Include if invalid date
+      return kpiDate <= yesterday
+    } catch {
+      return true // Include if date parsing fails
+    }
+  }
+
+  /**
    * Fetch and calculate KPI data
    */
   const fetchKPIData = async () => {
@@ -237,10 +285,57 @@ export function EnhancedQuantitySummary({
       }
 
       // ============================================
-      // ✅ REMOVED: Fetch Planned KPIs - Total now comes directly from BOQ Activity
+      // ✅ UPDATED: Fetch Planned KPIs - Calculate Planned from Planned KPIs until yesterday (like BOQ)
       // ============================================
-      // Total MUST come from selectedActivity.planned_units or total_units
-      // BOQ Activity is the source of truth for planned quantities
+      let plannedKPIs: any[] = []
+      try {
+        // ✅ Fetch all Planned KPIs first (we'll filter client-side for better control)
+        let query = supabase
+          .from(TABLES.KPI)
+          .select('id, "Quantity", "Input Type", "Zone", "Zone Number", "Activity Name", "Project Full Code", "Project Code", "Date", "Target Date", "Activity Date", created_at, input_type, quantity, date, target_date, activity_date, project_code, project_full_code, activity_name')
+          .eq('Input Type', 'Planned')
+        
+        // Try to filter by Project Full Code in query (but don't rely on it alone)
+        if (projectFullCodeToUse) {
+          query = query.eq('Project Full Code', projectFullCodeToUse)
+        }
+        
+        const result = await executeQuery(async () => query)
+        plannedKPIs = result.data || []
+
+        // ✅ Filter by Project Full Code (client-side - more reliable)
+        if (projectFullCodeToUse) {
+          const targetFullCode = projectFullCodeToUse.toString().trim().toUpperCase()
+          plannedKPIs = plannedKPIs.filter((kpi: any) => {
+            const kpiFullCode = (kpi['Project Full Code'] || '').toString().trim().toUpperCase()
+            return kpiFullCode === targetFullCode
+          })
+        }
+
+        // ✅ Filter by Activity Name (flexible matching)
+        plannedKPIs = plannedKPIs.filter((kpi: any) => {
+          const kpiActivityName = (kpi['Activity Name'] || '').toLowerCase().trim()
+          const matches = kpiActivityName === activityName ||
+                         kpiActivityName.includes(activityName) ||
+                         activityName.includes(kpiActivityName)
+          return matches
+        })
+
+        // ✅ Filter by Zone (if provided)
+        if (zone && zone.trim() !== '') {
+          plannedKPIs = plannedKPIs.filter((kpi: any) => {
+            const kpiZoneRaw = (kpi['Zone'] || kpi['Zone Number'] || '').toString().trim()
+            if (!kpiZoneRaw || kpiZoneRaw === '') {
+              return false
+            }
+            const matches = zonesMatch(originalZone, kpiZoneRaw, projectFullCodeToUse, projectCode)
+            return matches
+          })
+        }
+      } catch (err: any) {
+        console.error('❌ Error fetching Planned KPIs:', err)
+        // Continue with empty array
+      }
 
       // ============================================
       // Fetch Actual KPIs
@@ -348,35 +443,62 @@ export function EnhancedQuantitySummary({
       }
 
       // ============================================
-      // Calculate Totals
+      // Calculate Totals (LIKE BOQ Quantities column)
       // ============================================
-      // ✅ CRITICAL: Total comes DIRECTLY from BOQ Activity (planned_units or total_units)
-      // BOQ Activity is the ONLY source of truth for planned quantities
-      // Priority 1: planned_units from BOQ Activity
-      // Priority 2: total_units from BOQ Activity (if planned_units not available)
-      let totalPlanned = parseFloat(String(selectedActivity.planned_units || '0')) || 0
-      if (totalPlanned === 0) {
-        totalPlanned = parseFloat(String(selectedActivity.total_units || '0')) || 0
+      // ✅ Total: From BOQ Activity (total_units or planned_units)
+      const rawActivityQuantities = (selectedActivity as any).raw || {}
+      let total = selectedActivity.total_units || 
+                  parseFloat(String(rawActivityQuantities['Total Units'] || '0').replace(/,/g, '')) || 
+                  selectedActivity.planned_units ||
+                  parseFloat(String(rawActivityQuantities['Planned Units'] || '0').replace(/,/g, '')) || 
+                  0
+      
+      // ✅ Planned: Sum of Planned KPIs until yesterday (with Zone matching) - LIKE BOQ
+      let totalPlanned = 0
+      if (plannedKPIs.length > 0) {
+        const plannedKPIsUntilYesterday = plannedKPIs.filter((kpi: any) => isKPIUntilYesterday(kpi, 'planned'))
+        totalPlanned = plannedKPIsUntilYesterday.reduce((sum, kpi) => {
+          return sum + parseQuantity(kpi)
+        }, 0)
       }
+      
+      // If no Planned KPIs, use planned_units from BOQ Activity as fallback
+      if (totalPlanned === 0) {
+        totalPlanned = parseFloat(String(selectedActivity.planned_units || '0')) || 0
+      }
+      
+      // ✅ Actual: Sum of Actual KPIs until yesterday (with Zone matching) - LIKE BOQ
+      let totalActual = 0
+      if (actualKPIs.length > 0) {
+        const actualKPIsUntilYesterday = actualKPIs.filter((kpi: any) => isKPIUntilYesterday(kpi, 'actual'))
+        totalActual = actualKPIsUntilYesterday.reduce((sum, kpi) => {
+          return sum + parseQuantity(kpi)
+        }, 0)
+      }
+      
+      // Add new quantity if provided (for preview)
+      if (newQuantity > 0) {
+        totalActual += newQuantity
+      }
+      
+      // ✅ Use total (from BOQ) for remaining calculation (like BOQ)
+      const remaining = Math.max(0, total - totalActual)
+      const progress = total > 0 ? Math.round((totalActual / total) * 100) : 0
       
       if (showDebug) {
-        console.log(`📊 Total from BOQ Activity:`, {
-          planned_units: selectedActivity.planned_units,
-          total_units: selectedActivity.total_units,
-          totalPlanned
+        console.log(`📊 Quantities (like BOQ):`, {
+          total, // From BOQ Activity
+          totalPlanned, // From Planned KPIs until yesterday
+          totalActual, // From Actual KPIs until yesterday
+          remaining,
+          progress
         })
       }
-      
-      const totalActual = actualKPIs.reduce((sum, kpi) => {
-        return sum + parseQuantity(kpi)
-      }, 0)
-      
-      const remaining = Math.max(0, totalPlanned - totalActual)
-      const progress = totalPlanned > 0 ? Math.round((totalActual / totalPlanned) * 100) : 0
 
       setTotals({
-        totalPlanned,
-        totalActual,
+        total, // ✅ Total from BOQ Activity
+        totalPlanned, // Planned from Planned KPIs until yesterday
+        totalActual, // Actual from Actual KPIs until yesterday
         remaining,
         progress
       })
@@ -384,7 +506,7 @@ export function EnhancedQuantitySummary({
       // ✅ Pass totals to parent component if callback provided
       if (onTotalsChange) {
         onTotalsChange({
-          totalPlanned,
+          totalPlanned: total, // Pass total (from BOQ) as totalPlanned for backward compatibility
           totalActual,
           remaining,
           progress
@@ -421,12 +543,15 @@ export function EnhancedQuantitySummary({
       setError(err.message || 'Failed to load KPI data')
       
       // Fallback to activity data
+      const fallbackTotal = selectedActivity.total_units || selectedActivity.planned_units || 0
+      const fallbackActual = selectedActivity.actual_units || 0
       setTotals({
+        total: fallbackTotal,
         totalPlanned: selectedActivity.planned_units || 0,
-        totalActual: selectedActivity.actual_units || 0,
-        remaining: Math.max(0, (selectedActivity.planned_units || 0) - (selectedActivity.actual_units || 0)),
-        progress: (selectedActivity.planned_units || 0) > 0 
-          ? Math.round(((selectedActivity.actual_units || 0) / (selectedActivity.planned_units || 0)) * 100)
+        totalActual: fallbackActual,
+        remaining: Math.max(0, fallbackTotal - fallbackActual),
+        progress: fallbackTotal > 0 
+          ? Math.round((fallbackActual / fallbackTotal) * 100)
           : 0
       })
     } finally {
@@ -437,8 +562,8 @@ export function EnhancedQuantitySummary({
   // Calculate with new quantity (if provided)
   const calculateWithNewQuantity = () => {
     const newActual = totals.totalActual + newQuantity
-    const newRemaining = Math.max(0, totals.totalPlanned - newActual)
-    const newProgress = totals.totalPlanned > 0 ? Math.round((newActual / totals.totalPlanned) * 100) : 0
+    const newRemaining = Math.max(0, totals.total - newActual) // ✅ Use total (from BOQ) not totalPlanned
+    const newProgress = totals.total > 0 ? Math.round((newActual / totals.total) * 100) : 0 // ✅ Use total (from BOQ) not totalPlanned
 
     return {
       newActual,
@@ -490,11 +615,11 @@ export function EnhancedQuantitySummary({
 
         {/* Compact Layout - 3 columns */}
         <div className="grid grid-cols-3 gap-1">
-          {/* Total Planned Quantity */}
+          {/* Total Quantity (from BOQ Activity) */}
           <div className="text-center py-1 px-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-600">
             <div className="text-xs text-gray-600 dark:text-gray-400">Total</div>
             <div className="text-xs font-bold text-gray-900 dark:text-white">
-              {totals.totalPlanned.toLocaleString()}
+              {totals.total.toLocaleString()}
             </div>
           </div>
 
