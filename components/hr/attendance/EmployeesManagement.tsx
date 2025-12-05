@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
+import { PermissionButton } from '@/components/ui/PermissionButton'
 import { Input } from '@/components/ui/Input'
 import { Alert } from '@/components/ui/Alert'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
@@ -16,6 +17,7 @@ import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { QRCodeDisplay } from './QRCodeDisplay'
 import { useQRSettings } from '@/hooks/useQRSettings'
 import { QRRenderer } from './QRRenderer'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 
 export function EmployeesManagement() {
   const [employees, setEmployees] = useState<AttendanceEmployee[]>([])
@@ -827,7 +829,8 @@ export function EmployeesManagement() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button 
+          <PermissionButton
+            permission="hr.attendance.employees.create"
             variant="outline"
             onClick={handleImportFromHRManpower}
             disabled={isImportingFromHR}
@@ -844,23 +847,26 @@ export function EmployeesManagement() {
                 Import from HR Manpower
               </>
             )}
-          </Button>
-          <Button onClick={() => {
-            setShowAddForm(true)
-            setEditingEmployee(null)
-            setFormData({
-              employee_code: '',
-              name: '',
-              job_title: '',
-              department: '',
-              phone_number: '',
-              email: '',
-              status: 'Active'
-            })
-          }}>
+          </PermissionButton>
+          <PermissionButton
+            permission="hr.attendance.employees.create"
+            onClick={() => {
+              setShowAddForm(true)
+              setEditingEmployee(null)
+              setFormData({
+                employee_code: '',
+                name: '',
+                job_title: '',
+                department: '',
+                phone_number: '',
+                email: '',
+                status: 'Active'
+              })
+            }}
+          >
             <Plus className="h-4 w-4 mr-2" />
             Add Employee
-          </Button>
+          </PermissionButton>
         </div>
       </div>
 
@@ -1058,7 +1064,8 @@ export function EmployeesManagement() {
                 <span className="text-sm text-gray-600 dark:text-gray-400">
                   {selectedEmployees.size} selected
                 </span>
-                <Button
+                <PermissionButton
+                  permission="hr.attendance.reports.export"
                   variant="outline"
                   size="sm"
                   onClick={exportQRCodesToPDF}
@@ -1067,8 +1074,9 @@ export function EmployeesManagement() {
                 >
                   <FileText className="h-4 w-4" />
                   Export PDF
-                </Button>
-                <Button
+                </PermissionButton>
+                <PermissionButton
+                  permission="hr.attendance.reports.export"
                   variant="outline"
                   size="sm"
                   onClick={exportQRCodesToExcel}
@@ -1077,8 +1085,9 @@ export function EmployeesManagement() {
                 >
                   <FileSpreadsheet className="h-4 w-4" />
                   Export Excel
-                </Button>
-                <Button
+                </PermissionButton>
+                <PermissionButton
+                  permission="hr.attendance.employees.delete"
                   variant="outline"
                   size="sm"
                   onClick={handleBulkDelete}
@@ -1086,7 +1095,7 @@ export function EmployeesManagement() {
                 >
                   <Trash2 className="h-4 w-4" />
                   Delete Selected
-                </Button>
+                </PermissionButton>
                 <Button
                   variant="outline"
                   size="sm"
@@ -1227,22 +1236,24 @@ export function EmployeesManagement() {
                       <QrCode className="h-4 w-4" />
                     </Button>
                     
-                    <Button
+                    <PermissionButton
+                      permission="hr.attendance.employees.edit"
                       variant="outline"
                       size="sm"
                       onClick={() => handleEdit(employee)}
                     >
                       <Edit className="h-4 w-4" />
-                    </Button>
+                    </PermissionButton>
                     
-                    <Button
+                    <PermissionButton
+                      permission="hr.attendance.employees.delete"
                       variant="outline"
                       size="sm"
                       onClick={() => handleDelete(employee.id)}
                       className="text-red-600 hover:text-red-700"
                     >
                       <Trash2 className="h-4 w-4" />
-                    </Button>
+                    </PermissionButton>
                   </div>
                 </div>
               ))

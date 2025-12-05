@@ -56,16 +56,20 @@ export function usePermissionGuard() {
    * فحص صلاحية محددة
    */
   const hasAccess = (permission: string): boolean => {
-    // Create cache key
-    const cacheKey = `${appUser?.id || 'anonymous'}-${permission}`
+    if (!appUser) {
+      return false
+    }
+    
+    // ✅ FIX: Create cache key that includes permissions hash to invalidate cache when permissions change
+    const permissionsHash = Array.isArray(appUser.permissions) 
+      ? appUser.permissions.join(',') 
+      : ''
+    const customEnabled = appUser.custom_permissions_enabled ? '1' : '0'
+    const cacheKey = `${appUser.id || 'anonymous'}-${permission}-${customEnabled}-${permissionsHash}`
     
     // Check cache first
     if (permissionCache.has(cacheKey)) {
       return permissionCache.get(cacheKey)!
-    }
-    
-    if (!appUser) {
-      return false
     }
     
     const result = hasPermission(appUser as UserWithPermissions, permission)
@@ -88,8 +92,13 @@ export function usePermissionGuard() {
   const hasAnyAccess = (permissions: string[]): boolean => {
     if (!appUser) return false
     
-    // Check cache for each permission
-    const cacheKey = `${appUser.id || 'anonymous'}-any-${permissions.join(',')}`
+    // ✅ FIX: Include permissions hash in cache key
+    const permissionsHash = Array.isArray(appUser.permissions) 
+      ? appUser.permissions.join(',') 
+      : ''
+    const customEnabled = appUser.custom_permissions_enabled ? '1' : '0'
+    const cacheKey = `${appUser.id || 'anonymous'}-any-${permissions.join(',')}-${customEnabled}-${permissionsHash}`
+    
     if (permissionCache.has(cacheKey)) {
       return permissionCache.get(cacheKey)!
     }
@@ -111,7 +120,13 @@ export function usePermissionGuard() {
   const hasAllAccess = (permissions: string[]): boolean => {
     if (!appUser) return false
     
-    const cacheKey = `${appUser.id || 'anonymous'}-all-${permissions.join(',')}`
+    // ✅ FIX: Include permissions hash in cache key
+    const permissionsHash = Array.isArray(appUser.permissions) 
+      ? appUser.permissions.join(',') 
+      : ''
+    const customEnabled = appUser.custom_permissions_enabled ? '1' : '0'
+    const cacheKey = `${appUser.id || 'anonymous'}-all-${permissions.join(',')}-${customEnabled}-${permissionsHash}`
+    
     if (permissionCache.has(cacheKey)) {
       return permissionCache.get(cacheKey)!
     }
@@ -133,7 +148,13 @@ export function usePermissionGuard() {
   const canDo = (category: string, action: 'view' | 'create' | 'edit' | 'delete' | 'manage' | 'export'): boolean => {
     if (!appUser) return false
     
-    const cacheKey = `${appUser.id || 'anonymous'}-action-${category}.${action}`
+    // ✅ FIX: Include permissions hash in cache key
+    const permissionsHash = Array.isArray(appUser.permissions) 
+      ? appUser.permissions.join(',') 
+      : ''
+    const customEnabled = appUser.custom_permissions_enabled ? '1' : '0'
+    const cacheKey = `${appUser.id || 'anonymous'}-action-${category}.${action}-${customEnabled}-${permissionsHash}`
+    
     if (permissionCache.has(cacheKey)) {
       return permissionCache.get(cacheKey)!
     }

@@ -13,14 +13,14 @@ export default function HRPage() {
   
   // Redirect to manpower by default
   useEffect(() => {
-    if (guard.hasAccess('reports.view')) {
+    if (guard.hasAccess('hr.manpower.view')) {
       router.replace('/hr/manpower')
     }
   }, [router, guard])
 
   return (
     <PermissionPage 
-      permission="reports.view"
+      permission="hr.view"
       accessDeniedTitle="HR Access Required"
       accessDeniedMessage="You need permission to view HR. Please contact your administrator."
     >

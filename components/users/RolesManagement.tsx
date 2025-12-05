@@ -36,7 +36,8 @@ import {
   Square,
   Info,
   BarChart3,
-  Sparkles
+  Sparkles,
+  Copy
 } from 'lucide-react'
 
 interface CustomRole {
@@ -69,6 +70,8 @@ export function RolesManagement() {
   // Roles data
   const [defaultRoles, setDefaultRoles] = useState<Record<string, string[]>>(DEFAULT_ROLE_PERMISSIONS)
   const [customRoles, setCustomRoles] = useState<CustomRole[]>([])
+  const [editingDefaultRole, setEditingDefaultRole] = useState<string | null>(null) // Track which default role is being edited
+  const [cloningRole, setCloningRole] = useState<string | null>(null) // Track which role is being cloned
   
   // Form states
   const [showForm, setShowForm] = useState(false)
@@ -100,12 +103,72 @@ export function RolesManagement() {
   // Check permissions
   const canManageRoles = guard.hasAccess('users.permissions') || appUser?.role === 'admin'
   
-  // Load custom roles from database
+  // Load custom roles and default role overrides from database
   useEffect(() => {
     if (canManageRoles) {
       loadCustomRoles()
+      loadDefaultRoleOverrides()
     }
   }, [canManageRoles])
+  
+  // Helper function to create default role override key
+  const getDefaultRoleOverrideKey = (roleKey: string): string => {
+    return `__default_override__${roleKey}`
+  }
+  
+  // Helper function to check if a role key is a default role override
+  const isDefaultRoleOverride = (roleKey: string): boolean => {
+    return roleKey.startsWith('__default_override__')
+  }
+  
+  // Helper function to extract original role key from override key
+  const extractOriginalRoleKey = (overrideKey: string): string => {
+    return overrideKey.replace('__default_override__', '')
+  }
+  
+  const loadDefaultRoleOverrides = async () => {
+    try {
+      // Load all custom roles and filter for default role overrides
+      const { data, error } = await (supabase as any)
+        .from('custom_roles')
+        .select('*')
+      
+      if (error) {
+        // If error is about missing column, just return (use defaults)
+        if (error.message?.includes('column') || error.message?.includes('schema')) {
+          console.warn('Schema issue detected, using default roles only')
+          return
+        }
+        throw error
+      }
+      
+      if (data && data.length > 0) {
+        const overrides: Record<string, string[]> = {}
+        
+        // Find roles that are default role overrides (using prefix)
+        data.forEach((role: any) => {
+          if (isDefaultRoleOverride(role.role_key)) {
+            const originalKey = extractOriginalRoleKey(role.role_key)
+            // Only apply if it's a valid default role
+            if (DEFAULT_ROLE_PERMISSIONS[originalKey]) {
+              overrides[originalKey] = role.permissions || []
+            }
+          }
+        })
+        
+        // Merge with default roles
+        if (Object.keys(overrides).length > 0) {
+          setDefaultRoles(prev => ({
+            ...DEFAULT_ROLE_PERMISSIONS,
+            ...overrides
+          }))
+        }
+      }
+    } catch (err: any) {
+      console.error('Error loading default role overrides:', err)
+      // Don't show error to user, just use defaults
+    }
+  }
   
   const loadCustomRoles = async () => {
     try {
@@ -119,7 +182,10 @@ export function RolesManagement() {
       
       if (fetchError) throw fetchError
       
-      setCustomRoles((data || []) as CustomRole[])
+      // Filter out default role overrides (roles with __default_override__ prefix)
+      const filteredData = (data || []).filter((role: any) => !isDefaultRoleOverride(role.role_key))
+      
+      setCustomRoles(filteredData as CustomRole[])
     } catch (err: any) {
       console.error('Error loading custom roles:', err)
       setError(err.message || 'Failed to load custom roles')
@@ -231,18 +297,81 @@ export function RolesManagement() {
       setError('')
       setSuccess('')
       
-      const roleKey = formData.role_name.toLowerCase().replace(/\s+/g, '_')
-      
-      const roleData = {
-        role_key: roleKey,
-        role_name: formData.role_name.trim(),
-        description: formData.description.trim() || null,
-        permissions: formData.permissions,
-        updated_at: new Date().toISOString()
-      }
-      
-      if (editingRole) {
-        // Update existing role
+      if (editingDefaultRole) {
+        // Update default role - save to custom_roles table with special prefix
+        // IMPORTANT: Keep the original role key, don't allow changing it
+        const originalRoleKey = editingDefaultRole.toLowerCase()
+        const overrideKey = getDefaultRoleOverrideKey(originalRoleKey)
+        
+        // Use the original role name (capitalized)
+        const originalRoleName = originalRoleKey.charAt(0).toUpperCase() + originalRoleKey.slice(1)
+        
+        // Check if override already exists
+        const { data: existingRoles, error: checkError } = await (supabase as any)
+          .from('custom_roles')
+          .select('id')
+          .eq('role_key', overrideKey)
+          .maybeSingle()
+        
+        if (checkError && !checkError.message?.includes('No rows')) {
+          throw checkError
+        }
+        
+        const overrideData = {
+          role_key: overrideKey,
+          role_name: originalRoleName, // Keep original role name
+          description: formData.description.trim() || `Default role override: ${originalRoleKey}`,
+          permissions: formData.permissions,
+          updated_at: new Date().toISOString()
+        }
+        
+        if (existingRoles) {
+          // Update existing override
+          const { error: updateError } = await (supabase as any)
+            .from('custom_roles')
+            .update(overrideData as any)
+            .eq('id', existingRoles.id)
+          
+          if (updateError) throw updateError
+        } else {
+          // Create new override
+          const { error: insertError } = await (supabase as any)
+            .from('custom_roles')
+            .insert([{
+              ...overrideData,
+              created_by: appUser?.id || null
+            }] as any)
+          
+          if (insertError) throw insertError
+        }
+        
+        // Update local state
+        setDefaultRoles(prev => ({
+          ...prev,
+          [originalRoleKey]: formData.permissions
+        }))
+        
+        setSuccess('Default role updated successfully!')
+        
+        // Clear role overrides cache to force reload
+        try {
+          const { clearDefaultRoleOverridesCache } = await import('@/lib/permissionsSystem')
+          clearDefaultRoleOverridesCache()
+        } catch (err) {
+          console.warn('⚠️ Could not clear role overrides cache:', err)
+        }
+      } else if (editingRole) {
+        // Update existing custom role
+        const roleKey = formData.role_name.toLowerCase().replace(/\s+/g, '_')
+        
+        const roleData = {
+          role_key: roleKey,
+          role_name: formData.role_name.trim(),
+          description: formData.description.trim() || null,
+          permissions: formData.permissions,
+          updated_at: new Date().toISOString()
+        }
+        
         const { error: updateError } = await (supabase as any)
           .from('custom_roles')
           .update(roleData as any)
@@ -251,21 +380,36 @@ export function RolesManagement() {
         if (updateError) throw updateError
         setSuccess('Role updated successfully!')
       } else {
+        // Create new custom role (or clone)
+        const roleKey = formData.role_name.toLowerCase().replace(/\s+/g, '_')
+        
+        const roleData = {
+          role_key: roleKey,
+          role_name: formData.role_name.trim(),
+          description: formData.description.trim() || null,
+          permissions: formData.permissions,
+          updated_at: new Date().toISOString()
+        }
+        
         // Check if role key already exists
         const { data: existing } = await (supabase as any)
           .from('custom_roles')
           .select('id')
           .eq('role_key', roleKey)
-          .single()
+          .maybeSingle()
         
         if (existing) {
           throw new Error(`Role with key "${roleKey}" already exists`)
         }
         
-        // Check if it conflicts with default roles
+        // Check if it conflicts with default roles or override keys
         if (defaultRoles[roleKey]) {
           throw new Error(`Role key "${roleKey}" conflicts with a default system role`)
         }
+        if (isDefaultRoleOverride(roleKey)) {
+          throw new Error(`Role key "${roleKey}" is reserved for system use`)
+        }
+        
         
         // Create new role
         const { error: insertError } = await (supabase as any)
@@ -347,6 +491,7 @@ export function RolesManagement() {
   // Handle edit role
   const handleEditRole = (role: CustomRole) => {
     setEditingRole(role)
+    setEditingDefaultRole(null)
     setFormData({
       role_name: role.role_name,
       description: role.description || '',
@@ -355,9 +500,55 @@ export function RolesManagement() {
     setShowForm(true)
   }
   
+  // Handle edit default role
+  const handleEditDefaultRole = (roleKey: string) => {
+    setEditingDefaultRole(roleKey)
+    setEditingRole(null)
+    setCloningRole(null)
+    const roleName = roleKey.charAt(0).toUpperCase() + roleKey.slice(1)
+    setFormData({
+      role_name: roleName,
+      description: `Default system role: ${roleKey}`,
+      permissions: [...defaultRoles[roleKey]]
+    })
+    setShowForm(true)
+  }
+  
+  // Handle clone role (create a copy as a new custom role)
+  const handleCloneRole = (roleKey: string, roleType: 'default' | 'custom') => {
+    setCloningRole(roleKey)
+    setEditingDefaultRole(null)
+    setEditingRole(null)
+    
+    let roleName = ''
+    let description = ''
+    let permissions: string[] = []
+    
+    if (roleType === 'default') {
+      roleName = `${roleKey.charAt(0).toUpperCase() + roleKey.slice(1)} Copy`
+      description = `Copy of default role: ${roleKey}`
+      permissions = [...defaultRoles[roleKey]]
+    } else {
+      const customRole = customRoles.find(r => r.role_key === roleKey)
+      if (customRole) {
+        roleName = `${customRole.role_name} Copy`
+        description = `Copy of ${customRole.role_name}`
+        permissions = [...customRole.permissions]
+      }
+    }
+    
+    setFormData({
+      role_name: roleName,
+      description,
+      permissions
+    })
+    setShowForm(true)
+  }
+  
   // Handle new role
   const handleNewRole = () => {
     setEditingRole(null)
+    setEditingDefaultRole(null)
     setFormData({
       role_name: '',
       description: '',
@@ -507,27 +698,54 @@ export function RolesManagement() {
                       </span>
                     </div>
                   </div>
-                  {role.type === 'custom' && (
-                    <div className="flex items-center gap-1">
-                      {guard.hasAccess('users.permissions') && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleEditRole(customRoles.find(r => r.role_key === role.key)!)}
-                          className="h-8 w-8 p-0"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                      )}
-                      {guard.hasAccess('users.permissions') && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleDeleteRole(customRoles.find(r => r.role_key === role.key)!)}
-                          className="h-8 w-8 p-0 text-red-600 hover:text-red-700"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                  {(role.type === 'custom' || role.type === 'default') && (guard.hasAccess('users.permissions') || appUser?.role === 'admin') && (
+                    <div className="flex items-center gap-2">
+                      {role.type === 'default' ? (
+                        <>
+                          <Button
+                            variant="outline"
+                            onClick={() => handleEditDefaultRole(role.key)}
+                            className="h-9 w-9 p-0 !px-0 flex items-center justify-center border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800"
+                            title="Edit Default Role"
+                          >
+                            <Edit className="h-4 w-4 text-gray-700 dark:text-gray-300" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={() => handleCloneRole(role.key, 'default')}
+                            className="h-9 w-9 p-0 !px-0 flex items-center justify-center border-blue-300 dark:border-blue-600 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                            title="Clone as Custom Role"
+                          >
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button
+                            variant="outline"
+                            onClick={() => handleEditRole(customRoles.find(r => r.role_key === role.key)!)}
+                            className="h-9 w-9 p-0 !px-0 flex items-center justify-center border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800"
+                            title="Edit Role"
+                          >
+                            <Edit className="h-4 w-4 text-gray-700 dark:text-gray-300" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={() => handleCloneRole(role.key, 'custom')}
+                            className="h-9 w-9 p-0 !px-0 flex items-center justify-center border-blue-300 dark:border-blue-600 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                            title="Clone Role"
+                          >
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={() => handleDeleteRole(customRoles.find(r => r.role_key === role.key)!)}
+                            className="h-9 w-9 p-0 !px-0 flex items-center justify-center border-red-300 dark:border-red-600 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                            title="Delete Role"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </>
                       )}
                     </div>
                   )}
@@ -543,7 +761,7 @@ export function RolesManagement() {
                   </div>
                   {role.type === 'default' && (
                     <p className="text-xs text-gray-500 dark:text-gray-400 italic">
-                      Default roles cannot be modified or deleted.
+                      Default role - can be modified but not deleted.
                     </p>
                   )}
                 </div>
@@ -573,10 +791,16 @@ export function RolesManagement() {
                   </div>
                   <div>
                     <h2 className="text-2xl font-bold">
-                      {editingRole ? 'Edit Role' : 'Create New Role'}
+                      {editingDefaultRole ? 'Edit Default Role' : cloningRole ? 'Clone Role' : editingRole ? 'Edit Role' : 'Create New Role'}
                     </h2>
                     <p className="text-blue-100 text-sm mt-1">
-                      {editingRole ? 'Modify role permissions and settings' : 'Define a new role with custom permissions'}
+                      {editingDefaultRole 
+                        ? 'Modify default role permissions (changes apply to all users with this role)' 
+                        : cloningRole 
+                        ? 'Create a copy of this role as a new custom role' 
+                        : editingRole 
+                        ? 'Modify role permissions and settings' 
+                        : 'Define a new role with custom permissions'}
                     </p>
                   </div>
                 </div>
@@ -584,6 +808,8 @@ export function RolesManagement() {
                   onClick={() => {
                     setShowForm(false)
                     setEditingRole(null)
+                    setEditingDefaultRole(null)
+                    setCloningRole(null)
                     setFormData({ role_name: '', description: '', permissions: [] })
                     setPermissionSearchTerm('')
                     setSelectedCategory('')
@@ -604,13 +830,22 @@ export function RolesManagement() {
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Role Name <span className="text-red-500">*</span>
+                    {editingDefaultRole && (
+                      <span className="ml-2 text-xs text-yellow-600 dark:text-yellow-400">
+                        (Cannot be changed for default roles)
+                      </span>
+                    )}
                   </label>
                   <Input
                     value={formData.role_name}
-                    onChange={(e) => setFormData({ ...formData, role_name: e.target.value })}
+                    onChange={(e) => {
+                      if (!editingDefaultRole) {
+                        setFormData({ ...formData, role_name: e.target.value })
+                      }
+                    }}
                     placeholder="e.g., Project Manager, Site Engineer"
                     required
-                    disabled={loading}
+                    disabled={loading || !!editingDefaultRole}
                     className="text-base"
                   />
                   <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
@@ -886,6 +1121,8 @@ export function RolesManagement() {
                   onClick={() => {
                     setShowForm(false)
                     setEditingRole(null)
+                    setEditingDefaultRole(null)
+                    setCloningRole(null)
                     setFormData({ role_name: '', description: '', permissions: [] })
                     setPermissionSearchTerm('')
                     setSelectedCategory('')
@@ -903,7 +1140,13 @@ export function RolesManagement() {
                   className="px-6 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg shadow-blue-500/50 flex items-center gap-2"
                 >
                   <Save className="h-4 w-4" />
-                  {editingRole ? 'Update Role' : 'Create Role'}
+                  {editingDefaultRole 
+                    ? 'Update Default Role' 
+                    : cloningRole 
+                    ? 'Create Cloned Role' 
+                    : editingRole 
+                    ? 'Update Role' 
+                    : 'Create Role'}
                 </Button>
               </div>
             </div>

@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
+import { PermissionButton } from '@/components/ui/PermissionButton'
 import { Input } from '@/components/ui/Input'
 import { Alert } from '@/components/ui/Alert'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
@@ -12,6 +13,7 @@ import {
 } from 'lucide-react'
 import { supabase, TABLES, AttendanceRecord, AttendanceEmployee } from '@/lib/supabase'
 import { exportData, ExportFormat } from '@/lib/exportImportUtils'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 
 interface ReportFilters {
   start_date: string
@@ -218,7 +220,11 @@ export function AttendanceReports() {
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
           </Button>
-          <Button onClick={handleExport} disabled={exporting || reports.length === 0}>
+          <PermissionButton
+            permission="hr.attendance.reports.export"
+            onClick={handleExport}
+            disabled={exporting || reports.length === 0}
+          >
             {exporting ? (
               <>
                 <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
@@ -230,7 +236,7 @@ export function AttendanceReports() {
                 Export
               </>
             )}
-          </Button>
+          </PermissionButton>
         </div>
       </div>
 

@@ -24,11 +24,13 @@ import {
   RefreshCw
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { PermissionButton } from '@/components/ui/PermissionButton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Alert } from '@/components/ui/Alert'
 import { supabase, TABLES, AttendanceEmployee, AttendanceRecord, AttendanceLocation } from '@/lib/supabase'
 import { QRCodeScanner } from './QRCodeScanner'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 
 interface LocationData {
   latitude: number
@@ -38,6 +40,7 @@ interface LocationData {
 }
 
 export default function CheckInOutPage() {
+  const guard = usePermissionGuard()
   // State Management
   const [currentTime, setCurrentTime] = useState(new Date())
   const [location, setLocation] = useState<LocationData | null>(null)
@@ -710,7 +713,8 @@ export default function CheckInOutPage() {
                     </p>
                   </div>
                 </div>
-                <Button
+                <PermissionButton
+                  permission="hr.attendance.check_in_out"
                   variant="outline"
                   size="sm"
                   onClick={getCurrentLocation}
@@ -721,7 +725,7 @@ export default function CheckInOutPage() {
                   ) : (
                     <RefreshCw className="h-4 w-4" />
                   )}
-                </Button>
+                </PermissionButton>
               </div>
             </CardContent>
           </Card>
@@ -772,7 +776,8 @@ export default function CheckInOutPage() {
                     <User className="h-5 w-5" />
                     Select Employee
                   </CardTitle>
-                  <Button
+                  <PermissionButton
+                    permission="hr.attendance.check_in_out"
                     variant="outline"
                     size="md"
                     onClick={() => {
@@ -783,7 +788,7 @@ export default function CheckInOutPage() {
                   >
                     <QrCode className="h-7 w-7" />
                     <span className="font-bold text-base">Scan QR</span>
-                  </Button>
+                  </PermissionButton>
                 </div>
               </CardHeader>
               <CardContent>
@@ -832,7 +837,8 @@ export default function CheckInOutPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <Button
+                    <PermissionButton
+                      permission="hr.attendance.check_in_out"
                       onClick={handleCheckIn}
                       disabled={checkingIn || checkingOut || stats.hasCheckIn}
                       className="h-16 text-lg font-semibold bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white shadow-lg hover:shadow-xl transition-all"
@@ -853,9 +859,10 @@ export default function CheckInOutPage() {
                           Check In
                         </>
                       )}
-                    </Button>
+                    </PermissionButton>
 
-                    <Button
+                    <PermissionButton
+                      permission="hr.attendance.check_in_out"
                       onClick={handleCheckOut}
                       disabled={checkingIn || checkingOut || !stats.hasCheckIn || stats.hasCheckOut}
                       className="h-16 text-lg font-semibold bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 text-white shadow-lg hover:shadow-xl transition-all"
@@ -876,7 +883,7 @@ export default function CheckInOutPage() {
                           Check Out
                         </>
                       )}
-                    </Button>
+                    </PermissionButton>
                   </div>
                 </CardContent>
               </Card>

@@ -19,12 +19,14 @@ import {
   Check
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { PermissionButton } from '@/components/ui/PermissionButton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Alert } from '@/components/ui/Alert'
 import { supabase, TABLES, MachineryDayRate, Machine } from '@/lib/supabase'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { useAuth } from '@/app/providers'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 
 interface MachineryDayRatesProps {
   machines: Machine[] // Pass machines list for code dropdown
@@ -32,6 +34,7 @@ interface MachineryDayRatesProps {
 
 export default function MachineryDayRates({ machines }: MachineryDayRatesProps) {
   const { user, appUser } = useAuth()
+  const guard = usePermissionGuard()
   const [rates, setRates] = useState<MachineryDayRate[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -40,6 +43,11 @@ export default function MachineryDayRates({ machines }: MachineryDayRatesProps) 
   const [codeSearchTerm, setCodeSearchTerm] = useState('')
   const [showCodeDropdown, setShowCodeDropdown] = useState(false)
   const [selectedRates, setSelectedRates] = useState<Set<string>>(new Set())
+  
+  // Check permissions
+  const canCreate = guard.hasAccess('cost_control.machinery_day_rates.create')
+  const canEdit = guard.hasAccess('cost_control.machinery_day_rates.edit')
+  const canDelete = guard.hasAccess('cost_control.machinery_day_rates.delete')
   
   // Modal state
   const [showModal, setShowModal] = useState(false)
@@ -446,7 +454,8 @@ export default function MachineryDayRates({ machines }: MachineryDayRatesProps) 
         />
         <label htmlFor="import-rates-csv-input">
           <span>
-            <Button 
+            <PermissionButton
+              permission="cost_control.machinery_day_rates.create"
               variant="outline" 
               className="flex items-center gap-2 cursor-pointer" 
               type="button"
@@ -454,15 +463,21 @@ export default function MachineryDayRates({ machines }: MachineryDayRatesProps) 
             >
               <Upload className="h-4 w-4" />
               Import CSV
-            </Button>
+            </PermissionButton>
           </span>
         </label>
-        <Button variant="outline" onClick={handleExport} className="flex items-center gap-2">
+        <PermissionButton
+          permission="cost_control.machinery_day_rates.view"
+          variant="outline" 
+          onClick={handleExport} 
+          className="flex items-center gap-2"
+        >
           <Download className="h-4 w-4" />
           Export CSV
-        </Button>
+        </PermissionButton>
         {selectedRates.size > 0 && (
-          <Button
+          <PermissionButton
+            permission="cost_control.machinery_day_rates.delete"
             variant="outline"
             onClick={handleBulkDelete}
             className="flex items-center gap-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
@@ -470,12 +485,16 @@ export default function MachineryDayRates({ machines }: MachineryDayRatesProps) 
           >
             <Trash2 className="h-4 w-4" />
             Delete Selected ({selectedRates.size})
-          </Button>
+          </PermissionButton>
         )}
-        <Button onClick={handleAdd} className="flex items-center gap-2">
+        <PermissionButton
+          permission="cost_control.machinery_day_rates.create"
+          onClick={handleAdd} 
+          className="flex items-center gap-2"
+        >
           <Plus className="h-5 w-5" />
           Add Rate
-        </Button>
+        </PermissionButton>
       </div>
 
       {/* Alerts */}
@@ -618,7 +637,8 @@ export default function MachineryDayRates({ machines }: MachineryDayRatesProps) 
                         </td>
                         <td className="p-3">
                           <div className="flex items-center gap-2">
-                            <Button
+                            <PermissionButton
+                              permission="cost_control.machinery_day_rates.edit"
                               variant="outline"
                               size="sm"
                               onClick={() => handleEdit(rate)}
@@ -626,8 +646,9 @@ export default function MachineryDayRates({ machines }: MachineryDayRatesProps) 
                               title="Edit Rate"
                             >
                               <Edit className="h-5 w-5" />
-                            </Button>
-                            <Button
+                            </PermissionButton>
+                            <PermissionButton
+                              permission="cost_control.machinery_day_rates.delete"
                               variant="outline"
                               size="sm"
                               onClick={() => handleDelete(rate.id)}
@@ -635,7 +656,7 @@ export default function MachineryDayRates({ machines }: MachineryDayRatesProps) 
                               title="Delete Rate"
                             >
                               <Trash2 className="h-5 w-5" />
-                            </Button>
+                            </PermissionButton>
                           </div>
                         </td>
                       </tr>
@@ -837,7 +858,8 @@ export default function MachineryDayRates({ machines }: MachineryDayRatesProps) 
                   >
                     Cancel
                   </Button>
-                  <Button
+                  <PermissionButton
+                    permission={editingRate ? 'cost_control.machinery_day_rates.edit' : 'cost_control.machinery_day_rates.create'}
                     onClick={handleSave}
                     disabled={loading}
                     className="flex items-center gap-2"
@@ -853,7 +875,7 @@ export default function MachineryDayRates({ machines }: MachineryDayRatesProps) 
                         {editingRate ? 'Update' : 'Add'} Rate
                       </>
                     )}
-                  </Button>
+                  </PermissionButton>
                 </div>
               </div>
             </div>

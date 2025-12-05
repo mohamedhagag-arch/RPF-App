@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
+import { PermissionButton } from '@/components/ui/PermissionButton'
 import { Input } from '@/components/ui/Input'
 import { Alert } from '@/components/ui/Alert'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
@@ -12,12 +13,19 @@ import {
 } from 'lucide-react'
 import { supabase, TABLES, AttendanceLocation, Project } from '@/lib/supabase'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 
 export function LocationsManagement() {
+  const guard = usePermissionGuard()
   const [locations, setLocations] = useState<AttendanceLocation[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  
+  // Check permissions
+  const canCreate = guard.hasAccess('hr.attendance.locations.create')
+  const canEdit = guard.hasAccess('hr.attendance.locations.edit')
+  const canDelete = guard.hasAccess('hr.attendance.locations.delete')
   const [searchTerm, setSearchTerm] = useState('')
   const [filterFavorites, setFilterFavorites] = useState(false)
   const [showAddForm, setShowAddForm] = useState(false)
@@ -1017,7 +1025,8 @@ export function LocationsManagement() {
                         <X className="h-4 w-4" />
                         Ignore All
                       </Button>
-                      <Button
+                      <PermissionButton
+                        permission="hr.attendance.locations.create"
                         variant="primary"
                         size="sm"
                         onClick={handleAddAllPending}
@@ -1025,7 +1034,7 @@ export function LocationsManagement() {
                       >
                         <Plus className="h-4 w-4" />
                         Add All
-                      </Button>
+                      </PermissionButton>
                     </>
                   )}
                   {ignoredProjects.size > 0 && (
@@ -1139,7 +1148,8 @@ export function LocationsManagement() {
                                 <X className="h-4 w-4" />
                                 Ignore
                               </Button>
-                              <Button
+                              <PermissionButton
+                                permission="hr.attendance.locations.create"
                                 variant="primary"
                                 size="sm"
                                 onClick={async () => {
@@ -1175,7 +1185,7 @@ export function LocationsManagement() {
                               >
                                 <Plus className="h-4 w-4" />
                                 Add Location
-                              </Button>
+                              </PermissionButton>
                             </div>
                           </div>
                         </div>
@@ -1280,7 +1290,8 @@ export function LocationsManagement() {
                                   <RefreshCw className="h-4 w-4" />
                                   Restore
                                 </Button>
-                                <Button
+                                <PermissionButton
+                                  permission="hr.attendance.locations.create"
                                   variant="primary"
                                   size="sm"
                                   onClick={async () => {
@@ -1314,7 +1325,7 @@ export function LocationsManagement() {
                                 >
                                   <Plus className="h-4 w-4" />
                                   Add Location
-                                </Button>
+                                </PermissionButton>
                               </div>
                             </div>
                           </div>
@@ -1348,21 +1359,24 @@ export function LocationsManagement() {
                 </>
               )}
             </Button>
-            <Button onClick={() => {
-              setShowAddForm(true)
-              setEditingLocation(null)
-              setFormData({
-                name: '',
-                latitude: '',
-                longitude: '',
-                radius_meters: '100',
-                description: '',
-                is_active: true
-              })
-            }}>
+            <PermissionButton
+              permission="hr.attendance.locations.create"
+              onClick={() => {
+                setShowAddForm(true)
+                setEditingLocation(null)
+                setFormData({
+                  name: '',
+                  latitude: '',
+                  longitude: '',
+                  radius_meters: '100',
+                  description: '',
+                  is_active: true
+                })
+              }}
+            >
               <Plus className="h-4 w-4 mr-2" />
               Add Location
-            </Button>
+            </PermissionButton>
             <Button
               variant="outline"
               onClick={async () => {
@@ -1438,14 +1452,15 @@ export function LocationsManagement() {
                         <X className="h-4 w-4 mr-2" />
                         Ignore
                       </Button>
-                      <Button
+                      <PermissionButton
+                        permission="hr.attendance.locations.create"
                         variant="primary"
                         onClick={handleAddNewProjectLocation}
                         className="flex-1"
                       >
                         <Plus className="h-4 w-4 mr-2" />
                         Add Location
-                      </Button>
+                      </PermissionButton>
                     </div>
                   </div>
                 </CardContent>
@@ -1645,9 +1660,12 @@ export function LocationsManagement() {
                 >
                   Cancel
                 </Button>
-                <Button type="submit">
+                <PermissionButton
+                  permission={editingLocation ? 'hr.attendance.locations.edit' : 'hr.attendance.locations.create'}
+                  type="submit"
+                >
                   {editingLocation ? 'Update' : 'Add'} Location
-                </Button>
+                </PermissionButton>
               </div>
             </form>
           </CardContent>
@@ -1752,14 +1770,26 @@ export function LocationsManagement() {
                       <ExternalLink className="h-4 w-4" />
                     </Button>
                     
-                    <Button
+                    <PermissionButton
+                      permission="hr.attendance.locations.edit"
                       variant="outline"
                       size="sm"
                       onClick={() => handleEdit(location)}
                       title="Edit location"
                     >
                       <Edit className="h-4 w-4" />
-                    </Button>
+                    </PermissionButton>
+                    
+                    <PermissionButton
+                      permission="hr.attendance.locations.delete"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDelete(location.id)}
+                      title="Delete location"
+                      className="text-red-600 hover:text-red-700"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </PermissionButton>
                     
                     <Button
                       variant="outline"

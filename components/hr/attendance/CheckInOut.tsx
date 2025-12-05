@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
+import { PermissionButton } from '@/components/ui/PermissionButton'
 import { Input } from '@/components/ui/Input'
 import { Alert } from '@/components/ui/Alert'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
@@ -13,6 +14,7 @@ import {
 import { supabase, TABLES, AttendanceEmployee, AttendanceLocation } from '@/lib/supabase'
 import { useAuth } from '@/app/providers'
 import { QRCodeScanner } from './QRCodeScanner'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 
 interface LocationData {
   latitude: number
@@ -22,6 +24,7 @@ interface LocationData {
 }
 
 export function CheckInOut() {
+  const guard = usePermissionGuard()
   const [location, setLocation] = useState<LocationData | null>(null)
   const [locationError, setLocationError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -39,6 +42,9 @@ export function CheckInOut() {
   const [qrCheckType, setQrCheckType] = useState<'Check-In' | 'Check-Out'>('Check-In')
 
   const { user } = useAuth()
+  
+  // Check permission
+  const canCheckInOut = guard.hasAccess('hr.attendance.check_in_out')
 
   useEffect(() => {
     // Update time every second
@@ -571,9 +577,10 @@ export function CheckInOut() {
             </div>
 
             <div className="flex gap-4">
-              <Button
+              <PermissionButton
+                permission="hr.attendance.check_in_out"
                 onClick={handleCheckIn}
-                disabled={!location || checkingIn || !isOnline || hasCheckedIn}
+                disabled={!location || checkingIn || !isOnline || hasCheckedIn || !canCheckInOut}
                 className="flex-1"
                 size="lg"
               >
@@ -588,11 +595,12 @@ export function CheckInOut() {
                     Check In
                   </>
                 )}
-              </Button>
+              </PermissionButton>
 
-              <Button
+              <PermissionButton
+                permission="hr.attendance.check_in_out"
                 onClick={handleCheckOut}
-                disabled={!location || checkingOut || !isOnline || !hasCheckedIn || hasCheckedOut}
+                disabled={!location || checkingOut || !isOnline || !hasCheckedIn || hasCheckedOut || !canCheckInOut}
                 variant="outline"
                 className="flex-1"
                 size="lg"
@@ -608,7 +616,7 @@ export function CheckInOut() {
                     Check Out
                   </>
                 )}
-              </Button>
+              </PermissionButton>
 
               <Button
                 onClick={() => {

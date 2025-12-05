@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
+import { PermissionButton } from '@/components/ui/PermissionButton'
 import { Input } from '@/components/ui/Input'
 import { Alert } from '@/components/ui/Alert'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
@@ -11,6 +12,7 @@ import {
   CheckCircle, AlertCircle, Info
 } from 'lucide-react'
 import { supabase, TABLES } from '@/lib/supabase'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 
 interface SettingItem {
   key: string
@@ -203,7 +205,11 @@ export function AttendanceSettings() {
             <RefreshCw className="h-4 w-4 mr-2" />
             Reset to Defaults
           </Button>
-          <Button onClick={handleSave} disabled={saving}>
+          <PermissionButton
+            permission="hr.attendance.settings.manage"
+            onClick={handleSave}
+            disabled={saving}
+          >
             {saving ? (
               <>
                 <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
@@ -215,7 +221,7 @@ export function AttendanceSettings() {
                 Save Settings
               </>
             )}
-          </Button>
+          </PermissionButton>
         </div>
       </div>
 

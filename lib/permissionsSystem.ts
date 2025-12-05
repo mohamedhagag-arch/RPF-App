@@ -7,7 +7,7 @@
 export interface Permission {
   id: string
   name: string
-  category: 'projects' | 'boq' | 'kpi' | 'users' | 'reports' | 'settings' | 'system' | 'database'
+  category: 'projects' | 'boq' | 'kpi' | 'users' | 'reports' | 'settings' | 'system' | 'database' | 'cost-control' | 'hr'
   description: string
   action: 'view' | 'create' | 'edit' | 'delete' | 'manage' | 'export' | 'approve' | 'backup' | 'restore'
 }
@@ -200,6 +200,62 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: 'database.templates', name: 'Download Templates', category: 'database', description: 'Can download data templates for tables', action: 'export' },
   { id: 'database.analyze', name: 'Performance Analysis', category: 'database', description: 'Can analyze database performance and size', action: 'view' },
   { id: 'database.cleanup', name: 'Data Cleanup', category: 'database', description: 'Can clean up old or unnecessary data', action: 'delete' },
+  
+  // Cost Control Permissions
+  { id: 'cost_control.view', name: 'View Cost Control', category: 'cost-control', description: 'Can view cost control overview and statistics', action: 'view' },
+  { id: 'cost_control.manpower.view', name: 'View Manpower', category: 'cost-control', description: 'Can view manpower data and records', action: 'view' },
+  { id: 'cost_control.manpower.create', name: 'Create Manpower Records', category: 'cost-control', description: 'Can create new manpower records', action: 'create' },
+  { id: 'cost_control.manpower.edit', name: 'Edit Manpower Records', category: 'cost-control', description: 'Can edit existing manpower records', action: 'edit' },
+  { id: 'cost_control.manpower.delete', name: 'Delete Manpower Records', category: 'cost-control', description: 'Can delete manpower records', action: 'delete' },
+  { id: 'cost_control.manpower.import', name: 'Import Manpower Data', category: 'cost-control', description: 'Can import manpower data from files', action: 'manage' },
+  { id: 'cost_control.manpower.export', name: 'Export Manpower Data', category: 'cost-control', description: 'Can export manpower data', action: 'export' },
+  { id: 'cost_control.designation_rates.view', name: 'View Designation Rates', category: 'cost-control', description: 'Can view designation hourly rates', action: 'view' },
+  { id: 'cost_control.designation_rates.create', name: 'Create Designation Rates', category: 'cost-control', description: 'Can create new designation rates', action: 'create' },
+  { id: 'cost_control.designation_rates.edit', name: 'Edit Designation Rates', category: 'cost-control', description: 'Can edit designation rates', action: 'edit' },
+  { id: 'cost_control.designation_rates.delete', name: 'Delete Designation Rates', category: 'cost-control', description: 'Can delete designation rates', action: 'delete' },
+  { id: 'cost_control.designation_rates.export', name: 'Export Designation Rates', category: 'cost-control', description: 'Can export designation rates to CSV', action: 'export' },
+  { id: 'cost_control.machine_list.view', name: 'View Machine List', category: 'cost-control', description: 'Can view machine list and equipment', action: 'view' },
+  { id: 'cost_control.machine_list.create', name: 'Create Machines', category: 'cost-control', description: 'Can add new machines to the list', action: 'create' },
+  { id: 'cost_control.machine_list.edit', name: 'Edit Machines', category: 'cost-control', description: 'Can edit machine information', action: 'edit' },
+  { id: 'cost_control.machine_list.delete', name: 'Delete Machines', category: 'cost-control', description: 'Can delete machines from the list', action: 'delete' },
+  { id: 'cost_control.machine_list.export', name: 'Export Machine List', category: 'cost-control', description: 'Can export machine list to CSV', action: 'export' },
+  { id: 'cost_control.machinery_day_rates.view', name: 'View Machinery Day Rates', category: 'cost-control', description: 'Can view machinery day rates', action: 'view' },
+  { id: 'cost_control.machinery_day_rates.create', name: 'Create Machinery Day Rates', category: 'cost-control', description: 'Can create new machinery day rates', action: 'create' },
+  { id: 'cost_control.machinery_day_rates.edit', name: 'Edit Machinery Day Rates', category: 'cost-control', description: 'Can edit machinery day rates', action: 'edit' },
+  { id: 'cost_control.machinery_day_rates.delete', name: 'Delete Machinery Day Rates', category: 'cost-control', description: 'Can delete machinery day rates', action: 'delete' },
+  { id: 'cost_control.database.view', name: 'View Cost Control Database', category: 'cost-control', description: 'Can view cost control database manager', action: 'view' },
+  { id: 'cost_control.database.manage', name: 'Manage Cost Control Database', category: 'cost-control', description: 'Can manage cost control database (import, export, clear)', action: 'manage' },
+  
+  // HR Permissions
+  { id: 'hr.view', name: 'View HR', category: 'hr', description: 'Can view HR module and overview', action: 'view' },
+  { id: 'hr.manpower.view', name: 'View HR Manpower', category: 'hr', description: 'Can view HR manpower records', action: 'view' },
+  { id: 'hr.manpower.create', name: 'Create HR Manpower', category: 'hr', description: 'Can create new HR manpower records', action: 'create' },
+  { id: 'hr.manpower.edit', name: 'Edit HR Manpower', category: 'hr', description: 'Can edit HR manpower records', action: 'edit' },
+  { id: 'hr.manpower.delete', name: 'Delete HR Manpower', category: 'hr', description: 'Can delete HR manpower records', action: 'delete' },
+  { id: 'hr.attendance.view', name: 'View Attendance', category: 'hr', description: 'Can view attendance dashboard and statistics', action: 'view' },
+  { id: 'hr.attendance.check_in_out', name: 'Check-In/Out', category: 'hr', description: 'Can perform check-in and check-out operations', action: 'create' },
+  { id: 'hr.attendance.review', name: 'Review Attendance', category: 'hr', description: 'Can review and approve attendance records', action: 'approve' },
+  { id: 'hr.attendance.employees.view', name: 'View Attendance Employees', category: 'hr', description: 'Can view attendance employees list', action: 'view' },
+  { id: 'hr.attendance.employees.create', name: 'Create Attendance Employees', category: 'hr', description: 'Can create new attendance employees', action: 'create' },
+  { id: 'hr.attendance.employees.edit', name: 'Edit Attendance Employees', category: 'hr', description: 'Can edit attendance employee information', action: 'edit' },
+  { id: 'hr.attendance.employees.delete', name: 'Delete Attendance Employees', category: 'hr', description: 'Can delete attendance employees', action: 'delete' },
+  { id: 'hr.attendance.locations.view', name: 'View Attendance Locations', category: 'hr', description: 'Can view attendance locations (GPS tracking)', action: 'view' },
+  { id: 'hr.attendance.locations.create', name: 'Create Attendance Locations', category: 'hr', description: 'Can create new attendance locations', action: 'create' },
+  { id: 'hr.attendance.locations.edit', name: 'Edit Attendance Locations', category: 'hr', description: 'Can edit attendance locations', action: 'edit' },
+  { id: 'hr.attendance.locations.delete', name: 'Delete Attendance Locations', category: 'hr', description: 'Can delete attendance locations', action: 'delete' },
+  { id: 'hr.attendance.reports.view', name: 'View Attendance Reports', category: 'hr', description: 'Can view attendance reports and analytics', action: 'view' },
+  { id: 'hr.attendance.reports.export', name: 'Export Attendance Reports', category: 'hr', description: 'Can export attendance reports', action: 'export' },
+  { id: 'hr.attendance.settings.view', name: 'View Attendance Settings', category: 'hr', description: 'Can view attendance system settings', action: 'view' },
+  { id: 'hr.attendance.settings.manage', name: 'Manage Attendance Settings', category: 'hr', description: 'Can manage attendance system settings', action: 'manage' },
+  { id: 'hr.attendance.qr.view', name: 'View QR Settings', category: 'hr', description: 'Can view QR code settings for attendance', action: 'view' },
+  { id: 'hr.attendance.qr.manage', name: 'Manage QR Settings', category: 'hr', description: 'Can manage QR code settings for attendance', action: 'manage' },
+  
+  // Companies Management Permissions
+  { id: 'companies.view', name: 'View Companies', category: 'settings', description: 'Can view companies list', action: 'view' },
+  { id: 'companies.create', name: 'Create Companies', category: 'settings', description: 'Can create new companies', action: 'create' },
+  { id: 'companies.edit', name: 'Edit Companies', category: 'settings', description: 'Can edit company information', action: 'edit' },
+  { id: 'companies.delete', name: 'Delete Companies', category: 'settings', description: 'Can delete companies', action: 'delete' },
+  { id: 'settings.manage', name: 'Manage All Settings', category: 'settings', description: 'Can manage all system settings (full access)', action: 'manage' },
 ]
 
 // الصلاحيات الافتراضية لكل دور
@@ -220,8 +276,23 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     // Reports
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly', 'reports.financial', 'reports.export', 'reports.print',
     'reports.lookahead', 'reports.critical', 'reports.performance', 'reports.custom',
+    // Cost Control
+    'cost_control.view', 'cost_control.manpower.view', 'cost_control.manpower.create', 'cost_control.manpower.edit', 'cost_control.manpower.delete', 'cost_control.manpower.import', 'cost_control.manpower.export',
+    'cost_control.designation_rates.view', 'cost_control.designation_rates.create', 'cost_control.designation_rates.edit', 'cost_control.designation_rates.delete', 'cost_control.designation_rates.export',
+    'cost_control.machine_list.view', 'cost_control.machine_list.create', 'cost_control.machine_list.edit', 'cost_control.machine_list.delete', 'cost_control.machine_list.export',
+    'cost_control.machinery_day_rates.view', 'cost_control.machinery_day_rates.create', 'cost_control.machinery_day_rates.edit', 'cost_control.machinery_day_rates.delete',
+    'cost_control.database.view', 'cost_control.database.manage',
+    // HR
+    'hr.view', 'hr.manpower.view', 'hr.manpower.create', 'hr.manpower.edit', 'hr.manpower.delete',
+    'hr.attendance.view', 'hr.attendance.check_in_out', 'hr.attendance.review',
+    'hr.attendance.employees.view', 'hr.attendance.employees.create', 'hr.attendance.employees.edit', 'hr.attendance.employees.delete',
+    'hr.attendance.locations.view', 'hr.attendance.locations.create', 'hr.attendance.locations.edit', 'hr.attendance.locations.delete',
+    'hr.attendance.reports.view', 'hr.attendance.reports.export',
+    'hr.attendance.settings.view', 'hr.attendance.settings.manage',
+    'hr.attendance.qr.view', 'hr.attendance.qr.manage',
     // Settings (manage most settings)
     'settings.view', 'settings.company', 'settings.divisions', 'settings.project_types', 'settings.currencies', 'settings.activities', 'settings.holidays', 'settings.holidays.view', 'settings.holidays.create', 'settings.holidays.edit', 'settings.holidays.delete',
+    'settings.manage', 'companies.view', 'companies.create', 'companies.edit', 'companies.delete',
     'project_types.view', 'project_types.create', 'project_types.edit', 'project_types.delete',
     'activities.view', 'activities.create', 'activities.edit', 'activities.delete',
     'departments.view', 'departments.create', 'departments.edit', 'departments.delete',
@@ -261,8 +332,12 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     // Reports (view and export)
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly', 'reports.export', 'reports.print',
     'reports.lookahead', 'reports.critical', 'reports.performance',
+    // Cost Control (view only)
+    'cost_control.view', 'cost_control.manpower.view', 'cost_control.designation_rates.view', 'cost_control.machine_list.view', 'cost_control.machinery_day_rates.view',
+    // HR (limited - view and check-in/out)
+    'hr.view', 'hr.attendance.view', 'hr.attendance.check_in_out', 'hr.attendance.reports.view',
     // Settings (view only)
-    'settings.view', 'project_types.view', 'activities.view', 'departments.view', 'job_titles.view',
+    'settings.view', 'project_types.view', 'activities.view', 'departments.view', 'job_titles.view', 'companies.view',
     // Users (limited)
     'directory.view', 'directory.search', 'profile.view', 'profile.edit', 'profile.qr', 'profile.photo',
     // System (limited)
@@ -282,7 +357,11 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'kpi.view',
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly',
     'reports.lookahead', 'reports.critical', 'reports.performance',
-    'settings.view', 'project_types.view', 'activities.view', 'departments.view', 'job_titles.view',
+    // Cost Control (view only)
+    'cost_control.view', 'cost_control.manpower.view', 'cost_control.designation_rates.view', 'cost_control.machine_list.view', 'cost_control.machinery_day_rates.view',
+    // HR (view only)
+    'hr.view', 'hr.manpower.view', 'hr.attendance.view', 'hr.attendance.reports.view',
+    'settings.view', 'project_types.view', 'activities.view', 'departments.view', 'job_titles.view', 'companies.view',
     'directory.view', 'directory.search', 'profile.view',
     'system.search', 'user_guide.view', 'active_users.view',
     'analytics.view', 'performance.view',
@@ -304,8 +383,12 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     // Reports (view and export)
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly', 'reports.export', 'reports.print',
     'reports.lookahead', 'reports.critical', 'reports.performance',
+    // Cost Control (view only)
+    'cost_control.view', 'cost_control.manpower.view', 'cost_control.designation_rates.view', 'cost_control.machine_list.view', 'cost_control.machinery_day_rates.view',
+    // HR (view only)
+    'hr.view', 'hr.manpower.view', 'hr.attendance.view', 'hr.attendance.reports.view',
     // Settings (view only)
-    'settings.view', 'project_types.view', 'activities.view', 'departments.view', 'job_titles.view',
+    'settings.view', 'project_types.view', 'activities.view', 'departments.view', 'job_titles.view', 'companies.view',
     // Users (limited)
     'directory.view', 'directory.search', 'profile.view', 'profile.edit',
     // System (limited)
@@ -331,32 +414,137 @@ export interface UserWithPermissions {
   is_active: boolean
 }
 
+// Cache for default role overrides to avoid repeated database queries
+let defaultRoleOverridesCache: Record<string, string[]> | null = null
+let cacheTimestamp: number = 0
+const CACHE_DURATION = 60000 // 1 minute cache
+
+/**
+ * Load default role overrides from database
+ * تحميل التعديلات المحدثة للأدوار الافتراضية من قاعدة البيانات
+ */
+async function loadDefaultRoleOverrides(): Promise<Record<string, string[]>> {
+  // Check cache first
+  const now = Date.now()
+  if (defaultRoleOverridesCache && (now - cacheTimestamp) < CACHE_DURATION) {
+    return defaultRoleOverridesCache
+  }
+
+  try {
+    // Dynamic import to avoid circular dependencies
+    const { getSupabaseClient } = await import('@/lib/simpleConnectionManager')
+    const supabase = getSupabaseClient()
+    
+    const { data, error } = await (supabase as any)
+      .from('custom_roles')
+      .select('role_key, permissions')
+    
+    if (error) {
+      console.warn('⚠️ Error loading default role overrides:', error)
+      return {}
+    }
+    
+    const overrides: Record<string, string[]> = {}
+    if (data) {
+      data.forEach((role: any) => {
+        if (role.role_key?.startsWith('__default_override__')) {
+          const originalKey = role.role_key.replace('__default_override__', '')
+          if (DEFAULT_ROLE_PERMISSIONS[originalKey]) {
+            overrides[originalKey] = role.permissions || []
+          }
+        }
+      })
+    }
+    
+    // Update cache
+    defaultRoleOverridesCache = overrides
+    cacheTimestamp = now
+    
+    return overrides
+  } catch (err) {
+    console.warn('⚠️ Error loading default role overrides:', err)
+    return {}
+  }
+}
+
+/**
+ * Clear the default role overrides cache
+ * تنظيف cache التعديلات المحدثة
+ */
+export function clearDefaultRoleOverridesCache(): void {
+  defaultRoleOverridesCache = null
+  cacheTimestamp = 0
+}
+
 /**
  * الحصول على صلاحيات المستخدم
+ */
+export async function getUserPermissionsAsync(user: UserWithPermissions): Promise<string[]> {
+  // ✅ PERFORMANCE: Only log in development mode and very rarely (0.1%)
+  if (process.env.NODE_ENV === 'development' && Math.random() < 0.001) {
+    console.log('🔍 getUserPermissionsAsync called:', {
+      userEmail: user.email,
+      userRole: user.role,
+      customEnabled: user.custom_permissions_enabled,
+      savedPermissions: user.permissions?.length || 0
+    })
+  }
+
+  // ✅ إذا كان نظام الصلاحيات المخصصة مفعل (حتى لو كان Admin)
+  if (user.custom_permissions_enabled) {
+    // استخدم الصلاحيات المخصصة فقط
+    const customPerms = Array.isArray(user.permissions) ? user.permissions : []
+    
+    if (customPerms.length === 0) {
+      console.warn('⚠️ Custom permissions enabled but permissions array is empty. Loading default role permissions with overrides.')
+      // Load overrides and use them
+      const overrides = await loadDefaultRoleOverrides()
+      const defaultRolePermissions = overrides[user.role] || DEFAULT_ROLE_PERMISSIONS[user.role] || DEFAULT_ROLE_PERMISSIONS.viewer
+      return defaultRolePermissions
+    }
+    
+    return customPerms
+  }
+  
+  // Load default role overrides and use them
+  const overrides = await loadDefaultRoleOverrides()
+  const defaultRolePermissions = overrides[user.role] || DEFAULT_ROLE_PERMISSIONS[user.role] || DEFAULT_ROLE_PERMISSIONS.viewer
+  
+  return defaultRolePermissions
+}
+
+/**
+ * الحصول على صلاحيات المستخدم (synchronous version - uses cache)
  */
 export function getUserPermissions(user: UserWithPermissions): string[] {
   // ✅ PERFORMANCE: Only log in development mode and very rarely (0.1%)
   if (process.env.NODE_ENV === 'development' && Math.random() < 0.001) {
-  console.log('🔍 getUserPermissions called:', {
-    userEmail: user.email,
-    userRole: user.role,
-    customEnabled: user.custom_permissions_enabled,
+    console.log('🔍 getUserPermissions called:', {
+      userEmail: user.email,
+      userRole: user.role,
+      customEnabled: user.custom_permissions_enabled,
       savedPermissions: user.permissions?.length || 0
-  })
+    })
   }
 
-  // الحصول على الصلاحيات الافتراضية للدور
-  const defaultRolePermissions = DEFAULT_ROLE_PERMISSIONS[user.role] || DEFAULT_ROLE_PERMISSIONS.viewer
-  
   // ✅ إذا كان نظام الصلاحيات المخصصة مفعل (حتى لو كان Admin)
   if (user.custom_permissions_enabled) {
     // استخدم الصلاحيات المخصصة فقط
-    const customPerms = user.permissions || []
-    // ✅ PERFORMANCE: Removed excessive logging
+    const customPerms = Array.isArray(user.permissions) ? user.permissions : []
+    
+    if (customPerms.length === 0) {
+      console.warn('⚠️ Custom permissions enabled but permissions array is empty. Using default role permissions with overrides.')
+      // Use cached overrides if available
+      const defaultRolePermissions = defaultRoleOverridesCache?.[user.role] || DEFAULT_ROLE_PERMISSIONS[user.role] || DEFAULT_ROLE_PERMISSIONS.viewer
+      return defaultRolePermissions
+    }
+    
     return customPerms
   }
   
-  // إذا لم يكن custom mode، استخدم الصلاحيات الافتراضية للدور
+  // Use cached overrides if available, otherwise use default
+  const defaultRolePermissions = defaultRoleOverridesCache?.[user.role] || DEFAULT_ROLE_PERMISSIONS[user.role] || DEFAULT_ROLE_PERMISSIONS.viewer
+  
   return defaultRolePermissions
 }
 
@@ -364,15 +552,6 @@ export function getUserPermissions(user: UserWithPermissions): string[] {
  * التحقق من وجود صلاحية معينة
  */
 export function hasPermission(user: UserWithPermissions | null, permission: string): boolean {
-  // ✅ PERFORMANCE: Only log in development mode and very rarely (0.1%)
-  if (process.env.NODE_ENV === 'development' && Math.random() < 0.001) {
-  console.log('🔍 Permission Check:', {
-    permission,
-    userEmail: user?.email,
-      userRole: user?.role
-  })
-  }
-  
   if (!user) {
     return false
   }
@@ -401,11 +580,29 @@ export function hasPermission(user: UserWithPermissions | null, permission: stri
     }
   }
   
-  // إذا كان Admin مع custom permissions، نفحص الصلاحيات المخصصة
+  // ✅ FIX: الحصول على الصلاحيات مع logging أفضل للتشخيص
   const userPermissions = getUserPermissions(user)
+  
+  // ✅ DEBUG: Log permission check in development (only for specific permissions or when debugging)
+  if (process.env.NODE_ENV === 'development') {
+    const debugPermissions = ['cost_control.view', 'hr.view', 'cost_control.manpower.view']
+    if (debugPermissions.includes(permission)) {
+      console.log('🔍 Permission Check Debug:', {
+        permission,
+        userEmail: user.email,
+        userRole: user.role,
+        customEnabled: user.custom_permissions_enabled,
+        savedPermissions: user.permissions,
+        savedPermissionsLength: user.permissions?.length || 0,
+        finalPermissions: userPermissions,
+        finalPermissionsLength: userPermissions.length,
+        hasAccess: userPermissions.includes(permission)
+      })
+    }
+  }
+  
   const hasAccess = userPermissions.includes(permission)
   
-  // ✅ PERFORMANCE: Removed excessive logging
   return hasAccess
 }
 

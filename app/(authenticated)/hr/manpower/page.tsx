@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/Input'
 import { Alert } from '@/components/ui/Alert'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { ModernButton } from '@/components/ui/ModernButton'
+import { PermissionButton } from '@/components/ui/PermissionButton'
 import { 
   Users, 
   Plus, 
@@ -74,16 +75,35 @@ export default function HRManpowerPage() {
   })
 
   const isAdmin = appUser?.role === 'admin'
-  const canEdit = guard.hasAccess('users.edit') || isAdmin
-  const canDelete = isAdmin
+  const canCreate = guard.hasAccess('hr.manpower.create') || isAdmin
+  const canEdit = guard.hasAccess('hr.manpower.edit') || isAdmin
+  const canDelete = guard.hasAccess('hr.manpower.delete') || isAdmin
+  const canExport = guard.hasAccess('hr.manpower.view') || isAdmin // Export requires view permission
+  const canImport = guard.hasAccess('hr.manpower.create') || isAdmin // Import requires create permission
 
   // Handle query parameter for tabs
   useEffect(() => {
     const tab = searchParams?.get('tab') as HRManpowerTab | null
     if (tab && ['manpower', 'management-data'].includes(tab)) {
-      setActiveTab(tab)
+      // Check permissions before setting tab
+      if (tab === 'manpower') {
+        if (guard.hasAccess('hr.manpower.view') || isAdmin) {
+          setActiveTab(tab)
+        } else {
+          // Redirect to default if no permission
+          router.replace('/hr/manpower?tab=manpower', { scroll: false })
+        }
+      } else if (tab === 'management-data') {
+        // Management Data requires create permission (for import functionality)
+        if (guard.hasAccess('hr.manpower.create') || isAdmin) {
+          setActiveTab(tab)
+        } else {
+          // Redirect to manpower tab if no permission
+          router.replace('/hr/manpower?tab=manpower', { scroll: false })
+        }
+      }
     }
-  }, [searchParams])
+  }, [searchParams, guard, isAdmin, router])
 
   useEffect(() => {
     // Only fetch if user is authenticated and on manpower tab
@@ -637,7 +657,8 @@ export default function HRManpowerPage() {
                 className="hidden"
                 id="import-file-input"
               />
-              <ModernButton
+              <PermissionButton
+                permission="hr.manpower.create"
                 variant="outline"
                 size="sm"
                 className="flex items-center gap-2"
@@ -648,7 +669,7 @@ export default function HRManpowerPage() {
               >
                 <Upload className="h-4 w-4" />
                 Select File
-              </ModernButton>
+              </PermissionButton>
               {importFile && (
                 <div className="flex items-center gap-2 flex-wrap">
                   <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
@@ -677,7 +698,8 @@ export default function HRManpowerPage() {
                       <X className="h-3 w-3" />
                     </button>
                   </div>
-                  <ModernButton
+                  <PermissionButton
+                    permission="hr.manpower.create"
                     onClick={handleImportPreview}
                     variant="primary"
                     size="sm"
@@ -686,7 +708,7 @@ export default function HRManpowerPage() {
                   >
                     <FileSpreadsheet className="h-4 w-4" />
                     Preview Import
-                  </ModernButton>
+                  </PermissionButton>
                 </div>
               )}
             </div>
@@ -701,7 +723,8 @@ export default function HRManpowerPage() {
                 <option value="csv">CSV</option>
                 <option value="json">JSON</option>
               </select>
-              <ModernButton
+              <PermissionButton
+                permission="hr.manpower.view"
                 onClick={handleExport}
                 variant="outline"
                 size="sm"
@@ -709,8 +732,9 @@ export default function HRManpowerPage() {
               >
                 <Download className="h-4 w-4" />
                 Export
-              </ModernButton>
-              <ModernButton
+              </PermissionButton>
+              <PermissionButton
+                permission="hr.manpower.create"
                 onClick={handleDownloadTemplate}
                 variant="ghost"
                 size="sm"
@@ -718,7 +742,7 @@ export default function HRManpowerPage() {
               >
                 <FileText className="h-4 w-4" />
                 Download Template
-              </ModernButton>
+              </PermissionButton>
             </div>
           </div>
 
@@ -787,7 +811,8 @@ export default function HRManpowerPage() {
               )}
             </div>
             <div className="flex gap-2 mt-4">
-              <ModernButton
+              <PermissionButton
+                permission="hr.manpower.create"
                 onClick={handleConfirmImport}
                 variant="primary"
                 disabled={importing}
@@ -795,7 +820,7 @@ export default function HRManpowerPage() {
               >
                 <CheckCircle className="h-4 w-4" />
                 Confirm Import
-              </ModernButton>
+              </PermissionButton>
               <ModernButton
                 onClick={() => {
                   setShowImportPreview(false)
@@ -949,14 +974,15 @@ export default function HRManpowerPage() {
               </div>
             </div>
             <div className="flex gap-2 mt-4">
-              <ModernButton
+              <PermissionButton
+                permission={editingEmployee ? 'hr.manpower.edit' : 'hr.manpower.create'}
                 onClick={handleSave}
                 variant="primary"
                 className="flex items-center gap-2"
               >
                 <Save className="h-4 w-4" />
                 {editingEmployee ? 'Update' : 'Save'}
-              </ModernButton>
+              </PermissionButton>
               <ModernButton
                 onClick={handleCancel}
                 variant="ghost"
@@ -1026,20 +1052,24 @@ export default function HRManpowerPage() {
                       <td className="p-3 text-sm text-gray-600 dark:text-gray-400">
                         {employee.email || '-'}
                       </td>
-                      {canEdit && (
+                      {(canEdit || canDelete) && (
                         <td className="p-3">
                           <div className="flex items-center justify-end gap-2">
-                            <ModernButton
-                              onClick={() => handleEdit(employee)}
-                              variant="ghost"
-                              size="sm"
-                              className="h-10 w-10 p-0 flex items-center justify-center"
-                              title="Edit"
-                            >
-                              <Edit className="h-5 w-5" />
-                            </ModernButton>
+                            {canEdit && (
+                              <PermissionButton
+                                permission="hr.manpower.edit"
+                                onClick={() => handleEdit(employee)}
+                                variant="ghost"
+                                size="sm"
+                                className="h-10 w-10 p-0 flex items-center justify-center"
+                                title="Edit"
+                              >
+                                <Edit className="h-5 w-5" />
+                              </PermissionButton>
+                            )}
                             {canDelete && (
-                              <ModernButton
+                              <PermissionButton
+                                permission="hr.manpower.delete"
                                 onClick={() => handleDelete(employee)}
                                 variant="ghost"
                                 size="sm"
@@ -1047,7 +1077,7 @@ export default function HRManpowerPage() {
                                 title="Delete"
                               >
                                 <Trash2 className="h-5 w-5" />
-                              </ModernButton>
+                              </PermissionButton>
                             )}
                           </div>
                         </td>
@@ -1066,18 +1096,48 @@ export default function HRManpowerPage() {
   const renderTabContent = () => {
     switch (activeTab) {
       case 'manpower':
+        // Check permission before rendering
+        if (!guard.hasAccess('hr.manpower.view') && !isAdmin) {
+          return (
+            <div className="text-center py-12">
+              <Alert variant="error">
+                You don't have permission to view this tab.
+              </Alert>
+            </div>
+          )
+        }
         return renderManpowerTab()
       case 'management-data':
+        // Check permission before rendering - requires create permission
+        if (!guard.hasAccess('hr.manpower.create') && !isAdmin) {
+          return (
+            <div className="text-center py-12">
+              <Alert variant="error">
+                You don't have permission to view this tab.
+              </Alert>
+            </div>
+          )
+        }
         return renderManagementDataTab()
       default:
-        return renderManpowerTab()
+        // Default to manpower if no valid tab
+        if (guard.hasAccess('hr.manpower.view') || isAdmin) {
+          return renderManpowerTab()
+        }
+        return (
+          <div className="text-center py-12">
+            <Alert variant="error">
+              You don't have permission to view this page.
+            </Alert>
+          </div>
+        )
     }
   }
 
   if (loading) {
     return (
       <PermissionPage 
-        permission="reports.view"
+        permission="hr.manpower.view"
         accessDeniedTitle="HR Manpower Access Required"
         accessDeniedMessage="You need permission to view HR Manpower. Please contact your administrator."
       >
@@ -1091,7 +1151,7 @@ export default function HRManpowerPage() {
 
   return (
     <PermissionPage 
-      permission="reports.view"
+      permission="hr.manpower.view"
       accessDeniedTitle="HR Manpower Access Required"
       accessDeniedMessage="You need permission to view HR Manpower. Please contact your administrator."
     >
@@ -1111,6 +1171,18 @@ export default function HRManpowerPage() {
         {/* Tabs */}
         <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700 overflow-x-auto pb-2">
           {tabs.map((tab) => {
+            // Check permissions for each tab
+            let canViewTab = false
+            if (tab.id === 'manpower') {
+              canViewTab = guard.hasAccess('hr.manpower.view') || isAdmin
+            } else if (tab.id === 'management-data') {
+              // Management Data requires create permission (for import functionality)
+              canViewTab = guard.hasAccess('hr.manpower.create') || isAdmin
+            }
+            
+            // Don't render tab if user doesn't have permission
+            if (!canViewTab) return null
+            
             const Icon = tab.icon
             return (
               <ModernButton
@@ -1146,17 +1218,16 @@ export default function HRManpowerPage() {
           {activeTab === 'manpower' && (
             <div className="flex items-center justify-end mb-4">
               <div className="flex items-center gap-2">
-                {canEdit && (
-                  <ModernButton
-                    onClick={handleAdd}
-                    variant="primary"
-                    size="sm"
-                    className="flex items-center gap-2"
-                  >
-                    <Plus className="h-4 w-4" />
-                    Add Employee
-                  </ModernButton>
-                )}
+                <PermissionButton
+                  permission="hr.manpower.create"
+                  onClick={handleAdd}
+                  variant="primary"
+                  size="sm"
+                  className="flex items-center gap-2"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add Employee
+                </PermissionButton>
                 <ModernButton
                   onClick={fetchEmployees}
                   variant="ghost"

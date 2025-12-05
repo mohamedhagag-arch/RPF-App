@@ -60,22 +60,70 @@ export function Providers({ children }: { children: React.ReactNode }) {
       if (error) {
         console.log('❌ Providers: Error refreshing user profile:', error)
       } else {
+        // ✅ FIX: تنظيف البيانات للتأكد من أن permissions هي مصفوفة صالحة
+        const profileData = profile as any
+        const cleanedProfile: AppUser = {
+          ...profileData,
+          permissions: Array.isArray(profileData.permissions) 
+            ? profileData.permissions 
+            : []
+        }
+        
+        // ✅ Load default role overrides to refresh cache
+        try {
+          const { clearDefaultRoleOverridesCache } = await import('@/lib/permissionsSystem')
+          clearDefaultRoleOverridesCache()
+          // Cache will be loaded on next getUserPermissions call
+        } catch (err) {
+          console.warn('⚠️ Could not clear role overrides cache:', err)
+        }
+        
         console.log('✅ Providers: User profile refreshed successfully')
         console.log('📊 Providers: New data:', {
-          email: (profile as any).email,
-          role: (profile as any).role,
-          permissions: (profile as any).permissions,
-          permissionsLength: (profile as any).permissions?.length,
-          customEnabled: (profile as any).custom_permissions_enabled,
-          updated_at: (profile as any).updated_at
+          email: cleanedProfile.email,
+          role: cleanedProfile.role,
+          permissions: cleanedProfile.permissions,
+          permissionsLength: cleanedProfile.permissions?.length,
+          customEnabled: cleanedProfile.custom_permissions_enabled,
+          updated_at: cleanedProfile.updated_at,
+          permissionsType: typeof cleanedProfile.permissions,
+          isArray: Array.isArray(cleanedProfile.permissions)
         })
-        setAppUser(profile)
-        console.log('✅ Providers: appUser state updated')
+        setAppUser(cleanedProfile)
+        console.log('✅ Providers: appUser state updated with cleaned data')
       }
     } catch (error) {
       console.log('❌ Providers: Error refreshing user profile:', error)
     }
   }
+
+  // Load default role overrides cache on mount
+  useEffect(() => {
+    const loadRoleOverridesCache = async () => {
+      try {
+        // Pre-load the cache by calling getUserPermissionsAsync with a dummy user
+        const { getUserPermissionsAsync } = await import('@/lib/permissionsSystem')
+        // This will trigger cache loading
+        await getUserPermissionsAsync({
+          id: 'dummy',
+          email: 'dummy@example.com',
+          full_name: 'Dummy',
+          role: 'viewer',
+          permissions: [],
+          custom_permissions_enabled: false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          is_active: true
+        } as any)
+      } catch (err) {
+        console.warn('⚠️ Could not pre-load role overrides cache:', err)
+      }
+    }
+    
+    if (user?.id) {
+      loadRoleOverridesCache()
+    }
+  }, [user?.id])
 
   // Expose refresh function globally
   useEffect(() => {

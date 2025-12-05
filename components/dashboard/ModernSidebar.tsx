@@ -253,29 +253,36 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
           return item.subItems.some(subItem => {
             switch (subItem.tab) {
               case 'cost-control/manpower':
-                return guard.hasAccess('reports.view') // Using reports.view as default permission
+                return guard.hasAccess('cost_control.manpower.view')
+              case 'cost-control/designation-rates':
+                return guard.hasAccess('cost_control.designation_rates.view')
+              case 'cost-control/machine-list':
+                return guard.hasAccess('cost_control.machine_list.view')
               default:
                 return false
             }
           })
         }
-        return guard.hasAccess('reports.view')
+        return guard.hasAccess('cost_control.view')
       case 'hr':
         // Show hr if user has access to any sub-item
         if (item.subItems) {
           return item.subItems.some(subItem => {
             switch (subItem.tab) {
               case 'hr/manpower':
+                return guard.hasAccess('hr.manpower.view')
               case 'hr/attendance':
+                return guard.hasAccess('hr.attendance.view')
               case 'hr/attendance/check-in-out':
+                return guard.hasAccess('hr.attendance.check_in_out')
               case 'hr/attendance/review':
-                return guard.hasAccess('reports.view') // Using reports.view as default permission
+                return guard.hasAccess('hr.attendance.review')
               default:
                 return false
             }
           })
         }
-        return guard.hasAccess('reports.view')
+        return guard.hasAccess('hr.view')
       case 'planning':
         // Show planning if user has access to any sub-item
         if (item.subItems) {
@@ -337,14 +344,19 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
             case 'reports':
               return guard.hasAccess('reports.view')
             case 'cost-control/manpower':
+              return guard.hasAccess('cost_control.manpower.view')
             case 'cost-control/designation-rates':
+              return guard.hasAccess('cost_control.designation_rates.view')
             case 'cost-control/machine-list':
-              return guard.hasAccess('reports.view') // Using reports.view as default permission
+              return guard.hasAccess('cost_control.machine_list.view')
             case 'hr/manpower':
+              return guard.hasAccess('hr.manpower.view')
             case 'hr/attendance':
+              return guard.hasAccess('hr.attendance.view')
             case 'hr/attendance/check-in-out':
+              return guard.hasAccess('hr.attendance.check_in_out')
             case 'hr/attendance/review':
-              return guard.hasAccess('reports.view') // Using reports.view as default permission
+              return guard.hasAccess('hr.attendance.review')
             case 'forms/boq':
               // ✅ Admin always has access, others need boq.create or boq.edit
               return guard.isAdmin() || guard.hasAccess('boq.create') || guard.hasAccess('boq.edit')

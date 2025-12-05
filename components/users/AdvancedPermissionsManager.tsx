@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
+import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Alert } from '@/components/ui/Alert'
@@ -60,6 +61,7 @@ interface AdvancedPermissionsManagerProps {
 
 export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole, onEditUser }: AdvancedPermissionsManagerProps) {
   const guard = usePermissionGuard()
+  const supabase = getSupabaseClient()
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>(
     user.custom_permissions_enabled && user.permissions 
       ? user.permissions 
@@ -68,6 +70,27 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
   const [customMode, setCustomMode] = useState(user.custom_permissions_enabled || false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [currentRolePermissions, setCurrentRolePermissions] = useState<string[]>(DEFAULT_ROLE_PERMISSIONS[user.role] || [])
+  
+  // Load current role permissions on mount and when role changes
+  useEffect(() => {
+    const loadCurrentRolePermissions = async () => {
+      try {
+        const overrideKey = `__default_override__${user.role}`
+        const { data: overrideData } = await (supabase as any)
+          .from('custom_roles')
+          .select('permissions')
+          .eq('role_key', overrideKey)
+          .maybeSingle()
+        
+        const rolePerms = overrideData?.permissions || DEFAULT_ROLE_PERMISSIONS[user.role] || []
+        setCurrentRolePermissions(rolePerms)
+      } catch (err) {
+        setCurrentRolePermissions(DEFAULT_ROLE_PERMISSIONS[user.role] || [])
+      }
+    }
+    loadCurrentRolePermissions()
+  }, [user.role])
   
   // Add Role states
   const [showAddRole, setShowAddRole] = useState(false)
@@ -109,6 +132,8 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
       case 'settings': return Settings
       case 'system': return Lock
       case 'database': return Database
+      case 'cost-control': return DollarSign
+      case 'hr': return UserCheck
       default: return Shield
     }
   }
@@ -123,6 +148,8 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
       case 'settings': return 'indigo'
       case 'system': return 'gray'
       case 'database': return 'cyan'
+      case 'cost-control': return 'yellow'
+      case 'hr': return 'pink'
       default: return 'gray'
     }
   }
@@ -259,9 +286,30 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
     setSelectedPermissions(prev => prev.filter(p => !categoryPerms.includes(p)))
   }
 
-  const loadRoleDefaults = () => {
-    setSelectedPermissions(DEFAULT_ROLE_PERMISSIONS[user.role] || [])
-    setCustomMode(false)
+  const loadRoleDefaults = async () => {
+    try {
+      // First, try to get updated role permissions from database (default role overrides)
+      const overrideKey = `__default_override__${user.role}`
+      const { data: overrideData } = await (supabase as any)
+        .from('custom_roles')
+        .select('permissions')
+        .eq('role_key', overrideKey)
+        .maybeSingle()
+      
+      // Use override if exists, otherwise use default
+      const rolePermissions = overrideData?.permissions || DEFAULT_ROLE_PERMISSIONS[user.role] || []
+      
+      setSelectedPermissions(rolePermissions)
+      setCurrentRolePermissions(rolePermissions) // Update current role permissions state
+      setCustomMode(false)
+    } catch (err: any) {
+      // If error, fall back to default permissions
+      console.error('Error loading role defaults:', err)
+      const defaultPerms = DEFAULT_ROLE_PERMISSIONS[user.role] || []
+      setSelectedPermissions(defaultPerms)
+      setCurrentRolePermissions(defaultPerms) // Update current role permissions state
+      setCustomMode(false)
+    }
   }
 
   const handleSave = async () => {
@@ -368,7 +416,7 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
     return acc
   }, {} as Record<string, Permission[]>)
 
-  const roleDefaults = DEFAULT_ROLE_PERMISSIONS[user.role] || []
+  const roleDefaults = currentRolePermissions
   const changesFromDefault = customMode && (
     selectedPermissions.length !== roleDefaults.length ||
     selectedPermissions.some(p => !roleDefaults.includes(p))
@@ -740,7 +788,10 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
                 red: 'from-red-500 to-red-600',
                 orange: 'from-orange-500 to-orange-600',
                 indigo: 'from-indigo-500 to-indigo-600',
-                gray: 'from-gray-500 to-gray-600'
+                gray: 'from-gray-500 to-gray-600',
+                yellow: 'from-yellow-500 to-yellow-600',
+                pink: 'from-pink-500 to-pink-600',
+                cyan: 'from-cyan-500 to-cyan-600'
               }
 
               const bgColorClasses = {
@@ -750,7 +801,10 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
                 red: 'bg-red-50 dark:bg-red-900/20',
                 orange: 'bg-orange-50 dark:bg-orange-900/20',
                 indigo: 'bg-indigo-50 dark:bg-indigo-900/20',
-                gray: 'bg-gray-50 dark:bg-gray-900/20'
+                gray: 'bg-gray-50 dark:bg-gray-900/20',
+                yellow: 'bg-yellow-50 dark:bg-yellow-900/20',
+                pink: 'bg-pink-50 dark:bg-pink-900/20',
+                cyan: 'bg-cyan-50 dark:bg-cyan-900/20'
               }
 
               const textColorClasses = {
@@ -760,7 +814,10 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
                 red: 'text-red-600 dark:text-red-400',
                 orange: 'text-orange-600 dark:text-orange-400',
                 indigo: 'text-indigo-600 dark:text-indigo-400',
-                gray: 'text-gray-600 dark:text-gray-400'
+                gray: 'text-gray-600 dark:text-gray-400',
+                yellow: 'text-yellow-600 dark:text-yellow-400',
+                pink: 'text-pink-600 dark:text-pink-400',
+                cyan: 'text-cyan-600 dark:text-cyan-400'
               }
 
               return (
@@ -774,7 +831,7 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
                         </div>
                         <div>
                           <h3 className="text-lg font-bold text-white capitalize">
-                            {category} Permissions
+                            {category === 'cost-control' ? 'Cost Control' : category === 'hr' ? 'HR' : category} Permissions
                           </h3>
                           <p className="text-white/80 text-xs">
                             {selectedInCategory} of {totalInCategory} permissions selected
@@ -1045,7 +1102,10 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
                       red: 'from-red-500 to-red-600',
                       orange: 'from-orange-500 to-orange-600',
                       indigo: 'from-indigo-500 to-indigo-600',
-                      gray: 'from-gray-500 to-gray-600'
+                      gray: 'from-gray-500 to-gray-600',
+                      yellow: 'from-yellow-500 to-yellow-600',
+                      pink: 'from-pink-500 to-pink-600',
+                      cyan: 'from-cyan-500 to-cyan-600'
                     }
 
                     const bgColorClasses = {
@@ -1055,7 +1115,10 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
                       red: 'bg-red-50 dark:bg-red-900/20',
                       orange: 'bg-orange-50 dark:bg-orange-900/20',
                       indigo: 'bg-indigo-50 dark:bg-indigo-900/20',
-                      gray: 'bg-gray-50 dark:bg-gray-900/20'
+                      gray: 'bg-gray-50 dark:bg-gray-900/20',
+                      yellow: 'bg-yellow-50 dark:bg-yellow-900/20',
+                      pink: 'bg-pink-50 dark:bg-pink-900/20',
+                      cyan: 'bg-cyan-50 dark:bg-cyan-900/20'
                     }
 
                     const textColorClasses = {
@@ -1065,7 +1128,10 @@ export function AdvancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
                       red: 'text-red-600 dark:text-red-400',
                       orange: 'text-orange-600 dark:text-orange-400',
                       indigo: 'text-indigo-600 dark:text-indigo-400',
-                      gray: 'text-gray-600 dark:text-gray-400'
+                      gray: 'text-gray-600 dark:text-gray-400',
+                      yellow: 'text-yellow-600 dark:text-yellow-400',
+                      pink: 'text-pink-600 dark:text-pink-400',
+                      cyan: 'text-cyan-600 dark:text-cyan-400'
                     }
 
                     return (

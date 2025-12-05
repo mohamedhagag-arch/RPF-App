@@ -17,21 +17,29 @@ import {
   FileSpreadsheet
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { PermissionButton } from '@/components/ui/PermissionButton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Alert } from '@/components/ui/Alert'
 import { supabase, TABLES, DesignationRate } from '@/lib/supabase'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { useAuth } from '@/app/providers'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 
 export default function DesignationRates() {
   const { user, appUser } = useAuth()
+  const guard = usePermissionGuard()
   const [rates, setRates] = useState<DesignationRate[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedAuthority, setSelectedAuthority] = useState<string>('all')
+  
+  // Check permissions
+  const canCreate = guard.hasAccess('cost_control.designation_rates.create')
+  const canEdit = guard.hasAccess('cost_control.designation_rates.edit')
+  const canDelete = guard.hasAccess('cost_control.designation_rates.delete')
   
   // Modal state
   const [showModal, setShowModal] = useState(false)
@@ -326,7 +334,8 @@ export default function DesignationRates() {
             className="hidden"
             id="import-csv-input"
           />
-          <Button 
+          <PermissionButton
+            permission="cost_control.designation_rates.create"
             variant="outline" 
             className="flex items-center gap-2 cursor-pointer" 
             onClick={() => document.getElementById('import-csv-input')?.click()}
@@ -334,15 +343,24 @@ export default function DesignationRates() {
           >
             <Upload className="h-4 w-4" />
             Import CSV
-          </Button>
-          <Button variant="outline" onClick={handleExport} className="flex items-center gap-2">
+          </PermissionButton>
+          <PermissionButton
+            permission="cost_control.designation_rates.export"
+            variant="outline" 
+            onClick={handleExport} 
+            className="flex items-center gap-2"
+          >
             <Download className="h-4 w-4" />
             Export CSV
-          </Button>
-          <Button onClick={handleAdd} className="flex items-center gap-2">
+          </PermissionButton>
+          <PermissionButton
+            permission="cost_control.designation_rates.create"
+            onClick={handleAdd} 
+            className="flex items-center gap-2"
+          >
             <Plus className="h-5 w-5" />
             Add Rate
-          </Button>
+          </PermissionButton>
         </div>
       </div>
 
@@ -480,7 +498,8 @@ export default function DesignationRates() {
                       </td>
                       <td className="p-3">
                         <div className="flex items-center gap-2">
-                          <Button
+                          <PermissionButton
+                            permission="cost_control.designation_rates.edit"
                             variant="outline"
                             size="sm"
                             onClick={() => handleEdit(rate)}
@@ -488,8 +507,9 @@ export default function DesignationRates() {
                             title="Edit Rate"
                           >
                             <Edit className="h-5 w-5" />
-                          </Button>
-                          <Button
+                          </PermissionButton>
+                          <PermissionButton
+                            permission="cost_control.designation_rates.delete"
                             variant="outline"
                             size="sm"
                             onClick={() => handleDelete(rate.id)}
@@ -497,7 +517,7 @@ export default function DesignationRates() {
                             title="Delete Rate"
                           >
                             <Trash2 className="h-5 w-5" />
-                          </Button>
+                          </PermissionButton>
                         </div>
                       </td>
                     </tr>

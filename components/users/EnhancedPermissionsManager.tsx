@@ -84,7 +84,9 @@ const CATEGORY_ICONS = {
   reports: FileText,
   settings: Settings,
   system: Globe,
-  database: Database
+  database: Database,
+  'cost-control': DollarSign,
+  hr: UserCheck
 }
 
 // Action colors
@@ -103,6 +105,21 @@ const ACTION_COLORS = {
 export function EnhancedPermissionsManager({ user, onUpdate, onClose, onAddRole, onEditUser }: EnhancedPermissionsManagerProps) {
   const guard = usePermissionGuard()
   const supabase = getSupabaseClient()
+  
+  // State for custom roles and default role overrides from database
+  const [customRoles, setCustomRoles] = useState<Record<string, { name: string; permissions: string[] }>>({})
+  const [defaultRoleOverrides, setDefaultRoleOverrides] = useState<Record<string, string[]>>({})
+  
+  // Helper function to check if a role key is a default role override
+  const isDefaultRoleOverride = (roleKey: string): boolean => {
+    return roleKey.startsWith('__default_override__')
+  }
+  
+  // Helper function to extract original role key from override key
+  const extractOriginalRoleKey = (overrideKey: string): string => {
+    return overrideKey.replace('__default_override__', '')
+  }
+  
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>(() => {
     // Always use user.permissions if available, regardless of custom_permissions_enabled
     const initialPermissions = user.permissions && user.permissions.length > 0
@@ -120,17 +137,25 @@ export function EnhancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
     console.log('📊 User permissions length:', user.permissions?.length)
     
     // Always use user.permissions if available, regardless of custom_permissions_enabled
-    // Only fall back to default role permissions if user.permissions is null/empty
+    // Only fall back to default role permissions (with overrides) if user.permissions is null/empty
+    const getRolePermissions = () => {
+      // Check if we have overrides loaded
+      if (defaultRoleOverrides[user.role]) {
+        return defaultRoleOverrides[user.role]
+      }
+      return DEFAULT_ROLE_PERMISSIONS[user.role] || []
+    }
+    
     const newPermissions = user.permissions && user.permissions.length > 0
       ? user.permissions 
-      : DEFAULT_ROLE_PERMISSIONS[user.role] || []
+      : getRolePermissions()
     
     console.log('🔄 Setting selectedPermissions to:', newPermissions)
     console.log('🔄 Setting customEnabled to:', user.custom_permissions_enabled || false)
     
     setSelectedPermissions(newPermissions)
     setCustomEnabled(user.custom_permissions_enabled || false)
-  }, [user, user.permissions, user.custom_permissions_enabled])
+  }, [user, user.permissions, user.custom_permissions_enabled, defaultRoleOverrides])
 
   // Monitor selectedPermissions changes
   useEffect(() => {
@@ -167,8 +192,8 @@ export function EnhancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
     const cats = Array.from(new Set(ALL_PERMISSIONS.map(p => p.category)))
     return cats.map(cat => ({
       id: cat,
-      name: cat.charAt(0).toUpperCase() + cat.slice(1),
-      icon: CATEGORY_ICONS[cat as keyof typeof CATEGORY_ICONS],
+      name: cat.charAt(0).toUpperCase() + cat.slice(1).replace(/-/g, ' '),
+      icon: CATEGORY_ICONS[cat as keyof typeof CATEGORY_ICONS] || Settings,
       count: ALL_PERMISSIONS.filter(p => p.category === cat).length
     }))
   }, [])
@@ -299,33 +324,45 @@ export function EnhancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
     setSelectedPermissions([])
   }
 
-  const handleResetToRole = (roleName?: string) => {
-    const role = roleName || user.role
-    const roleKey = role.toLowerCase().replace(/\s+/g, '_')
-    
-    // Get permissions from default roles or custom roles
-    let permissions: string[] = []
-    let roleDisplayName = roleKey
-    
-    // Check default roles first
-    if (DEFAULT_ROLE_PERMISSIONS[roleKey]) {
-      permissions = DEFAULT_ROLE_PERMISSIONS[roleKey]
-      roleDisplayName = roleKey
-    } else if (DEFAULT_ROLE_PERMISSIONS[role]) {
-      permissions = DEFAULT_ROLE_PERMISSIONS[role]
-      roleDisplayName = role
-    } else if (customRoles[roleKey]) {
-      // Check custom roles from database
-      permissions = customRoles[roleKey].permissions
-      roleDisplayName = customRoles[roleKey].name
-    } else if (customRoles[role]) {
-      permissions = customRoles[role].permissions
-      roleDisplayName = customRoles[role].name
+  const handleResetToRole = async (roleName?: string) => {
+    try {
+      const role = roleName || user.role
+      const roleKey = role.toLowerCase().replace(/\s+/g, '_')
+      
+      // Get permissions from default roles or custom roles
+      let permissions: string[] = []
+      let roleDisplayName = roleKey
+      
+      // Check default roles first (with overrides from state)
+      if (DEFAULT_ROLE_PERMISSIONS[roleKey]) {
+        // Use override if exists, otherwise use default
+        permissions = defaultRoleOverrides[roleKey] || DEFAULT_ROLE_PERMISSIONS[roleKey]
+        roleDisplayName = roleKey
+      } else if (DEFAULT_ROLE_PERMISSIONS[role]) {
+        permissions = defaultRoleOverrides[role] || DEFAULT_ROLE_PERMISSIONS[role]
+        roleDisplayName = role
+      } else if (customRoles[roleKey]) {
+        // Check custom roles from database
+        permissions = customRoles[roleKey].permissions
+        roleDisplayName = customRoles[roleKey].name
+      } else if (customRoles[role]) {
+        permissions = customRoles[role].permissions
+        roleDisplayName = customRoles[role].name
+      }
+      
+      setSelectedPermissions(permissions)
+      setCustomEnabled(false)
+      setSuccess(`Reset to "${roleDisplayName}" role with ${permissions.length} permissions`)
+    } catch (error: any) {
+      console.error('Error resetting to role:', error)
+      // Fallback to default permissions (with overrides)
+      const role = roleName || user.role
+      const roleKey = role.toLowerCase().replace(/\s+/g, '_')
+      const permissions = defaultRoleOverrides[roleKey] || defaultRoleOverrides[role] || DEFAULT_ROLE_PERMISSIONS[roleKey] || DEFAULT_ROLE_PERMISSIONS[role] || []
+      setSelectedPermissions(permissions)
+      setCustomEnabled(false)
+      setError('Failed to load updated role permissions. Using default permissions.')
     }
-    
-    setSelectedPermissions(permissions)
-    setCustomEnabled(false)
-    setSuccess(`Reset to "${roleDisplayName}" role with ${permissions.length} permissions`)
   }
 
   // ✅ Apply role completely - update user.role in database and apply permissions
@@ -334,13 +371,14 @@ export function EnhancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
       setLoading(true)
       setError('')
       
-      // Get permissions from default roles or custom roles
+      // Get permissions from default roles (with overrides) or custom roles
       let permissions: string[] = []
       let roleDisplayName = roleKey
       
-      // Check default roles first
+      // Check default roles first (with overrides)
       if (DEFAULT_ROLE_PERMISSIONS[roleKey]) {
-        permissions = DEFAULT_ROLE_PERMISSIONS[roleKey]
+        // Use override if exists, otherwise use default
+        permissions = defaultRoleOverrides[roleKey] || DEFAULT_ROLE_PERMISSIONS[roleKey]
         roleDisplayName = roleKey
       } else if (customRoles[roleKey]) {
         // Check custom roles from database
@@ -498,11 +536,9 @@ export function EnhancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
     }
   }
 
-  // State for custom roles from database
-  const [customRoles, setCustomRoles] = useState<Record<string, { name: string; permissions: string[] }>>({})
   const [loadingRoles, setLoadingRoles] = useState(false)
 
-  // Load custom roles from database
+  // Load custom roles and default role overrides from database
   const loadCustomRoles = async () => {
     try {
       setLoadingRoles(true)
@@ -523,17 +559,30 @@ export function EnhancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
 
       // Convert array to object for easy lookup
       const rolesMap: Record<string, { name: string; permissions: string[] }> = {}
+      const overridesMap: Record<string, string[]> = {}
+      
       if (data) {
         data.forEach((role: any) => {
-          rolesMap[role.role_key] = {
-            name: role.role_name,
-            permissions: role.permissions || []
+          if (isDefaultRoleOverride(role.role_key)) {
+            // This is a default role override
+            const originalKey = extractOriginalRoleKey(role.role_key)
+            if (DEFAULT_ROLE_PERMISSIONS[originalKey]) {
+              overridesMap[originalKey] = role.permissions || []
+            }
+          } else {
+            // This is a custom role
+            rolesMap[role.role_key] = {
+              name: role.role_name,
+              permissions: role.permissions || []
+            }
           }
         })
       }
 
       setCustomRoles(rolesMap)
+      setDefaultRoleOverrides(overridesMap)
       console.log('✅ Loaded custom roles from database:', Object.keys(rolesMap).length)
+      console.log('✅ Loaded default role overrides:', Object.keys(overridesMap).length)
     } catch (error: any) {
       console.error('Error loading custom roles:', error)
     } finally {
@@ -541,19 +590,27 @@ export function EnhancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
     }
   }
 
-  // Load custom roles on mount
+  // Load custom roles and overrides on mount and when rolesVersion changes
   useEffect(() => {
     loadCustomRoles()
-  }, [])
+  }, [rolesVersion])
 
   // Get all available roles (including custom roles from database)
   const availableRoles = useMemo(() => {
-    // Merge default roles with custom roles from database
-    const allRoles: Record<string, string[]> = { ...DEFAULT_ROLE_PERMISSIONS }
+    // Merge default roles with overrides and custom roles from database
+    const allRoles: Record<string, string[]> = {}
     
-    // Add custom roles
+    // Start with default roles, but apply overrides if they exist
+    Object.keys(DEFAULT_ROLE_PERMISSIONS).forEach(key => {
+      allRoles[key] = defaultRoleOverrides[key] || DEFAULT_ROLE_PERMISSIONS[key]
+    })
+    
+    // Add custom roles (exclude overrides)
     Object.keys(customRoles).forEach(key => {
-      allRoles[key] = customRoles[key].permissions
+      // Only add if it's not a default role override
+      if (!isDefaultRoleOverride(key) && !DEFAULT_ROLE_PERMISSIONS[key]) {
+        allRoles[key] = customRoles[key].permissions
+      }
     })
     
     return Object.keys(allRoles).map(key => ({
@@ -566,7 +623,7 @@ export function EnhancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
       if (isDefaultA !== isDefaultB) return isDefaultA - isDefaultB
       return a.name.localeCompare(b.name)
     })
-  }, [customRoles, rolesVersion]) // Re-compute when customRoles or rolesVersion changes
+  }, [customRoles, defaultRoleOverrides, rolesVersion]) // Re-compute when customRoles, overrides, or rolesVersion changes
 
   const handleSave = async () => {
     try {
@@ -820,7 +877,7 @@ export function EnhancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
               </div>
             </div>
             {categories.map(category => {
-              const Icon = category.icon
+              const Icon = category.icon || Settings
               const stats = permissionStats.byCategory[category.id]
               return (
                 <div key={category.id} className="text-center">
@@ -1148,7 +1205,7 @@ export function EnhancedPermissionsManager({ user, onUpdate, onClose, onAddRole,
               </label>
               <div className="space-y-2">
                 {categories.map(category => {
-                  const Icon = category.icon
+                  const Icon = category.icon || Settings
                   const stats = permissionStats.byCategory[category.id]
                   const isFullySelected = stats.selected === stats.total
                   const isPartiallySelected = stats.selected > 0 && stats.selected < stats.total

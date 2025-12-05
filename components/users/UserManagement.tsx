@@ -508,18 +508,23 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
         customEnabled
       })
 
+      // ✅ FIX: تأكد من أن permissions هي مصفوفة صالحة (ليست null أو undefined)
+      const cleanPermissions = Array.isArray(permissions) ? permissions : []
+      
       console.log('🔍 About to update user with data:', {
         userId,
-        permissions,
-        permissionsLength: permissions.length,
+        permissions: cleanPermissions,
+        permissionsLength: cleanPermissions.length,
         customEnabled,
+        permissionsType: typeof cleanPermissions,
+        isArray: Array.isArray(cleanPermissions),
         timestamp: new Date().toISOString()
       })
 
       const { data, error } = await (supabase as any)
         .from('users')
         .update({
-          permissions: permissions, // Store as TEXT[] array directly
+          permissions: cleanPermissions, // ✅ Store as TEXT[] array directly (cleaned)
           custom_permissions_enabled: customEnabled,
           updated_at: new Date().toISOString()
         })
@@ -542,14 +547,46 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
       console.log('✅ Permissions updated successfully:', data)
       console.log('📋 Updated permissions data:', data[0]?.permissions)
       console.log('📊 Permissions count:', data[0]?.permissions?.length)
+      console.log('📊 Permissions type:', typeof data[0]?.permissions)
+      console.log('📊 Is array:', Array.isArray(data[0]?.permissions))
+      console.log('📊 Custom enabled:', data[0]?.custom_permissions_enabled)
       console.log('🔍 Updated user full data:', data[0])
+      
+      // ✅ FIX: التحقق من أن البيانات تم حفظها بشكل صحيح
+      if (data && data[0]) {
+        const savedPermissions = data[0].permissions
+        const savedCustomEnabled = data[0].custom_permissions_enabled
+        
+        if (!Array.isArray(savedPermissions)) {
+          console.error('❌ ERROR: Saved permissions is not an array!', savedPermissions)
+        }
+        
+        if (savedPermissions.length !== cleanPermissions.length) {
+          console.warn('⚠️ WARNING: Saved permissions count does not match!', {
+            expected: cleanPermissions.length,
+            actual: savedPermissions.length,
+            expectedPerms: cleanPermissions,
+            actualPerms: savedPermissions
+          })
+        }
+        
+        if (savedCustomEnabled !== customEnabled) {
+          console.warn('⚠️ WARNING: Saved custom_enabled does not match!', {
+            expected: customEnabled,
+            actual: savedCustomEnabled
+          })
+        }
+      }
 
       // ✅ تحديث فوري للـ state
       if (data && data[0]) {
+        // ✅ FIX: استخدم cleanPermissions بدلاً من permissions
+        const finalPermissions = Array.isArray(data[0].permissions) ? data[0].permissions : cleanPermissions
+        
         setUsers(prevUsers => 
           prevUsers.map(user => 
             user.id === userId 
-              ? { ...user, permissions: permissions, custom_permissions_enabled: customEnabled, updated_at: data[0].updated_at }
+              ? { ...user, permissions: finalPermissions, custom_permissions_enabled: customEnabled, updated_at: data[0].updated_at }
               : user
           )
         )
@@ -557,7 +594,7 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
         // تحديث managingPermissionsUser إذا كان نفس المستخدم
         setManagingPermissionsUser(prev => 
           prev && prev.id === userId
-            ? { ...prev, permissions: permissions, custom_permissions_enabled: customEnabled, updated_at: data[0].updated_at }
+            ? { ...prev, permissions: finalPermissions, custom_permissions_enabled: customEnabled, updated_at: data[0].updated_at }
             : prev
         )
       }
@@ -568,30 +605,48 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
       setSuccess(`Permissions updated successfully for ${data[0]?.email || 'user'}!`)
       setTimeout(() => setSuccess(''), 3000)
       
+             // ✅ FIX: مسح الـ cache أولاً قبل تحديث البيانات
+             guard.clearCache()
+             console.log('✅ Permission cache cleared before refresh')
+             
              // Refresh users list
              await fetchUsers()
 
              // Refresh the global user profile if this is the current user
              if (userId === appUser?.id) {
                console.log('🔄 Refreshing global user profile for current user...')
+               // ✅ FIX: انتظر قليلاً قبل refresh لضمان تحديث قاعدة البيانات
+               await new Promise(resolve => setTimeout(resolve, 500))
                await refreshUserProfile()
-               // مسح الـ cache للصلاحيات بعد التحديث
+               // ✅ FIX: مسح الـ cache مرة أخرى بعد refresh
                guard.clearCache()
                console.log('✅ Global user profile refreshed - user should now see updated permissions!')
-               console.log('✅ Permission cache cleared')
+               console.log('✅ Permission cache cleared after refresh')
+               
+               // ✅ FIX: إعادة تحميل الصفحة إذا كان المستخدم الحالي (لضمان التحديث الكامل)
+               if (typeof window !== 'undefined') {
+                 console.log('🔄 Reloading page to ensure permissions are updated...')
+                 setTimeout(() => {
+                   window.location.reload()
+                 }, 1000)
+               }
              } else {
                // مسح الـ cache حتى لو لم يكن المستخدم الحالي (للتأكد من التحديث)
                guard.clearCache()
                console.log('✅ Permission cache cleared for other user')
              }
 
-             // Update the managing permissions user state
+             // ✅ FIX: Update the managing permissions user state with cleaned permissions
              if (managingPermissionsUser && managingPermissionsUser.id === userId) {
-               console.log('🔄 Updating managingPermissionsUser state with:', { permissions, customEnabled })
+               console.log('🔄 Updating managingPermissionsUser state with:', { 
+                 permissions: cleanPermissions, 
+                 permissionsLength: cleanPermissions.length,
+                 customEnabled 
+               })
                console.log('🔍 Current managingPermissionsUser:', managingPermissionsUser)
                const updatedUser = {
                  ...managingPermissionsUser,
-                 permissions,
+                 permissions: cleanPermissions, // ✅ Use cleaned permissions
                  custom_permissions_enabled: customEnabled
                }
                console.log('🔍 New managingPermissionsUser will be:', updatedUser)

@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
+import { PermissionButton } from '@/components/ui/PermissionButton'
 import { Input } from '@/components/ui/Input'
 import { Alert } from '@/components/ui/Alert'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
@@ -14,6 +15,7 @@ import {
 import { supabase, TABLES } from '@/lib/supabase'
 import { QRSettings as QRSettingsType, defaultQRSettings } from '@/hooks/useQRSettings'
 import { QRRenderer } from './QRRenderer'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 
 export function QRSettings() {
   const [loading, setLoading] = useState(false)
@@ -969,7 +971,8 @@ export function QRSettings() {
 
           {/* Action Buttons */}
           <div className="flex gap-4">
-            <Button
+            <PermissionButton
+              permission="hr.attendance.qr.manage"
               onClick={saveSettings}
               disabled={saving}
               className="flex-1"
@@ -985,7 +988,7 @@ export function QRSettings() {
                   Save Settings
                 </>
               )}
-            </Button>
+            </PermissionButton>
             <Button
               onClick={resetToDefaults}
               variant="outline"

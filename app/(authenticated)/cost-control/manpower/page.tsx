@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { PermissionPage } from '@/components/ui/PermissionPage'
+import { PermissionButton } from '@/components/ui/PermissionButton'
 import { DynamicTitle } from '@/components/ui/DynamicTitle'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -15,6 +16,7 @@ import { mapProjectFromDB } from '@/lib/dataMappers'
 import { buildProjectFullCode } from '@/lib/projectDataFetcher'
 import type { Project } from '@/lib/supabase'
 import { exportData, type ExportFormat } from '@/lib/exportImportUtils'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 
 interface ManpowerRecord {
   id?: string
@@ -30,6 +32,7 @@ interface ManpowerRecord {
 }
 
 export default function ManpowerPage() {
+  const guard = usePermissionGuard()
   const [data, setData] = useState<ManpowerRecord[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -40,6 +43,13 @@ export default function ManpowerPage() {
   const [availableProjects, setAvailableProjects] = useState<string[]>([]) // List of unique project codes
   const [loadingProjects, setLoadingProjects] = useState(false)
   const [showProjectDropdown, setShowProjectDropdown] = useState(false) // Show/hide dropdown
+  
+  // Check permissions
+  const canCreate = guard.hasAccess('cost_control.manpower.create')
+  const canEdit = guard.hasAccess('cost_control.manpower.edit')
+  const canDelete = guard.hasAccess('cost_control.manpower.delete')
+  const canExport = guard.hasAccess('cost_control.manpower.export')
+  const canManageDatabase = guard.hasAccess('cost_control.database.manage')
   
   // ✅ Enhanced Add Form State with Multiple Records Support
   const [showAddForm, setShowAddForm] = useState(false)
@@ -1308,7 +1318,7 @@ export default function ManpowerPage() {
 
   return (
     <PermissionPage 
-      permission="reports.view"
+      permission="cost_control.manpower.view"
       accessDeniedTitle="MANPOWER Access Required"
       accessDeniedMessage="You need permission to view MANPOWER data. Please contact your administrator."
     >
@@ -1336,15 +1346,17 @@ export default function ManpowerPage() {
                   Clear
                 </Button>
               )}
-              <Button
+              <PermissionButton
+                permission="cost_control.manpower.create"
                 variant="primary"
                 onClick={() => setShowAddForm(!showAddForm)}
                 className="bg-green-600 hover:bg-green-700 text-white"
               >
                 <Plus className="h-4 w-4 mr-2" />
                 {showAddForm ? 'Cancel' : 'Add New Record'}
-              </Button>
-              <Button
+              </PermissionButton>
+              <PermissionButton
+                permission="cost_control.database.manage"
                 variant="primary"
                 onClick={() => router.push('/settings?tab=database')}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white"
@@ -1352,9 +1364,10 @@ export default function ManpowerPage() {
                 <Database className="h-4 w-4 mr-2" />
                 Database Manager
                 <ArrowRight className="h-4 w-4 ml-2" />
-              </Button>
+              </PermissionButton>
               {filteredData.length > 0 && (
-                <Button 
+                <PermissionButton
+                  permission="cost_control.manpower.export"
                   variant="outline"
                   onClick={() => handleExport('excel')}
                   disabled={filteredData.length === 0}
@@ -1362,7 +1375,7 @@ export default function ManpowerPage() {
                 >
                   <Download className="h-4 w-4 mr-2" />
                   Export ({filteredData.length})
-                </Button>
+                </PermissionButton>
               )}
             </div>
           </div>
@@ -3432,27 +3445,34 @@ export default function ManpowerPage() {
                             </td>
                             <td className="px-4 py-3 whitespace-nowrap text-center">
                               <div className="flex items-center justify-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => handleEditRecord(record)}
-                                  className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
-                                  title="Edit"
-                                >
-                                  <Edit className="h-4 w-4" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteRecord(recordId)}
-                                  disabled={deleteLoading === recordId}
-                                  className="p-1 text-red-600 hover:text-red-800 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors disabled:opacity-50"
-                                  title="Delete"
-                                >
-                                  {deleteLoading === recordId ? (
-                                    <RefreshCw className="h-4 w-4 animate-spin" />
-                                  ) : (
-                                    <Trash2 className="h-4 w-4" />
-                                  )}
-                                </button>
+                                {canEdit && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEditRecord(record)}
+                                    className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                                    title="Edit"
+                                  >
+                                    <Edit className="h-4 w-4" />
+                                  </button>
+                                )}
+                                {canDelete && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteRecord(recordId)}
+                                    disabled={deleteLoading === recordId}
+                                    className="p-1 text-red-600 hover:text-red-800 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors disabled:opacity-50"
+                                    title="Delete"
+                                  >
+                                    {deleteLoading === recordId ? (
+                                      <RefreshCw className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="h-4 w-4" />
+                                    )}
+                                  </button>
+                                )}
+                                {!canEdit && !canDelete && (
+                                  <span className="text-xs text-gray-400">-</span>
+                                )}
                               </div>
                             </td>
                           </tr>

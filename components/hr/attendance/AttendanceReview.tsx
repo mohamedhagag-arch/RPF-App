@@ -21,11 +21,13 @@ import {
   ExternalLink
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { PermissionButton } from '@/components/ui/PermissionButton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Alert } from '@/components/ui/Alert'
 import { supabase, TABLES, AttendanceRecord, AttendanceEmployee, AttendanceLocation } from '@/lib/supabase'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { useAuth } from '@/app/providers'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 
 export default function AttendanceReview() {
   const { user, appUser } = useAuth()
@@ -394,10 +396,14 @@ export default function AttendanceReview() {
             Review and manage employee attendance records
           </p>
         </div>
-        <Button onClick={handleAdd} className="flex items-center gap-2">
+        <PermissionButton
+          permission="hr.attendance.review"
+          onClick={handleAdd}
+          className="flex items-center gap-2"
+        >
           <Plus className="h-5 w-5" />
           Add Record
-        </Button>
+        </PermissionButton>
       </div>
 
       {/* Alerts */}
@@ -847,7 +853,8 @@ export default function AttendanceReview() {
                         </td>
                         <td className="p-3">
                           <div className="flex items-center gap-2">
-                            <Button
+                            <PermissionButton
+                              permission="hr.attendance.review"
                               variant="outline"
                               size="sm"
                               onClick={() => handleEdit(record)}
@@ -855,8 +862,9 @@ export default function AttendanceReview() {
                               title="Edit Record"
                             >
                               <Edit className="h-5 w-5" />
-                            </Button>
-                            <Button
+                            </PermissionButton>
+                            <PermissionButton
+                              permission="hr.attendance.review"
                               variant="outline"
                               size="sm"
                               onClick={() => handleDelete(record.id)}
@@ -864,7 +872,7 @@ export default function AttendanceReview() {
                               title="Delete Record"
                             >
                               <Trash2 className="h-5 w-5" />
-                            </Button>
+                            </PermissionButton>
                           </div>
                         </td>
                       </tr>

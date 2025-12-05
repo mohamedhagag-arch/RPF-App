@@ -3,11 +3,13 @@
 import React, { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
+import { PermissionButton } from '@/components/ui/PermissionButton'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Alert } from '@/components/ui/Alert'
 import { UserCheck, Download, RefreshCw, Search, X, CheckCircle, AlertCircle, Filter, SlidersHorizontal, Calendar, DollarSign, Clock, Database, ArrowRight } from 'lucide-react'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { useRouter } from 'next/navigation'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 
 interface ManpowerRecord {
   id?: string
@@ -279,7 +281,8 @@ export default function CostControlManpower() {
               Clear Search
             </Button>
           )}
-          <Button
+          <PermissionButton
+            permission="cost_control.database.manage"
             variant="primary"
             onClick={() => router.push('/cost-control?tab=database')}
             className="bg-indigo-600 hover:bg-indigo-700 text-white"
@@ -287,7 +290,7 @@ export default function CostControlManpower() {
             <Database className="h-4 w-4 mr-2" />
             Database Manager
             <ArrowRight className="h-4 w-4 ml-2" />
-          </Button>
+          </PermissionButton>
         </div>
       </div>
 

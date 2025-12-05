@@ -3,12 +3,14 @@
 import React, { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
+import { PermissionButton } from '@/components/ui/PermissionButton'
 import { Calendar, Clock, UserCheck, TrendingUp, Users, AlertCircle, CheckCircle, MapPin, BarChart3, Settings, Plus, Search, Filter, Download } from 'lucide-react'
 import { PermissionPage } from '@/components/ui/PermissionPage'
 import { DynamicTitle } from '@/components/ui/DynamicTitle'
 import { supabase, TABLES, AttendanceStats, AttendanceEmployee, AttendanceRecord } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/app/providers'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 import { EmployeesManagement } from './attendance/EmployeesManagement'
 import { CheckInOut } from './attendance/CheckInOut'
 import { AttendanceReports } from './attendance/AttendanceReports'
@@ -31,6 +33,15 @@ export default function HRAttendance() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'employees' | 'check-in' | 'reports' | 'locations' | 'settings' | 'qr-settings'>('dashboard')
   const router = useRouter()
   const { user } = useAuth()
+  const guard = usePermissionGuard()
+  
+  // Check permissions for different tabs
+  const canCheckInOut = guard.hasAccess('hr.attendance.check_in_out')
+  const canViewEmployees = guard.hasAccess('hr.attendance.employees.view')
+  const canViewReports = guard.hasAccess('hr.attendance.reports.view')
+  const canManageSettings = guard.hasAccess('hr.attendance.settings.manage')
+  const canManageLocations = guard.hasAccess('hr.attendance.locations.view')
+  const canManageQR = guard.hasAccess('hr.attendance.qr.view')
 
   useEffect(() => {
     if (activeTab === 'dashboard') {
@@ -255,7 +266,7 @@ export default function HRAttendance() {
 
   return (
     <PermissionPage
-      permission="reports.view"
+      permission="hr.attendance.view"
       accessDeniedTitle="Attendance Access Required"
       accessDeniedMessage="You need permission to view attendance data. Please contact your administrator."
     >
@@ -274,14 +285,22 @@ export default function HRAttendance() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={() => setActiveTab('reports')}>
+              <PermissionButton 
+                permission="hr.attendance.reports.export"
+                variant="outline" 
+                onClick={() => setActiveTab('reports')}
+              >
                 <Download className="h-4 w-4 mr-2" />
                 Export
-              </Button>
-              <Button variant="outline" onClick={() => setActiveTab('settings')}>
+              </PermissionButton>
+              <PermissionButton 
+                permission="hr.attendance.settings.manage"
+                variant="outline" 
+                onClick={() => setActiveTab('settings')}
+              >
                 <Settings className="h-4 w-4 mr-2" />
                 Settings
-              </Button>
+              </PermissionButton>
             </div>
           </div>
 
@@ -297,66 +316,78 @@ export default function HRAttendance() {
             >
               Dashboard
             </button>
-            <button
-              onClick={() => setActiveTab('employees')}
-              className={`px-4 py-2 font-medium border-b-2 transition-colors ${
-                activeTab === 'employees'
-                  ? 'border-green-500 text-green-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Employees
-            </button>
-            <button
-              onClick={() => setActiveTab('check-in')}
-              className={`px-4 py-2 font-medium border-b-2 transition-colors ${
-                activeTab === 'check-in'
-                  ? 'border-green-500 text-green-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Check-In/Out
-            </button>
-            <button
-              onClick={() => setActiveTab('reports')}
-              className={`px-4 py-2 font-medium border-b-2 transition-colors ${
-                activeTab === 'reports'
-                  ? 'border-green-500 text-green-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Reports
-            </button>
-            <button
-              onClick={() => setActiveTab('locations')}
-              className={`px-4 py-2 font-medium border-b-2 transition-colors ${
-                activeTab === 'locations'
-                  ? 'border-green-500 text-green-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Locations
-            </button>
-            <button
-              onClick={() => setActiveTab('settings')}
-              className={`px-4 py-2 font-medium border-b-2 transition-colors ${
-                activeTab === 'settings'
-                  ? 'border-green-500 text-green-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Settings
-            </button>
-            <button
-              onClick={() => setActiveTab('qr-settings')}
-              className={`px-4 py-2 font-medium border-b-2 transition-colors ${
-                activeTab === 'qr-settings'
-                  ? 'border-green-500 text-green-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              QR Settings
-            </button>
+            {canViewEmployees && (
+              <button
+                onClick={() => setActiveTab('employees')}
+                className={`px-4 py-2 font-medium border-b-2 transition-colors ${
+                  activeTab === 'employees'
+                    ? 'border-green-500 text-green-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Employees
+              </button>
+            )}
+            {canCheckInOut && (
+              <button
+                onClick={() => setActiveTab('check-in')}
+                className={`px-4 py-2 font-medium border-b-2 transition-colors ${
+                  activeTab === 'check-in'
+                    ? 'border-green-500 text-green-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Check-In/Out
+              </button>
+            )}
+            {canViewReports && (
+              <button
+                onClick={() => setActiveTab('reports')}
+                className={`px-4 py-2 font-medium border-b-2 transition-colors ${
+                  activeTab === 'reports'
+                    ? 'border-green-500 text-green-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Reports
+              </button>
+            )}
+            {canManageLocations && (
+              <button
+                onClick={() => setActiveTab('locations')}
+                className={`px-4 py-2 font-medium border-b-2 transition-colors ${
+                  activeTab === 'locations'
+                    ? 'border-green-500 text-green-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Locations
+              </button>
+            )}
+            {canManageSettings && (
+              <button
+                onClick={() => setActiveTab('settings')}
+                className={`px-4 py-2 font-medium border-b-2 transition-colors ${
+                  activeTab === 'settings'
+                    ? 'border-green-500 text-green-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Settings
+              </button>
+            )}
+            {canManageQR && (
+              <button
+                onClick={() => setActiveTab('qr-settings')}
+                className={`px-4 py-2 font-medium border-b-2 transition-colors ${
+                  activeTab === 'qr-settings'
+                    ? 'border-green-500 text-green-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                QR Settings
+              </button>
+            )}
           </div>
 
           {/* Tab Content */}

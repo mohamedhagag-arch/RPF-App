@@ -23,8 +23,8 @@ export default function CostControlPage() {
   
   // Check permissions
   const isAdmin = appUser?.role === 'admin'
-  const canViewManpower = guard.hasAccess('reports.view') || isAdmin
-  const canManageDatabase = guard.hasAccess('database.manage') || isAdmin
+  const canViewManpower = guard.hasAccess('cost_control.manpower.view') || isAdmin
+  const canManageDatabase = guard.hasAccess('cost_control.database.manage') || isAdmin
   
   // Handle query parameter for tabs
   useEffect(() => {
@@ -48,7 +48,8 @@ export default function CostControlPage() {
       id: 'overview' as CostControlTab,
       label: 'Overview',
       icon: BarChart3,
-      description: 'Cost control statistics and overview'
+      description: 'Cost control statistics and overview',
+      requiresPermission: true // Overview always visible if user has cost_control.view (already checked by PermissionPage)
     },
     {
       id: 'manpower' as CostControlTab,
@@ -67,6 +68,14 @@ export default function CostControlPage() {
   ]
 
   const handleTabChange = (tab: CostControlTab) => {
+    // Check permissions before allowing tab change
+    if (tab === 'manpower' && !canViewManpower) {
+      return // Don't allow switching to manpower tab without permission
+    }
+    if (tab === 'database' && !canManageDatabase) {
+      return // Don't allow switching to database tab without permission
+    }
+    
     setActiveTab(tab)
     // Update URL without page reload
     router.push(`/cost-control?tab=${tab}`, { scroll: false })
@@ -87,7 +96,7 @@ export default function CostControlPage() {
 
   return (
     <PermissionPage 
-      permission="reports.view"
+      permission="cost_control.view"
       accessDeniedTitle="Cost Control Access Required"
       accessDeniedMessage="You need permission to view cost control. Please contact your administrator."
     >

@@ -19,6 +19,7 @@ import {
   Calculator
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { PermissionButton } from '@/components/ui/PermissionButton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Alert } from '@/components/ui/Alert'
 import { supabase, TABLES, Machine, MachineryDayRate } from '@/lib/supabase'
@@ -26,9 +27,11 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { useAuth } from '@/app/providers'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import MachineryDayRates from './MachineryDayRates'
+import { usePermissionGuard } from '@/lib/permissionGuard'
 
 export default function MachineList() {
   const { user, appUser } = useAuth()
+  const guard = usePermissionGuard()
   const [machines, setMachines] = useState<Machine[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -36,6 +39,12 @@ export default function MachineList() {
   const [searchTerm, setSearchTerm] = useState('')
   const [importProgress, setImportProgress] = useState({ current: 0, total: 0, percentage: 0 })
   const [selectedMachines, setSelectedMachines] = useState<Set<string>>(new Set())
+  
+  // Check permissions
+  const canCreate = guard.hasAccess('cost_control.machine_list.create')
+  const canEdit = guard.hasAccess('cost_control.machine_list.edit')
+  const canDelete = guard.hasAccess('cost_control.machine_list.delete')
+  const canViewRates = guard.hasAccess('cost_control.machinery_day_rates.view')
   
   // Filter states
   const [rentalFilter, setRentalFilter] = useState<'all' | 'rented' | 'not-rented'>('all')
@@ -540,19 +549,21 @@ export default function MachineList() {
               Machine List
             </div>
           </button>
-          <button
-            onClick={() => setActiveTab('rates')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-              activeTab === 'rates'
-                ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <Calculator className="h-4 w-4" />
-              Machinery Day Rates
-            </div>
-          </button>
+          {canViewRates && (
+            <button
+              onClick={() => setActiveTab('rates')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'rates'
+                  ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Calculator className="h-4 w-4" />
+                Machinery Day Rates
+              </div>
+            </button>
+          )}
         </nav>
       </div>
 
@@ -570,7 +581,8 @@ export default function MachineList() {
           />
           <label htmlFor="import-csv-input">
             <span>
-              <Button 
+              <PermissionButton
+                permission="cost_control.machine_list.create"
                 variant="outline" 
                 className="flex items-center gap-2 cursor-pointer" 
                 type="button"
@@ -578,27 +590,37 @@ export default function MachineList() {
               >
                 <Upload className="h-4 w-4" />
                 Import CSV
-              </Button>
+              </PermissionButton>
             </span>
           </label>
-          <Button variant="outline" onClick={handleExport} className="flex items-center gap-2">
+          <PermissionButton
+            permission="cost_control.machine_list.export"
+            variant="outline" 
+            onClick={handleExport} 
+            className="flex items-center gap-2"
+          >
             <Download className="h-4 w-4" />
             Export CSV
-          </Button>
+          </PermissionButton>
           {selectedMachines.size > 0 && (
-            <Button 
+            <PermissionButton
+              permission="cost_control.machine_list.delete"
               variant="outline" 
               onClick={handleBulkDelete} 
               className="flex items-center gap-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
             >
               <Trash2 className="h-4 w-4" />
               Delete Selected ({selectedMachines.size})
-            </Button>
+            </PermissionButton>
           )}
-          <Button onClick={handleAdd} className="flex items-center gap-2">
+          <PermissionButton
+            permission="cost_control.machine_list.create"
+            onClick={handleAdd} 
+            className="flex items-center gap-2"
+          >
             <Plus className="h-5 w-5" />
             Add Machine
-          </Button>
+          </PermissionButton>
           </div>
 
       {/* Alerts */}
@@ -849,7 +871,8 @@ export default function MachineList() {
                       </td>
                       <td className="p-3">
                         <div className="flex items-center gap-2">
-                          <Button
+                          <PermissionButton
+                            permission="cost_control.machine_list.edit"
                             variant="outline"
                             size="sm"
                             onClick={() => handleEdit(machine)}
@@ -857,8 +880,9 @@ export default function MachineList() {
                             title="Edit Machine"
                           >
                             <Edit className="h-5 w-5" />
-                          </Button>
-                          <Button
+                          </PermissionButton>
+                          <PermissionButton
+                            permission="cost_control.machine_list.delete"
                             variant="outline"
                             size="sm"
                             onClick={() => handleDelete(machine.id)}
@@ -866,7 +890,7 @@ export default function MachineList() {
                             title="Delete Machine"
                           >
                             <Trash2 className="h-5 w-5" />
-                          </Button>
+                          </PermissionButton>
                         </div>
                       </td>
                     </tr>
@@ -975,7 +999,8 @@ export default function MachineList() {
                   >
                     Cancel
                   </Button>
-                  <Button
+                  <PermissionButton
+                    permission={editingMachine ? 'cost_control.machine_list.edit' : 'cost_control.machine_list.create'}
                     onClick={handleSave}
                     disabled={loading}
                     className="flex items-center gap-2"
@@ -991,7 +1016,7 @@ export default function MachineList() {
                         {editingMachine ? 'Update' : 'Add'} Machine
                       </>
                     )}
-                  </Button>
+                  </PermissionButton>
                 </div>
               </div>
             </div>
@@ -999,9 +1024,9 @@ export default function MachineList() {
         </div>
       )}
           </>
-        ) : (
+        ) : activeTab === 'rates' && canViewRates ? (
           <MachineryDayRates machines={machines} />
-        )}
+        ) : null}
     </div>
   )
 }
