@@ -4826,6 +4826,11 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set())
   const chartRef = useRef<HTMLDivElement>(null)
   const chartExportMenuRef = useRef<HTMLDivElement>(null)
+  
+  // ✅ Scope data for activities
+  const [projectTypesMap, setProjectTypesMap] = useState<Map<string, { name: string; description?: string }>>(new Map())
+  const [activityProjectTypesMap, setActivityProjectTypesMap] = useState<Map<string, string>>(new Map()) // activity_name -> project_type
+  const supabase = getSupabaseClient()
 
   // ✅ PERFORMANCE: Memoize today's date to avoid recalculating in every period
   const today = useMemo(() => {
@@ -4838,6 +4843,71 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
     return Array.from(new Set(projects.map((p: Project) => p.responsible_division).filter(Boolean))).sort()
   }, [projects])
 
+  // ✅ Load project types and project_type_activities on mount
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        console.log('🔄 Loading project types and activities from database...')
+        
+        // 1. Load project types from project_types table
+        const { data: typesData, error: typesError } = await supabase
+          .from('project_types')
+          .select('name, description')
+          .eq('is_active', true)
+          .order('name', { ascending: true })
+        
+        if (typesError) {
+          console.error('❌ Error loading project types:', typesError)
+        } else {
+          const typesMap = new Map<string, { name: string; description?: string }>()
+          if (typesData && typesData.length > 0) {
+            typesData.forEach((type: any) => {
+              if (type.name) {
+                typesMap.set(type.name, {
+                  name: type.name,
+                  description: type.description
+                })
+              }
+            })
+          }
+          setProjectTypesMap(typesMap)
+          console.log(`✅ Loaded ${typesMap.size} project types from project_types table`)
+        }
+        
+        // 2. Load project_type_activities to map activity_name to project_type
+        const { data: activitiesData, error: activitiesError } = await supabase
+          .from('project_type_activities')
+          .select('activity_name, project_type')
+          .eq('is_active', true)
+        
+        if (activitiesError) {
+          console.error('❌ Error loading project_type_activities:', activitiesError)
+        } else {
+          const activitiesMap = new Map<string, string>()
+          if (activitiesData && activitiesData.length > 0) {
+            activitiesData.forEach((item: any) => {
+              if (item.activity_name && item.project_type) {
+                const activityName = item.activity_name.trim()
+                const projectType = item.project_type.trim()
+                // Store both exact and lowercase keys for case-insensitive matching
+                activitiesMap.set(activityName, projectType)
+                activitiesMap.set(activityName.toLowerCase(), projectType)
+              }
+            })
+          }
+          setActivityProjectTypesMap(activitiesMap)
+          console.log(`✅ Loaded ${activitiesMap.size / 2} activity-project type mappings from project_type_activities table`)
+          console.log('📋 Sample mappings:', Array.from(activitiesMap.entries()).slice(0, 5))
+        }
+      } catch (error) {
+        console.error('❌ Error loading project types data:', error)
+      }
+    }
+    
+    loadData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const filteredProjects = useMemo(() => {
     let filtered = projects
     if (selectedDivision) {
@@ -4845,6 +4915,70 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
     }
     return filtered
   }, [projects, selectedDivision])
+
+  // ✅ Helper function to get Scope for an activity
+  const getActivityScope = useCallback((activity: BOQActivity): string[] => {
+    const activityName = (activity.activity_name || 
+                         activity.activity || 
+                         (activity as any).raw?.['Activity Name'] ||
+                         (activity as any).raw?.['Activity'] ||
+                         '').trim()
+    
+    if (!activityName) return ['N/A']
+    
+    // Look up project_type from project_type_activities table
+    let activityProjectType: string | undefined = undefined
+    
+    // Try exact match first (with original case)
+    activityProjectType = activityProjectTypesMap.get(activityName)
+    
+    // If not found, try case-insensitive match
+    if (!activityProjectType) {
+      const activityNameLower = activityName.toLowerCase()
+      activityProjectType = activityProjectTypesMap.get(activityNameLower)
+      
+      // If still not found, try partial match (check if activity name contains or is contained in map key)
+      if (!activityProjectType) {
+        Array.from(activityProjectTypesMap.entries()).forEach(([key, value]) => {
+          if (!activityProjectType) {
+            const keyLower = key.toLowerCase()
+            // Check if activity name matches key (exact, contains, or is contained)
+            if (keyLower === activityNameLower || 
+                keyLower.includes(activityNameLower) || 
+                activityNameLower.includes(keyLower)) {
+              activityProjectType = value
+            }
+          }
+        })
+      }
+    }
+    
+    // If project_type found, look it up in project_types table to get the scope name
+    const scopeList: string[] = []
+    if (activityProjectType) {
+      // Try exact match first
+      const projectType = projectTypesMap.get(activityProjectType)
+      if (projectType) {
+        scopeList.push(projectType.name)
+      } else {
+        // Try case-insensitive match
+        let found = false
+        Array.from(projectTypesMap.entries()).forEach(([key, value]) => {
+          if (!found && key.toLowerCase() === activityProjectType!.toLowerCase()) {
+            scopeList.push(value.name)
+            found = true
+          }
+        })
+        // If not found in project_types table, use the project_type from project_type_activities as fallback
+        if (!found) {
+          scopeList.push(activityProjectType)
+        }
+      }
+    }
+    
+    // If no scopes found, return N/A
+    return scopeList.length > 0 ? scopeList : ['N/A']
+  }, [projectTypesMap, activityProjectTypesMap])
 
   // Calculate Divisions Contract Amount (same logic as ProjectsTableWithCustomization)
   const divisionsDataMap = useMemo(() => {
@@ -7486,12 +7620,14 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
     
     // ✅ Calculate period earned value totals from PROJECT ROWS ONLY (not from expanded activities)
     // ✅ FIX: When project is expanded, its row already shows sum of activities, so we only sum project rows
+    // ✅ FIX: Use allAnalytics (not projectsWithWorkInRange) for chart calculations to avoid changes when hideZeroProjects is enabled
     const periodEarnedValueTotals = periods.map((_, periodIndex) => {
       let sum = 0
       
       // ✅ Sum ONLY from project rows (not from expanded activities)
       // When a project is expanded, its row value is already the sum of its activities
-      projectsWithWorkInRange.forEach((analytics: any) => {
+      // ✅ Use allAnalytics instead of projectsWithWorkInRange so chart values don't change when hideZeroProjects is toggled
+      allAnalytics.forEach((analytics: any) => {
         const isExpanded = expandedProjects.has(analytics.project.id)
         
         if (isExpanded) {
@@ -7693,7 +7829,8 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
       
       // ✅ Sum ONLY from project rows (not from expanded activities)
       // When a project is expanded, its row value is already the sum of its activities
-      projectsWithWorkInRange.forEach((analytics: any) => {
+      // ✅ Use allAnalytics instead of projectsWithWorkInRange so chart values don't change when hideZeroProjects is toggled
+      allAnalytics.forEach((analytics: any) => {
         const isExpanded = expandedProjects.has(analytics.project.id)
         
         if (isExpanded) {
@@ -7806,7 +7943,8 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
       ? (() => {
           let sum = 0
           // ✅ Sum ONLY from project rows (not from expanded activities)
-          projectsWithWorkInRange.forEach((analytics: any) => {
+          // ✅ Use allAnalytics instead of projectsWithWorkInRange so chart values don't change when hideZeroProjects is toggled
+          allAnalytics.forEach((analytics: any) => {
             const isExpanded = expandedProjects.has(analytics.project.id)
             
             if (isExpanded) {
@@ -7996,7 +8134,8 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
       ? (() => {
           let sum = 0
           // ✅ Sum ONLY from project rows (not from expanded activities)
-          projectsWithWorkInRange.forEach((analytics: any) => {
+          // ✅ Use allAnalytics instead of projectsWithWorkInRange so chart values don't change when hideZeroProjects is toggled
+          allAnalytics.forEach((analytics: any) => {
             const isExpanded = expandedProjects.has(analytics.project.id)
             
             if (isExpanded) {
@@ -8150,7 +8289,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
       // Add header row
       const headerRow: any = {
         'Project Full Name': 'Project Full Name',
-        'Divisions': 'Divisions',
+        'Scope': 'Scope',
         'Workmanship?': 'Workmanship?',
         'Total Contract Amount': 'Total Contract Amount',
         'Division Contract Amount': 'Division Contract Amount',
@@ -8248,7 +8387,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
         // Create row object
         const row: any = {
           'Project Full Name': projectDisplayName,
-          'Divisions': divisionsText,
+          'Scope': divisionsText, // Changed from 'Divisions' to 'Scope' for consistency
           'Workmanship?': isWorkmanship ? 'Yes' : 'No',
           'Total Contract Amount': totalContractAmount,
           'Division Contract Amount': divisionContractAmount,
@@ -8273,7 +8412,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
       // Add totals row (will be replaced with formulas later)
       const totalsRow: any = {
         'Project Full Name': 'TOTAL',
-        'Divisions': '',
+        'Scope': '', // Changed from 'Divisions' to 'Scope' for consistency
         'Workmanship?': '',
         'Total Contract Amount': 0, // Will be replaced with formula
         'Division Contract Amount': 0, // Will be replaced with formula
@@ -8418,7 +8557,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
       // Define column widths
       const colWidths = [
         { wch: 35 }, // Project Full Name
-        { wch: 30 }, // Divisions
+        { wch: 30 }, // Scope
         { wch: 12 }, // Workmanship?
         { wch: 20 }, // Total Contract Amount
         { wch: 25 }, // Division Contract Amount
@@ -8509,7 +8648,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
           if (!ws[cellAddress]) continue
           
           const colIndex = col
-          // Columns: 0=Project, 1=Divisions, 2=Workmanship, 3=Total Contract, 4=Division Contract, 5=Virtual Material, 6=Outer Range (if enabled), 6/7+ = Weeks, last = Grand Total
+          // Columns: 0=Project, 1=Scope, 2=Workmanship, 3=Total Contract, 4=Division Contract, 5=Virtual Material, 6=Outer Range (if enabled), 6/7+ = Weeks, last = Grand Total
           const outerRangeOffset = (showOuterRangeColumn && outerRangeStart) ? 1 : 0
           const isNumberColumn = colIndex === 3 || colIndex === 4 || colIndex === 5 || 
                                  (showOuterRangeColumn && outerRangeStart && colIndex === 6) ||
@@ -8681,7 +8820,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
               className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
             />
             <label htmlFor="hideDivisionsColumn" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
-              Hide Divisions Column
+              Hide Scope Column
             </label>
           </div>
           <div className="flex items-center gap-2">
@@ -8802,16 +8941,17 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
               {(() => {
                 // ✅ Generate chart data once
                 // Calculate period Virtual Material Amount totals for chart (Actual)
+                // ✅ Use allAnalytics instead of projectsWithWorkInRange so chart values don't change when hideZeroProjects is toggled
                 const periodVirtualMaterialAmountTotals = useVirtualValueInChart
                   ? periods.map((_, periodIndex) => {
                       let sum = 0
-                      projectsWithWorkInRange.forEach((analytics: any) => {
+                      allAnalytics.forEach((analytics: any) => {
                         const cachedValues = periodValuesCache.get(analytics.project.id)
                         const virtualMaterialAmounts = cachedValues?.virtualMaterialAmount || []
                         sum += virtualMaterialAmounts[periodIndex] || 0
                       })
                       // Sum from expanded activities
-                      projectsWithWorkInRange.forEach((analytics: any) => {
+                      allAnalytics.forEach((analytics: any) => {
                         if (!expandedProjects.has(analytics.project.id)) return
                         
                         const project = analytics.project
@@ -8985,16 +9125,17 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                   : periods.map(() => 0)
                 
                 // ✅ Calculate period Planned Virtual Material Amount totals for chart
+                // ✅ Use allAnalytics instead of projectsWithWorkInRange so chart values don't change when hideZeroProjects is toggled
                 const periodPlannedVirtualMaterialAmountTotals = useVirtualValueInChart && viewPlannedValue
                   ? periods.map((_, periodIndex) => {
                       let sum = 0
-                      projectsWithWorkInRange.forEach((analytics: any) => {
+                      allAnalytics.forEach((analytics: any) => {
                         const cachedValues = periodValuesCache.get(analytics.project.id)
                         const plannedVirtualMaterialAmounts = cachedValues?.plannedVirtualMaterialAmount || []
                         sum += plannedVirtualMaterialAmounts[periodIndex] || 0
                       })
                       // Sum from expanded activities
-                      projectsWithWorkInRange.forEach((analytics: any) => {
+                      allAnalytics.forEach((analytics: any) => {
                         if (!expandedProjects.has(analytics.project.id)) return
                         
                         const project = analytics.project
@@ -9108,10 +9249,8 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                     })
                   : periods.map(() => 0)
                 
-                // ✅ For Composed Chart, calculate cumulative values (running total)
-                // For other chart types, use period values (individual period values)
-                const useCumulative = chartType === 'composed'
-                
+                // ✅ Calculate cumulative values (running total) for line chart
+                // Bars will show individual period values, line will show cumulative values
                 let cumulativeEarned = 0
                 let cumulativePlanned = 0
                 
@@ -9143,18 +9282,19 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                     ? basePlanned + plannedVirtualMaterialAmount
                     : basePlanned
                   
-                  // ✅ For Composed Chart: Add to cumulative total
-                  // For other charts: Use period value only
-                  if (useCumulative) {
-                    cumulativeEarned += periodEarned
-                    cumulativePlanned += periodPlanned
-                  }
+                  // ✅ Calculate cumulative values (running total) for line chart
+                  cumulativeEarned += periodEarned
+                  cumulativePlanned += periodPlanned
                   
                   return {
                     period: period.label,
                     periodShort: periodShort,
-                    earned: useCumulative ? cumulativeEarned : periodEarned,
-                    planned: viewPlannedValue ? (useCumulative ? cumulativePlanned : periodPlanned) : undefined
+                    // Bars: individual period values
+                    earnedBar: periodEarned,
+                    plannedBar: viewPlannedValue ? periodPlanned : undefined,
+                    // Line: cumulative values (running sum)
+                    earnedLine: cumulativeEarned,
+                    plannedLine: viewPlannedValue ? cumulativePlanned : undefined
                   }
                 })
 
@@ -9196,11 +9336,17 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                         const currency = projectsWithWorkInRange.length > 0 
                           ? (projectsWithWorkInRange[0]?.project?.currency || 'AED')
                           : 'AED'
-                        if (name === 'earned' || name === 'earned-bar') {
-                          return [formatCurrency(value, currency), 'Earned Value']
+                        if (name === 'earnedBar' || name === 'earned-bar') {
+                          return [formatCurrency(value, currency), 'Earned Value (Period)']
                         }
-                        if (name === 'planned' || name === 'planned-bar') {
-                          return [formatCurrency(value, currency), 'Planned Value']
+                        if (name === 'earnedLine' || name === 'earned-line' || name === 'earned') {
+                          return [formatCurrency(value, currency), 'Earned Value (Cumulative)']
+                        }
+                        if (name === 'plannedBar' || name === 'planned-bar') {
+                          return [formatCurrency(value, currency), 'Planned Value (Period)']
+                        }
+                        if (name === 'plannedLine' || name === 'planned-line' || name === 'planned') {
+                          return [formatCurrency(value, currency), 'Planned Value (Cumulative)']
                         }
                         return [formatCurrency(value, currency), name]
                       }}
@@ -9215,37 +9361,39 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                     />
                     <Legend 
                       formatter={(value) => {
-                        if (value === 'earned' || value === 'earned-bar') return 'Earned Value'
-                        if (value === 'planned' || value === 'planned-bar') return 'Planned Value'
+                        if (value === 'earnedBar' || value === 'earned-bar') return 'Earned Value (Period)'
+                        if (value === 'earnedLine' || value === 'earned-line' || value === 'earned') return 'Earned Value (Cumulative)'
+                        if (value === 'plannedBar' || value === 'planned-bar') return 'Planned Value (Period)'
+                        if (value === 'plannedLine' || value === 'planned-line' || value === 'planned') return 'Planned Value (Cumulative)'
                         return value
                       }}
                     />
                   </>
                 )
 
-                // ✅ Render chart based on type
+                // ✅ Render chart based on type - all use cumulative values
                 if (chartType === 'line') {
                   return (
                     <LineChart {...commonProps}>
                       {commonAxis}
                       <Line 
                         type="monotone" 
-                        dataKey="earned" 
+                        dataKey="earnedLine" 
                         stroke="#10b981" 
                         strokeWidth={3}
                         dot={{ fill: '#10b981', r: 5 }}
                         activeDot={{ r: 7 }}
-                        name="earned"
+                        name="earnedLine"
                       />
                       {viewPlannedValue && (
                         <Line 
                           type="monotone" 
-                          dataKey="planned" 
+                          dataKey="plannedLine" 
                           stroke="#3b82f6" 
                           strokeWidth={3}
                           dot={{ fill: '#3b82f6', r: 5 }}
                           activeDot={{ r: 7 }}
-                          name="planned"
+                          name="plannedLine"
                         />
                       )}
                     </LineChart>
@@ -9257,16 +9405,16 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                     <BarChart {...commonProps}>
                       {commonAxis}
                       <Bar 
-                        dataKey="earned" 
+                        dataKey="earnedBar" 
                         fill="#10b981" 
-                        name="earned"
+                        name="earnedBar"
                         radius={[4, 4, 0, 0]}
                       />
                       {viewPlannedValue && (
                         <Bar 
-                          dataKey="planned" 
+                          dataKey="plannedBar" 
                           fill="#3b82f6" 
-                          name="planned"
+                          name="plannedBar"
                           radius={[4, 4, 0, 0]}
                         />
                       )}
@@ -9280,22 +9428,22 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                       {commonAxis}
                       <Area 
                         type="monotone" 
-                        dataKey="earned" 
+                        dataKey="earnedLine" 
                         stroke="#10b981" 
                         fill="#10b981"
                         fillOpacity={0.6}
                         strokeWidth={3}
-                        name="earned"
+                        name="earnedLine"
                       />
                       {viewPlannedValue && (
                         <Area 
                           type="monotone" 
-                          dataKey="planned" 
+                          dataKey="plannedLine" 
                           stroke="#3b82f6" 
                           fill="#3b82f6"
                           fillOpacity={0.4}
                           strokeWidth={3}
-                          name="planned"
+                          name="plannedLine"
                         />
                       )}
                     </AreaChart>
@@ -9306,43 +9454,43 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                   return (
                     <ComposedChart {...commonProps}>
                       {commonAxis}
-                      {/* Earned Value - Bar */}
+                      {/* Earned Value - Bar (Period Value) */}
                       <Bar 
-                        dataKey="earned" 
+                        dataKey="earnedBar" 
                         fill="#10b981" 
-                        name="earned-bar"
+                        name="earnedBar"
                         radius={[4, 4, 0, 0]}
                         opacity={0.7}
                       />
-                      {/* Earned Value - Line */}
+                      {/* Earned Value - Line (Cumulative Value) */}
                       <Line 
                         type="monotone" 
-                        dataKey="earned" 
+                        dataKey="earnedLine" 
                         stroke="#10b981" 
                         strokeWidth={3}
                         dot={{ fill: '#10b981', r: 5 }}
                         activeDot={{ r: 7 }}
-                        name="earned"
+                        name="earnedLine"
                       />
                       {viewPlannedValue && (
                         <>
-                          {/* Planned Value - Bar */}
+                          {/* Planned Value - Bar (Period Value) */}
                           <Bar 
-                            dataKey="planned" 
+                            dataKey="plannedBar" 
                             fill="#3b82f6" 
-                            name="planned-bar"
+                            name="plannedBar"
                             radius={[4, 4, 0, 0]}
                             opacity={0.5}
                           />
-                          {/* Planned Value - Line */}
+                          {/* Planned Value - Line (Cumulative Value) */}
                           <Line 
                             type="monotone" 
-                            dataKey="planned" 
+                            dataKey="plannedLine" 
                             stroke="#3b82f6" 
                             strokeWidth={3}
                             dot={{ fill: '#3b82f6', r: 5 }}
                             activeDot={{ r: 7 }}
-                            name="planned"
+                            name="plannedLine"
                           />
                         </>
                       )}
@@ -9356,22 +9504,22 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                     {commonAxis}
                     <Line 
                       type="monotone" 
-                      dataKey="earned" 
+                      dataKey="earnedLine" 
                       stroke="#10b981" 
                       strokeWidth={3}
                       dot={{ fill: '#10b981', r: 5 }}
                       activeDot={{ r: 7 }}
-                      name="earned"
+                      name="earnedLine"
                     />
                     {viewPlannedValue && (
                       <Line 
                         type="monotone" 
-                        dataKey="planned" 
+                        dataKey="plannedLine" 
                         stroke="#3b82f6" 
                         strokeWidth={3}
                         dot={{ fill: '#3b82f6', r: 5 }}
                         activeDot={{ r: 7 }}
-                        name="planned"
+                        name="plannedLine"
                       />
                     )}
                   </LineChart>
@@ -9468,7 +9616,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                   </th>
                   <th rowSpan={viewPlannedValue ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold sticky left-0 z-30 bg-gray-100 dark:bg-gray-800" style={{ width: '200px' }}>Project Full Name</th>
                   {!hideDivisionsColumn && (
-                    <th rowSpan={viewPlannedValue ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold" style={{ width: '180px' }}>Divisions</th>
+                    <th rowSpan={viewPlannedValue ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold" style={{ width: '180px' }}>Scope</th>
                   )}
                   <th rowSpan={viewPlannedValue ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: '120px' }}>Workmanship?</th>
                   {!hideTotalContractColumn && (
@@ -10894,6 +11042,10 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                           const activityDivision = activity.activity_division || rawActivity['Activity Division'] || ''
                           const activityTotalValue = activity.total_value || parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 0
                           
+                          // ✅ Check if activity has actual value > 0 to show Scope instead of Divisions
+                          const hasActualValue = activityGrandTotal > 0
+                          const activityScope = hasActualValue ? getActivityScope(activity) : []
+                          
                           // Activities inherit workmanship from project
                           // isWorkmanship is already defined in the parent scope
                           
@@ -10914,9 +11066,35 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                               </td>
                               {!hideDivisionsColumn && (
                                 <td className="border border-gray-300 dark:border-gray-600 px-4 py-2" style={{ width: '180px' }}>
-                                  <span className="text-xs text-gray-500 dark:text-gray-400">
-                                    {activity.activity_division || 'N/A'}
-                                  </span>
+                                  {hasActualValue ? (
+                                    activityScope.length > 0 && activityScope[0] !== 'N/A' ? (
+                                      <div className="flex flex-wrap gap-1 items-center">
+                                        {activityScope.map((scope, index) => {
+                                          const scopeLower = scope.toLowerCase()
+                                          let scopeColor = 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300'
+                                          
+                                          if (scopeLower.includes('infrastructure') || scopeLower.includes('enabling')) {
+                                            scopeColor = 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
+                                          } else if (scopeLower.includes('construction') || scopeLower.includes('excavation')) {
+                                            scopeColor = 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300'
+                                          }
+                                          
+                                          return (
+                                            <span key={index} className={`px-2 py-0.5 text-xs font-medium rounded-full ${scopeColor}`}>
+                                              {scope}
+                                            </span>
+                                          )
+                                        })}
+                                      </div>
+                                    ) : (
+                                      // ✅ If actual value > 0 but no scope found, show nothing (empty)
+                                      <span className="text-xs text-gray-400 dark:text-gray-500"></span>
+                                    )
+                                  ) : (
+                                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                                      {activity.activity_division || 'N/A'}
+                                    </span>
+                                  )}
                                 </td>
                               )}
                               <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center" style={{ width: '120px' }}>

@@ -11,7 +11,7 @@ import { Alert } from '@/components/ui/Alert'
 import { UserCheck, Download, RefreshCw, Search, X, CheckCircle, AlertCircle, Filter, SlidersHorizontal, Calendar, DollarSign, Clock, Database, ArrowRight, Plus, Save, Edit, Trash2, CheckSquare, Square } from 'lucide-react'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { useRouter } from 'next/navigation'
-import { TABLES, DesignationRate } from '@/lib/supabase'
+import { TABLES, DesignationRate, HRManpower } from '@/lib/supabase'
 import { mapProjectFromDB } from '@/lib/dataMappers'
 import { buildProjectFullCode } from '@/lib/projectDataFetcher'
 import type { Project } from '@/lib/supabase'
@@ -69,6 +69,12 @@ export default function ManpowerPage() {
   const [formError, setFormError] = useState('')
   const [formSuccess, setFormSuccess] = useState('')
   const [showProjectDropdownForm, setShowProjectDropdownForm] = useState(false)
+  
+  // ✅ HR Manpower State for Labour Code
+  const [hrManpowerList, setHrManpowerList] = useState<HRManpower[]>([])
+  const [loadingHrManpower, setLoadingHrManpower] = useState(false)
+  const [showLabourCodeDropdown, setShowLabourCodeDropdown] = useState(false)
+  const [showDesignationDropdown, setShowDesignationDropdown] = useState(false)
   
   // ✅ Multiple Records Preview
   const [previewRecords, setPreviewRecords] = useState<Array<{
@@ -272,10 +278,14 @@ export default function ManpowerPage() {
   }
 
   // ✅ Calculate Cost based on Designation Rate
+  // Updated to use the correct default values from Designation Rates:
+  // - overtime_hourly_rate defaults to hourly_rate (not hourly_rate * 1.5)
+  // - off_day_hourly_rate defaults to hourly_rate * 2
   const calculateCost = (
     designation: string,
     standardHours: number,
-    overtimeHours: number
+    overtimeHours: number,
+    isOffDay: boolean = false // Optional: flag to indicate if this is an off-day
   ): number => {
     if (!designation || designationRates.length === 0) return 0
 
@@ -286,15 +296,30 @@ export default function ManpowerPage() {
     if (!rate) return 0
 
     const hourlyRate = rate.hourly_rate
-    // Use overtime_hourly_rate if it exists (not null and not undefined), otherwise use 1.5 × hourly_rate
+    
+    // Use overtime_hourly_rate if it exists (not null and not undefined), 
+    // otherwise default to hourly_rate (as per Designation Rates form)
     const overtimeRate = (rate.overtime_hourly_rate != null && rate.overtime_hourly_rate !== undefined) 
       ? rate.overtime_hourly_rate 
-      : (hourlyRate * 1.5)
+      : hourlyRate // Default is hourly_rate, not hourly_rate * 1.5
+    
+    // Use off_day_hourly_rate if it exists and this is an off-day,
+    // otherwise default to hourly_rate * 2 (as per Designation Rates form)
+    const offDayRate = (rate.off_day_hourly_rate != null && rate.off_day_hourly_rate !== undefined)
+      ? rate.off_day_hourly_rate
+      : (hourlyRate * 2) // Default is hourly_rate * 2
 
-    const standardCost = standardHours * hourlyRate
-    const overtimeCost = overtimeHours * overtimeRate
-
-    return standardCost + overtimeCost
+    // Calculate costs based on whether it's an off-day or regular day
+    if (isOffDay) {
+      // For off-days, use off_day_hourly_rate for all hours
+      const totalHours = standardHours + overtimeHours
+      return totalHours * offDayRate
+    } else {
+      // For regular days, use hourly_rate for standard hours and overtime_hourly_rate for overtime
+      const standardCost = standardHours * hourlyRate
+      const overtimeCost = overtimeHours * overtimeRate
+      return standardCost + overtimeCost
+    }
   }
 
   // ✅ Auto-calculate Total Hours and Overtime when Start, Finish, or Standard Working Hours change
@@ -391,29 +416,92 @@ export default function ManpowerPage() {
   }
 
   // ✅ Fetch Designation Rates
+  // Updated to ensure all rate fields are fetched correctly
   const fetchDesignationRates = async () => {
     try {
       const { data, error } = await supabase
         .from(TABLES.DESIGNATION_RATES)
         // @ts-ignore
-        .select('*')
+        .select('id, designation, hourly_rate, overtime_hourly_rate, off_day_hourly_rate, overhead_hourly_rate, total_hourly_rate, authority, created_at, updated_at')
         .order('designation', { ascending: true })
 
       if (error) {
-        console.error('Error fetching designation rates:', error)
+        console.error('❌ Error fetching designation rates:', error)
         return
       }
-      setDesignationRates((data || []) as any)
-      console.log('✅ Loaded designation rates:', (data || []).length)
+      
+      // Ensure all rates have proper default values if null
+      const ratesWithDefaults = (data || []).map((rate: any) => ({
+        ...rate,
+        // Ensure overtime_hourly_rate defaults to hourly_rate if null
+        overtime_hourly_rate: rate.overtime_hourly_rate != null ? rate.overtime_hourly_rate : rate.hourly_rate,
+        // Ensure off_day_hourly_rate defaults to hourly_rate * 2 if null
+        off_day_hourly_rate: rate.off_day_hourly_rate != null ? rate.off_day_hourly_rate : (rate.hourly_rate * 2),
+        // Ensure overhead_hourly_rate defaults to 5.3 if null
+        overhead_hourly_rate: rate.overhead_hourly_rate != null ? rate.overhead_hourly_rate : 5.3,
+        // Calculate total_hourly_rate if not provided
+        total_hourly_rate: rate.total_hourly_rate != null ? rate.total_hourly_rate : (rate.hourly_rate + (rate.overhead_hourly_rate || 5.3))
+      }))
+      
+      setDesignationRates(ratesWithDefaults as DesignationRate[])
+      console.log('✅ Loaded designation rates:', ratesWithDefaults.length)
+      console.log('📊 Sample rate:', ratesWithDefaults[0] ? {
+        designation: ratesWithDefaults[0].designation,
+        hourly_rate: ratesWithDefaults[0].hourly_rate,
+        overtime_hourly_rate: ratesWithDefaults[0].overtime_hourly_rate,
+        off_day_hourly_rate: ratesWithDefaults[0].off_day_hourly_rate
+      } : 'No rates found')
     } catch (err: any) {
-      console.error('Error fetching designation rates:', err)
+      console.error('❌ Error fetching designation rates:', err)
     }
   }
 
-  // ✅ Load projects and designation rates on mount
+  // ✅ Fetch HR Manpower for Labour Code
+  const fetchHrManpower = async () => {
+    try {
+      setLoadingHrManpower(true)
+      console.log('🔄 Fetching HR Manpower from table:', TABLES.HR_MANPOWER)
+      
+      const { data, error } = await supabase
+        .from(TABLES.HR_MANPOWER)
+        // @ts-ignore
+        .select('id, employee_code, employee_name, designation, status, department')
+        .eq('status', 'Active') // Only fetch active employees
+        .order('employee_code', { ascending: true })
+
+      if (error) {
+        console.error('❌ Error fetching HR Manpower:', error)
+        console.error('Error details:', error.message, error.code, error.details)
+        setHrManpowerList([])
+        return
+      }
+      
+      const employees = (data || []) as HRManpower[]
+      setHrManpowerList(employees)
+      console.log('✅ Loaded HR Manpower:', employees.length, 'active employees')
+      
+      if (employees.length > 0) {
+        console.log('📋 Sample employee:', {
+          code: employees[0].employee_code,
+          name: employees[0].employee_name,
+          designation: employees[0].designation
+        })
+      } else {
+        console.warn('⚠️ No active employees found in HR Manpower table')
+      }
+    } catch (err: any) {
+      console.error('❌ Error fetching HR Manpower:', err)
+      setHrManpowerList([])
+    } finally {
+      setLoadingHrManpower(false)
+    }
+  }
+
+  // ✅ Load projects, designation rates, and HR Manpower on mount
   useEffect(() => {
     loadAvailableProjects()
     fetchDesignationRates()
+    fetchHrManpower()
   }, [])
 
   // ✅ Direct search function that accepts project code as parameter
@@ -1047,6 +1135,11 @@ export default function ManpowerPage() {
     setShowAddForm(true)
     setFormError('')
     setFormSuccess('')
+    
+    // Fetch HR Manpower when opening the form
+    if (hrManpowerList.length === 0 && !loadingHrManpower) {
+      fetchHrManpower()
+    }
   }
 
   // ✅ Toggle Select Mode
@@ -1614,13 +1707,78 @@ export default function ManpowerPage() {
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                               Labour Code <span className="text-gray-400">(Optional)</span>
                             </label>
+                            <div className="relative">
+                              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400 z-10" />
+                              {hrManpowerList.length > 0 ? (
+                                <>
+                                  <input
+                                    type="text"
+                                    placeholder="🔍 Search and select employee code..."
+                                    value={formData.labourCode}
+                                    onChange={(e) => {
+                                      setFormData({ ...formData, labourCode: e.target.value })
+                                      setShowLabourCodeDropdown(true)
+                                    }}
+                                    onFocus={() => setShowLabourCodeDropdown(true)}
+                                    onBlur={() => setTimeout(() => setShowLabourCodeDropdown(false), 200)}
+                                    className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                  />
+                                  {showLabourCodeDropdown && (
+                                    <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-96 overflow-y-auto">
+                                      {hrManpowerList
+                                        .filter((employee) => {
+                                          if (!formData.labourCode.trim()) return true
+                                          const searchLower = formData.labourCode.toLowerCase().trim()
+                                          return (
+                                            employee.employee_code.toLowerCase().includes(searchLower) ||
+                                            employee.employee_name.toLowerCase().includes(searchLower)
+                                          )
+                                        })
+                                        .map((employee) => (
+                                          <button
+                                            key={employee.id}
+                                            type="button"
+                                            onClick={() => {
+                                              setFormData({ ...formData, labourCode: employee.employee_code })
+                                              setShowLabourCodeDropdown(false)
+                                            }}
+                                            className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700 last:border-b-0 transition-colors"
+                                          >
+                                            <div className="font-medium text-gray-900 dark:text-white">
+                                              {employee.employee_code}
+                                            </div>
+                                            <div className="text-sm text-gray-500 dark:text-gray-400">
+                                              {employee.employee_name} {employee.designation ? `- ${employee.designation}` : ''}
+                                            </div>
+                                          </button>
+                                        ))}
+                                    </div>
+                                  )}
+                                </>
+                              ) : loadingHrManpower ? (
+                                <input
+                                  type="text"
+                                  placeholder="Loading employees..."
+                                  disabled
+                                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-500 cursor-not-allowed"
+                                />
+                              ) : (
                             <input
                               type="text"
                               placeholder="e.g., L001"
                               value={formData.labourCode}
                               onChange={(e) => setFormData({ ...formData, labourCode: e.target.value })}
-                              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent"
                             />
+                              )}
+                            </div>
+                            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                              {loadingHrManpower 
+                                ? 'Loading employees from HR Manpower...'
+                                : hrManpowerList.length > 0 
+                                  ? `✅ Search from ${hrManpowerList.length} active employees` 
+                                  : '⚠️ HR Manpower not loaded. Enter employee code manually or refresh the page.'}
+                            </p>
                           </div>
 
                           {/* Designation */}
@@ -1629,7 +1787,12 @@ export default function ManpowerPage() {
                               Designation <span className="text-gray-400">(Optional - Auto-calculates cost)</span>
                             </label>
                             <div className="relative">
-                              <select
+                              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400 z-10" />
+                              {designationRates.length > 0 ? (
+                                <>
+                                  <input
+                                    type="text"
+                                    placeholder="🔍 Search and select designation..."
                                 value={formData.designation}
                                 onChange={(e) => {
                                   const designation = e.target.value
@@ -1653,25 +1816,67 @@ export default function ManpowerPage() {
                                   } else {
                                     setFormData(prev => ({ ...prev, designation }))
                                   }
-                                }}
-                                className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none cursor-pointer"
-                              >
-                                <option value="">Select Designation...</option>
-                                {designationRates.length > 0 ? (
-                                  designationRates.map((rate) => (
-                                    <option key={rate.id} value={rate.designation}>
-                                      {rate.designation} - ${rate.hourly_rate}/hr
+                                      setShowDesignationDropdown(true)
+                                    }}
+                                    onFocus={() => setShowDesignationDropdown(true)}
+                                    onBlur={() => setTimeout(() => setShowDesignationDropdown(false), 200)}
+                                    className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                  />
+                                  {showDesignationDropdown && (
+                                    <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-96 overflow-y-auto">
+                                      {designationRates
+                                        .filter((rate) => {
+                                          if (!formData.designation.trim()) return true
+                                          const searchLower = formData.designation.toLowerCase().trim()
+                                          return rate.designation.toLowerCase().includes(searchLower)
+                                        })
+                                        .map((rate) => (
+                                          <button
+                                            key={rate.id}
+                                            type="button"
+                                            onClick={() => {
+                                              const designation = rate.designation
+                                              setSelectedDesignationRate(rate)
+                                              
+                                              // Recalculate cost if we have hours
+                                              if (formData.totalHours && formData.standardWorkingHours) {
+                                                const totalHours = parseFloat(formData.totalHours) || 0
+                                                const standardHours = parseFloat(formData.standardWorkingHours) || 8
+                                                const overtimeHours = Math.max(0, totalHours - standardHours)
+                                                const calculatedCost = calculateCost(designation, standardHours, overtimeHours)
+                                                
+                                                setFormData(prev => ({
+                                                  ...prev,
+                                                  designation,
+                                                  cost: calculatedCost > 0 ? calculatedCost.toFixed(2) : ''
+                                                }))
+                                              } else {
+                                                setFormData(prev => ({ ...prev, designation }))
+                                              }
+                                              setShowDesignationDropdown(false)
+                                            }}
+                                            className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700 last:border-b-0 transition-colors"
+                                          >
+                                            <div className="font-medium text-gray-900 dark:text-white">
+                                              {rate.designation}
+                                            </div>
+                                            <div className="text-sm text-gray-500 dark:text-gray-400">
+                                              ${rate.hourly_rate}/hr
                                       {rate.overtime_hourly_rate ? ` (OT: $${rate.overtime_hourly_rate}/hr)` : ` (OT: $${(rate.hourly_rate * 1.5).toFixed(2)}/hr)`}
-                                    </option>
-                                  ))
+                                            </div>
+                                          </button>
+                                        ))}
+                                    </div>
+                                  )}
+                                </>
                                 ) : (
-                                  <option value="" disabled>Loading designations...</option>
-                                )}
-                              </select>
-                              <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none z-10">
-                                <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                </svg>
+                                <input
+                                  type="text"
+                                  placeholder="Loading designations..."
+                                  disabled
+                                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-500 cursor-not-allowed"
+                                />
+                              )}
                               </div>
                               {selectedDesignationRate && (() => {
                           const rate = selectedDesignationRate!
@@ -1692,7 +1897,11 @@ export default function ManpowerPage() {
                                   </div>
                                 )
                               })()}
-                            </div>
+                            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                              {designationRates.length > 0 
+                                ? `✅ Search from ${designationRates.length} designations` 
+                                : 'Loading designations from Designation Rates...'}
+                            </p>
                           </div>
 
                           {/* START */}
@@ -2364,18 +2573,85 @@ export default function ManpowerPage() {
                       </div>
                     </div>
 
-                    {/* Labour Code */}
+                    {/* Labour Code - Connected to HR Manpower */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Labour Code <span className="text-gray-400">(Optional)</span>
+                        Labour Code <span className="text-gray-400">(Optional - Searchable from HR Manpower)</span>
                       </label>
-                      <input
-                        type="text"
-                        placeholder="e.g., L001"
-                        value={formData.labourCode}
-                        onChange={(e) => setFormData({ ...formData, labourCode: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                      />
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400 z-10" />
+                        {hrManpowerList.length > 0 ? (
+                          <>
+                            <input
+                              type="text"
+                              placeholder="🔍 Search employee code (e.g., L001)..."
+                              value={formData.labourCode}
+                              onChange={(e) => {
+                                setFormData({ ...formData, labourCode: e.target.value })
+                                setShowLabourCodeDropdown(true)
+                              }}
+                              onFocus={() => setShowLabourCodeDropdown(true)}
+                              onBlur={() => {
+                                setTimeout(() => setShowLabourCodeDropdown(false), 200)
+                              }}
+                              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                            />
+                            {showLabourCodeDropdown && (
+                              <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-96 overflow-y-auto">
+                                {hrManpowerList
+                                  .filter((employee) => {
+                                    if (!formData.labourCode.trim()) return true
+                                    const searchLower = formData.labourCode.toLowerCase().trim()
+                                    return (
+                                      employee.employee_code.toLowerCase().includes(searchLower) ||
+                                      employee.employee_name.toLowerCase().includes(searchLower)
+                                    )
+                                  })
+                                  .map((employee) => (
+                                    <button
+                                      key={employee.id}
+                                      type="button"
+                                      onClick={() => {
+                                        setFormData({ ...formData, labourCode: employee.employee_code })
+                                        setShowLabourCodeDropdown(false)
+                                      }}
+                                      className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700 last:border-b-0 transition-colors"
+                                    >
+                                      <div className="font-medium text-gray-900 dark:text-white">
+                                        {employee.employee_code}
+                                      </div>
+                                      <div className="text-sm text-gray-500 dark:text-gray-400">
+                                        {employee.employee_name} {employee.designation ? `- ${employee.designation}` : ''}
+                                      </div>
+                                    </button>
+                                  ))}
+                              </div>
+                            )}
+                          </>
+                        ) : loadingHrManpower ? (
+                          <input
+                            type="text"
+                            placeholder="Loading employees..."
+                            disabled
+                            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-500 cursor-not-allowed"
+                          />
+                        ) : (
+                          <input
+                            type="text"
+                            placeholder="e.g., L001"
+                            value={formData.labourCode}
+                            onChange={(e) => setFormData({ ...formData, labourCode: e.target.value })}
+                            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                          />
+                        )}
+                      </div>
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {loadingHrManpower 
+                          ? 'Loading employees from HR Manpower...'
+                          : hrManpowerList.length > 0 
+                            ? `✅ Search from ${hrManpowerList.length} active employees` 
+                            : '⚠️ HR Manpower not loaded. Enter employee code manually or refresh the page.'}
+                      </p>
                     </div>
 
                     {/* Designation */}
@@ -2394,6 +2670,9 @@ export default function ManpowerPage() {
                             setSelectedDesignationRate(rate || null)
                             
                             // Recalculate cost if we have hours
+                            // Uses rates from Designation Rates page:
+                            // - Standard hours: hourly_rate
+                            // - Overtime hours: overtime_hourly_rate (defaults to hourly_rate if not set)
                             if (formData.totalHours && formData.standardWorkingHours) {
                               const totalHours = parseFloat(formData.totalHours) || 0
                               const standardHours = parseFloat(formData.standardWorkingHours) || 8

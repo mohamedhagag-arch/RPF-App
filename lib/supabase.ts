@@ -22,7 +22,8 @@ export const TABLES = {
   ATTENDANCE_LOCATIONS: 'attendance_locations',        // ✅ Locations for GPS tracking
   ATTENDANCE_SETTINGS: 'attendance_settings',          // ✅ Attendance system settings
   HR_MANPOWER: 'hr_manpower',                          // ✅ HR Manpower table
-  DESIGNATION_RATES: 'designation_rates',              // ✅ Designation hourly rates table
+  DESIGNATION_RATES: 'designation_rates',              // ✅ Designation hourly rates table (includes daily rate fields)
+  DESIGNATION_DAILY_RATE_HISTORY: 'designation_daily_rate_history', // ✅ Daily rate history with time periods
   MACHINE_LIST: 'machine_list',                        // ✅ Machine list table
   MACHINERY_DAY_RATES: 'machinery_day_rates',          // ✅ Machinery day rates table
   KPI_REJECTED: 'kpi_rejected'                         // ✅ Rejected KPIs table (temporary storage)
@@ -262,12 +263,31 @@ export interface DesignationRate {
   hourly_rate: number
   overtime_hourly_rate?: number | null
   off_day_hourly_rate?: number | null
+  overhead_hourly_rate?: number | null // Overhead hourly rate (default: 5.3)
+  total_hourly_rate?: number | null // Auto-calculated: hourly_rate + overhead_hourly_rate
+  daily_rate?: number | null // Auto-calculated: total_hourly_rate * 8
   authority?: string | null // General Authority or specific authority
   created_at: string
   updated_at: string
   created_by?: string | null
   updated_by?: string | null
 }
+
+export interface DesignationDailyRateHistory {
+  id: string
+  designation_id: string
+  name: string // Name/description for this rate period (e.g., "Q1 2025 Rate", "Mid-Year Update")
+  hourly_rate: number // Hourly rate for this period
+  daily_rate: number // Auto-calculated: hourly_rate * 8
+  start_date: string // Start date of this rate period
+  end_date?: string | null // End date of this rate period (NULL means it's the current active rate)
+  is_active: boolean // Whether this is the currently active rate
+  created_at: string
+  updated_at: string
+  created_by?: string | null
+  updated_by?: string | null
+}
+
 
 export interface AttendanceSettings {
   id: string

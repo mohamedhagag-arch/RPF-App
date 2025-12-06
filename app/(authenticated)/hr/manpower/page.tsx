@@ -28,7 +28,7 @@ import {
   Database,
   BarChart3
 } from 'lucide-react'
-import { TABLES, HRManpower } from '@/lib/supabase'
+import { TABLES, HRManpower, DesignationRate } from '@/lib/supabase'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { useAuth } from '@/app/providers'
@@ -52,6 +52,11 @@ export default function HRManpowerPage() {
   const [editingEmployee, setEditingEmployee] = useState<HRManpower | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterStatus, setFilterStatus] = useState<'All' | HRManpower['status']>('All')
+  
+  // Designation Rates state for Designation field
+  const [designationRates, setDesignationRates] = useState<DesignationRate[]>([])
+  const [loadingDesignationRates, setLoadingDesignationRates] = useState(false)
+  const [showDesignationDropdown, setShowDesignationDropdown] = useState(false)
   
   // Export/Import states
   const [exportFormat, setExportFormat] = useState<'json' | 'csv'>('csv')
@@ -109,6 +114,7 @@ export default function HRManpowerPage() {
     // Only fetch if user is authenticated and on manpower tab
     if ((appUser || user) && activeTab === 'manpower') {
       fetchEmployees()
+      fetchDesignationRates()
     }
   }, [appUser, user, activeTab])
 
@@ -163,6 +169,32 @@ export default function HRManpowerPage() {
     }
   }
 
+  // Fetch Designation Rates for Designation field
+  const fetchDesignationRates = async () => {
+    try {
+      setLoadingDesignationRates(true)
+      const { data, error } = await supabase
+        .from(TABLES.DESIGNATION_RATES)
+        // @ts-ignore
+        .select('id, designation, hourly_rate, overhead_hourly_rate, total_hourly_rate')
+        .order('designation', { ascending: true })
+
+      if (error) {
+        console.error('Error fetching designation rates:', error)
+        setDesignationRates([])
+        return
+      }
+      
+      setDesignationRates((data || []) as DesignationRate[])
+      console.log('✅ Loaded designation rates:', (data || []).length)
+    } catch (err: any) {
+      console.error('Error fetching designation rates:', err)
+      setDesignationRates([])
+    } finally {
+      setLoadingDesignationRates(false)
+    }
+  }
+
   const filterEmployees = () => {
     let filtered = employees
 
@@ -201,6 +233,11 @@ export default function HRManpowerPage() {
     setError('')
     setSuccess('')
     setShowForm(true)
+    
+    // Fetch Designation Rates when opening the form
+    if (designationRates.length === 0 && !loadingDesignationRates) {
+      fetchDesignationRates()
+    }
   }
 
   const handleEdit = (employee: HRManpower) => {
@@ -219,6 +256,11 @@ export default function HRManpowerPage() {
     setError('')
     setSuccess('')
     setShowForm(true)
+    
+    // Fetch Designation Rates when opening the form
+    if (designationRates.length === 0 && !loadingDesignationRates) {
+      fetchDesignationRates()
+    }
   }
 
   const handleCancel = () => {
@@ -908,12 +950,79 @@ export default function HRManpowerPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Designation *</label>
-                <Input
-                  type="text"
-                  value={formData.designation}
-                  onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
-                  placeholder="Engineer"
-                />
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400 z-10" />
+                  {designationRates.length > 0 ? (
+                    <>
+                      <input
+                        type="text"
+                        placeholder="🔍 Search and select designation..."
+                        value={formData.designation}
+                        onChange={(e) => {
+                          setFormData({ ...formData, designation: e.target.value })
+                          setShowDesignationDropdown(true)
+                        }}
+                        onFocus={() => setShowDesignationDropdown(true)}
+                        onBlur={() => setTimeout(() => setShowDesignationDropdown(false), 200)}
+                        className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        required
+                      />
+                      {showDesignationDropdown && (
+                        <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-96 overflow-y-auto">
+                          {designationRates
+                            .filter((rate) => {
+                              if (!formData.designation.trim()) return true
+                              const searchLower = formData.designation.toLowerCase().trim()
+                              return rate.designation.toLowerCase().includes(searchLower)
+                            })
+                            .map((rate) => (
+                              <button
+                                key={rate.id}
+                                type="button"
+                                onClick={() => {
+                                  setFormData({ ...formData, designation: rate.designation })
+                                  setShowDesignationDropdown(false)
+                                }}
+                                className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700 last:border-b-0 transition-colors"
+                              >
+                                <div className="font-medium text-gray-900 dark:text-white">
+                                  {rate.designation}
+                                </div>
+                                {rate.total_hourly_rate && (
+                                  <div className="text-sm text-gray-500 dark:text-gray-400">
+                                    Total Rate: ${rate.total_hourly_rate.toFixed(2)}/hr
+                                  </div>
+                                )}
+                              </button>
+                            ))}
+                        </div>
+                      )}
+                    </>
+                  ) : loadingDesignationRates ? (
+                    <input
+                      type="text"
+                      placeholder="Loading designations..."
+                      disabled
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-500 cursor-not-allowed"
+                    />
+                  ) : (
+                    <input
+                      type="text"
+                      placeholder="Engineer"
+                      value={formData.designation}
+                      onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      required
+                    />
+                  )}
+                </div>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {loadingDesignationRates 
+                    ? 'Loading designations from Designation Rates...'
+                    : designationRates.length > 0 
+                      ? `✅ Search from ${designationRates.length} designations` 
+                      : '⚠️ Designation Rates not loaded. Enter designation manually or refresh the page.'}
+                </p>
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Status *</label>
