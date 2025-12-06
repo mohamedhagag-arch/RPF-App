@@ -230,7 +230,8 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
             const kpiProjectCode = (kpi.project_code || (kpi as any).raw?.['Project Code'] || '').toString().trim().toUpperCase()
             const kpiProjectFullCode = (kpi.project_full_code || (kpi as any).raw?.['Project Full Code'] || '').toString().trim().toUpperCase()
             const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || (kpi as any).raw?.['Activity Name'] || '').toLowerCase().trim()
-            const kpiZoneRaw = (kpi.zone || kpi['Zone'] || kpi.section || (kpi as any).raw?.['Zone'] || (kpi as any).raw?.['Zone Number'] || '').toString().trim()
+            // ✅ NOT from Section - Section is separate from Zone
+            const kpiZoneRaw = (kpi.zone || kpi['Zone'] || (kpi as any).raw?.['Zone'] || (kpi as any).raw?.['Zone Number'] || '').toString().trim()
             const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
             
             // ✅ Match project by Project Full Code (priority) or Project Code
@@ -392,7 +393,8 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
       const kpiProjectCode = (kpi.project_code || (kpi as any).raw?.['Project Code'] || '').toString().trim().toUpperCase()
       const kpiProjectFullCode = (kpi.project_full_code || (kpi as any).raw?.['Project Full Code'] || '').toString().trim().toUpperCase()
       const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || (kpi as any).raw?.['Activity Name'] || '').toLowerCase().trim()
-      const kpiZoneRaw = (kpi.zone || kpi['Zone'] || kpi.section || (kpi as any).raw?.['Zone'] || (kpi as any).raw?.['Zone Number'] || '').toString().trim()
+      // ✅ NOT from Section - Section is separate from Zone
+      const kpiZoneRaw = (kpi.zone || kpi['Zone'] || (kpi as any).raw?.['Zone'] || (kpi as any).raw?.['Zone Number'] || '').toString().trim()
       
       // ✅ Match project by Project Full Code (priority) or Project Code
       const projectMatch = (

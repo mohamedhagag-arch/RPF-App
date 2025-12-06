@@ -18,13 +18,14 @@ interface SmartFilterProps {
   activities?: Array<{ activity_name: string; project_code?: string; project_full_code?: string; zone?: string; unit?: string; activity_division?: string }>
   
   // KPIs data (for extracting unique values for filters)
-  kpis?: Array< { zone?: string; unit?: string; activity_division?: string; activity_scope?: string; activity_timing?: string; value?: number; quantity?: number }>
+  kpis?: Array< { zone?: string; section?: string; unit?: string; activity_division?: string; activity_scope?: string; activity_timing?: string; value?: number; quantity?: number }>
   
   // Current filters
   selectedProjects: string[]
   selectedActivities: string[]
   selectedTypes: string[]
   selectedZones?: string[]
+  selectedSections?: string[]
   selectedUnits?: string[]
   selectedDivisions?: string[]
   selectedScopes?: string[]
@@ -39,6 +40,7 @@ interface SmartFilterProps {
   onActivitiesChange: (activities: string[]) => void
   onTypesChange: (types: string[]) => void
   onZonesChange: (zones: string[]) => void
+  onSectionsChange?: (sections: string[]) => void
   onUnitsChange: (units: string[]) => void
   onDivisionsChange: (divisions: string[]) => void
   onScopesChange?: (scopes: string[]) => void
@@ -61,6 +63,7 @@ export function SmartFilter({
   selectedActivities,
   selectedTypes,
   selectedZones,
+  selectedSections = [],
   selectedUnits,
   selectedDivisions,
   selectedScopes = [],
@@ -73,6 +76,7 @@ export function SmartFilter({
   onActivitiesChange,
   onTypesChange,
   onZonesChange,
+  onSectionsChange,
   onUnitsChange,
   onDivisionsChange,
   onScopesChange,
@@ -90,6 +94,7 @@ export function SmartFilter({
   const [showTypeDropdown, setShowTypeDropdown] = useState(false)
   const [showStatusDropdown, setShowStatusDropdown] = useState(false)
   const [showZoneDropdown, setShowZoneDropdown] = useState(false)
+  const [showSectionDropdown, setShowSectionDropdown] = useState(false)
   const [showUnitDropdown, setShowUnitDropdown] = useState(false)
   const [showDivisionDropdown, setShowDivisionDropdown] = useState(false)
   const [showScopeDropdown, setShowScopeDropdown] = useState(false)
@@ -102,6 +107,7 @@ export function SmartFilter({
   const [projectSearch, setProjectSearch] = useState('')
   const [activitySearch, setActivitySearch] = useState('')
   const [zoneSearch, setZoneSearch] = useState('')
+  const [sectionSearch, setSectionSearch] = useState('')
   const [unitSearch, setUnitSearch] = useState('')
   const [divisionSearch, setDivisionSearch] = useState('')
   const [scopeSearch, setScopeSearch] = useState('')
@@ -125,6 +131,7 @@ export function SmartFilter({
   const typeDropdownRef = useRef<HTMLDivElement>(null)
   const statusDropdownRef = useRef<HTMLDivElement>(null)
   const zoneDropdownRef = useRef<HTMLDivElement>(null)
+  const sectionDropdownRef = useRef<HTMLDivElement>(null)
   const unitDropdownRef = useRef<HTMLDivElement>(null)
   const divisionDropdownRef = useRef<HTMLDivElement>(null)
   const scopeDropdownRef = useRef<HTMLDivElement>(null)
@@ -153,6 +160,9 @@ export function SmartFilter({
       }
       if (zoneDropdownRef.current && showZoneDropdown && !zoneDropdownRef.current.contains(target)) {
         setShowZoneDropdown(false)
+      }
+      if (sectionDropdownRef.current && showSectionDropdown && !sectionDropdownRef.current.contains(target)) {
+        setShowSectionDropdown(false)
       }
       if (unitDropdownRef.current && showUnitDropdown && !unitDropdownRef.current.contains(target)) {
         setShowUnitDropdown(false)
@@ -185,7 +195,7 @@ export function SmartFilter({
       document.removeEventListener('mousedown', handleClickOutside)
       document.removeEventListener('click', handleClickOutside)
     }
-  }, [showProjectDropdown, showActivityDropdown, showTypeDropdown, showStatusDropdown, showZoneDropdown, showUnitDropdown, showDivisionDropdown, showScopeDropdown, showActivityTimingDropdown, showDateRangeModal, showValueRangeModal, showQuantityRangeModal])
+  }, [showProjectDropdown, showActivityDropdown, showTypeDropdown, showStatusDropdown, showZoneDropdown, showSectionDropdown, showUnitDropdown, showDivisionDropdown, showScopeDropdown, showActivityTimingDropdown, showDateRangeModal, showValueRangeModal, showQuantityRangeModal])
   
   // 🔧 FIX: Close dropdowns when pressing Escape
   useEffect(() => {
@@ -196,6 +206,7 @@ export function SmartFilter({
         setShowTypeDropdown(false)
         setShowStatusDropdown(false)
         setShowZoneDropdown(false)
+        setShowSectionDropdown(false)
         setShowUnitDropdown(false)
         setShowDivisionDropdown(false)
         setShowScopeDropdown(false)
@@ -344,9 +355,10 @@ export function SmartFilter({
   })
   
   const allZones = selectedProjects.length > 0 ? [
-    // From KPIs: check zone, section, zone_ref, zone_number
+    // From KPIs: check zone, zone_ref, zone_number (NOT from Section - Section is separate)
     ...kpis.map(k => {
-      const kpiZone = (k.zone || (k as any).section || (k as any).zone_ref || (k as any).zone_number || '').toString().trim()
+      // ✅ NOT from Section - Section is separate from Zone
+      const kpiZone = (k.zone || (k as any).zone_ref || (k as any).zone_number || '').toString().trim()
       return kpiZone
     }).filter(Boolean) as string[],
     // From activities: check zone (which should be zone_ref or zone_number from KPITracking)
@@ -397,6 +409,17 @@ export function SmartFilter({
     kpis.map(k => k.unit).filter(Boolean) as string[]
   )).filter(unit => unit && unit.trim() !== '') : []
   
+  // ✅ Get unique sections from KPIs (only for Actual KPIs and selected projects)
+  const uniqueSections = selectedProjects.length > 0 ? Array.from(new Set(
+    kpis
+      .filter(k => {
+        // Only include Actual KPIs (Section is only relevant for Actual KPIs)
+        const inputType = (k as any).input_type || (k as any).inputType || ''
+        return inputType === 'Actual' || inputType === 'actual'
+      })
+      .map(k => k.section).filter(Boolean) as string[]
+  )).filter(section => section && section.trim() !== '' && section !== 'N/A') : []
+  
   // Get unique divisions from KPIs and activities (only for selected projects)
   const uniqueDivisions = selectedProjects.length > 0 ? Array.from(new Set([
     ...kpis.map(k => k.activity_division).filter(Boolean) as string[],
@@ -429,6 +452,10 @@ export function SmartFilter({
     unit.toLowerCase().includes(unitSearch.toLowerCase())
   )
   
+  const filteredSections = uniqueSections.filter(section =>
+    section.toLowerCase().includes(sectionSearch.toLowerCase())
+  )
+  
   const filteredDivisions = uniqueDivisions.filter(division =>
     division.toLowerCase().includes(divisionSearch.toLowerCase())
   )
@@ -446,6 +473,7 @@ export function SmartFilter({
                            (selectedTypes?.length || 0) > 0 || 
                            (selectedStatuses?.length || 0) > 0 ||
                            (selectedZones?.length || 0) > 0 ||
+                           (selectedSections?.length || 0) > 0 ||
                            (selectedUnits?.length || 0) > 0 ||
                            (selectedDivisions?.length || 0) > 0 ||
                            (selectedScopes?.length || 0) > 0 ||
@@ -538,6 +566,16 @@ export function SmartFilter({
       onUnitsChange(units.filter(u => u !== unit))
     } else {
       onUnitsChange([...units, unit])
+    }
+  }
+  
+  const toggleSection = (section: string) => {
+    if (!onSectionsChange) return
+    const sections = selectedSections || []
+    if (sections.includes(section)) {
+      onSectionsChange(sections.filter(s => s !== section))
+    } else {
+      onSectionsChange([...sections, section])
     }
   }
   
@@ -971,6 +1009,7 @@ export function SmartFilter({
                   setShowActivityDropdown(false)
                   setShowTypeDropdown(false)
                   setShowStatusDropdown(false)
+                  setShowSectionDropdown(false)
                   setShowUnitDropdown(false)
                   setShowDivisionDropdown(false)
                   setShowDateRangeModal(false)
@@ -1034,6 +1073,92 @@ export function SmartFilter({
                   ) : (
                     <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400 text-center">
                       No zones found
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        
+        {/* Section Filter - Only for Actual KPIs */}
+        {uniqueSections.length > 0 && onSectionsChange && (
+          <div className="relative" ref={sectionDropdownRef}>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setShowSectionDropdown(!showSectionDropdown)
+                if (!showSectionDropdown) {
+                  setShowProjectDropdown(false)
+                  setShowActivityDropdown(false)
+                  setShowTypeDropdown(false)
+                  setShowStatusDropdown(false)
+                  setShowZoneDropdown(false)
+                  setShowUnitDropdown(false)
+                  setShowDivisionDropdown(false)
+                  setShowScopeDropdown(false)
+                  setShowActivityTimingDropdown(false)
+                  setShowDateRangeModal(false)
+                  setShowValueRangeModal(false)
+                  setShowQuantityRangeModal(false)
+                }
+              }}
+              className={`px-3 py-1.5 text-sm border rounded-lg flex items-center space-x-2 transition-all duration-200 ${
+                (selectedSections?.length || 0) > 0
+                  ? 'bg-purple-50 dark:bg-purple-900/30 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 shadow-sm'
+                  : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-gray-400 dark:hover:border-gray-500'
+              } ${showSectionDropdown ? 'ring-2 ring-purple-500 ring-opacity-50' : ''}`}
+            >
+              <span>Section</span>
+              {(selectedSections?.length || 0) > 0 && (
+                <span className="px-1.5 py-0.5 bg-purple-500 text-white rounded-full text-xs font-bold">
+                  {selectedSections?.length || 0}
+                </span>
+              )}
+              {!alwaysExpanded && (
+                <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showSectionDropdown ? 'rotate-180' : ''}`} />
+              )}
+            </button>
+            
+            {showSectionDropdown && (
+              <div 
+                className="absolute z-50 mt-1 w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-80 overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="p-3 border-b border-gray-200 dark:border-gray-700">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search sections..."
+                      value={sectionSearch}
+                      onChange={(e) => setSectionSearch(e.target.value)}
+                      className="w-full pl-10 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                      autoFocus
+                    />
+                  </div>
+                </div>
+                <div className="max-h-64 overflow-y-auto">
+                  {filteredSections.length > 0 ? (
+                    filteredSections.map((section, idx) => (
+                      <label
+                        key={`section-${section}-${idx}`}
+                        className="flex items-center space-x-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer transition-colors"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={(selectedSections || []).includes(section)}
+                          onChange={() => toggleSection(section)}
+                          className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                        />
+                        <span className="text-sm text-gray-900 dark:text-gray-100 truncate">
+                          {section}
+                        </span>
+                      </label>
+                    ))
+                  ) : (
+                    <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400 text-center">
+                      No sections found
                     </div>
                   )}
                 </div>

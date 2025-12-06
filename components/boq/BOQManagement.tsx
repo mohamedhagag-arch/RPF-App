@@ -2795,9 +2795,9 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
     // Extract zone from KPI (IMPROVED: Extract from description if zone field is empty)
     const getKPIZone = (kpi: any): string => {
       const rawKPI = (kpi as any).raw || {}
+      // ✅ NOT from Section - Section is separate from Zone
       let zoneRaw = (
         kpi.zone || 
-        kpi.section || 
         rawKPI['Zone'] || 
         rawKPI['Zone Number'] || 
         ''

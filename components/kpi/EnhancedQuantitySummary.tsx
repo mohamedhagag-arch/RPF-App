@@ -28,7 +28,12 @@ interface EnhancedQuantitySummaryProps {
   showDebug?: boolean
   zone?: string // Zone filter - if provided, only show KPIs for this zone
   projectFullCode?: string // Project Full Code override - if provided, use this instead of project.project_full_code
+  allKPIs?: any[] // ✅ Optional: Pre-fetched KPIs from parent (to avoid duplicate fetching)
   onTotalsChange?: (totals: {totalPlanned: number, totalActual: number, remaining: number, progress: number}) => void // ✅ Callback to pass totals to parent
+  // ✅ CRITICAL FIX: Accept pre-calculated values from parent to ensure consistency
+  preCalculatedDone?: number
+  preCalculatedTotal?: number
+  preCalculatedPlanned?: number
 }
 
 export function EnhancedQuantitySummary({
@@ -39,7 +44,11 @@ export function EnhancedQuantitySummary({
   showDebug = process.env.NODE_ENV === 'development', // Auto-enable in development
   zone,
   projectFullCode,
-  onTotalsChange // ✅ Callback to pass totals to parent
+  allKPIs: providedKPIs, // ✅ Optional: Pre-fetched KPIs from parent
+  onTotalsChange, // ✅ Callback to pass totals to parent
+  preCalculatedDone, // ✅ Pre-calculated Done from parent (getActivityQuantities)
+  preCalculatedTotal, // ✅ Pre-calculated Total from parent (getActivityQuantities)
+  preCalculatedPlanned // ✅ Pre-calculated Planned from parent (getActivityQuantities)
 }: EnhancedQuantitySummaryProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -52,8 +61,37 @@ export function EnhancedQuantitySummary({
   })
 
   useEffect(() => {
-    fetchKPIData()
-  }, [selectedActivity, selectedProject, zone, projectFullCode])
+    // ✅ If pre-calculated values are provided, use them directly (no need to fetch)
+    if (preCalculatedTotal !== undefined && preCalculatedDone !== undefined && preCalculatedPlanned !== undefined) {
+      const totalActual = preCalculatedDone + (newQuantity > 0 ? newQuantity : 0)
+      const remaining = Math.max(0, preCalculatedTotal - totalActual)
+      const progress = preCalculatedTotal > 0 ? Math.round((totalActual / preCalculatedTotal) * 100) : 0
+      
+      setTotals({
+        total: preCalculatedTotal,
+        totalPlanned: preCalculatedPlanned,
+        totalActual: preCalculatedDone, // Base done (will add newQuantity in display)
+        remaining,
+        progress
+      })
+      
+      // Pass totals to parent if callback provided
+      if (onTotalsChange) {
+        onTotalsChange({
+          totalPlanned: preCalculatedTotal,
+          totalActual: preCalculatedDone,
+          remaining,
+          progress
+        })
+      }
+      
+      setLoading(false)
+      setError('')
+    } else {
+      // Fallback: Fetch and calculate locally
+      fetchKPIData()
+    }
+  }, [selectedActivity, selectedProject, zone, projectFullCode, providedKPIs, preCalculatedTotal, preCalculatedDone, preCalculatedPlanned, newQuantity, onTotalsChange])
 
   /**
    * Normalize zone string by removing project code prefix
@@ -178,14 +216,19 @@ export function EnhancedQuantitySummary({
   }
 
   /**
-   * Parse quantity from KPI record
+   * Parse quantity from KPI record (SAME as getKPIQuantity in EnhancedSmartActualKPIForm)
    */
   const parseQuantity = (kpi: any): number => {
-    const quantity = kpi['Quantity']
-    if (quantity === null || quantity === undefined || quantity === '') return 0
-    
-    const qty = parseFloat(String(quantity).replace(/,/g, ''))
-    return isNaN(qty) ? 0 : qty
+    const raw = (kpi as any).raw || {}
+    const quantityStr = String(
+      kpi.quantity || 
+      kpi['Quantity'] || 
+      kpi.Quantity ||
+      raw['Quantity'] || 
+      raw.Quantity ||
+      '0'
+    ).replace(/,/g, '').trim()
+    return parseFloat(quantityStr) || 0
   }
 
   /**
@@ -254,10 +297,10 @@ export function EnhancedQuantitySummary({
       
       const projectCode = selectedProject.project_code || ''
       
-      // ✅ Get Activity Name
+      // ✅ Get Activity Name (EXACT match - case-insensitive)
       const activityName = (selectedActivity.activity_name || 
                            selectedActivity.activity || 
-                           '').toLowerCase().trim()
+                           '').toLowerCase().trim() // ✅ Normalize to lowercase for consistent matching
       
       if (!activityName) {
         throw new Error('Activity name is required')
@@ -270,6 +313,17 @@ export function EnhancedQuantitySummary({
       // - So Project Full Code = "P5066-I2"
       // - Zone = "1" (the part after Project Full Code)
       const originalZone = zone ? zone.trim() : ''
+      
+      // ✅ Get zone to use for matching (use prop zone if provided, otherwise use activity zone)
+      // This should be defined early so it's available throughout the function
+      const zoneToUseForMatching = zone || (selectedActivity.zone_ref || selectedActivity.zone_number || '').toString().trim()
+      
+      console.log(`🔍 [EnhancedQuantitySummary] Activity: "${activityName}"`, {
+        projectFullCode: projectFullCodeToUse,
+        zone: originalZone,
+        zoneToUseForMatching: zoneToUseForMatching,
+        activityId: selectedActivity.id
+      })
       // ✅ Use Project Full Code FIRST to normalize zone (this handles "P5066-I2 - 1" correctly)
       const normalizedZone = zone ? normalizeZone(zone, projectFullCodeToUse, projectCode) : ''
       const zoneNumber = normalizedZone ? extractZoneNumber(normalizedZone) : ''
@@ -312,23 +366,32 @@ export function EnhancedQuantitySummary({
           })
         }
 
-        // ✅ Filter by Activity Name (flexible matching)
+        // ✅ Filter by Activity Name (STRICT matching - exact match only, case-insensitive)
         plannedKPIs = plannedKPIs.filter((kpi: any) => {
-          const kpiActivityName = (kpi['Activity Name'] || '').toLowerCase().trim()
-          const matches = kpiActivityName === activityName ||
-                         kpiActivityName.includes(activityName) ||
-                         activityName.includes(kpiActivityName)
-          return matches
+          const kpiActivityName = (kpi['Activity Name'] || '').toLowerCase().trim() // ✅ Normalize to lowercase
+          // ✅ CRITICAL FIX: Use EXACT match (case-insensitive) to prevent matching different activities
+          const activityNameMatch = kpiActivityName === activityName
+          if (!activityNameMatch) return false
+          
+          // ✅ Additional check: Verify KPI belongs to this specific activity by checking project
+          const kpiProjectFullCode = (kpi['Project Full Code'] || '').toString().trim().toUpperCase()
+          const targetProjectFullCode = projectFullCodeToUse.toString().trim().toUpperCase()
+          return kpiProjectFullCode === targetProjectFullCode
         })
 
         // ✅ Filter by Zone (if provided)
+        // ✅ Use zone prop (formatted zone from parent) for matching
         if (zone && zone.trim() !== '') {
           plannedKPIs = plannedKPIs.filter((kpi: any) => {
             const kpiZoneRaw = (kpi['Zone'] || kpi['Zone Number'] || '').toString().trim()
             if (!kpiZoneRaw || kpiZoneRaw === '') {
               return false
             }
-            const matches = zonesMatch(originalZone, kpiZoneRaw, projectFullCodeToUse, projectCode)
+            // ✅ Use zone prop (formatted) for matching - zonesMatch will normalize internally
+            const matches = zonesMatch(zone, kpiZoneRaw, projectFullCodeToUse, projectCode)
+            if (showDebug && !matches) {
+              console.log(`❌ [EnhancedQuantitySummary] Planned KPI zone mismatch: Target="${zone}" vs KPI="${kpiZoneRaw}"`)
+            }
             return matches
           })
         }
@@ -338,145 +401,329 @@ export function EnhancedQuantitySummary({
       }
 
       // ============================================
-      // Fetch Actual KPIs
+      // ✅ COMPLETELY REWRITTEN: Fetch and Filter Actual KPIs for DONE calculation
+      // Uses EXACT same logic as kpiMatchesActivityStrict from EnhancedSmartActualKPIForm
       // ============================================
       let actualKPIs: any[] = []
+      
       try {
-        // ✅ Fetch all Actual KPIs first (we'll filter client-side for better control)
-        let query = supabase
-          .from(TABLES.KPI)
-          .select('id, "Quantity", "Input Type", "Zone", "Zone Number", "Activity Name", "Project Full Code", "Project Code"')
-          .eq('Input Type', 'Actual')
+        // Step 1: Use provided KPIs if available, otherwise fetch from database
+        let allKPIs: any[] = []
         
-        // Try to filter by Project Full Code in query (but don't rely on it alone)
-        if (projectFullCodeToUse) {
-          query = query.eq('Project Full Code', projectFullCodeToUse)
+        if (providedKPIs && providedKPIs.length > 0) {
+          // ✅ Use pre-fetched KPIs from parent (EnhancedSmartActualKPIForm)
+          allKPIs = providedKPIs
+          console.log(`📊 [EnhancedQuantitySummary] Using ${allKPIs.length} pre-fetched KPIs from parent`, {
+            sampleKPIs: allKPIs.slice(0, 3).map((kpi: any) => ({
+              id: kpi.id,
+              inputType: kpi['Input Type'] || kpi.input_type,
+              activityName: kpi['Activity Name'] || kpi.activity_name,
+              projectFullCode: kpi['Project Full Code'] || kpi.project_full_code,
+              zone: kpi['Zone'] || kpi['Zone Number']
+            }))
+          })
+        } else {
+          // Fetch KPIs from database (same approach as EnhancedSmartActualKPIForm)
+          let query = supabase
+            .from(TABLES.KPI)
+            .select('id, "Quantity", "Input Type", "Zone", "Zone Number", "Activity Name", "Project Full Code", "Project Code", "Date", "Target Date", "Activity Date", "Actual Date", created_at, input_type, quantity, date, target_date, activity_date, actual_date, project_code, project_full_code, activity_name')
+          
+          // Optional: Filter by Project Full Code in query (but we'll verify client-side)
+          if (projectFullCodeToUse) {
+            query = query.eq('Project Full Code', projectFullCodeToUse)
+          }
+          
+          const result = await executeQuery(async () => query)
+          allKPIs = result.data || []
+          
+          console.log(`📊 [EnhancedQuantitySummary] Fetched ${allKPIs.length} KPIs from database`, {
+            projectFullCodeToUse,
+            hasData: !!result.data,
+            error: result.error
+          })
+          
+          // Client-side filter to ensure exact Project Full Code match (if provided)
+          if (projectFullCodeToUse && allKPIs.length > 0) {
+            const targetFullCode = projectFullCodeToUse.toString().trim().toUpperCase()
+            const beforeFilter = allKPIs.length
+            allKPIs = allKPIs.filter((kpi: any) => {
+              const kpiFullCode = (kpi['Project Full Code'] || '').toString().trim().toUpperCase()
+              return kpiFullCode === targetFullCode
+            })
+            console.log(`📊 [EnhancedQuantitySummary] After Project Full Code filter: ${allKPIs.length} (from ${beforeFilter})`)
+          }
         }
         
-        const result = await executeQuery(async () => query)
-        actualKPIs = result.data || []
-
-        console.log(`📊 Actual KPIs before filtering: ${actualKPIs.length}`, {
-          projectFullCodeToUse,
-          activityName,
-          zone: originalZone
+        // Step 2: Filter Actual KPIs and match to activity (EXACT same logic as getActivityQuantities)
+        // ✅ Use EXACT same approach as EnhancedSmartActualKPIForm.getActivityQuantities
+        const allActualKPIs = allKPIs.filter((kpi: any) => {
+          const inputType = (kpi.input_type || kpi['Input Type'] || (kpi as any).raw?.['Input Type'] || '').toLowerCase()
+          return inputType === 'actual'
         })
-
-        // ✅ Filter by Project Full Code (client-side - more reliable)
-        // Also match by Project Code if Project Full Code doesn't match
-        if (projectFullCodeToUse) {
-          const beforeCount = actualKPIs.length
-          const targetFullCode = projectFullCodeToUse.toString().trim().toUpperCase()
-          const targetProjectCode = projectCode.toString().trim().toUpperCase()
+        
+        console.log(`📊 [EnhancedQuantitySummary] Found ${allActualKPIs.length} Actual KPIs (from ${allKPIs.length} total KPIs)`)
+        
+        // ✅ CRITICAL: Use EXACT same matching logic as kpiMatchesActivityStrict
+        // Create helper function that matches kpiMatchesActivityStrict from EnhancedSmartActualKPIForm
+        const projectFullCode = projectFullCodeToUse.toString().trim().toUpperCase()
+        const projectCodeValue = projectCode.toString().trim().toUpperCase()
+        
+        // ✅ zoneToUseForMatching is already defined above
+        
+        const kpiMatchesActivity = (kpi: any): boolean => {
+          const rawKPI = (kpi as any).raw || {}
           
-          actualKPIs = actualKPIs.filter((kpi: any) => {
-            const kpiFullCode = (kpi['Project Full Code'] || '').toString().trim().toUpperCase()
-            const kpiProjectCode = (kpi['Project Code'] || '').toString().trim().toUpperCase()
-            
-            // ✅ Priority 1: Match by Project Full Code (exact match)
-            if (kpiFullCode === targetFullCode) {
-              return true
+          // 1. Project Code Matching (EXACT same as kpiMatchesActivityStrict)
+          const kpiProjectCode = (kpi.project_code || kpi['Project Code'] || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+          const kpiProjectFullCode = (kpi.project_full_code || kpi['Project Full Code'] || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+          const activityProjectCode = (selectedActivity.project_code || '').toString().trim().toUpperCase()
+          const activityProjectFullCode = (selectedActivity.project_full_code || selectedActivity.project_code || '').toString().trim().toUpperCase()
+          
+          let projectMatch = false
+          if (activityProjectFullCode && activityProjectFullCode.includes('-')) {
+            // Activity has sub-code - KPI MUST have EXACT Project Full Code match
+            if (kpiProjectFullCode && kpiProjectFullCode === activityProjectFullCode) {
+              projectMatch = true
             }
-            
-            // ✅ Priority 2: Match by Project Code if Project Full Code is not available
-            // This handles cases where Actual KPIs were saved with Project Code only
-            if (kpiProjectCode === targetProjectCode && (!kpiFullCode || kpiFullCode === '')) {
-              return true
-            }
-            
-            // ✅ Priority 3: Match if Project Full Code starts with Project Code
-            // This handles cases like "P4110" matching "P4110-P"
-            if (targetFullCode.startsWith(targetProjectCode) && kpiFullCode.startsWith(targetProjectCode)) {
-              // Only match if they're from the same base project
-              return true
-            }
-            
+          } else {
+            // Activity has no sub-code - Match by Project Code or Project Full Code
+            projectMatch = (
+              (kpiProjectCode && activityProjectCode && kpiProjectCode === activityProjectCode) ||
+              (kpiProjectFullCode && activityProjectFullCode && kpiProjectFullCode === activityProjectFullCode) ||
+              (kpiProjectCode && activityProjectFullCode && kpiProjectCode === activityProjectFullCode) ||
+              (kpiProjectFullCode && activityProjectCode && kpiProjectFullCode === activityProjectCode)
+            )
+          }
+          
+          if (!projectMatch) {
             if (showDebug) {
-              console.log(`❌ Project mismatch: KPI Full Code="${kpiFullCode}", KPI Code="${kpiProjectCode}" vs Target Full Code="${targetFullCode}", Target Code="${targetProjectCode}"`)
+              console.log(`❌ [EnhancedQuantitySummary] Project mismatch:`, {
+                kpiProjectCode,
+                kpiProjectFullCode,
+                activityProjectCode,
+                activityProjectFullCode
+              })
             }
             return false
-          })
-          console.log(`📊 After Project filter: ${actualKPIs.length} (was ${beforeCount})`)
+          }
+          
+          // 2. Activity Name Matching (EXACT same as kpiMatchesActivityStrict)
+          const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPI['Activity Name'] || '').toLowerCase().trim()
+          const activityMatch = kpiActivityName && activityName && kpiActivityName === activityName
+          if (!activityMatch) {
+            if (showDebug) {
+              console.log(`❌ [EnhancedQuantitySummary] Activity name mismatch: KPI="${kpiActivityName}" vs Activity="${activityName}"`)
+            }
+            return false
+          }
+          
+          // 3. Zone Matching (EXACT same as kpiMatchesActivityStrict)
+          // ✅ CRITICAL FIX: Use activity.zone_ref || activity.zone_number (same as kpiMatchesActivityStrict)
+          // NOT the formatted zone prop - this ensures consistency with getActivityQuantities
+          const kpiZoneRaw = (kpi['Zone'] || kpi['Zone Number'] || rawKPI['Zone'] || rawKPI['Zone Number'] || '').toString().trim()
+          const activityZoneRaw = (selectedActivity.zone_ref || selectedActivity.zone_number || '').toString().trim()
+          
+          if (activityZoneRaw && activityZoneRaw.trim() !== '') {
+            // Activity has zone - KPI MUST have zone and they MUST match
+            if (!kpiZoneRaw || kpiZoneRaw.trim() === '') {
+              if (showDebug) {
+                console.log(`❌ [EnhancedQuantitySummary] Zone mismatch: KPI has no zone but activity requires zone="${activityZoneRaw}"`, {
+                  kpiId: kpi.id,
+                  kpiActivityName: (kpi.activity_name || kpi['Activity Name'] || '').toLowerCase().trim(),
+                  kpiProjectFullCode: (kpi.project_full_code || kpi['Project Full Code'] || '').toString().trim().toUpperCase()
+                })
+              }
+              return false
+            }
+            // Use zonesMatch for accurate zone matching (EXACT same as kpiMatchesActivityStrict)
+            const zoneMatch = zonesMatch(activityZoneRaw, kpiZoneRaw, projectFullCode, projectCodeValue)
+            if (!zoneMatch) {
+              if (showDebug) {
+                console.log(`❌ [EnhancedQuantitySummary] Zone mismatch: Activity="${activityZoneRaw}" vs KPI="${kpiZoneRaw}"`, {
+                  kpiId: kpi.id,
+                  kpiActivityName: (kpi.activity_name || kpi['Activity Name'] || '').toLowerCase().trim(),
+                  projectFullCode,
+                  projectCode: projectCodeValue,
+                  normalizedActivity: normalizeZone(activityZoneRaw, projectFullCode, projectCodeValue),
+                  normalizedKPI: normalizeZone(kpiZoneRaw, projectFullCode, projectCodeValue)
+                })
+              }
+            } else if (showDebug) {
+              console.log(`✅ [EnhancedQuantitySummary] Zone match: Activity="${activityZoneRaw}" === KPI="${kpiZoneRaw}"`)
+            }
+            return zoneMatch
+          }
+          
+          // If activity has no zone, accept KPI (with or without zone)
+          if (showDebug && kpiZoneRaw) {
+            console.log(`ℹ️ [EnhancedQuantitySummary] Activity has no zone, accepting KPI with zone="${kpiZoneRaw}"`)
+          }
+          return true
         }
-
-        // ✅ Filter by Activity Name (flexible matching)
-        const beforeActivityCount = actualKPIs.length
-        actualKPIs = actualKPIs.filter((kpi: any) => {
-          const kpiActivityName = (kpi['Activity Name'] || '').toLowerCase().trim()
-          const matches = kpiActivityName === activityName ||
-                         kpiActivityName.includes(activityName) ||
-                         activityName.includes(kpiActivityName)
-          if (!matches && showDebug) {
-            console.log(`❌ Activity Name mismatch: KPI="${kpiActivityName}" vs Target="${activityName}"`)
+        
+        // Filter KPIs to match THIS activity only (strict matching - EXACT same as getActivityQuantities)
+        // ✅ Add detailed logging to understand why KPIs are not matching
+        const matchingResults: any[] = []
+        actualKPIs = allActualKPIs.filter((kpi: any) => {
+          const matches = kpiMatchesActivity(kpi)
+          if (!matches && showDebug && allActualKPIs.length <= 10) {
+            // Log why this KPI didn't match (only for first 10 KPIs to avoid spam)
+            const kpiProjectCode = (kpi.project_code || kpi['Project Code'] || '').toString().trim().toUpperCase()
+            const kpiProjectFullCode = (kpi.project_full_code || kpi['Project Full Code'] || '').toString().trim().toUpperCase()
+            const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || '').toLowerCase().trim()
+            const kpiZoneRaw = (kpi['Zone'] || kpi['Zone Number'] || '').toString().trim()
+            
+            matchingResults.push({
+              kpiId: kpi.id,
+              kpiActivityName,
+              kpiProjectCode,
+              kpiProjectFullCode,
+              kpiZone: kpiZoneRaw,
+              targetActivityName: activityName,
+              targetProjectFullCode: projectFullCodeToUse,
+              targetZone: zoneToUseForMatching || 'N/A',
+              quantity: parseQuantity(kpi)
+            })
           }
           return matches
         })
-        console.log(`📊 After Activity Name filter: ${actualKPIs.length} (was ${beforeActivityCount})`)
-
-        // ✅ Filter by Zone (if provided)
-        if (zone && zone.trim() !== '') {
-          const beforeZoneCount = actualKPIs.length
-          actualKPIs = actualKPIs.filter((kpi: any) => {
-            const kpiZoneRaw = (kpi['Zone'] || kpi['Zone Number'] || '').toString().trim()
-            
-            // Exclude KPIs without zone if zone filter is active
-            if (!kpiZoneRaw || kpiZoneRaw === '') {
-              if (showDebug) console.log(`❌ KPI has no zone, excluding`)
-              return false
-            }
-            
-            // ✅ Use Project Full Code for zone matching (important for correct normalization)
-            const matches = zonesMatch(originalZone, kpiZoneRaw, projectFullCodeToUse, projectCode)
-            
-            if (!matches && showDebug) {
-              console.log(`❌ Zone mismatch: KPI="${kpiZoneRaw}" vs Target="${originalZone}" (normalized="${normalizedZone}")`)
-            }
-            return matches
+        
+        console.log(`✅ [EnhancedQuantitySummary] Filtered to ${actualKPIs.length} matching Actual KPIs (from ${allActualKPIs.length} total Actual KPIs)`, {
+          activityName,
+          projectFullCode: projectFullCodeToUse,
+          zone: zoneToUseForMatching || 'N/A',
+          totalKPIs: allKPIs.length,
+          actualKPIsBeforeFilter: allActualKPIs.length,
+          actualKPIsAfterFilter: actualKPIs.length
+        })
+        
+        // Log sample of filtered KPIs
+        if (actualKPIs.length > 0) {
+          console.log(`📋 ✅ Matching KPIs (${actualKPIs.length} total):`, actualKPIs.slice(0, 5).map((kpi: any) => ({
+            id: kpi.id,
+            activityName: kpi['Activity Name'],
+            quantity: parseQuantity(kpi),
+            projectFullCode: kpi['Project Full Code'],
+            zone: kpi['Zone'],
+            actualDate: kpi['Actual Date'] || kpi.actual_date || 'N/A'
+          })))
+        } else if (allActualKPIs.length > 0) {
+          console.log(`⚠️ [EnhancedQuantitySummary] No KPIs matched!`, {
+            totalActualKPIs: allActualKPIs.length,
+            sampleKPIs: allActualKPIs.slice(0, 5).map((kpi: any) => ({
+              id: kpi.id,
+              activityName: kpi['Activity Name'] || kpi.activity_name,
+              projectFullCode: kpi['Project Full Code'] || kpi.project_full_code,
+              projectCode: kpi['Project Code'] || kpi.project_code,
+              zone: kpi['Zone'] || kpi['Zone Number'],
+              quantity: parseQuantity(kpi),
+              inputType: kpi['Input Type'] || kpi.input_type
+            })),
+            targetCriteria: {
+              activityName,
+              projectFullCode: projectFullCodeToUse,
+              zone: zoneToUseForMatching || 'N/A'
+            },
+            nonMatchingDetails: matchingResults.slice(0, 5)
           })
-          console.log(`📊 After Zone filter: ${actualKPIs.length} (was ${beforeZoneCount})`)
+        } else {
+          console.log(`⚠️ [EnhancedQuantitySummary] No Actual KPIs found at all!`, {
+            totalKPIs: allKPIs.length,
+            allKPIsInputTypes: allKPIs.map((kpi: any) => ({
+              id: kpi.id,
+              inputType: kpi['Input Type'] || kpi.input_type,
+              activityName: kpi['Activity Name'] || kpi.activity_name
+            }))
+          })
         }
-        // If zone is empty, keep all KPIs (no zone filtering)
-
+        
       } catch (err: any) {
         console.error('❌ Error fetching Actual KPIs:', err)
-        // Continue with empty array
+        actualKPIs = []
       }
 
       // ============================================
       // Calculate Totals (LIKE BOQ Quantities column)
       // ============================================
-      // ✅ Total: From BOQ Activity (total_units or planned_units)
-      const rawActivityQuantities = (selectedActivity as any).raw || {}
-      let total = selectedActivity.total_units || 
-                  parseFloat(String(rawActivityQuantities['Total Units'] || '0').replace(/,/g, '')) || 
-                  selectedActivity.planned_units ||
-                  parseFloat(String(rawActivityQuantities['Planned Units'] || '0').replace(/,/g, '')) || 
-                  0
-      
-      // ✅ Planned: Sum of Planned KPIs until yesterday (with Zone matching) - LIKE BOQ
+      // ✅ CRITICAL FIX: Use pre-calculated values from parent if provided (ensures consistency with left panel)
+      // Otherwise, calculate locally (fallback for when parent doesn't provide values)
+      let total = 0
       let totalPlanned = 0
-      if (plannedKPIs.length > 0) {
-        const plannedKPIsUntilYesterday = plannedKPIs.filter((kpi: any) => isKPIUntilYesterday(kpi, 'planned'))
-        totalPlanned = plannedKPIsUntilYesterday.reduce((sum, kpi) => {
-          return sum + parseQuantity(kpi)
-        }, 0)
-      }
-      
-      // If no Planned KPIs, use planned_units from BOQ Activity as fallback
-      if (totalPlanned === 0) {
-        totalPlanned = parseFloat(String(selectedActivity.planned_units || '0')) || 0
-      }
-      
-      // ✅ Actual: Sum of Actual KPIs until yesterday (with Zone matching) - LIKE BOQ
       let totalActual = 0
-      if (actualKPIs.length > 0) {
-        const actualKPIsUntilYesterday = actualKPIs.filter((kpi: any) => isKPIUntilYesterday(kpi, 'actual'))
-        totalActual = actualKPIsUntilYesterday.reduce((sum, kpi) => {
-          return sum + parseQuantity(kpi)
-        }, 0)
+      
+      if (preCalculatedTotal !== undefined && preCalculatedDone !== undefined && preCalculatedPlanned !== undefined) {
+        // ✅ Use pre-calculated values from parent (getActivityQuantities) - ensures 100% consistency
+        total = preCalculatedTotal
+        totalPlanned = preCalculatedPlanned
+        totalActual = preCalculatedDone
+        
+        console.log(`✅ [EnhancedQuantitySummary] Using pre-calculated values from parent:`, {
+          total,
+          totalPlanned,
+          totalActual,
+          note: 'These values match the left panel exactly'
+        })
+      } else {
+        // Fallback: Calculate locally (should not happen if parent passes values correctly)
+        console.log(`⚠️ [EnhancedQuantitySummary] Pre-calculated values not provided, calculating locally...`)
+        
+        // ✅ Total: From BOQ Activity (total_units or planned_units)
+        const rawActivityQuantities = (selectedActivity as any).raw || {}
+        total = selectedActivity.total_units || 
+                parseFloat(String(rawActivityQuantities['Total Units'] || '0').replace(/,/g, '')) || 
+                selectedActivity.planned_units ||
+                parseFloat(String(rawActivityQuantities['Planned Units'] || '0').replace(/,/g, '')) || 
+                0
+        
+        // ✅ Planned: Sum of Planned KPIs until yesterday (with Zone matching) - LIKE BOQ
+        if (plannedKPIs.length > 0) {
+          const plannedKPIsUntilYesterday = plannedKPIs.filter((kpi: any) => isKPIUntilYesterday(kpi, 'planned'))
+          totalPlanned = plannedKPIsUntilYesterday.reduce((sum, kpi) => {
+            return sum + parseQuantity(kpi)
+          }, 0)
+        }
+        
+        // If no Planned KPIs, use planned_units from BOQ Activity as fallback
+        if (totalPlanned === 0) {
+          totalPlanned = parseFloat(String(selectedActivity.planned_units || '0')) || 0
+        }
+        
+        // ============================================
+        // ✅ Calculate DONE (totalActual) - Simple and clear
+        // ============================================
+        if (actualKPIs.length > 0) {
+          // Filter KPIs until yesterday only
+          const actualKPIsUntilYesterday = actualKPIs.filter((kpi: any) => {
+            const isUntilYesterday = isKPIUntilYesterday(kpi, 'actual')
+            if (showDebug && !isUntilYesterday) {
+              const kpiDate = kpi['Actual Date'] || kpi.actual_date || kpi['Activity Date'] || kpi.activity_date || 'N/A'
+              console.log(`⏰ [EnhancedQuantitySummary] KPI ${kpi.id} excluded (future date): ${kpiDate}`)
+            }
+            return isUntilYesterday
+          })
+          
+          console.log(`📊 [EnhancedQuantitySummary] Done calculation:`, {
+            totalMatchingKPIs: actualKPIs.length,
+            kpisUntilYesterday: actualKPIsUntilYesterday.length,
+            excludedFutureKPIs: actualKPIs.length - actualKPIsUntilYesterday.length
+          })
+          
+          // Sum quantities
+          totalActual = actualKPIsUntilYesterday.reduce((sum, kpi) => {
+            const qty = parseQuantity(kpi)
+            if (showDebug) {
+              console.log(`  ✅ [EnhancedQuantitySummary] Adding KPI ${kpi.id}: +${qty} (Total: ${sum} + ${qty} = ${sum + qty})`)
+            }
+            return sum + qty
+          }, 0)
+          
+          console.log(`📊 [EnhancedQuantitySummary] Total Done calculated: ${totalActual} (from ${actualKPIsUntilYesterday.length} KPIs)`)
+        } else {
+          console.log(`⚠️ [EnhancedQuantitySummary] No matching Actual KPIs found, Done = 0`)
+        }
       }
       
-      // Add new quantity if provided (for preview)
+      // Add new quantity if provided (for preview - represents today's entry not yet saved)
       if (newQuantity > 0) {
         totalActual += newQuantity
       }
@@ -520,9 +767,11 @@ export function EnhancedQuantitySummary({
         project: selectedProject.project_code,
         projectFullCode: projectFullCodeToUse,
         zone: zone || 'N/A (showing all zones)',
+        zoneUsedForMatching: zoneToUseForMatching || 'N/A',
         normalizedZone: normalizedZone || 'N/A',
         zoneNumber: zoneNumber || 'N/A',
         originalZone: originalZone || 'N/A',
+        plannedKPIsCount: plannedKPIs.length,
         actualKPIsCount: actualKPIs.length,
         totalPlanned, // ✅ From BOQ Activity (planned_units or total_units)
         totalActual,
@@ -560,10 +809,16 @@ export function EnhancedQuantitySummary({
   }
 
   // Calculate with new quantity (if provided)
+  // ✅ Note: When using pre-calculated values, newQuantity is already included in totals.totalActual
+  // Otherwise, we add it here for display preview
   const calculateWithNewQuantity = () => {
-    const newActual = totals.totalActual + newQuantity
-    const newRemaining = Math.max(0, totals.total - newActual) // ✅ Use total (from BOQ) not totalPlanned
-    const newProgress = totals.total > 0 ? Math.round((newActual / totals.total) * 100) : 0 // ✅ Use total (from BOQ) not totalPlanned
+    // If pre-calculated values are used, newQuantity was already added in useEffect
+    // Otherwise, add it here for preview
+    const baseActual = totals.totalActual
+    const shouldAddNewQuantity = preCalculatedDone === undefined // Only add if not using pre-calculated
+    const newActual = baseActual + (shouldAddNewQuantity && newQuantity > 0 ? newQuantity : 0)
+    const newRemaining = Math.max(0, totals.total - newActual)
+    const newProgress = totals.total > 0 ? Math.round((newActual / totals.total) * 100) : 0
 
     return {
       newActual,

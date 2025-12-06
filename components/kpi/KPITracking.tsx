@@ -176,6 +176,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   const [selectedActivities, setSelectedActivities] = useState<string[]>([])
   const [selectedTypes, setSelectedTypes] = useState<string[]>([])
   const [selectedZones, setSelectedZones] = useState<string[]>([])
+  const [selectedSections, setSelectedSections] = useState<string[]>([])
   const [selectedUnits, setSelectedUnits] = useState<string[]>([])
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>([])
   const [selectedScopes, setSelectedScopes] = useState<string[]>([])
@@ -963,54 +964,116 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       // Map to database format (WITH Input Type in unified table)
       const inputType = kpiData['Input Type'] || kpiData.input_type || 'Planned'
       
+      // ✅ Calculate Activity Date (unified date field)
+      const activityDateValue = kpiData['Activity Date'] || kpiData.activity_date || 
+                                (inputType === 'Actual' ? (kpiData['Actual Date'] || kpiData.actual_date) : (kpiData['Target Date'] || kpiData.target_date)) || ''
+      
+      // ✅ Calculate Day from Activity Date if not provided (same format as Planned KPIs)
+      let dayValue = kpiData['Day'] || kpiData.day || ''
+      if (!dayValue && activityDateValue) {
+        try {
+          const date = new Date(activityDateValue)
+          if (!isNaN(date.getTime())) {
+            const weekday = date.toLocaleDateString('en-US', { weekday: 'long' })
+            dayValue = `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${weekday}`
+          }
+        } catch (e) {
+          console.warn('⚠️ Could not calculate Day from date:', activityDateValue)
+        }
+      }
+      
+      // ✅ MATCH Planned KPIs structure exactly (same columns, same format)
       const dbData: any = {
         'Project Full Code': projectCode,
         'Project Code': kpiData['Project Code'] || kpiData.project_code || '',
         'Project Sub Code': kpiData['Project Sub Code'] || kpiData.project_sub_code || '',
         'Activity Name': activityName,
         'Activity Division': kpiData['Activity Division'] || kpiData.activity_division || '', // ✅ Division field
+        'Activity Timing': kpiData['Activity Timing'] || kpiData.activity_timing || 'post-commencement', // ✅ Activity Timing field (same as Planned)
         'Quantity': quantity.toString(),
         'Value': calculatedValue.toString(), // ✅ Include calculated Value
         'Input Type': inputType, // ✅ Required in unified table
         'Target Date': kpiData['Target Date'] || kpiData.target_date || '',
         'Actual Date': kpiData['Actual Date'] || kpiData.actual_date || '',
-        'Activity Date': kpiData['Activity Date'] || kpiData.activity_date || kpiData['Target Date'] || kpiData['Actual Date'] || kpiData.target_date || kpiData.actual_date || '',
+        'Activity Date': activityDateValue, // ✅ Unified Activity Date (same as Planned)
         'Unit': kpiData['Unit'] || kpiData.unit || '',
+        'Section': kpiData['Section'] || kpiData.section || '', // ✅ Section field (same as Planned)
         'Zone': kpiData['Zone'] || kpiData.zone || '',
         'Zone Number': kpiData['Zone Number'] || kpiData.zone_number || '',
-        'Day': kpiData['Day'] || kpiData.day || '',
+        'Day': dayValue, // ✅ Calculate Day from Activity Date (same format as Planned)
         'Drilled Meters': kpiData['Drilled Meters'] || kpiData.drilled_meters?.toString() || '0'
       }
       
-      // ✅ Get Activity Division from related activity if not provided
-      if (!dbData['Activity Division']) {
-        const relatedActivity = activities.find((a: any) => 
-          (a['Activity Name'] || a.activity_name) === activityName && 
-          ((a['Project Code'] || a.project_code) === projectCode || (a['Project Full Code'] || a.project_full_code) === projectCode)
-        )
-        
-        if (relatedActivity) {
-          const activityDivision = (relatedActivity as any).activity_division || (relatedActivity as any)['Activity Division'] || ''
+      // ✅ Get Activity Division and Zone from related activity if not provided
+      const relatedActivityForData = activities.find((a: any) => 
+        (a['Activity Name'] || a.activity_name) === activityName && 
+        ((a['Project Code'] || a.project_code) === projectCode || (a['Project Full Code'] || a.project_full_code) === projectCode)
+      )
+      
+      if (relatedActivityForData) {
+        // Copy Activity Division if not provided
+        if (!dbData['Activity Division']) {
+          const activityDivision = (relatedActivityForData as any).activity_division || (relatedActivityForData as any)['Activity Division'] || ''
           if (activityDivision) {
             dbData['Activity Division'] = activityDivision
             console.log(`✅ Copied Activity Division from BOQ Activity: ${dbData['Activity Division']}`)
           }
         }
+        
+        // ✅ Copy Zone from Activity if not provided (zone_ref or zone_number)
+        // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
+        if (!dbData['Zone'] || dbData['Zone'] === '') {
+          const activityZone = (relatedActivityForData as any).zone_ref || 
+                              (relatedActivityForData as any).zone_number ||
+                              (relatedActivityForData as any)['Zone Ref'] ||
+                              (relatedActivityForData as any)['Zone Number'] ||
+                              ''
+          if (activityZone && projectCode) {
+            // If zone already contains project code, use it as is
+            if (activityZone.includes(projectCode)) {
+              dbData['Zone'] = activityZone
+            } else {
+              // Otherwise, format as: full code + zone
+              dbData['Zone'] = `${projectCode}-${activityZone}`
+            }
+            console.log(`✅ Copied Zone from BOQ Activity: ${dbData['Zone']}`)
+          }
+        } else if (dbData['Zone'] && projectCode) {
+          // ✅ If Zone is provided by user, save it as-is (don't add project code)
+          // Only format if it's clearly incomplete (e.g., just a number like "1" or "01")
+          const zoneStr = dbData['Zone'].toString().trim()
+          // Check if zone looks like a simple number (e.g., "1", "01", "01-1") vs full format (e.g., "P8888-01-1")
+          const isSimpleZone = /^[\d-]+$/.test(zoneStr) && !zoneStr.includes(projectCode)
+          if (isSimpleZone && !zoneStr.includes(projectCode)) {
+            // Only format simple zones that don't already contain project code
+            dbData['Zone'] = `${projectCode}-${zoneStr}`
+            console.log(`✅ Formatted simple Zone with project code: ${dbData['Zone']}`)
+          } else {
+            // Zone is already formatted or user-provided, save as-is
+            console.log(`✅ Saving Zone as-is (user-provided or already formatted): ${dbData['Zone']}`)
+          }
+        }
+        
+        // ✅ Copy Zone Number from Activity if not provided
+        if (!dbData['Zone Number'] || dbData['Zone Number'] === '') {
+          const activityZoneNumber = (relatedActivityForData as any).zone_number ||
+                                     (relatedActivityForData as any)['Zone Number'] ||
+                                     ''
+          if (activityZoneNumber) {
+            dbData['Zone Number'] = activityZoneNumber
+            console.log(`✅ Copied Zone Number from BOQ Activity: ${dbData['Zone Number']}`)
+          }
+        }
       }
       
-      // ✅ Find related activity to copy Activity Timing if not provided
-      if (!dbData['Activity Timing'] && !kpiData['Activity Timing'] && !kpiData.activity_timing) {
-        const relatedActivity = activities.find((a: any) => 
-          (a['Activity Name'] || a.activity_name) === activityName && 
-          ((a['Project Code'] || a.project_code) === projectCode || (a['Project Full Code'] || a.project_full_code) === projectCode)
-        )
-        
-        if (relatedActivity && relatedActivity.activity_timing) {
-          dbData['Activity Timing'] = relatedActivity.activity_timing
+      // ✅ Copy Activity Timing from BOQ Activity if not provided
+      if (!dbData['Activity Timing'] || dbData['Activity Timing'] === 'post-commencement') {
+        if (relatedActivityForData && relatedActivityForData.activity_timing) {
+          dbData['Activity Timing'] = relatedActivityForData.activity_timing
           console.log(`✅ Copied Activity Timing from BOQ Activity: ${dbData['Activity Timing']}`)
+        } else if (kpiData['Activity Timing'] || kpiData.activity_timing) {
+          dbData['Activity Timing'] = kpiData['Activity Timing'] || kpiData.activity_timing
         }
-      } else if (kpiData['Activity Timing'] || kpiData.activity_timing) {
-        dbData['Activity Timing'] = kpiData['Activity Timing'] || kpiData.activity_timing
       }
       
       // ✅ AUTO-APPROVE: If this is a Planned KPI, automatically set Approval Status to 'approved'
@@ -1128,22 +1191,94 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       console.log('🎯 Inserting into MAIN KPI table')
       
       // Map to database format (WITH Input Type in unified table)
+      const inputType = kpiData['Input Type'] || kpiData.input_type || 'Planned'
+      
+      // ✅ Calculate Activity Date (unified date field)
+      const activityDateValue = kpiData['Activity Date'] || kpiData.activity_date || 
+                                (inputType === 'Actual' ? (kpiData['Actual Date'] || kpiData.actual_date) : (kpiData['Target Date'] || kpiData.target_date)) || ''
+      
+      // ✅ Calculate Day from Activity Date if not provided (same format as Planned KPIs)
+      let dayValue = kpiData['Day'] || kpiData.day || ''
+      if (!dayValue && activityDateValue) {
+        try {
+          const date = new Date(activityDateValue)
+          if (!isNaN(date.getTime())) {
+            const weekday = date.toLocaleDateString('en-US', { weekday: 'long' })
+            dayValue = `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${weekday}`
+          }
+        } catch (e) {
+          console.warn('⚠️ Could not calculate Day from date:', activityDateValue)
+        }
+      }
+      
+      // ✅ Get project code for Zone formatting
+      const projectFullCodeForZone = kpiData['Project Full Code'] || kpiData.project_full_code || kpiData['Project Code'] || kpiData.project_code || ''
+      const zoneValueFromData = (kpiData['Zone'] || kpiData.zone || '').toString().trim()
+      
+      // ✅ CRITICAL FIX: Save Zone as-is if user provided it directly
+      // Don't automatically add project code - only format when copying from activity (handled below)
+      // This prevents issues like "01-1" becoming "P8888-01-01-1"
+      let formattedZone = zoneValueFromData
+      
+      // ✅ MATCH Planned KPIs structure exactly (same columns, same format)
       const dbData: any = {
         'Project Full Code': kpiData['Project Full Code'] || kpiData.project_full_code || '',
         'Project Code': kpiData['Project Code'] || kpiData.project_code || '',
         'Project Sub Code': kpiData['Project Sub Code'] || kpiData.project_sub_code || '',
         'Activity Name': kpiData['Activity Name'] || kpiData.activity_name || '',
         'Activity Division': kpiData['Activity Division'] || kpiData.activity_division || '', // ✅ Division field
+        'Activity Timing': kpiData['Activity Timing'] || kpiData.activity_timing || 'post-commencement', // ✅ Activity Timing field (same as Planned)
         'Quantity': kpiData['Quantity'] || kpiData.quantity?.toString() || '0',
-        'Input Type': kpiData['Input Type'] || kpiData.input_type || 'Planned', // ✅ Required in unified table
+        'Input Type': inputType, // ✅ Required in unified table
         'Target Date': kpiData['Target Date'] || kpiData.target_date || '',
         'Actual Date': kpiData['Actual Date'] || kpiData.actual_date || '',
-        'Activity Date': kpiData['Activity Date'] || kpiData.activity_date || kpiData['Target Date'] || kpiData['Actual Date'] || kpiData.target_date || kpiData.actual_date || '',
+        'Activity Date': activityDateValue, // ✅ Unified Activity Date (same as Planned)
         'Unit': kpiData['Unit'] || kpiData.unit || '',
-        'Zone': kpiData['Zone'] || kpiData.zone || '',
+        'Section': kpiData['Section'] || kpiData.section || '', // ✅ Section field (same as Planned)
+        'Zone': formattedZone, // ✅ Format Zone as: full code + zone
         'Zone Number': kpiData['Zone Number'] || kpiData.zone_number || '',
-        'Day': kpiData['Day'] || kpiData.day || '',
+        'Day': dayValue, // ✅ Calculate Day from Activity Date (same format as Planned)
         'Drilled Meters': kpiData['Drilled Meters'] || kpiData.drilled_meters?.toString() || '0'
+      }
+      
+      // ✅ Copy Zone from Activity if not provided (same logic as handleCreateKPI)
+      const projectCode = dbData['Project Full Code'] || dbData['Project Code'] || ''
+      const activityName = dbData['Activity Name'] || ''
+      if ((!dbData['Zone'] || dbData['Zone'] === '') && projectCode && activityName) {
+        const relatedActivityForUpdate = activities.find((a: any) => 
+          (a['Activity Name'] || a.activity_name) === activityName && 
+          ((a['Project Code'] || a.project_code) === projectCode || (a['Project Full Code'] || a.project_full_code) === projectCode)
+        )
+        
+        if (relatedActivityForUpdate) {
+          const activityZone = (relatedActivityForUpdate as any).zone_ref || 
+                              (relatedActivityForUpdate as any).zone_number ||
+                              (relatedActivityForUpdate as any)['Zone Ref'] ||
+                              (relatedActivityForUpdate as any)['Zone Number'] ||
+                              ''
+          if (activityZone && projectCode) {
+            // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
+            // If zone already contains project code, use it as is
+            if (activityZone.includes(projectCode)) {
+              dbData['Zone'] = activityZone
+            } else {
+              // Otherwise, format as: full code + zone
+              dbData['Zone'] = `${projectCode}-${activityZone}`
+            }
+            console.log(`✅ Copied Zone from BOQ Activity in update: ${dbData['Zone']}`)
+          }
+          
+          // Copy Zone Number if not provided
+          if (!dbData['Zone Number'] || dbData['Zone Number'] === '') {
+            const activityZoneNumber = (relatedActivityForUpdate as any).zone_number ||
+                                       (relatedActivityForUpdate as any)['Zone Number'] ||
+                                       ''
+            if (activityZoneNumber) {
+              dbData['Zone Number'] = activityZoneNumber
+              console.log(`✅ Copied Zone Number from BOQ Activity in update: ${dbData['Zone Number']}`)
+            }
+          }
+        }
       }
       
       // ✅ SET UPDATED BY: Add user who updated the KPI
@@ -1478,8 +1613,11 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         dbUpdateData['Activity Date'] = updateData.activity_date || null
       }
       
+      // ✅ Zone will be formatted per KPI in the update loop (to use each KPI's project_full_code)
+      // Don't format here - format in the individual KPI update to use correct project_full_code
       if (updateData.zone !== undefined) {
-        dbUpdateData['Zone'] = updateData.zone
+        // Store raw zone value - will be formatted per KPI based on its project_full_code
+        dbUpdateData['Zone'] = updateData.zone.trim()
       }
       
       if (updateData.section !== undefined) {
@@ -1550,6 +1688,40 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
               kpiUpdateData['Value'] = calculatedValue.toString()
             }
             
+            // ✅ CRITICAL: Preserve Project Full Code and Project Code from existing KPI
+            // Don't overwrite them - they should remain as they are
+            // Get existing KPI data to preserve Project codes
+            const existingKPI = kpis.find(k => k.id === id)
+            if (existingKPI) {
+              // Preserve Project Full Code (e.g., "P8888-01")
+              if (existingKPI.project_full_code) {
+                kpiUpdateData['Project Full Code'] = existingKPI.project_full_code
+              }
+              // Preserve Project Code (base code, e.g., "P8888")
+              // Extract base code from project_full_code if available
+              if (existingKPI.project_full_code) {
+                const baseCode = existingKPI.project_full_code.split('-')[0]
+                kpiUpdateData['Project Code'] = baseCode
+              } else if ((existingKPI as any).project_code) {
+                kpiUpdateData['Project Code'] = (existingKPI as any).project_code
+              }
+              
+              // ✅ CRITICAL: Format Zone like Smart KPI Form (with space: "P8888-01 - 1")
+              if (updateData.zone !== undefined && updateData.zone.trim()) {
+                const projectFullCode = existingKPI.project_full_code || ''
+                const zoneValue = updateData.zone.trim()
+                
+                // If zone doesn't already contain project_full_code, format it
+                if (projectFullCode && !zoneValue.includes(projectFullCode)) {
+                  // ✅ Format as: full code + space + dash + space + zone (same as Smart KPI Form)
+                  kpiUpdateData['Zone'] = `${projectFullCode} - ${zoneValue}`
+                } else {
+                  // Zone already formatted or contains project code, use as-is
+                  kpiUpdateData['Zone'] = zoneValue
+                }
+              }
+            }
+            
             // Update this KPI
             const updatePromise = (async () => {
               try {
@@ -1613,27 +1785,81 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         }
       } else {
         // No quantity update - simple bulk update
-        const { error: updateError, count } = await (supabase as any)
-          .from(TABLES.KPI)
-          .update(dbUpdateData)
-          .in('id', ids)
+        // ✅ CRITICAL: Preserve Project Full Code and Project Code for each KPI
+        // Update each KPI individually to preserve its Project codes
+        const kpisToUpdateSimple = kpis.filter(k => ids.includes(k.id))
+        const updatePromises: Array<Promise<void>> = []
+        const errors: string[] = []
+        let successCount = 0
         
-        if (updateError) {
-          throw updateError
+        for (const kpi of kpisToUpdateSimple) {
+          // Build update data for this specific KPI, preserving Project codes
+          const kpiUpdateData: any = { ...dbUpdateData }
+          
+          // ✅ CRITICAL: Preserve Project Full Code (e.g., "P8888-01")
+          if (kpi.project_full_code) {
+            kpiUpdateData['Project Full Code'] = kpi.project_full_code
+          }
+          // ✅ CRITICAL: Preserve Project Code (base code, e.g., "P8888")
+          // Extract base code from project_full_code if available
+          if (kpi.project_full_code) {
+            const baseCode = kpi.project_full_code.split('-')[0]
+            kpiUpdateData['Project Code'] = baseCode
+          } else if ((kpi as any).project_code) {
+            kpiUpdateData['Project Code'] = (kpi as any).project_code
+          }
+          
+          // ✅ CRITICAL: Format Zone like Smart KPI Form (with space: "P8888-01 - 1")
+          if (updateData.zone !== undefined && updateData.zone.trim()) {
+            const projectFullCode = kpi.project_full_code || ''
+            const zoneValue = updateData.zone.trim()
+            
+            // If zone doesn't already contain project_full_code, format it
+            if (projectFullCode && !zoneValue.includes(projectFullCode)) {
+              // ✅ Format as: full code + space + dash + space + zone (same as Smart KPI Form)
+              kpiUpdateData['Zone'] = `${projectFullCode} - ${zoneValue}`
+            } else {
+              // Zone already formatted or contains project code, use as-is
+              kpiUpdateData['Zone'] = zoneValue
+            }
+          }
+          
+          const updatePromise = (async () => {
+            try {
+              const { error: updateError } = await (supabase as any)
+                .from(TABLES.KPI)
+                .update(kpiUpdateData)
+                .eq('id', kpi.id)
+              
+              if (updateError) {
+                errors.push(`KPI ${kpi.id}: ${updateError.message}`)
+              } else {
+                successCount++
+              }
+            } catch (err: any) {
+              errors.push(`KPI ${kpi.id}: ${err.message || 'Unknown error'}`)
+            }
+          })()
+          
+          updatePromises.push(updatePromise)
         }
+        
+        // Wait for all updates to complete
+        await Promise.all(updatePromises)
+        
+        const count = successCount
         
         console.log(`✅ Updated ${count || ids.length} KPIs`)
         console.log('========================================')
         
         // ✅ AUTO-SYNC: Update BOQ for all affected activities
-        const kpisToUpdate = kpis.filter(k => ids.includes(k.id))
-        const affectedActivities = Array.from(new Set(kpisToUpdate.map(k => ({
+        const affectedActivities = Array.from(new Set(kpisToUpdateSimple.map((k: any) => ({
           project_full_code: k.project_full_code,
           activity_name: k.activity_name
         }))))
         
         console.log('🔄 Auto-syncing BOQ for affected activities...')
-        const syncPromises = affectedActivities.map(async (activity) => {
+        const syncPromises = affectedActivities.map(async (activity: any) => {
           try {
             const syncResult = await syncBOQFromKPI(
               activity.project_full_code,
@@ -1655,9 +1881,9 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         }
         
         return {
-          success: true,
+          success: successCount > 0,
           updated: count || ids.length,
-          errors: []
+          errors
         }
       }
     } catch (error: any) {
@@ -1750,8 +1976,24 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       
       // Zone filter
       if (selectedZones.length > 0) {
-        // ✅ FIX: Extract zone from multiple sources and normalize (same logic as SmartFilter)
-        const kpiZoneRaw = (kpi.zone || (kpi as any).section || (kpi as any).zone_ref || (kpi as any).zone_number || '').toString().trim()
+        // ✅ FIX: Extract zone from multiple sources and normalize (same logic as KPITableWithCustomization)
+        // ✅ NOT from Section - Section is separate from Zone
+        const rawKPI = (kpi as any).raw || {}
+        // Helper function to get KPI field (similar to KPITableWithCustomization)
+        const getKPIField = (kpi: any, fieldName: string): string => {
+          const raw = (kpi as any).raw || {}
+          return raw[fieldName] || raw[fieldName.toLowerCase()] || (kpi as any)[fieldName] || (kpi as any)[fieldName.toLowerCase()] || ''
+        }
+        const kpiZoneRaw = (
+          kpi.zone || 
+          getKPIField(kpi, 'Zone') ||
+          getKPIField(kpi, 'Zone Number') ||
+          rawKPI['Zone'] || 
+          rawKPI['Zone Number'] ||
+          (kpi as any).zone_ref || 
+          (kpi as any).zone_number || 
+          ''
+        ).toString().trim()
         
         // Normalize zone by removing project code prefix
         const projectCodes = selectedProjects.map(p => {
@@ -1788,6 +2030,20 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
                  zoneLower.includes(kpiZoneLower)
         })
         if (!matchesZone) return false
+      }
+      
+      // Section filter (only for Actual KPIs)
+      if (selectedSections.length > 0) {
+        // Only filter by section for Actual KPIs
+        const kpiInputType = (kpi.input_type || (kpi as any).inputType || '').toLowerCase().trim()
+        if (kpiInputType === 'actual') {
+          const rawKPISection = (kpi as any).raw || {}
+          const kpiSection = (kpi.section || rawKPISection['Section'] || '').toString().trim()
+          if (!selectedSections.some(section => kpiSection.toLowerCase() === section.toLowerCase().trim())) return false
+        } else {
+          // For Planned KPIs, exclude if section filter is active (Section is only for Actual KPIs)
+          return false
+        }
       }
       
       // Unit filter
@@ -2830,21 +3086,28 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
             activityTiming = 'post-commencement'
           }
           
+          // ✅ Get Section from KPI (only for Actual KPIs)
+          const rawKPISection = (k as any).raw || {}
+          const sectionValue = k.section || rawKPISection['Section'] || ''
+          
           return {
             // ✅ FIX: Extract zone from multiple sources (same logic as filtering)
-            zone: ((k as any).zone || (k as any).section || (k as any).zone_ref || (k as any).zone_number || '').toString().trim(),
+            zone: ((k as any).zone || (k as any).zone_ref || (k as any).zone_number || '').toString().trim(),
+            section: sectionValue || undefined, // ✅ Section is separate from Zone
             unit: (k as any).unit || '',
             activity_division: (k as any).activity_division || '',
             activity_scope: activityScope || undefined, // Only include if not empty
             activity_timing: activityTiming, // ✅ Use calculated activity timing (same as Activity Commencement Relation)
             value: (k as any).value || 0,
-            quantity: (k as any).quantity || 0
+            quantity: (k as any).quantity || 0,
+            input_type: k.input_type || (k as any).inputType || '' // ✅ Add input_type for filtering
           }
         })}
         selectedProjects={selectedProjects}
         selectedActivities={selectedActivities}
         selectedTypes={selectedTypes}
         selectedZones={selectedZones}
+        selectedSections={selectedSections}
         selectedUnits={selectedUnits}
         selectedDivisions={selectedDivisions}
         selectedScopes={selectedScopes}
@@ -2862,6 +3125,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         onActivitiesChange={setSelectedActivities}
         onTypesChange={setSelectedTypes}
         onZonesChange={setSelectedZones}
+        onSectionsChange={setSelectedSections}
         onUnitsChange={setSelectedUnits}
         onDivisionsChange={setSelectedDivisions}
         onScopesChange={setSelectedScopes}
@@ -2875,6 +3139,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           setSelectedActivities([])
           setSelectedTypes([])
           setSelectedZones([])
+          setSelectedSections([])
           setSelectedUnits([])
           setSelectedDivisions([])
           setSelectedScopes([])

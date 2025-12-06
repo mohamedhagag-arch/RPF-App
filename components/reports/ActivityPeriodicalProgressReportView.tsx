@@ -135,7 +135,8 @@ export function ActivityPeriodicalProgressReportView({
     if (!activityMatch) return false
     
     // 3. Zone Matching (ULTRA STRICT - must match zone exactly)
-    const kpiZoneRaw = (kpi.zone || kpi['Zone'] || kpi.section || rawKPI['Zone'] || rawKPI['Zone Number'] || '').toString().trim()
+    // ✅ NOT from Section - Section is separate from Zone
+    const kpiZoneRaw = (kpi.zone || kpi['Zone'] || rawKPI['Zone'] || rawKPI['Zone Number'] || '').toString().trim()
     const activityZoneRef = (activity.zone_ref || rawActivity['Zone Ref'] || '').toString().trim()
     const activityZoneNumber = (activity.zone_number || rawActivity['Zone Number'] || '').toString().trim()
     

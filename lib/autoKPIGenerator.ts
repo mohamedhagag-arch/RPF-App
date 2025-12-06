@@ -18,6 +18,7 @@ export interface GeneratedKPI {
   project_sub_code: string
   project_full_code: string
   section: string
+  zone: string // ✅ Zone field (from activity.zone_ref or zone_number)
   day: string
   activity_division?: string // ✅ Division field
   activity_timing?: string // ✅ Activity Timing field
@@ -135,7 +136,9 @@ export async function generateKPIsFromBOQ(
         project_code: projectCode, // ✅ Use project_full_code if available
         project_sub_code: activity.project_sub_code || '',
         project_full_code: projectFullCode, // ✅ Use project_full_code
-        section: activity.zone_ref || '',
+        // ✅ Section and Zone are separate - Section is only for Actual KPIs entered by site engineer
+        section: '', // ✅ Section is separate from Zone - leave empty for auto-created KPIs
+        zone: activity.zone_ref || activity.zone_number || '', // ✅ Zone comes from activity.zone_ref or zone_number
         day: `Day ${index + 1} - ${date.toLocaleDateString('en-US', { weekday: 'long' })}`,
         activity_division: activity.activity_division || '', // ✅ Division field
         activity_timing: activity.activity_timing || 'post-commencement' // ✅ Activity Timing field
@@ -286,7 +289,23 @@ export async function saveGeneratedKPIs(kpis: GeneratedKPI[], cleanupFirst: bool
       'Target Date': kpi.target_date,
       'Activity Date': kpi.activity_date,
       'Unit': kpi.unit,
-      'Section': kpi.section,
+      // ✅ Section and Zone are separate fields
+      'Section': kpi.section || '', // ✅ Section is separate from Zone - leave empty for auto-created KPIs
+      // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
+      'Zone': (() => {
+        const projectFullCode = kpi.project_full_code || kpi.project_code || ''
+        const activityZone = kpi.zone || ''
+        if (activityZone && projectFullCode) {
+          // If zone already contains project code, use it as is
+          if (activityZone.includes(projectFullCode)) {
+            return activityZone
+          }
+          // Otherwise, format as: full code + zone
+          return `${projectFullCode}-${activityZone}`
+        }
+        return activityZone || ''
+      })(),
+      'Zone Number': '', // ✅ Zone Number can be extracted from zone if needed
       'Day': kpi.day,
       'Approval Status': 'approved', // ✅ Auto-approve Planned KPIs
       'created_by': createdByValue // ✅ Set created_by
@@ -588,7 +607,9 @@ export async function updateExistingKPIs(
             'Project Code': newKPI.project_code,
             'Project Sub Code': newKPI.project_sub_code,
             'Project Full Code': newKPI.project_full_code,
-            'Section': newKPI.section,
+            // ✅ Section and Zone are separate fields
+            'Section': newKPI.section || '', // ✅ Section is separate from Zone
+            'Zone': newKPI.zone || '', // ✅ Zone comes from activity.zone_ref or zone_number
             'Day': newKPI.day
           })
           .eq('id', (existingKPI as any).id)
@@ -624,7 +645,9 @@ export async function updateExistingKPIs(
             'Project Code': newKPI.project_code,
             'Project Sub Code': newKPI.project_sub_code,
             'Project Full Code': newKPI.project_full_code,
-            'Section': newKPI.section,
+            // ✅ Section and Zone are separate fields
+            'Section': newKPI.section || '', // ✅ Section is separate from Zone
+            'Zone': newKPI.zone || '', // ✅ Zone comes from activity.zone_ref or zone_number
             'Day': newKPI.day
           })
           .eq('id', (existingKPI as any).id)
@@ -687,7 +710,9 @@ export async function updateExistingKPIs(
             'Project Code': newKPI.project_code,
             'Project Sub Code': newKPI.project_sub_code,
             'Project Full Code': newKPI.project_full_code,
-            'Section': newKPI.section,
+            // ✅ Section and Zone are separate fields
+            'Section': newKPI.section || '', // ✅ Section is separate from Zone
+            'Zone': newKPI.zone || '', // ✅ Zone comes from activity.zone_ref or zone_number
             'Day': newKPI.day
           })
           .eq('id', (existingKPI as any).id)
@@ -893,7 +918,9 @@ export async function previewKPIs(activity: BOQActivity, config?: WorkdaysConfig
         project_code: activity.project_code || '',
         project_sub_code: activity.project_sub_code || '',
         project_full_code: activity.project_full_code || activity.project_code || '',
-        section: activity.zone_ref || '',
+        // ✅ Section and Zone are separate - Section is only for Actual KPIs entered by site engineer
+        section: '', // ✅ Section is separate from Zone - leave empty for auto-created KPIs
+        zone: activity.zone_ref || activity.zone_number || '', // ✅ Zone comes from activity.zone_ref or zone_number
         day: `Day ${index + 1} - ${date.toLocaleDateString('en-US', { weekday: 'long' })}`
       }
     })

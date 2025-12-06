@@ -72,7 +72,8 @@ export function BOQActualQuantityCell({ activity, allKPIs }: BOQActualQuantityCe
       
       // ✅ Zone matching (if both have zones, they must match)
       const rawKPI = (kpi as any).raw || {}
-      const kpiZoneRaw = (kpi.zone || kpi.section || rawKPI['Zone'] || rawKPI['Zone Number'] || '').toString().trim()
+      // ✅ NOT from Section - Section is separate from Zone
+      const kpiZoneRaw = (kpi.zone || rawKPI['Zone'] || rawKPI['Zone Number'] || '').toString().trim()
       let kpiZone = kpiZoneRaw.toLowerCase().trim()
       
       // Normalize KPI zone (remove project code prefix if exists)

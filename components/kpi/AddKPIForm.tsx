@@ -207,22 +207,92 @@ export function AddKPIForm() {
       const projectFullCode = selectedProject?.project_full_code || projectCode
       const projectCodeOnly = selectedProject?.project_code || (projectCode.includes('-') ? projectCode.split('-')[0] : projectCode)
       
+      // ✅ Calculate Day from Activity Date if not provided (same format as Planned KPIs)
+      let dayValue = day || ''
+      if (!dayValue && actualDate) {
+        try {
+          const date = new Date(actualDate)
+          if (!isNaN(date.getTime())) {
+            const weekday = date.toLocaleDateString('en-US', { weekday: 'long' })
+            dayValue = `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${weekday}`
+          }
+        } catch (e) {
+          console.warn('⚠️ Could not calculate Day from date:', actualDate)
+        }
+      }
+      
+      // ✅ Get Activity Division and Activity Timing from selected activity
+      let activityDivision = ''
+      let activityTiming = 'post-commencement'
+      if (selectedActivity) {
+        activityDivision = selectedActivity.activity_division || ''
+        activityTiming = selectedActivity.activity_timing || 'post-commencement'
+      }
+      
+      // ✅ Calculate Value from Quantity × Rate if available
+      let calculatedValue = parseFloat(quantity)
+      if (selectedActivity) {
+        let rate = 0
+        if (selectedActivity.rate && selectedActivity.rate > 0) {
+          rate = selectedActivity.rate
+        } else if (selectedActivity.total_value && selectedActivity.total_units && selectedActivity.total_units > 0) {
+          rate = selectedActivity.total_value / selectedActivity.total_units
+        }
+        
+        if (rate > 0) {
+          calculatedValue = parseFloat(quantity) * rate
+          console.log(`💰 Calculated Value: ${quantity} × ${rate} = ${calculatedValue}`)
+        }
+      }
+      
+      // ✅ MATCH Planned KPIs structure exactly (same columns, same format)
       const kpiData = {
+        // Database column names (matching Planned KPIs)
+        'Project Full Code': projectFullCode,
+        'Project Code': projectCodeOnly,
+        'Project Sub Code': selectedProject?.project_sub_code || '',
+        'Activity Name': activityName,
+        'Activity Division': activityDivision, // ✅ Activity Division field (same as Planned)
+        'Activity Timing': activityTiming, // ✅ Activity Timing field (same as Planned)
+        'Quantity': parseFloat(quantity).toString(),
+        'Value': calculatedValue.toString(), // ✅ Include Value (same as Planned)
+        'Unit': unit,
+        'Input Type': 'Actual', // Fixed to Actual only
+        'Actual Date': actualDate,
+        'Activity Date': actualDate, // ✅ Unified Activity Date (same as Planned)
+        'Target Date': actualDate, // ✅ Include Target Date (same as Planned)
+        'Day': dayValue, // ✅ Calculate Day from Activity Date (same format as Planned)
+        'Section': section || '', // ✅ Section field (same as Planned)
+        // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
+        'Zone': (() => {
+          const projectFullCodeValue = projectFullCode
+          const activityZone = zone || selectedActivity?.zone_ref || selectedActivity?.zone_number || ''
+          if (activityZone && projectFullCodeValue) {
+            // If zone already contains project code, use it as is
+            if (activityZone.includes(projectFullCodeValue)) {
+              return activityZone
+            }
+            // Otherwise, format as: full code + zone
+            return `${projectFullCodeValue}-${activityZone}`
+          }
+          return activityZone || ''
+        })(),
+        'Zone Number': selectedActivity?.zone_number || '', // ✅ Zone Number field (same as Planned)
+        'Drilled Meters': parseFloat(drilledMeters) || 0,
+        // Legacy fields (for backward compatibility)
         project_full_code: projectFullCode,
         project_code: projectCodeOnly,
         project_sub_code: selectedProject?.project_sub_code || '',
         activity_name: activityName,
         quantity: parseFloat(quantity),
         unit,
-        input_type: 'Actual', // Fixed to Actual only
+        input_type: 'Actual',
         actual_date: actualDate,
         activity_date: actualDate,
         section,
         zone,
-        day,
+        day: dayValue,
         drilled_meters: parseFloat(drilledMeters) || 0,
-        'Actual Date': actualDate,
-        'Drilled Meters': parseFloat(drilledMeters) || 0,
         // Smart form metadata
         daily_rate: dailyRate,
         is_auto_calculated: isAutoCalculated,

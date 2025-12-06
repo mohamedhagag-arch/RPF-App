@@ -2,12 +2,12 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { ProcessedKPI } from '@/lib/kpiProcessor'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Label } from '@/components/ui/Label'
 import { Alert } from '@/components/ui/Alert'
-import { X, Edit, Save, AlertCircle, CheckCircle, Info, Loader2 } from 'lucide-react'
+import { ModernCard } from '@/components/ui/ModernCard'
+import { X, Save, AlertCircle, CheckCircle, Info, Loader2, Edit, Target, Calendar, Activity, Sparkles } from 'lucide-react'
 
 interface BulkEditKPIModalProps {
   selectedKPIs: ProcessedKPI[]
@@ -56,8 +56,16 @@ export function BulkEditKPIModal({
       // Get unique values
       const uniqueQuantities = Array.from(new Set(selectedKPIs.map(k => k.quantity).filter(q => q !== undefined && q !== null)))
       const uniqueUnits = Array.from(new Set(selectedKPIs.map(k => k.unit).filter(Boolean)))
-      const uniqueZones = Array.from(new Set(selectedKPIs.map(k => k.zone || (k as any).section || (k as any).zone_ref || (k as any).zone_number).filter(Boolean)))
-      const uniqueSections = Array.from(new Set(selectedKPIs.map(k => k.section || (k as any).zone_number).filter(Boolean)))
+      // ✅ FIX: Use Zone only, NOT Section
+      const uniqueZones = Array.from(new Set(selectedKPIs.map(k => 
+        k.zone || 
+        (k as any).zone_ref || 
+        (k as any).zone_number || 
+        (k as any).raw?.['Zone'] || 
+        (k as any).raw?.['Zone Number'] || 
+        (k as any).raw?.['Zone Ref']
+      ).filter(Boolean)))
+      const uniqueSections = Array.from(new Set(selectedKPIs.map(k => k.section || (k as any).raw?.['Section']).filter(Boolean)))
       const uniqueDays = Array.from(new Set(selectedKPIs.map(k => (k as any).day).filter(Boolean)))
       const uniqueDrilledMeters = Array.from(new Set(selectedKPIs.map(k => k.drilled_meters).filter(dm => dm !== undefined && dm !== null)))
       const uniqueNotes = Array.from(new Set(selectedKPIs.map(k => (k as any).notes).filter(Boolean)))
@@ -122,8 +130,16 @@ export function BulkEditKPIModal({
     
     // Get unique values
     const uniqueUnits = Array.from(new Set(selectedKPIs.map(k => k.unit).filter(Boolean)))
-    const uniqueZones = Array.from(new Set(selectedKPIs.map(k => k.zone || (k as any).section).filter(Boolean)))
-    const uniqueSections = Array.from(new Set(selectedKPIs.map(k => k.section).filter(Boolean)))
+    // ✅ FIX: Use Zone only, NOT Section
+    const uniqueZones = Array.from(new Set(selectedKPIs.map(k => 
+      k.zone || 
+      (k as any).zone_ref || 
+      (k as any).zone_number || 
+      (k as any).raw?.['Zone'] || 
+      (k as any).raw?.['Zone Number'] || 
+      (k as any).raw?.['Zone Ref']
+    ).filter(Boolean)))
+    const uniqueSections = Array.from(new Set(selectedKPIs.map(k => k.section || (k as any).raw?.['Section']).filter(Boolean)))
     
     return {
       total: selectedKPIs.length,
@@ -198,6 +214,9 @@ export function BulkEditKPIModal({
       
       if (fieldsToUpdate.has('zone') && zone.trim()) {
         updateData.zone = zone.trim()
+        // ✅ Also update Zone Number and Zone Ref for consistency
+        updateData.zone_number = zone.trim()
+        updateData.zone_ref = zone.trim()
       }
       
       if (fieldsToUpdate.has('section') && section.trim()) {
@@ -272,8 +291,8 @@ export function BulkEditKPIModal({
     if (fieldsToUpdate.has('targetDate')) changes.push(`Target Date: ${targetDate || '(empty)'}`)
     if (fieldsToUpdate.has('actualDate')) changes.push(`Actual Date: ${actualDate || '(empty)'}`)
     if (fieldsToUpdate.has('activityDate')) changes.push(`Activity Date: ${activityDate || '(empty)'}`)
-    if (fieldsToUpdate.has('zone')) changes.push(`Zone Ref: ${zone || '(empty)'}`)
-    if (fieldsToUpdate.has('section')) changes.push(`Zone Number: ${section || '(empty)'}`)
+    if (fieldsToUpdate.has('zone')) changes.push(`Zone: ${zone || '(empty)'}`)
+    if (fieldsToUpdate.has('section')) changes.push(`Section: ${section || '(empty)'}`)
     if (fieldsToUpdate.has('day')) changes.push(`Day: ${day || '(empty)'}`)
     if (fieldsToUpdate.has('drilledMeters')) changes.push(`Drilled Meters: ${drilledMeters || '(empty)'}`)
     if (fieldsToUpdate.has('notes')) changes.push(`Notes: ${notes || '(empty)'}`)
@@ -281,17 +300,20 @@ export function BulkEditKPIModal({
   }
   
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <Card className="w-full max-w-4xl max-h-[90vh] overflow-y-auto m-4 shadow-2xl">
-        <CardHeader className="sticky top-0 bg-white dark:bg-gray-900 z-10 border-b">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-white dark:bg-gray-900 rounded-lg shadow-2xl">
+        {/* Header - Matching Smart KPI Form Style */}
+        <div className="sticky top-0 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border-b border-blue-200 dark:border-blue-700 p-4 sm:p-6 z-10">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-100 dark:bg-blue-900 rounded-lg">
-                <Edit className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+            <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-green-500 to-blue-600 rounded-full flex items-center justify-center shrink-0">
+                <Edit className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
               </div>
-              <div>
-                <CardTitle className="text-2xl">Bulk Edit KPIs</CardTitle>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+              <div className="min-w-0">
+                <h2 className="text-lg sm:text-xl md:text-2xl font-bold text-gray-900 dark:text-white truncate">
+                  Bulk Edit KPIs
+                </h2>
+                <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">
                   Editing {selectedKPIs.length} selected KPI{selectedKPIs.length !== 1 ? 's' : ''}
                 </p>
               </div>
@@ -301,30 +323,48 @@ export function BulkEditKPIModal({
               size="sm"
               onClick={onCancel}
               disabled={loading}
+              className="text-gray-400 hover:text-gray-600 shrink-0"
             >
               <X className="h-5 w-5" />
             </Button>
           </div>
-        </CardHeader>
+        </div>
         
-        <CardContent className="p-6 space-y-6">
-          {/* Analysis Info */}
-          <Alert variant="default">
-            <Info className="h-4 w-4" />
-            <div className="ml-3">
-              <p className="font-semibold">Selection Summary</p>
-              <ul className="text-sm mt-1 space-y-1">
-                <li>• Total KPIs: {analysis.total}</li>
-                <li>• Planned: {analysis.planned}</li>
-                <li>• Actual: {analysis.actual}</li>
+        <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+          {/* Selection Summary - Matching Smart KPI Form Style */}
+          <ModernCard className="bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 border-blue-200 dark:border-blue-700">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0">
+                <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+                  <Info className="w-5 h-5 text-white" />
+                </div>
+              </div>
+              <div className="flex-1">
+                <h3 className="font-semibold text-gray-900 dark:text-white mb-2">Selection Summary</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
+                  <div>
+                    <span className="text-gray-600 dark:text-gray-400">Total KPIs:</span>
+                    <span className="ml-2 font-semibold text-gray-900 dark:text-white">{analysis.total}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600 dark:text-gray-400">Planned:</span>
+                    <span className="ml-2 font-semibold text-blue-700 dark:text-blue-300">{analysis.planned}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-600 dark:text-gray-400">Actual:</span>
+                    <span className="ml-2 font-semibold text-green-700 dark:text-green-300">{analysis.actual}</span>
+                  </div>
+                </div>
                 {analysis.hasMixedTypes && (
-                  <li className="text-amber-600 dark:text-amber-400">
-                    ⚠️ Mixed types detected - date fields will apply based on type
-                  </li>
+                  <div className="mt-3 p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-md">
+                    <p className="text-xs text-amber-800 dark:text-amber-200">
+                      ⚠️ Mixed types detected - date fields will apply based on type
+                    </p>
+                  </div>
                 )}
-              </ul>
+              </div>
             </div>
-          </Alert>
+          </ModernCard>
           
           {/* Error Message */}
           {error && (
@@ -363,12 +403,12 @@ export function BulkEditKPIModal({
             </Alert>
           )}
           
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Form - Matching Smart KPI Form Style */}
+          <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
               {/* Quantity */}
               <div className="space-y-2">
-                <Label htmlFor="quantity">
+                <Label htmlFor="quantity" className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Quantity {fieldsToUpdate.has('quantity') && <span className="text-blue-600">*</span>}
                 </Label>
                 <Input
@@ -380,15 +420,16 @@ export function BulkEditKPIModal({
                   onChange={(e) => handleFieldChange('quantity', e.target.value, setQuantity)}
                   placeholder={analysis.total > 0 ? `Current: ${selectedKPIs[0]?.quantity || 'N/A'}` : 'Enter quantity'}
                   disabled={loading}
+                  className="w-full"
                 />
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   Leave empty to keep existing values
                 </p>
               </div>
               
               {/* Unit */}
               <div className="space-y-2">
-                <Label htmlFor="unit">
+                <Label htmlFor="unit" className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Unit {fieldsToUpdate.has('unit') && <span className="text-blue-600">*</span>}
                 </Label>
                 <Input
@@ -399,13 +440,14 @@ export function BulkEditKPIModal({
                   placeholder={analysis.commonUnit || 'Enter unit'}
                   disabled={loading}
                   list="unit-suggestions"
+                  className="w-full"
                 />
                 <datalist id="unit-suggestions">
                   {analysis.uniqueUnits.map((u, idx) => (
                     <option key={idx} value={u} />
                   ))}
                 </datalist>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   {analysis.commonUnit ? `Common: ${analysis.commonUnit}` : 'Leave empty to keep existing values'}
                 </p>
               </div>
@@ -413,7 +455,8 @@ export function BulkEditKPIModal({
               {/* Target Date (for Planned KPIs) */}
               {analysis.planned > 0 && (
                 <div className="space-y-2">
-                  <Label htmlFor="targetDate">
+                  <Label htmlFor="targetDate" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    <Calendar className="w-4 h-4 inline mr-1" />
                     Target Date (Planned) {fieldsToUpdate.has('targetDate') && <span className="text-blue-600">*</span>}
                   </Label>
                   <Input
@@ -422,8 +465,9 @@ export function BulkEditKPIModal({
                     value={targetDate}
                     onChange={(e) => handleFieldChange('targetDate', e.target.value, setTargetDate)}
                     disabled={loading}
+                    className="w-full"
                   />
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
                     Applies to {analysis.planned} Planned KPI(s)
                   </p>
                 </div>
@@ -432,7 +476,8 @@ export function BulkEditKPIModal({
               {/* Actual Date (for Actual KPIs) */}
               {analysis.actual > 0 && (
                 <div className="space-y-2">
-                  <Label htmlFor="actualDate">
+                  <Label htmlFor="actualDate" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    <Calendar className="w-4 h-4 inline mr-1" />
                     Actual Date (Actual) {fieldsToUpdate.has('actualDate') && <span className="text-blue-600">*</span>}
                   </Label>
                   <Input
@@ -441,8 +486,9 @@ export function BulkEditKPIModal({
                     value={actualDate}
                     onChange={(e) => handleFieldChange('actualDate', e.target.value, setActualDate)}
                     disabled={loading}
+                    className="w-full"
                   />
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
                     Applies to {analysis.actual} Actual KPI(s)
                   </p>
                 </div>
@@ -450,7 +496,8 @@ export function BulkEditKPIModal({
               
               {/* Activity Date (for all) */}
               <div className="space-y-2">
-                <Label htmlFor="activityDate">
+                <Label htmlFor="activityDate" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  <Calendar className="w-4 h-4 inline mr-1" />
                   Activity Date {fieldsToUpdate.has('activityDate') && <span className="text-blue-600">*</span>}
                 </Label>
                 <Input
@@ -459,57 +506,61 @@ export function BulkEditKPIModal({
                   value={activityDate}
                   onChange={(e) => handleFieldChange('activityDate', e.target.value, setActivityDate)}
                   disabled={loading}
+                  className="w-full"
                 />
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   Applies to all selected KPIs
                 </p>
               </div>
               
-              {/* Zone Ref */}
+              {/* Zone - Updated to match Smart KPI Form */}
               <div className="space-y-2">
-                <Label htmlFor="zone">
-                  Zone Ref {fieldsToUpdate.has('zone') && <span className="text-blue-600">*</span>}
+                <Label htmlFor="zone" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  <Target className="w-4 h-4 inline mr-1" />
+                  Zone {fieldsToUpdate.has('zone') && <span className="text-blue-600">*</span>}
                 </Label>
                 <Input
                   id="zone"
                   type="text"
                   value={zone}
                   onChange={(e) => handleFieldChange('zone', e.target.value, setZone)}
-                  placeholder={analysis.commonZone || 'Enter zone ref'}
+                  placeholder={analysis.commonZone || 'Enter zone (e.g., P8888-01-1)'}
                   disabled={loading}
                   list="zone-suggestions"
+                  className="w-full"
                 />
                 <datalist id="zone-suggestions">
                   {analysis.uniqueZones.map((z, idx) => (
                     <option key={idx} value={z} />
                   ))}
                 </datalist>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   {analysis.commonZone ? `Common: ${analysis.commonZone}` : 'Leave empty to keep existing values'}
                 </p>
               </div>
               
-              {/* Zone Number */}
+              {/* Section (Optional) - Separate from Zone */}
               <div className="space-y-2">
-                <Label htmlFor="section">
-                  Zone Number {fieldsToUpdate.has('section') && <span className="text-blue-600">*</span>}
+                <Label htmlFor="section" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Section (Optional) {fieldsToUpdate.has('section') && <span className="text-blue-600">*</span>}
                 </Label>
                 <Input
                   id="section"
                   type="text"
                   value={section}
                   onChange={(e) => handleFieldChange('section', e.target.value, setSection)}
-                  placeholder={analysis.commonSection || 'Enter zone number'}
+                  placeholder={analysis.commonSection || 'Enter section (e.g., -10m, Section A)'}
                   disabled={loading}
+                  className="w-full"
                 />
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   {analysis.commonSection ? `Common: ${analysis.commonSection}` : 'Leave empty to keep existing values'}
                 </p>
               </div>
               
               {/* Day */}
               <div className="space-y-2">
-                <Label htmlFor="day">
+                <Label htmlFor="day" className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Day {fieldsToUpdate.has('day') && <span className="text-blue-600">*</span>}
                 </Label>
                 <Input
@@ -519,16 +570,17 @@ export function BulkEditKPIModal({
                   onChange={(e) => handleFieldChange('day', e.target.value, setDay)}
                   placeholder="Enter day"
                   disabled={loading}
+                  className="w-full"
                 />
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   Leave empty to keep existing values
                 </p>
               </div>
               
               {/* Drilled Meters */}
               <div className="space-y-2">
-                <Label htmlFor="drilledMeters">
-                  Drilled Meters {fieldsToUpdate.has('drilledMeters') && <span className="text-blue-600">*</span>}
+                <Label htmlFor="drilledMeters" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Drilled Meters (Optional) {fieldsToUpdate.has('drilledMeters') && <span className="text-blue-600">*</span>}
                 </Label>
                 <Input
                   id="drilledMeters"
@@ -539,15 +591,16 @@ export function BulkEditKPIModal({
                   onChange={(e) => handleFieldChange('drilledMeters', e.target.value, setDrilledMeters)}
                   placeholder="Enter drilled meters"
                   disabled={loading}
+                  className="w-full"
                 />
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   Leave empty to keep existing values
                 </p>
               </div>
               
               {/* Notes */}
               <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="notes">
+                <Label htmlFor="notes" className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Notes {fieldsToUpdate.has('notes') && <span className="text-blue-600">*</span>}
                 </Label>
                 <Input
@@ -557,8 +610,9 @@ export function BulkEditKPIModal({
                   onChange={(e) => handleFieldChange('notes', e.target.value, setNotes)}
                   placeholder="Enter notes"
                   disabled={loading}
+                  className="w-full"
                 />
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   Leave empty to keep existing values
                 </p>
               </div>
@@ -566,36 +620,39 @@ export function BulkEditKPIModal({
             
             {/* Preview */}
             {fieldsToUpdate.size > 0 && (
-              <Alert variant="default">
-                <Info className="h-4 w-4" />
-                <div className="ml-3">
-                  <p className="font-semibold">Preview of Changes</p>
-                  <ul className="text-sm mt-1 list-disc list-inside">
-                    {getPreview().map((change, idx) => (
-                      <li key={idx}>{change}</li>
-                    ))}
-                  </ul>
-                  <p className="text-xs mt-2 text-gray-600">
-                    These changes will be applied to all {selectedKPIs.length} selected KPI(s)
-                  </p>
+              <ModernCard className="bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-900/20 dark:to-blue-900/20 border-green-200 dark:border-green-700">
+                <div className="flex items-start gap-3">
+                  <Info className="h-5 w-5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="font-semibold text-gray-900 dark:text-white mb-2">Preview of Changes</p>
+                    <ul className="text-sm text-gray-700 dark:text-gray-300 space-y-1 list-disc list-inside">
+                      {getPreview().map((change, idx) => (
+                        <li key={idx}>{change}</li>
+                      ))}
+                    </ul>
+                    <p className="text-xs mt-2 text-gray-600 dark:text-gray-400">
+                      These changes will be applied to all {selectedKPIs.length} selected KPI(s)
+                    </p>
+                  </div>
                 </div>
-              </Alert>
+              </ModernCard>
             )}
             
-            {/* Action Buttons */}
-            <div className="flex items-center justify-end gap-3 pt-4 border-t">
+            {/* Action Buttons - Matching Smart KPI Form Style */}
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
               <Button
                 type="button"
                 variant="outline"
                 onClick={onCancel}
                 disabled={loading}
+                className="px-6"
               >
                 Cancel
               </Button>
               <Button
                 type="submit"
                 disabled={loading || fieldsToUpdate.size === 0}
-                className="min-w-[120px]"
+                className="min-w-[140px] bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white px-6"
               >
                 {loading ? (
                   <>
@@ -611,9 +668,8 @@ export function BulkEditKPIModal({
               </Button>
             </div>
           </form>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   )
 }
-

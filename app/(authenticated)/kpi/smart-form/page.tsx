@@ -218,14 +218,30 @@ export default function SmartKPIPage() {
         inputType: 'Actual', // Always Actual for manual entry
         targetDate: kpiData['Target Date'] || '',
         actualDate: kpiData['Actual Date'] || kpiData.actual_date || new Date().toISOString().split('T')[0],
-        // ✅ Map Zone Ref/Number to Section/Zone (the actual columns in KPI table)
-        zoneRef: kpiData['Zone Ref'] || kpiData['Section'] || kpiData.zone_ref || kpiData.section || '',
-        zoneNumber: kpiData['Zone Number'] || kpiData['Zone'] || kpiData.zone_number || kpiData.zone || ''
+        // ✅ Map Zone Ref/Number to Zone (NOT to Section - Section is separate)
+        // ✅ NOT from Section - Section is separate from Zone
+        zoneRef: kpiData['Zone Ref'] || kpiData.zone_ref || '',
+        zoneNumber: kpiData['Zone Number'] || kpiData['Zone'] || kpiData.zone_number || kpiData.zone || '',
+        // ✅ Section is separate from Zone - user input for Actual KPIs
+        section: kpiData['Section'] || kpiData.section || '',
+        // ✅ Drilled Meters field (for drilling activities)
+        drilledMeters: kpiData['Drilled Meters'] || kpiData.drilled_meters || kpiData.drilledMeters || '0'
       })
       
       // ✅ CRITICAL FIX: Override Project Code to use project_code only (not project_full_code)
       // This ensures Project Code contains "4110" and Project Full Code contains "4110-P"
       standardizedData['Project Code'] = projectCodeOnly
+      
+      // ✅ CRITICAL FIX: Ensure Zone is formatted as: full code + zone (e.g., "P8888-P-01-0")
+      // Zone should use project_full_code, not project_code
+      if (standardizedData['Zone'] && finalProjectCode) {
+        const currentZone = standardizedData['Zone']
+        // If zone doesn't already contain project_full_code, format it
+        if (!currentZone.includes(finalProjectCode)) {
+          standardizedData['Zone'] = `${finalProjectCode}-${currentZone}`
+          console.log(`✅ Formatted Zone: ${currentZone} → ${standardizedData['Zone']}`)
+        }
+      }
       
       // ✅ Add Value field if available or calculated
       if (calculatedValue && calculatedValue > 0) {

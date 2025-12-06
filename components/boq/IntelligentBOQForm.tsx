@@ -85,6 +85,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   const [availableZones, setAvailableZones] = useState<string[]>([])
   const [showZoneDropdown, setShowZoneDropdown] = useState(false)
   const [zoneSuggestions, setZoneSuggestions] = useState<string[]>([])
+  const [hasProjectZones, setHasProjectZones] = useState<boolean>(false) // ✅ Track if project has zones defined
   
   // ✅ Activity Filter States
   const [activityFilter, setActivityFilter] = useState<string>('all') // 'all', 'project_type', 'division', 'category'
@@ -591,6 +592,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         // If no project selected, clear zones
         setAvailableZones([])
         setZoneSuggestions([])
+        setHasProjectZones(false) // ✅ Reset zones status
         return
       }
 
@@ -623,18 +625,21 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
           
           setAvailableZones(zonesList)
           setZoneSuggestions(zonesList)
+          setHasProjectZones(zonesList.length > 0) // ✅ Mark that project has zones
           console.log(`✅ Loaded ${zonesList.length} zones from project:`, zonesList)
         } else {
           // No zones defined for this project - clear zones (no fallback)
           console.log('⚠️ No zones defined for project:', projectCode)
           setAvailableZones([])
           setZoneSuggestions([])
+          setHasProjectZones(false) // ✅ Mark that project has NO zones
         }
       } catch (error) {
         console.error('❌ Error loading project zones:', error)
         // On error, clear zones (no fallback)
         setAvailableZones([])
         setZoneSuggestions([])
+        setHasProjectZones(false) // ✅ Mark that project has NO zones on error
       }
     }
     
@@ -644,6 +649,11 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   // ✅ Handle project selection and load project details
   const handleProjectSelect = (selectedProject: Project) => {
     console.log('🎯 Project selected:', selectedProject.project_code)
+    
+    // ✅ Reset zones status when selecting new project
+    setHasProjectZones(false)
+    setAvailableZones([])
+    setZoneSuggestions([])
     
     // ✅ FIX: Use project_full_code if available (e.g., "P4110-P"), otherwise use project_code
     // This ensures that when user selects "P4110-P", we use "P4110-P" and not just "P4110"
@@ -656,6 +666,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
     console.log('✅ Using project code:', projectCodeToUse, '(full_code:', selectedProject.project_full_code, ', code:', selectedProject.project_code, ')')
     
     // Activities will be loaded automatically by useEffect that watches project.project_type
+    // Zones will be loaded automatically by useEffect that watches projectCode and project
   }
 
   const handleProjectChange = async (projectCodeValue: string) => {
@@ -851,9 +862,9 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
     
     const getKPIZone = (kpi: any): string => {
       const rawKPI = (kpi as any).raw || {}
+      // ✅ NOT from Section - Section is separate from Zone
       const zoneRaw = (
         kpi.zone || 
-        kpi.section || 
         rawKPI['Zone'] || 
         rawKPI['Zone Number'] || 
         ''
@@ -1401,7 +1412,8 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         planned_value: parseFloat(plannedValue) || 0,
         planned_activity_start_date: startDate,
         deadline: endDate,
-        zone_ref: (project?.responsible_division && project?.responsible_division !== 'Enabling Division') ? project?.responsible_division : '',
+        // ✅ Zone Reference - NOT from Division (Division is separate from Zone)
+        zone_ref: zoneRef || '', // ✅ Do NOT use responsible_division as Zone - they are separate
         project_full_name: project?.project_name || '',
         activity_timing: activityTiming,
         has_value: hasValue,
@@ -1612,6 +1624,16 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       
       // Validate required fields
       if (!projectCode) throw new Error('Please select a project')
+      
+      // ✅ CRITICAL: Check if project has zones defined in Project Zones Management
+      if (!hasProjectZones || availableZones.length === 0) {
+        const projectFullCode = project?.project_full_code || project?.project_code || projectCode
+        throw new Error(
+          `Cannot create BOQ activity: Project "${projectFullCode}" does not have zones defined.\n\n` +
+          `Please go to "Project Zones Management" and add zones for this project before creating BOQ activities.`
+        )
+      }
+      
       if (!activityName) throw new Error('Please enter activity name')
       if (!unit) throw new Error('Please enter unit')
       if (!startDate) throw new Error('Please enter start date')
@@ -1718,9 +1740,9 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         project_full_code: projectFullCode, // ✅ Use properly built project_full_code
         activity_name: activityName,
         activity_division: activityDivision || project?.responsible_division || '',
-        // ✅ Zone Reference = project_code + " " + zone (if zone is selected from project)
-        // Otherwise use manual entry or fallback
-        zone_ref: zoneRef || ((project?.responsible_division && project?.responsible_division !== 'Enabling Division') ? project?.responsible_division : ''),
+        // ✅ Zone Reference - NOT from Division (Division is separate from Zone)
+        // ✅ Zone should come from zoneRef input or zone selection, NOT from responsible_division
+        zone_ref: zoneRef || '', // ✅ Do NOT use responsible_division as Zone - they are separate
         // ✅ Zone Number = position in project zones list (1-based) or manual entry
         zone_number: zoneNumber || '',
         unit,
@@ -2109,7 +2131,14 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
     }
   }
   
-  const isFormValid = projectCode && activityName && unit && startDate && endDate
+  // ✅ CRITICAL: Form is only valid if project has zones defined
+  const isFormValid = projectCode && 
+                     activityName && 
+                     unit && 
+                     startDate && 
+                     endDate && 
+                     hasProjectZones && // ✅ Require zones to be defined
+                     availableZones.length > 0 // ✅ Require at least one zone
   const canPreviewKPIs = isFormValid && plannedUnits && parseFloat(plannedUnits) > 0
   
   return (
@@ -2275,35 +2304,73 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
               
               {/* ✅ Project Info Card - Show immediately after project selection */}
               {project && (
-                <ModernCard className="mt-3 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border-blue-200 dark:border-blue-800">
-                  <div className="flex items-start gap-3">
-                    <CheckCircle2 className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
-                    <div className="flex-1">
-                      <p className="font-semibold text-gray-900 dark:text-white">
-                        {project.project_name}
-                      </p>
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        <ModernBadge variant="info" size="sm">
-                          {project.responsible_division}
-                        </ModernBadge>
-                        <ModernBadge variant="purple" size="sm">
-                          {project.project_type}
-                        </ModernBadge>
-                        {project.project_status && (
-                          <ModernBadge 
-                            variant={(project.project_status as string) === 'on-going' ? 'success' : 'gray'} 
-                            size="sm"
-                          >
-                            {project.project_status}
+                <>
+                  <ModernCard className="mt-3 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border-blue-200 dark:border-blue-800">
+                    <div className="flex items-start gap-3">
+                      <CheckCircle2 className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1">
+                        <p className="font-semibold text-gray-900 dark:text-white">
+                          {project.project_name}
+                        </p>
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          <ModernBadge variant="info" size="sm">
+                            {project.responsible_division}
                           </ModernBadge>
-                        )}
-                      </div>
-                      <div className="text-xs text-gray-500 mt-2">
-                        📊 Project activities will be loaded automatically
+                          <ModernBadge variant="purple" size="sm">
+                            {project.project_type}
+                          </ModernBadge>
+                          {project.project_status && (
+                            <ModernBadge 
+                              variant={(project.project_status as string) === 'on-going' ? 'success' : 'gray'} 
+                              size="sm"
+                            >
+                              {project.project_status}
+                            </ModernBadge>
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-500 mt-2">
+                          📊 Project activities will be loaded automatically
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </ModernCard>
+                  </ModernCard>
+                  
+                  {/* ✅ CRITICAL: Zone Validation Warning */}
+                  {project && !hasProjectZones && (
+                    <Alert variant="error" className="mt-3">
+                      <AlertCircle className="h-5 w-5" />
+                      <div className="ml-3">
+                        <p className="font-semibold text-red-900 dark:text-red-200">
+                          ⚠️ Project Zones Required
+                        </p>
+                        <p className="text-sm text-red-800 dark:text-red-300 mt-1">
+                          This project does not have zones defined in Project Zones Management.
+                        </p>
+                        <p className="text-sm text-red-800 dark:text-red-300 mt-1">
+                          <strong>You cannot create BOQ activities for this project until zones are added.</strong>
+                        </p>
+                        <p className="text-xs text-red-700 dark:text-red-400 mt-2">
+                          Please go to <strong>"Project Zones Management"</strong> and add zones for project <strong>{project.project_full_code || project.project_code}</strong> before creating BOQ activities.
+                        </p>
+                      </div>
+                    </Alert>
+                  )}
+                  
+                  {/* ✅ Success: Zones Available */}
+                  {project && hasProjectZones && availableZones.length > 0 && (
+                    <Alert variant="success" className="mt-3">
+                      <CheckCircle2 className="h-5 w-5" />
+                      <div className="ml-3">
+                        <p className="font-semibold text-green-900 dark:text-green-200">
+                          ✅ Project Zones Available
+                        </p>
+                        <p className="text-sm text-green-800 dark:text-green-300 mt-1">
+                          This project has {availableZones.length} zone{availableZones.length !== 1 ? 's' : ''} defined: {availableZones.slice(0, 3).join(', ')}{availableZones.length > 3 ? ` +${availableZones.length - 3} more` : ''}
+                        </p>
+                      </div>
+                    </Alert>
+                  )}
+                </>
               )}
             </div>
             
@@ -3082,6 +3149,15 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                           <li className="flex items-center gap-2">
                             <span className="text-red-500">✗</span>
                             <span className="font-bold text-amber-700 dark:text-amber-300">Enter planned units (must be {'>'}  0)</span>
+                          </li>
+                        )}
+                        {/* ✅ CRITICAL: Zone validation */}
+                        {project && (!hasProjectZones || availableZones.length === 0) && (
+                          <li className="flex items-center gap-2">
+                            <span className="text-red-500">✗</span>
+                            <span className="font-bold text-red-700 dark:text-red-300">
+                              Project must have zones defined in Project Zones Management
+                            </span>
                           </li>
                         )}
                       </ul>

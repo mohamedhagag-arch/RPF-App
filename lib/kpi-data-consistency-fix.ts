@@ -169,6 +169,8 @@ export class KPIConsistencyManager {
     actualDate?: string
     zoneRef?: string
     zoneNumber?: string
+    section?: string // ✅ Section field (user input for Actual KPIs)
+    drilledMeters?: string | number // ✅ Drilled Meters field (for drilling activities)
   }): any {
     // ✅ Only include columns that exist in the unified KPI table
     return {
@@ -183,12 +185,28 @@ export class KPIConsistencyManager {
       'Input Type': data.inputType,
       'Target Date': data.targetDate || '',
       'Actual Date': data.actualDate || '',
-      // ✅ Use 'Section' and 'Zone' instead of 'Zone Ref' and 'Zone Number'
-      'Section': data.zoneRef || '', // Map Zone Ref to Section
-      'Zone': data.zoneRef || data.zoneNumber || '', // Map Zone Ref/Number to Zone
+      // ✅ Section and Zone are separate fields
+      // Section should be empty for auto-created KPIs (only filled by site engineer in Actual KPIs)
+      'Section': data.section || '', // ✅ Section is separate from Zone - user input for Actual KPIs
+      // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
+      'Zone': (() => {
+        const projectFullCode = data.projectCode || ''
+        const activityZone = data.zoneRef || data.zoneNumber || ''
+        if (activityZone && projectFullCode) {
+          // If zone already contains project code, use it as is
+          if (activityZone.includes(projectFullCode)) {
+            return activityZone
+          }
+          // Otherwise, format as: full code + zone
+          return `${projectFullCode}-${activityZone}`
+        }
+        return activityZone || ''
+      })(),
+      'Zone Number': data.zoneNumber || '', // ✅ Zone Number is separate field
       // ❌ Removed 'Zone Ref' - not a column in unified KPI table
-      // ❌ Removed 'Zone Number' - not a column in unified KPI table
-      'Activity Date': data.inputType === 'Actual' ? data.actualDate : data.targetDate
+      'Activity Date': data.inputType === 'Actual' ? data.actualDate : data.targetDate,
+      // ✅ Drilled Meters field (for drilling activities)
+      'Drilled Meters': data.drilledMeters?.toString() || '0'
     }
   }
 

@@ -651,15 +651,15 @@ export function EnhancedSmartActualKPIForm({
     
     if (!projectMatch) return false
     
-    // 2. Activity Name Matching
+    // 2. Activity Name Matching (STRICT - exact match only, case-insensitive)
     const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPI['Activity Name'] || '').toLowerCase().trim()
     const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
-    const activityMatch = kpiActivityName && activityName && (
-      kpiActivityName === activityName || 
-      kpiActivityName.includes(activityName) || 
-      activityName.includes(kpiActivityName)
-    )
-    if (!activityMatch) return false
+    // ✅ CRITICAL FIX: Use EXACT match only (case-insensitive) to prevent matching different activities
+    const activityMatch = kpiActivityName && activityName && kpiActivityName === activityName
+    if (!activityMatch) {
+      console.log(`❌ [kpiMatchesActivityStrict] Activity name mismatch: KPI="${kpiActivityName}" vs Activity="${activityName}"`)
+      return false
+    }
     
     // 3. Zone Matching (strict)
     const kpiZoneRaw = (kpi['Zone'] || kpi['Zone Number'] || rawKPI['Zone'] || rawKPI['Zone Number'] || '').toString().trim()
@@ -751,28 +751,68 @@ export function EnhancedSmartActualKPIForm({
     }
     
     // ✅ Calculate Done (Actual): Sum of Actual KPIs until yesterday (with Zone matching) - LIKE BOQ
+    // ✅ FIX: Always calculate from database first, then add temporary session data for current activity only
     let done = 0
-    const completedData = completedActivitiesData.get(activity.id)
-    if (completedData && completedData['Quantity']) {
-      // Use temporary session data first
-      done = parseFloat(String(completedData['Quantity'])) || 0
-    } else if (allKPIs.length > 0) {
-      // Calculate from Actual KPIs until yesterday (like BOQ)
+    
+    // Step 1: Calculate from Actual KPIs in database (until yesterday)
+    // ✅ CRITICAL FIX: Always calculate from database first for THIS activity only
+    if (allKPIs.length > 0) {
       const actualKPIs = allKPIs.filter((kpi: any) => {
         const inputType = (kpi.input_type || kpi['Input Type'] || (kpi as any).raw?.['Input Type'] || '').toLowerCase()
         return inputType === 'actual'
       })
       
-      const matchedActualKPIs = actualKPIs.filter((kpi: any) => kpiMatchesActivityStrict(kpi, activity))
+      // ✅ CRITICAL: Filter KPIs to match THIS activity only (strict matching)
+      const matchedActualKPIs = actualKPIs.filter((kpi: any) => {
+        const matches = kpiMatchesActivityStrict(kpi, activity)
+        if (!matches) {
+          const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || '').toLowerCase().trim()
+          const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+          console.log(`❌ [getActivityQuantities] KPI excluded: Activity="${kpiActivityName}" !== Target="${activityName}"`)
+        }
+        return matches
+      })
+      
+      console.log(`📊 [getActivityQuantities] Activity: "${activity.activity_name}"`, {
+        totalActualKPIs: actualKPIs.length,
+        matchedActualKPIs: matchedActualKPIs.length,
+        matchedKPIs: matchedActualKPIs.map((kpi: any) => ({
+          id: kpi.id,
+          activityName: kpi['Activity Name'] || kpi.activity_name,
+          quantity: getKPIQuantity(kpi),
+          projectFullCode: kpi['Project Full Code'] || kpi.project_full_code,
+          zone: kpi['Zone'] || kpi.zone
+        }))
+      })
+      
       const actualKPIsUntilYesterday = matchedActualKPIs.filter((kpi: any) => isKPIUntilYesterday(kpi, 'actual'))
       done = actualKPIsUntilYesterday.reduce((sum: number, kpi: any) => {
-        return sum + getKPIQuantity(kpi)
+        const qty = getKPIQuantity(kpi)
+        console.log(`  ✅ [getActivityQuantities] KPI ${kpi.id}: +${qty} (Activity: "${kpi['Activity Name'] || kpi.activity_name}")`)
+        return sum + qty
       }, 0)
+      
+      console.log(`📊 [getActivityQuantities] Activity: "${activity.activity_name}" - Done from DB: ${done} (from ${actualKPIsUntilYesterday.length} KPIs)`)
     } else {
       // Fallback to cached actualQuantities or activity.actual_units
       done = actualQuantities.get(activity.id) ?? 0
       if (done === 0) {
         done = parseFloat(String(activity.actual_units || '0')) || 0
+      }
+    }
+    
+    // Step 2: Add temporary session data for THIS activity only (if exists and not yet saved)
+    // ✅ CRITICAL FIX: Only add quantity from completedActivitiesData for the current activity
+    // This represents a new entry that hasn't been saved to database yet
+    const completedData = completedActivitiesData.get(activity.id)
+    if (completedData && completedData['Quantity']) {
+      const tempQuantity = parseFloat(String(completedData['Quantity'])) || 0
+      // ✅ Add tempQuantity to done for preview (this is a new entry for today)
+      // The tempQuantity is for the current session and hasn't been saved yet
+      if (tempQuantity > 0) {
+        const doneBefore = done
+        done = done + tempQuantity
+        console.log(`📊 [${activity.activity_name}] Adding temp quantity: ${tempQuantity} (${doneBefore} + ${tempQuantity} = ${done})`)
       }
     }
     
@@ -1126,32 +1166,42 @@ export function EnhancedSmartActualKPIForm({
   const getUniqueZones = () => {
     if (!selectedProject) return []
     
+    // ✅ Use project_full_code for Zone formatting (same as saving)
+    const projectFullCode = selectedProject.project_full_code || selectedProject.project_code || ''
+    
     const zones = projectActivities
       .map(activity => {
         // Prefer zone_ref, fallback to zone_number if zone_ref is empty or "0"
         const zoneRef = (activity.zone_ref || '').toString().trim()
         const zoneNumber = (activity.zone_number || '').toString().trim()
         
+        // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
+        let formattedZone = ''
+        
         // If zone_ref exists and is valid, use it
         if (zoneRef && zoneRef !== '0' && zoneRef !== 'Enabling Division') {
-          // If zone_ref doesn't include project code, add it for consistency
-          if (!zoneRef.includes(selectedProject.project_code) && selectedProject.project_code) {
-            return `${selectedProject.project_code} - ${zoneRef}`
+          // If zone_ref already contains project code, use it as is
+          if (zoneRef.includes(projectFullCode)) {
+            formattedZone = zoneRef
+          } else if (projectFullCode) {
+            // Otherwise, format as: full code + zone
+            formattedZone = `${projectFullCode}-${zoneRef}`
+          } else {
+            formattedZone = zoneRef
           }
-          return zoneRef
+        } else if (zoneNumber && zoneNumber !== '0') {
+          // If zone_number exists and is valid, combine with project full code
+          if (projectFullCode) {
+            formattedZone = `${projectFullCode}-${zoneNumber}`
+          } else {
+            formattedZone = zoneNumber
+          }
+        } else if (projectFullCode) {
+          // If both are empty or "0", create default zone with project full code
+          formattedZone = `${projectFullCode}-0`
         }
         
-        // If zone_number exists and is valid, combine with project code
-        if (zoneNumber && zoneNumber !== '0') {
-          return `${selectedProject.project_code} - ${zoneNumber}`
-        }
-        
-        // If both are empty or "0", create default zone with project code
-        if (selectedProject?.project_code) {
-          return `${selectedProject.project_code} - 0`
-        }
-        
-        return ''
+        return formattedZone
       })
       .filter(zone => zone && zone !== 'Enabling Division' && zone !== '0' && zone !== '')
     
@@ -1241,23 +1291,54 @@ export function EnhancedSmartActualKPIForm({
       const finalDate = globalDate || actualDate
       
       // Prepare the final data with the correct date and structure
+      // ✅ Calculate Day from Activity Date (same format as Planned KPIs)
+      let dayValue = ''
+      if (finalDate) {
+        try {
+          const date = new Date(finalDate)
+          if (!isNaN(date.getTime())) {
+            const weekday = date.toLocaleDateString('en-US', { weekday: 'long' })
+            // For Actual KPIs, we use the date itself as Day reference
+            dayValue = `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${weekday}`
+          }
+        } catch (e) {
+          console.warn('⚠️ Could not calculate Day from date:', finalDate)
+        }
+      }
+      
       // ✅ Only include columns that exist in the unified KPI table
+      // ✅ MATCH Planned KPIs structure exactly (same columns, same format)
       const finalFormData: any = {
         'Project Full Code': selectedProject?.project_full_code || selectedProject?.project_code || formData.project_code || formData.project_full_code,
         'Project Code': selectedProject?.project_code || formData.project_code,
         'Project Sub Code': selectedProject?.project_sub_code || '',
         'Activity Name': selectedActivity?.activity_name || formData.activity_name,
         'Activity Division': selectedActivity?.activity_division || formData.activity_division || '', // ✅ Division field
+        'Activity Timing': selectedActivity?.activity_timing || 'post-commencement', // ✅ Activity Timing field (same as Planned)
         'Quantity': quantityValue.toString(), // Use validated quantity
         'Unit': formData.unit || selectedActivity?.unit || '',
         'Input Type': 'Actual',
         'Actual Date': finalDate,
         'Activity Date': finalDate,
-        'Target Date': finalDate || '',
+        'Target Date': finalDate || '', // ✅ Include Target Date (same as Planned)
+        'Day': dayValue, // ✅ Calculate Day from Activity Date (same format as Planned)
         'Drilled Meters': formData.drilled_meters?.toString() || '0',
         // ✅ Section, Zone, and Zone Number are separate fields
         'Section': section || '', // ✅ Section is user input, completely separate from Zone
-        'Zone': selectedActivity?.zone_ref || '', // ✅ Zone comes from activity.zone_ref
+        // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
+        'Zone': (() => {
+          const projectFullCode = selectedProject?.project_full_code || selectedProject?.project_code || formData.project_code || formData.project_full_code || ''
+          const activityZone = selectedActivity?.zone_ref || selectedActivity?.zone_number || ''
+          if (activityZone && projectFullCode) {
+            // If zone already contains project code, use it as is
+            if (activityZone.includes(projectFullCode)) {
+              return activityZone
+            }
+            // Otherwise, format as: full code + zone
+            return `${projectFullCode}-${activityZone}`
+          }
+          return activityZone || ''
+        })(),
         'Zone Number': selectedActivity?.zone_number || '', // ✅ Zone Number comes from activity.zone_number
         'Recorded By': formData.recorded_by || '',
         // ✅ Add flags to track if this was worked on
@@ -1279,7 +1360,13 @@ export function EnhancedSmartActualKPIForm({
           const calculatedValue = quantity * rate
           finalFormData['Value'] = calculatedValue.toString()
           console.log(`💰 Calculated Value: ${quantity} × ${rate} = ${calculatedValue}`)
+        } else {
+          // ✅ If no rate, use quantity as Value (same as Planned KPIs fallback)
+          finalFormData['Value'] = quantityValue.toString()
         }
+      } else {
+        // ✅ If no activity, use quantity as Value (same as Planned KPIs fallback)
+        finalFormData['Value'] = quantityValue.toString()
       }
       
       console.log('📅 Using date for all activities:', finalDate)
@@ -2689,14 +2776,31 @@ export function EnhancedSmartActualKPIForm({
                       </div>
                       
                       <div className="space-y-2">
-                        {currentActivity.zone_ref && currentActivity.zone_ref !== 'Enabling Division' && (
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Zone:</span>
-                            <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
-                              {currentActivity.zone_ref}
-                            </span>
-                          </div>
-                        )}
+                        {(() => {
+                          // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
+                          const projectFullCode = selectedProject?.project_full_code || selectedProject?.project_code || ''
+                          const activityZone = currentActivity.zone_ref || currentActivity.zone_number || ''
+                          let formattedZone = activityZone
+                          
+                          if (activityZone && projectFullCode && activityZone !== 'Enabling Division') {
+                            // If zone already contains project code, use it as is
+                            if (activityZone.includes(projectFullCode)) {
+                              formattedZone = activityZone
+                            } else {
+                              // Otherwise, format as: full code + zone
+                              formattedZone = `${projectFullCode}-${activityZone}`
+                            }
+                          }
+                          
+                          return formattedZone && formattedZone !== 'Enabling Division' ? (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Zone:</span>
+                              <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
+                                {formattedZone}
+                              </span>
+                            </div>
+                          ) : null
+                        })()}
                         {currentActivity.zone_number && (
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Zone #:</span>
@@ -2815,11 +2919,28 @@ export function EnhancedSmartActualKPIForm({
                 </h3>
                 <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400 mb-4 sm:mb-6 px-2 break-words">
                   {currentActivity.activity_name}
-                  {currentActivity.zone_ref && currentActivity.zone_ref !== 'Enabling Division' && (
-                    <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
-                      Zone: {currentActivity.zone_ref}
-                    </span>
-                  )}
+                  {(() => {
+                    // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
+                    const projectFullCode = selectedProject?.project_full_code || selectedProject?.project_code || ''
+                    const activityZone = currentActivity.zone_ref || currentActivity.zone_number || ''
+                    let formattedZone = activityZone
+                    
+                    if (activityZone && projectFullCode && activityZone !== 'Enabling Division') {
+                      // If zone already contains project code, use it as is
+                      if (activityZone.includes(projectFullCode)) {
+                        formattedZone = activityZone
+                      } else {
+                        // Otherwise, format as: full code + zone
+                        formattedZone = `${projectFullCode}-${activityZone}`
+                      }
+                    }
+                    
+                    return formattedZone && formattedZone !== 'Enabling Division' ? (
+                      <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
+                        Zone: {formattedZone}
+                      </span>
+                    ) : null
+                  })()}
                 </p>
                 
                 {/* Edit Mode Notice */}
@@ -2868,32 +2989,55 @@ export function EnhancedSmartActualKPIForm({
                   />
                   
                   {/* Quantity Summary */}
-                  {selectedActivity && selectedProject && (
-                    <div className="mt-3">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Target className="h-4 w-4 text-blue-600" />
-                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                          Quantity Summary
-                        </span>
-                        <span className="text-xs text-gray-500 dark:text-gray-400 bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 px-2 py-1 rounded">
-                          Live Data
-                        </span>
+                  {selectedActivity && selectedProject && (() => {
+                    // ✅ CRITICAL FIX: Use getActivityQuantities to get the SAME values shown in the left panel
+                    const { done, total, planned, unit: activityUnit } = getActivityQuantities(selectedActivity)
+                    
+                    return (
+                      <div className="mt-3">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Target className="h-4 w-4 text-blue-600" />
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                            Quantity Summary
+                          </span>
+                          <span className="text-xs text-gray-500 dark:text-gray-400 bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 px-2 py-1 rounded">
+                            Live Data
+                          </span>
+                        </div>
+                        <EnhancedQuantitySummary
+                          selectedActivity={selectedActivity}
+                          selectedProject={selectedProject}
+                          newQuantity={parseFloat(quantity) || 0}
+                          unit={unit || activityUnit || ''}
+                          showDebug={true}
+                          allKPIs={allKPIs} // ✅ Pass pre-fetched KPIs to avoid duplicate fetching
+                          // ✅ CRITICAL FIX: Pass pre-calculated values to ensure consistency
+                          preCalculatedDone={done}
+                          preCalculatedTotal={total}
+                          preCalculatedPlanned={planned}
+                          zone={(() => {
+                            // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
+                            const projectFullCode = selectedProject?.project_full_code || selectedProject?.project_code || ''
+                            const activityZone = selectedActivity?.zone_ref || selectedActivity?.zone_number || ''
+                            if (activityZone && projectFullCode) {
+                              // If zone already contains project code, use it as is
+                              if (activityZone.includes(projectFullCode)) {
+                                return activityZone
+                              }
+                              // Otherwise, format as: full code + zone
+                              return `${projectFullCode}-${activityZone}`
+                            }
+                            return activityZone || undefined
+                          })()} // ✅ Pass Zone from activity (formatted as full code + zone)
+                          projectFullCode={selectedProject?.project_full_code || selectedProject?.project_code || undefined} // ✅ Pass Project Full Code
+                          onTotalsChange={(totals) => {
+                            // ✅ Note: Total comes from BOQ Activity (planned_units), not from KPIs
+                            // EnhancedQuantitySummary calculates Done from Actual KPIs only
+                          }}
+                        />
                       </div>
-                      <EnhancedQuantitySummary
-                        selectedActivity={selectedActivity}
-                        selectedProject={selectedProject}
-                        newQuantity={parseFloat(quantity) || 0}
-                        unit={unit || selectedActivity.unit || ''}
-                        showDebug={false}
-                        zone={selectedActivity?.zone_ref || selectedActivity?.zone_number || undefined} // ✅ Pass Zone from activity
-                        projectFullCode={selectedProject?.project_full_code || selectedProject?.project_code || undefined} // ✅ Pass Project Full Code
-                        onTotalsChange={(totals) => {
-                          // ✅ Note: Total comes from BOQ Activity (planned_units), not from KPIs
-                          // EnhancedQuantitySummary calculates Done from Actual KPIs only
-                        }}
-                      />
-                    </div>
-                  )}
+                    )
+                  })()}
                 </div>
 
                 <div>

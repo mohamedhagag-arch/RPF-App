@@ -2362,11 +2362,12 @@ function ActivitiesReport({ activities, kpis = [], formatCurrency }: any) {
   // Helper: Extract zone from KPI
   const getKPIZone = (kpi: any): string => {
     const rawKPI = (kpi as any).raw || {}
+    // ✅ NOT from Section - Section is separate from Zone
     const zoneRaw = (
       kpi.zone || 
-      kpi.section || 
       rawKPI['Zone'] || 
       rawKPI['Zone Number'] || 
+      rawKPI['Zone Ref'] ||
       ''
     ).toString().trim()
     const projectCode = (kpi.project_code || kpi['Project Code'] || rawKPI['Project Code'] || '').toString().trim()

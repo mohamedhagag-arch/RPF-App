@@ -50,8 +50,7 @@ export function IntelligentKPIForm({
   
   // Zone Management
   const [availableZones, setAvailableZones] = useState<string[]>([])
-  const [showZoneDropdown, setShowZoneDropdown] = useState(false)
-  const [zoneSuggestions, setZoneSuggestions] = useState<string[]>([])
+  // ✅ Removed showZoneDropdown and zoneSuggestions - using dropdown select instead
   
   // Dropdowns
   const [showProjectDropdown, setShowProjectDropdown] = useState(false)
@@ -82,11 +81,26 @@ export function IntelligentKPIForm({
       setUnit(kpi['Unit'] || kpi.unit || '')
       
       // Load project data if available
+      // ✅ FIX: Search by both project_full_code and project_code
       if (editingProjectCode && projects.length > 0) {
-        const selectedProject = projects.find(p => p.project_code === editingProjectCode)
+        const selectedProject = projects.find(p => 
+          p.project_full_code === editingProjectCode || 
+          p.project_code === editingProjectCode
+        )
         if (selectedProject) {
           setProject(selectedProject)
-          console.log('✅ Project loaded for editing:', selectedProject.project_name)
+          // ✅ CRITICAL: Clear zones when loading project to ensure fresh load
+          setAvailableZones([])
+          console.log('✅ Project loaded for editing:', {
+            name: selectedProject.project_name,
+            project_code: selectedProject.project_code,
+            project_full_code: selectedProject.project_full_code,
+            editingProjectCode
+          })
+        } else {
+          console.warn('⚠️ Project not found for editingProjectCode:', editingProjectCode)
+          // ✅ Clear zones if project not found
+          setAvailableZones([])
         }
       }
       // Handle date formatting - Support all possible date field names
@@ -183,25 +197,67 @@ export function IntelligentKPIForm({
         console.log('🔄 Using found actual date:', foundActualDate)
         setActualDate(formatDateForInput(foundActualDate))
       }
-      // Normalize zone: remove project code prefix (e.g., "P9997-1" -> "1")
+      // ✅ CRITICAL FIX: Extract zone value correctly and format it like Smart KPI Form
+      // Zone may be stored as "P8888-01-1", "01-1", or just "1"
+      // We need to extract the actual zone value (last part) then format as projectFullCode-zone
       const rawZone = (kpi['Zone'] || kpi.zone || '').toString().trim()
+      const projectFullCode = (kpi['Project Full Code'] || kpi.project_full_code || '').toString().trim()
       const projectCode = (kpi['Project Code'] || kpi.project_code || '').toString().trim()
-      let normalizedZone = rawZone
       
-      if (normalizedZone && projectCode) {
-        const projectCodeUpper = projectCode.toUpperCase()
-        // Remove patterns like "P9997-1", "P9997 - 1", "Zone P9997-1", etc.
-        normalizedZone = normalizedZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
-        normalizedZone = normalizedZone.replace(new RegExp(`^Zone\\s+${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
-        normalizedZone = normalizedZone.replace(new RegExp(`^${projectCodeUpper}(\\s|-)+`, 'i'), '').trim()
-        normalizedZone = normalizedZone.replace(/^\s*-\s*/, '').trim()
-        // If zone starts with "Zone ", keep it but remove project code
-        if (normalizedZone.toLowerCase().startsWith('zone ')) {
-          normalizedZone = normalizedZone.replace(new RegExp(`^Zone\\s+${projectCodeUpper}\\s*-\\s*`, 'i'), 'Zone ').trim()
+      let zoneValue = rawZone // This will be the base zone value (e.g., "1")
+      
+      if (rawZone) {
+        // Strategy 1: If zone contains project full code, extract zone part after it
+        if (projectFullCode && rawZone.includes(projectFullCode)) {
+          // Remove project full code and any separators to get base zone value
+          zoneValue = rawZone.replace(new RegExp(`^${projectFullCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*-\\s*`, 'i'), '').trim()
         }
+        // Strategy 2: If zone contains project code, extract zone part after it
+        else if (projectCode && rawZone.includes(projectCode) && !rawZone.includes(projectFullCode)) {
+          zoneValue = rawZone.replace(new RegExp(`^${projectCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*-\\s*`, 'i'), '').trim()
+        }
+        
+        // Strategy 3: Extract last part after last dash (e.g., "01-1" -> "1", "P8888-01-1" -> "1")
+        const parts = zoneValue.split('-').filter((p: string) => p.trim() !== '')
+        if (parts.length > 1) {
+          // Take the last part as the actual zone value
+          zoneValue = parts[parts.length - 1].trim()
+        } else if (parts.length === 1) {
+          zoneValue = parts[0].trim()
+        }
+        
+        // Strategy 4: Remove any remaining project code patterns
+        if (projectCode && zoneValue) {
+          const projectCodeUpper = projectCode.toUpperCase()
+          zoneValue = zoneValue.replace(new RegExp(`^${projectCodeUpper.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*-\\s*`, 'i'), '').trim()
+          zoneValue = zoneValue.replace(new RegExp(`^${projectCodeUpper}(\\s|-)+`, 'i'), '').trim()
+        }
+        
+        // Clean up any leading/trailing dashes or spaces
+        zoneValue = zoneValue.replace(/^\s*-\s*/, '').trim()
+        zoneValue = zoneValue.replace(/\s*-\s*$/, '').trim()
       }
       
-      setZone(normalizedZone || rawZone)
+      // ✅ Format zone like Smart KPI Form: projectFullCode-zone (e.g., "P8888-01-1")
+      // But only if we have both projectFullCode and zoneValue
+      let finalZone = zoneValue || rawZone
+      if (projectFullCode && zoneValue && !zoneValue.includes(projectFullCode)) {
+        // ✅ Format as: full code + space + dash + space + zone (same as Smart KPI Form)
+        finalZone = `${projectFullCode} - ${zoneValue}`
+      } else if (rawZone && projectFullCode && rawZone.includes(projectFullCode)) {
+        // Zone already formatted, use as is
+        finalZone = rawZone
+      }
+      
+      console.log('🔍 Zone normalization:', {
+        rawZone,
+        projectFullCode,
+        projectCode,
+        zoneValue,
+        finalZone
+      })
+      
+      setZone(finalZone)
       
       // Normalize zone number similarly
       const rawZoneNumber = (kpi['Zone Number'] || kpi.zone_number || '').toString().trim()
@@ -297,53 +353,162 @@ export function IntelligentKPIForm({
     } else {
       setProject(null)
       setAvailableActivities([])
+      // ✅ CRITICAL: Clear zones when project is cleared
+      setAvailableZones([])
     }
   }, [projectCode, projects, activities])
 
-  // Load available zones
+  // ✅ Load available zones from project_zones table for selected project ONLY
   useEffect(() => {
-    const loadAvailableZones = async () => {
+    const loadProjectZones = async () => {
+      // ✅ CRITICAL: Clear zones first to prevent showing old data
+      setAvailableZones([])
+      
+      if (!projectCode || !project) {
+        // If no project selected, clear zones
+        console.log('⚠️ No project selected, clearing zones', { projectCode, project: project?.project_name })
+        return
+      }
+
       try {
-        console.log('🔄 Loading available zones for KPI form...')
-        const { getSupabaseClient } = await import('@/lib/simpleConnectionManager')
-        const supabase = getSupabaseClient()
+        // ✅ CRITICAL: Use project.project_code (base code) for database lookup
+        // project_zones table stores zones by project_code (base code), not project_full_code
+        const baseProjectCode = project?.project_code || ''
         
-        const { data, error } = await supabase
-          .from('Planning Database - BOQ Rates')
-          .select('"Zone Ref", "Zone Number"')
-          .not('"Zone Ref"', 'is', null)
-          .not('"Zone Ref"', 'eq', '')
+        if (!baseProjectCode) {
+          console.error('❌ No project_code found in project object:', {
+            project: project?.project_name,
+            project_code: project?.project_code,
+            project_full_code: project?.project_full_code,
+            projectCode
+          })
+          setAvailableZones([])
+          return
+        }
         
-        if (error) throw error
-        
-        // Extract unique zones
-        const zones = new Set<string>()
-        data?.forEach((item: any) => {
-          if (item['Zone Ref']) {
-            zones.add(item['Zone Ref'])
-          }
+        console.log('🔄 Loading zones for project:', {
+          baseProjectCode,
+          projectFullCode: project?.project_full_code,
+          projectCode: projectCode,
+          projectName: project?.project_name
         })
         
-        const zoneList = Array.from(zones).sort()
-        setAvailableZones(zoneList)
-        setZoneSuggestions(zoneList)
-        console.log(`✅ Loaded ${zoneList.length} available zones for KPI form`)
+        const { getSupabaseClient, executeQuery } = await import('@/lib/simpleConnectionManager')
+        const supabase = getSupabaseClient()
+        
+        // ✅ Load zones from project_zones table - filter by project_code ONLY
+        // ✅ CRITICAL: Use .eq() with exact match to ensure only zones for this project
+        const { data: zonesData, error: zonesError } = await executeQuery(async () =>
+          supabase
+            .from('project_zones')
+            .select('zones')
+            .eq('project_code', baseProjectCode)
+            .single()
+        )
+        
+        if (zonesError && zonesError.code !== 'PGRST116') { // PGRST116 = no rows returned
+          console.error('❌ Error loading zones from project_zones:', zonesError)
+          throw zonesError
+        }
+        
+        if (zonesData && (zonesData as any).zones) {
+          // Parse comma-separated zones
+          const rawZonesList = (zonesData as any).zones
+            .split(',')
+            .map((z: string) => z.trim())
+            .filter((z: string) => z.length > 0)
+          
+          console.log(`📋 Raw zones from database for project "${baseProjectCode}":`, rawZonesList)
+          
+          // ✅ Format zones as: projectFullCode - zone (same as Smart KPI Form)
+          // Example: zone "1" becomes "P8888-01 - 1" if projectFullCode is "P8888-01"
+          const projectFullCode = project?.project_full_code || project?.project_code || baseProjectCode
+          const formattedZonesList = rawZonesList.map((zone: string) => {
+            // If zone already contains project code, use it as is
+            if (zone.includes(projectFullCode)) {
+              return zone
+            }
+            // ✅ Format as: full code + space + dash + space + zone (same as Smart KPI Form)
+            return `${projectFullCode} - ${zone}`
+          }).sort()
+          
+          setAvailableZones(formattedZonesList)
+          console.log(`✅ Loaded ${formattedZonesList.length} zones from project "${baseProjectCode}" (formatted):`, formattedZonesList)
+        } else {
+          // No zones defined for this project
+          console.log('⚠️ No zones defined for project:', baseProjectCode)
+          setAvailableZones([])
+        }
       } catch (error) {
-        console.error('❌ Error loading zones for KPI form:', error)
-        // Fallback to common zone patterns
-        const commonZones = [
-          'Zone A', 'Zone B', 'Zone C', 'Zone D', 'Zone E',
-          'Area 1', 'Area 2', 'Area 3', 'Area 4', 'Area 5',
-          'Section A', 'Section B', 'Section C', 'Section D',
-          'Block 1', 'Block 2', 'Block 3', 'Block 4'
-        ]
-        setAvailableZones(commonZones)
-        setZoneSuggestions(commonZones)
+        console.error('❌ Error loading project zones:', error)
+        setAvailableZones([])
       }
     }
     
-    loadAvailableZones()
-  }, [])
+    loadProjectZones()
+  }, [projectCode, project])
+  
+  // ✅ Match loaded zone with available zones after zones are loaded
+  // Zones in availableZones are already formatted as projectFullCode-zone (same as Smart KPI Form)
+  useEffect(() => {
+    if (zone && availableZones.length > 0 && project && kpi) {
+      const projectFullCode = project?.project_full_code || project?.project_code || ''
+      
+      // Try to find exact match first
+      const exactMatch = availableZones.find(z => z.toLowerCase() === zone.toLowerCase())
+      if (exactMatch && exactMatch !== zone) {
+        console.log('✅ Zone matched exactly:', exactMatch, 'from', zone)
+        setZone(exactMatch)
+        return
+      }
+      
+      // Try to format zone and match (e.g., if zone is "1" or "01-1", format as "P8888-01 - 1" and match)
+      if (projectFullCode && !zone.includes(projectFullCode)) {
+        // Extract base zone value (last part after dash or space-dash-space)
+        const zoneParts = zone.split(/\s*-\s*/)
+        const baseZoneValue = zoneParts[zoneParts.length - 1]?.trim() || zone
+        // ✅ Format as: full code + space + dash + space + zone (same as Smart KPI Form)
+        const formattedZone = `${projectFullCode} - ${baseZoneValue}`
+        
+        const formattedMatch = availableZones.find(z => z.toLowerCase() === formattedZone.toLowerCase())
+        if (formattedMatch) {
+          console.log('✅ Zone matched after formatting:', formattedMatch, 'from', zone, '(base value:', baseZoneValue, ')')
+          setZone(formattedMatch)
+          return
+        }
+      }
+      
+      // Try to find partial match (zone contains or is contained by available zone)
+      const partialMatch = availableZones.find(z => {
+        const zLower = z.toLowerCase()
+        const zoneLower = zone.toLowerCase()
+        return zLower.includes(zoneLower) || zoneLower.includes(zLower)
+      })
+      if (partialMatch && partialMatch !== zone) {
+        console.log('✅ Zone matched partially:', partialMatch, 'from', zone)
+        setZone(partialMatch)
+        return
+      }
+      
+      // Try to extract zone number and match (e.g., "01-1" -> "1", "P8888-01 - 1" -> "1")
+      const zoneNumberMatch = zone.match(/(\d+)$/)
+      if (zoneNumberMatch && projectFullCode) {
+        const zoneNumber = zoneNumberMatch[1]
+        // ✅ Format as: full code + space + dash + space + zone number (same as Smart KPI Form)
+        const formattedZoneNumber = `${projectFullCode} - ${zoneNumber}`
+        const numberMatch = availableZones.find(z => {
+          return z.toLowerCase() === formattedZoneNumber.toLowerCase() || z.endsWith(` - ${zoneNumber}`)
+        })
+        if (numberMatch && numberMatch !== zone) {
+          console.log('✅ Zone matched by number:', numberMatch, 'from', zone, '(extracted number:', zoneNumber, ')')
+          setZone(numberMatch)
+          return
+        }
+      }
+      
+      console.log('⚠️ Zone not found in available zones:', zone, 'Available:', availableZones)
+    }
+  }, [zone, availableZones, project, kpi])
   
   // Smart auto-fill when activity is selected
   useEffect(() => {
@@ -426,10 +591,9 @@ export function IntelligentKPIForm({
     }
   }
 
-  // Zone handlers
+  // Zone handlers - Updated for dropdown select
   function handleZoneSelect(selectedZone: string) {
     setZone(selectedZone)
-    setShowZoneDropdown(false)
     setHasUserChangedFields(true)
     
     // Auto-generate zone number if not provided
@@ -467,22 +631,87 @@ export function IntelligentKPIForm({
       
       setAutoSaving(true)
       
-      // ✅ Use project_full_code if available, otherwise use project_code
+      // ✅ Use project_full_code for Project Full Code (e.g., "P8888-01")
       const finalProjectCode = projectCode || project?.project_full_code || project?.project_code || ''
+      // ✅ Use project_code (base code) for Project Code (e.g., "P8888")
+      const projectCodeOnly = project?.project_code || ''
       
+      // ✅ Calculate Day from Activity Date if not provided (same format as Planned KPIs)
+      let dayValue = day || ''
+      if (!dayValue) {
+        const dateToUse = inputType === 'Actual' ? actualDate : targetDate
+        if (dateToUse) {
+          try {
+            const date = new Date(dateToUse)
+            if (!isNaN(date.getTime())) {
+              const weekday = date.toLocaleDateString('en-US', { weekday: 'long' })
+              dayValue = `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${weekday}`
+            }
+          } catch (e) {
+            console.warn('⚠️ Could not calculate Day from date:', dateToUse)
+          }
+        }
+      }
+      
+      // ✅ Calculate Activity Date (unified date field)
+      const activityDateValue = inputType === 'Actual' ? actualDate : targetDate
+      
+      // ✅ Get Activity Division and Activity Timing from selected activity
+      let activityDivision = ''
+      let activityTiming = 'post-commencement'
+      if (selectedActivity) {
+        activityDivision = selectedActivity.activity_division || ''
+        activityTiming = selectedActivity.activity_timing || 'post-commencement'
+      }
+      
+      // ✅ Calculate Value from Quantity × Rate if available
+      let calculatedValue = quantityValue
+      if (selectedActivity) {
+        let rate = 0
+        if (selectedActivity.rate && selectedActivity.rate > 0) {
+          rate = selectedActivity.rate
+        } else if (selectedActivity.total_value && selectedActivity.total_units && selectedActivity.total_units > 0) {
+          rate = selectedActivity.total_value / selectedActivity.total_units
+        }
+        
+        if (rate > 0) {
+          calculatedValue = quantityValue * rate
+          console.log(`💰 Calculated Value: ${quantityValue} × ${rate} = ${calculatedValue}`)
+        }
+      }
+      
+      // ✅ MATCH Planned KPIs structure exactly (same columns, same format)
       const kpiData = {
-        'Project Full Code': finalProjectCode,
-        'Project Code': finalProjectCode,
+        'Project Full Code': finalProjectCode, // ✅ Full code (e.g., "P8888-01")
+        'Project Code': projectCodeOnly || finalProjectCode, // ✅ Base code (e.g., "P8888")
         'Project Sub Code': project?.project_sub_code || '',
         'Activity Name': activityName,
+        'Activity Division': activityDivision, // ✅ Activity Division field (same as Planned)
+        'Activity Timing': activityTiming, // ✅ Activity Timing field (same as Planned)
         'Quantity': Math.round(quantityValue * 100) / 100,
+        'Value': calculatedValue.toString(), // ✅ Include Value (same as Planned)
         'Unit': unit,
         'Input Type': inputType || 'Planned',
         'Target Date': targetDate || '',
         'Actual Date': actualDate || '',
-        'Zone': zone || '',
-        'Zone Number': zoneNumber || '',
-        'Day': day || '',
+        'Activity Date': activityDateValue || '', // ✅ Unified Activity Date (same as Planned)
+        'Day': dayValue, // ✅ Calculate Day from Activity Date (same format as Planned)
+        'Section': '', // ✅ Section field (empty for manual entry, same as Planned auto-generated)
+        // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
+        'Zone': (() => {
+          const projectFullCodeValue = finalProjectCode
+          const activityZone = zone || selectedActivity?.zone_ref || selectedActivity?.zone_number || ''
+          if (activityZone && projectFullCodeValue) {
+            // If zone already contains project code, use it as is
+            if (activityZone.includes(projectFullCodeValue)) {
+              return activityZone
+            }
+            // ✅ Format as: full code + space + dash + space + zone (same as Smart KPI Form)
+            return `${projectFullCodeValue} - ${activityZone}`
+          }
+          return activityZone || ''
+        })(),
+        'Zone Number': zoneNumber || selectedActivity?.zone_number || '', // ✅ Zone Number field (same as Planned)
         'Drilled Meters': parseFloat(drilledMeters) || 0
       }
       
@@ -545,26 +774,98 @@ export function IntelligentKPIForm({
         throw new Error('Please select a project')
       }
       
-      // ✅ Use project_full_code if available, otherwise use project_code
+      // ✅ Use project_full_code for Project Full Code (e.g., "P8888-01")
       const finalProjectCode = projectCode || project?.project_full_code || project?.project_code || ''
+      // ✅ Use project_code (base code) for Project Code (e.g., "P8888")
+      const projectCodeOnly = project?.project_code || ''
       
-      console.log('🔍 Final Project Code:', finalProjectCode)
+      console.log('🔍 Final Project Full Code:', finalProjectCode)
+      console.log('🔍 Project Code (base):', projectCodeOnly)
       console.log('🔍 Project Code from state:', projectCode)
-      console.log('🔍 Project Code from object:', project?.project_code)
+      console.log('🔍 Project object:', project)
       
+      // ✅ Calculate Day from Activity Date if not provided (same format as Planned KPIs)
+      let dayValue = day || ''
+      if (!dayValue) {
+        const dateToUse = inputType === 'Actual' ? actualDate : targetDate
+        if (dateToUse) {
+          try {
+            const date = new Date(dateToUse)
+            if (!isNaN(date.getTime())) {
+              const weekday = date.toLocaleDateString('en-US', { weekday: 'long' })
+              dayValue = `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${weekday}`
+            }
+          } catch (e) {
+            console.warn('⚠️ Could not calculate Day from date:', dateToUse)
+          }
+        }
+      }
+      
+      // ✅ Calculate Activity Date (unified date field)
+      const activityDateValue = inputType === 'Actual' ? actualDate : targetDate
+      
+      // ✅ Get Activity Division and Activity Timing from selected activity
+      let activityDivision = ''
+      let activityTiming = 'post-commencement'
+      if (selectedActivity) {
+        activityDivision = selectedActivity.activity_division || ''
+        activityTiming = selectedActivity.activity_timing || 'post-commencement'
+      }
+      
+      // ✅ Calculate Value from Quantity × Rate if available
+      let calculatedValue = 0
+      if (selectedActivity) {
+        let rate = 0
+        if (selectedActivity.rate && selectedActivity.rate > 0) {
+          rate = selectedActivity.rate
+        } else if (selectedActivity.total_value && selectedActivity.total_units && selectedActivity.total_units > 0) {
+          rate = selectedActivity.total_value / selectedActivity.total_units
+        }
+        
+        if (rate > 0) {
+          calculatedValue = quantityValue * rate
+          console.log(`💰 Calculated Value: ${quantityValue} × ${rate} = ${calculatedValue}`)
+        } else {
+          // ✅ If no rate, use quantity as Value (same as Planned KPIs fallback)
+          calculatedValue = quantityValue
+        }
+      } else {
+        // ✅ If no activity, use quantity as Value (same as Planned KPIs fallback)
+        calculatedValue = quantityValue
+      }
+      
+      // ✅ MATCH Planned KPIs structure exactly (same columns, same format)
       const kpiData = {
-        'Project Full Code': finalProjectCode,
-        'Project Code': finalProjectCode,
+        'Project Full Code': finalProjectCode, // ✅ Full code (e.g., "P8888-01")
+        'Project Code': projectCodeOnly || finalProjectCode, // ✅ Base code (e.g., "P8888")
         'Project Sub Code': project?.project_sub_code || '',
         'Activity Name': activityName || '',
+        'Activity Division': activityDivision, // ✅ Activity Division field (same as Planned)
+        'Activity Timing': activityTiming, // ✅ Activity Timing field (same as Planned)
         'Quantity': Math.round(quantityValue * 100) / 100, // Round to 2 decimal places
+        'Value': calculatedValue.toString(), // ✅ Include Value (same as Planned)
         'Unit': unit || '',
         'Input Type': inputType || 'Planned',
         'Target Date': targetDate || '',
         'Actual Date': actualDate || '',
-        'Zone': zone || '',
-        'Zone Number': zoneNumber || '',
-        'Day': day || '',
+        'Activity Date': activityDateValue || '', // ✅ Unified Activity Date (same as Planned)
+        'Day': dayValue, // ✅ Calculate Day from Activity Date (same format as Planned)
+        'Section': '', // ✅ Section field (empty for manual entry, same as Planned auto-generated)
+        // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
+        'Zone': (() => {
+          const projectFullCodeValue = finalProjectCode
+          const activityZone = zone || selectedActivity?.zone_ref || selectedActivity?.zone_number || ''
+          if (activityZone && projectFullCodeValue) {
+            // If zone already contains project code, use it as is
+            if (activityZone.includes(projectFullCodeValue)) {
+              return activityZone
+            }
+            // ✅ Format as: full code + space + dash + space + zone (same as Smart KPI Form)
+            return `${projectFullCodeValue} - ${activityZone}`
+          }
+          return activityZone || ''
+        })(),
+        'Zone Number': zoneNumber || selectedActivity?.zone_number || '', // ✅ Zone Number field (same as Planned)
         'Drilled Meters': parseFloat(drilledMeters) || 0
       }
       
@@ -1036,47 +1337,37 @@ export function IntelligentKPIForm({
                   Zone (Optional)
                 </span>
               </label>
-              <input
-                type="text"
-                value={zone}
-                onChange={(e) => {
-                  setZone(e.target.value)
-                  setShowZoneDropdown(true)
-                  setHasUserChangedFields(true)
-                }}
-                onFocus={() => setShowZoneDropdown(true)}
-                placeholder="e.g., Zone A, Area 1, Section B..."
-                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              
-              {/* Zone Suggestions Dropdown */}
-              {showZoneDropdown && zoneSuggestions.length > 0 && (
-                <div className="absolute z-50 mt-1 w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                  <div className="p-2 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
-                    <p className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                      🏗️ Available zones ({zoneSuggestions.length})
-                    </p>
-                  </div>
-                  {zoneSuggestions
-                    .filter(z => 
-                      zone === '' || 
-                      z.toLowerCase().includes(zone.toLowerCase())
-                    )
-                    .map((z, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => handleZoneSelect(z)}
-                        className="w-full px-4 py-2 text-left hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors text-gray-900 dark:text-white"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span>{z}</span>
-                          <span className="text-xs text-gray-500">Zone</span>
-                        </div>
-                      </button>
-                    ))
-                  }
+              {project && availableZones.length > 0 ? (
+                // ✅ Dropdown list for zones from project_zones table - REQUIRED selection from list only
+                <select
+                  value={zone}
+                  onChange={(e) => {
+                    handleZoneSelect(e.target.value)
+                  }}
+                  className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">-- Select a zone --</option>
+                  {availableZones.map((z, idx) => (
+                    <option key={idx} value={z}>
+                      {z}
+                    </option>
+                  ))}
+                </select>
+              ) : project && availableZones.length === 0 ? (
+                // No zones defined for this project
+                <div className="w-full px-4 py-2.5 border border-amber-300 dark:border-amber-600 rounded-lg bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 text-sm">
+                  ⚠️ No zones defined for this project. Please add zones in Project Zones Management.
                 </div>
+              ) : (
+                // Project not selected yet
+                <div className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-sm">
+                  Please select a project first to load zones
+                </div>
+              )}
+              {project && availableZones.length > 0 && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  💡 {availableZones.length} zone{availableZones.length !== 1 ? 's' : ''} available for this project
+                </p>
               )}
             </div>
             

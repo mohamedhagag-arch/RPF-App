@@ -35,13 +35,14 @@ const defaultKPIColumns: ColumnConfig[] = [
   { id: 'quantities', label: 'Quantities', visible: true, order: 4, width: '200px' },
   { id: 'value', label: 'Value', visible: true, order: 5, width: '200px' },
   { id: 'virtual_value', label: 'Virtual Value', visible: true, order: 6, width: '200px' },
-  { id: 'activity_commencement_relation', label: 'Activity Commencement Relation', visible: true, order: 7, width: '260px' },
-  { id: 'activity_division', label: 'Activity Division', visible: true, order: 8, width: '200px' },
-  { id: 'activity_scope', label: 'Activity Scope', visible: true, order: 9, width: '200px' },
-  { id: 'key_dates', label: 'Key Dates', visible: true, order: 10, width: '170px' },
-  { id: 'cumulative_quantity', label: 'Cumulative Quantity', visible: true, order: 11, width: '200px' },
-  { id: 'cumulative_value', label: 'Cumulative Value', visible: true, order: 12, width: '200px' },
-  { id: 'actions', label: 'Actions', visible: true, order: 13, fixed: true, width: '160px' }
+  { id: 'section', label: 'Section', visible: true, order: 7, width: '150px' },
+  { id: 'activity_commencement_relation', label: 'Activity Commencement Relation', visible: true, order: 8, width: '260px' },
+  { id: 'activity_division', label: 'Activity Division', visible: true, order: 9, width: '200px' },
+  { id: 'activity_scope', label: 'Activity Scope', visible: true, order: 10, width: '200px' },
+  { id: 'key_dates', label: 'Key Dates', visible: true, order: 11, width: '170px' },
+  { id: 'cumulative_quantity', label: 'Cumulative Quantity', visible: true, order: 12, width: '200px' },
+  { id: 'cumulative_value', label: 'Cumulative Value', visible: true, order: 13, width: '200px' },
+  { id: 'actions', label: 'Actions', visible: true, order: 14, fixed: true, width: '160px' }
 ]
 
 export function KPITableWithCustomization({ 
@@ -530,42 +531,61 @@ export function KPITableWithCustomization({
             ? projectFullCode
             : kpi.project_full_code || kpi.project_code || 'N/A'
         
-        // Get Zone from multiple sources
+        // Get Zone from multiple sources (NOT from Section - Section is separate)
         const rawKPIDetails = (kpi as any).raw || {}
         let zoneValue = kpi.zone || 
                        getKPIField(kpi, 'Zone') || 
                        getKPIField(kpi, 'Zone Number') ||
                        rawKPIDetails['Zone'] ||
                        rawKPIDetails['Zone Number'] ||
-                       rawKPIDetails['Section'] ||
-                       kpi.section ||
+                       (kpi as any).zone_ref ||
+                       (kpi as any).zone_number ||
                        ''
         
         // Remove project code from zone value if it exists
         // Example: "P8888 - 1" -> "1" or "Zone P8888 - Building A" -> "Building A"
-        if (zoneValue && kpi.project_code) {
-          const projectCodeUpper = kpi.project_code.toUpperCase().trim()
-          let zoneStr = zoneValue.toString()
+        if (zoneValue && zoneValue.toString().trim() !== '') {
+          const projectCodeUpper = (kpi.project_code || '').toUpperCase().trim()
+          let zoneStr = zoneValue.toString().trim()
           
-          // Remove project code patterns:
-          // 1. "P8888 - " or "P8888 -" at start
-          zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
-          // 2. " P8888 - " or " P8888 -" in middle
-          zoneStr = zoneStr.replace(new RegExp(`\\s+${projectCodeUpper}\\s*-\\s*`, 'gi'), ' ').trim()
-          // 3. Just "P8888" at start followed by space or dash
-          zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}(\\s|-)+`, 'i'), '').trim()
-          // 4. Just "P8888" in middle with spaces/dashes around
-          zoneStr = zoneStr.replace(new RegExp(`(\\s|-)+${projectCodeUpper}(\\s|-)+`, 'gi'), ' ').trim()
-          // 5. Clean up any remaining " - " or "- " at the start
-          zoneStr = zoneStr.replace(/^\s*-\s*/, '').trim()
-          // 6. Clean up multiple spaces
-          zoneStr = zoneStr.replace(/\s+/g, ' ').trim()
-          // 7. If zone is empty or only contains dash, set to 'N/A'
+          // Only normalize if we have a project code
+          if (projectCodeUpper) {
+            // Remove project code patterns:
+            // 1. "P8888 - " or "P8888 -" at start
+            zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+            // 2. " P8888 - " or " P8888 -" in middle
+            zoneStr = zoneStr.replace(new RegExp(`\\s+${projectCodeUpper}\\s*-\\s*`, 'gi'), ' ').trim()
+            // 3. Just "P8888" at start followed by space or dash
+            zoneStr = zoneStr.replace(new RegExp(`^${projectCodeUpper}(\\s|-)+`, 'i'), '').trim()
+            // 4. Just "P8888" in middle with spaces/dashes around
+            zoneStr = zoneStr.replace(new RegExp(`(\\s|-)+${projectCodeUpper}(\\s|-)+`, 'gi'), ' ').trim()
+            // 5. Clean up any remaining " - " or "- " at the start
+            zoneStr = zoneStr.replace(/^\s*-\s*/, '').trim()
+            // 6. Clean up multiple spaces
+            zoneStr = zoneStr.replace(/\s+/g, ' ').trim()
+          }
+          
+          // If zone is empty or only contains dash after normalization, use original
           if (!zoneStr || zoneStr === '-' || zoneStr === '') {
-            zoneStr = 'N/A'
+            zoneStr = zoneValue.toString().trim() || ''
           }
           
           zoneValue = zoneStr
+        } else {
+          zoneValue = ''
+        }
+        
+        // Debug: Log zone extraction (only in development)
+        if (process.env.NODE_ENV === 'development' && !zoneValue) {
+          console.log('🔍 Zone extraction debug:', {
+            activityName: kpi.activity_name,
+            kpiZone: kpi.zone,
+            rawZone: rawKPIDetails['Zone'],
+            rawZoneNumber: rawKPIDetails['Zone Number'],
+            zoneRef: (kpi as any).zone_ref,
+            zoneNumber: (kpi as any).zone_number,
+            finalZone: zoneValue
+          })
         }
         
         return (
@@ -578,7 +598,7 @@ export function KPITableWithCustomization({
                 {projectDisplay}
             </div>
             )}
-            {zoneValue && zoneValue !== 'N/A' && (
+            {zoneValue && zoneValue.toString().trim() !== '' && zoneValue !== 'N/A' && (
               <div className="text-xs text-gray-600 dark:text-gray-400">
                 Zone {zoneValue}
               </div>
@@ -1279,6 +1299,30 @@ export function KPITableWithCustomization({
           </div>
         )
       
+      case 'section':
+        // ✅ Section is only relevant for Actual KPIs (entered by site engineer)
+        // Show Section only for Actual KPIs, show N/A for Planned KPIs
+        const rawKPISection = (kpi as any).raw || {}
+        const sectionValue = kpi.section || 
+                            rawKPISection['Section'] || 
+                            ''
+        
+        // Only show Section for Actual KPIs
+        if (kpi.input_type === 'Actual' || (kpi as any).input_type === 'Actual') {
+          return (
+            <div className="text-sm text-gray-900 dark:text-white">
+              {sectionValue || 'N/A'}
+            </div>
+          )
+        } else {
+          // For Planned KPIs, show N/A or empty
+          return (
+            <div className="text-sm text-gray-400 dark:text-gray-500 italic">
+              N/A
+            </div>
+          )
+        }
+      
       case 'activity_commencement_relation':
         // ✅ Get Activity Timing from multiple sources (Priority: KPI raw data > KPI mapped field > BOQ Activity > Default)
         const rawKPI = (kpi as any).raw || {}
@@ -1481,7 +1525,36 @@ export function KPITableWithCustomization({
                          rawKPIScope['Activity Scope of Works'] ||
                          rawKPIScope['Scope of Works'] ||
                          rawKPIScope['Scope'] ||
-                         'N/A'
+                         ''
+        }
+        
+        // Priority 4: ✅ FALLBACK - Get from Project's project_type if still not found
+        if ((!activityScope || activityScope === 'N/A' || activityScope.trim() === '') && projects.length > 0) {
+          const kpiProjectCode = kpi.project_code || kpi.project_full_code || ''
+          if (kpiProjectCode) {
+            // Try to find project using getProjectByFullCode helper
+            let relatedProject = getProjectByFullCode(kpiProjectCode)
+            if (!relatedProject && kpi.project_code) {
+              relatedProject = projects.find((p: any) => {
+                const projectCode = (p.project_code || '').toString().trim()
+                return projectCode === kpi.project_code
+              })
+            }
+            
+            if (relatedProject && relatedProject.project_type) {
+              // Split project_type (comma-separated) and use first scope
+              const projectScopes = relatedProject.project_type.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0)
+              if (projectScopes.length > 0) {
+                activityScope = projectScopes[0] // Use first scope
+                console.log(`✅ [KPI Scope] Found scope from Project's project_type:`, projectScopes[0])
+              }
+            }
+          }
+        }
+        
+        // Final fallback to N/A if still empty
+        if (!activityScope || activityScope.trim() === '') {
+          activityScope = 'N/A'
         }
         
         return (
@@ -1945,6 +2018,12 @@ export function KPITableWithCustomization({
       case 'virtual_value':
         const virtualValue = parseFloat(String(getKPIField('Virtual Material Value') || '0').replace(/,/g, '')) || 0
         return virtualValue
+      case 'section':
+        // ✅ Section is only relevant for Actual KPIs
+        if (kpi.input_type === 'Actual' || (kpi as any).input_type === 'Actual') {
+          return kpi.section || getKPIField('Section') || ''
+        }
+        return '' // Empty for Planned KPIs
       case 'activity_commencement_relation':
         const activityTiming = kpi.activity_timing || getKPIField('Activity Timing') || 'post-commencement'
         // Sort by timing: pre-commencement = 1, post-commencement = 2, post-completion = 3
@@ -2035,6 +2114,12 @@ export function KPITableWithCustomization({
         case 'virtual_value':
           const virtualValue = parseFloat(String(getKPIField('Virtual Material Value') || '0').replace(/,/g, '')) || 0
           return virtualValue
+        case 'section':
+          // ✅ Section is only relevant for Actual KPIs
+          if (kpi.input_type === 'Actual' || (kpi as any).input_type === 'Actual') {
+            return kpi.section || getKPIField('Section') || ''
+          }
+          return '' // Empty for Planned KPIs
         case 'activity_commencement_relation':
           const activityTiming = kpi.activity_timing || getKPIField('Activity Timing') || 'post-commencement'
           // Sort by timing: pre-commencement = 1, post-commencement = 2, post-completion = 3

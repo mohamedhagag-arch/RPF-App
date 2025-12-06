@@ -531,9 +531,9 @@ export function BOQTableWithCustomization({
     // Extract zone from KPI
     const getKPIZone = (kpi: any): string => {
       const rawKPI = (kpi as any).raw || {}
+      // ✅ NOT from Section - Section is separate from Zone
       const zoneRaw = (
         kpi.zone || 
-        kpi.section || 
         rawKPI['Zone'] || 
         rawKPI['Zone Number'] || 
         ''
@@ -836,9 +836,9 @@ export function BOQTableWithCustomization({
     
     const getKPIZone = (kpi: any): string => {
       const rawKPI = (kpi as any).raw || {}
+      // ✅ NOT from Section - Section is separate from Zone
       const zoneRaw = (
         kpi.zone || 
-        kpi.section || 
         rawKPI['Zone'] || 
         rawKPI['Zone Number'] || 
         ''
@@ -1069,9 +1069,9 @@ export function BOQTableWithCustomization({
     
     const getKPIZone = (kpi: any): string => {
       const rawKPI = (kpi as any).raw || {}
+      // ✅ NOT from Section - Section is separate from Zone
       const zoneRaw = (
         kpi.zone || 
-        kpi.section || 
         rawKPI['Zone'] || 
         rawKPI['Zone Number'] || 
         ''
@@ -1348,7 +1348,8 @@ export function BOQTableWithCustomization({
       if (!activityMatch) return false
       
       // Match Zone (optional but helps with precision)
-      const kpiZone = (kpi.zone || kpi['Zone'] || kpi.section || rawKPI['Zone'] || '').toLowerCase().trim()
+      // ✅ NOT from Section - Section is separate from Zone
+      const kpiZone = (kpi.zone || kpi['Zone'] || rawKPI['Zone'] || '').toLowerCase().trim()
       const activityZone = (activity.zone_ref || activity.zone_number || '').toLowerCase().trim()
       
       if (activityZone && kpiZone) {
@@ -1467,9 +1468,9 @@ export function BOQTableWithCustomization({
     // Helper: Extract zone from KPI (IMPROVED: Extract from description if zone field is empty)
     const getKPIZone = (kpi: any): string => {
       const raw = (kpi as any).raw || {}
+      // ✅ NOT from Section - Section is separate from Zone
       let zoneRaw = (
         kpi.zone || 
-        kpi.section || 
         raw['Zone'] || 
         raw['Zone Number'] || 
         ''
@@ -1935,7 +1936,34 @@ export function BOQTableWithCustomization({
           }
         }
         
-        // 4. If no scopes found, show N/A
+        // 4. ✅ FALLBACK: If no scopes found from project_type_activities, try to get from Project's project_type
+        if (scopeList.length === 0) {
+          // Try to find project and get its project_type
+          const activityProjectCode = activity.project_code || activity.project_full_code || ''
+          if (activityProjectCode) {
+            // Try project_full_code first, then project_code
+            let relatedProject = getProjectByFullCode(activityProjectCode)
+            if (!relatedProject && activity.project_code) {
+              relatedProject = projects.find((p: any) => {
+                const projectCode = (p.project_code || '').toString().trim()
+                return projectCode === activity.project_code
+              })
+            }
+            
+            if (relatedProject && relatedProject.project_type) {
+              // Split project_type (comma-separated) and add each scope
+              const projectScopes = relatedProject.project_type.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0)
+              if (projectScopes.length > 0) {
+                scopeList.push(...projectScopes)
+                if (isFirstActivity) {
+                  console.log(`✅ [BOQ Scope] Found scope from Project's project_type:`, projectScopes)
+                }
+              }
+            }
+          }
+        }
+        
+        // 5. If still no scopes found, show N/A
         const finalScopeList = scopeList.length > 0 ? scopeList : ['N/A']
         
         if (isFirstActivity) {
@@ -2475,9 +2503,9 @@ export function BOQTableWithCustomization({
         
         const getKPIZoneWorkValue = (kpi: any): string => {
           const rawKPI = (kpi as any).raw || {}
+          // ✅ NOT from Section - Section is separate from Zone
           const zoneRaw = (
             kpi.zone || 
-            kpi.section || 
             rawKPI['Zone'] || 
             rawKPI['Zone Number'] || 
             ''
@@ -2800,7 +2828,8 @@ export function BOQTableWithCustomization({
             const kpiActivityNameProgress = (kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPIProgress['Activity Name'] || '').toLowerCase().trim()
             const activityNameProgress = (activity.activity_name || activity.activity || '').toLowerCase().trim()
             
-            const kpiZoneProgress = (kpi.zone || kpi['Zone'] || kpi.section || rawKPIProgress['Zone'] || '').toLowerCase().trim()
+            // ✅ NOT from Section - Section is separate from Zone
+            const kpiZoneProgress = (kpi.zone || kpi['Zone'] || rawKPIProgress['Zone'] || '').toLowerCase().trim()
             const activityZoneProgress = (activity.zone_ref || activity.zone_number || '').toLowerCase().trim()
             
             const projectMatchProgress = (
@@ -2912,7 +2941,8 @@ export function BOQTableWithCustomization({
             const kpiActivityNameProgress = (kpi.activity_name || kpi['Activity Name'] || kpi.activity || rawKPIProgress['Activity Name'] || '').toLowerCase().trim()
             const activityNameProgress = (activity.activity_name || activity.activity || '').toLowerCase().trim()
             
-            const kpiZoneProgress = (kpi.zone || kpi['Zone'] || kpi.section || rawKPIProgress['Zone'] || '').toLowerCase().trim()
+            // ✅ NOT from Section - Section is separate from Zone
+            const kpiZoneProgress = (kpi.zone || kpi['Zone'] || rawKPIProgress['Zone'] || '').toLowerCase().trim()
             const activityZoneProgress = (activity.zone_ref || activity.zone_number || '').toLowerCase().trim()
             
             const projectMatchProgress = (

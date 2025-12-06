@@ -47,7 +47,9 @@ export function generateKPIFromBOQ(params: KPIFromBOQParams) {
   return {
     project_full_code: activity.project_code,
     activity_name: activity.activity_name,
-    section: activity.zone_ref || '',
+    // ✅ Section and Zone are separate - Section is only for Actual KPIs entered by site engineer
+    section: '', // ✅ Section is separate from Zone - leave empty for auto-created KPIs
+    zone: activity.zone_ref || activity.zone_number || '', // ✅ Zone comes from activity.zone_ref or zone_number
     quantity: dailyPlanned,
     input_type: 'Planned',
     drilled_meters: 0,

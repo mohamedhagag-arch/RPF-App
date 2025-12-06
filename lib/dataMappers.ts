@@ -686,7 +686,8 @@ export function mapKPIFromDB(row: any): any {
     'Day': row['Day'] || '', // Keep both formats for compatibility
     
     // 📍 Location
-    zone: row['Zone'] || row['Section'] || '',
+    // ✅ NOT from Section - Section is separate from Zone
+    zone: row['Zone'] || '',
     recorded_by: row['Recorded By'] || '',
     
     // ✅ Activity Timing (inherited from BOQ Activity)
@@ -735,12 +736,14 @@ export function mapKPIToDB(kpi: any): any {
     'Activity Division': kpi.activity_division || '', // ✅ Division field
     'Activity': kpi.activity || kpi.activity_name,
     'Quantity': kpi.quantity?.toString(),
-    'Section': kpi.section || kpi.zone,
+    // ✅ Section and Zone are separate fields
+    'Section': kpi.section || '',
     'Drilled Meters': kpi.drilled_meters?.toString(),
     'Unit': kpi.unit,
     'Value': kpi.value,
     'Day': kpi.day,
-    'Zone': kpi.zone || kpi.section,
+    // ✅ NOT from Section - Section is separate from Zone
+    'Zone': kpi.zone || '',
     'Target Date': kpi.target_date, // For Planned
     'Actual Date': kpi.actual_date, // For Actual
     'Recorded By': kpi.recorded_by,
