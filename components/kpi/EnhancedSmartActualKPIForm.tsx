@@ -73,6 +73,7 @@ export function EnhancedSmartActualKPIForm({
   // Form fields for current activity
   const [quantity, setQuantity] = useState('')
   const [unit, setUnit] = useState('')
+  const [section, setSection] = useState('')
   const [actualDate, setActualDate] = useState('')
   const [day, setDay] = useState('')
   const [drilledMeters, setDrilledMeters] = useState('')
@@ -975,6 +976,8 @@ export function EnhancedSmartActualKPIForm({
   const handleActivitySelect = (activity: BOQActivity) => {
     console.log('🔍 handleActivitySelect called with:', activity.activity_name)
     setSelectedActivity(activity)
+    setSection('') // ✅ Section is separate from Zone - leave empty for user input
+    setUnit(activity.unit || '') // ✅ Auto-fill Unit from activity
     setCurrentStep('form')
     setCurrentActivityIndex(projectActivities.findIndex(a => a.id === activity.id))
     console.log('✅ Activity selected:', activity.activity_name, 'Current step set to:', 'form')
@@ -983,6 +986,14 @@ export function EnhancedSmartActualKPIForm({
   const handleEditCompletedActivity = (activity: BOQActivity) => {
     console.log('🔧 Editing completed activity:', activity.activity_name)
     setSelectedActivity(activity)
+    
+    // ✅ Load saved data if available, otherwise use activity defaults
+    const savedData = completedActivitiesData.get(activity.id)
+    setSection(savedData?.['Section'] || savedData?.section || '') // ✅ Section is separate from Zone
+    setUnit(savedData?.['Unit'] || savedData?.unit || activity.unit || '')
+    setQuantity(savedData?.['Quantity'] || savedData?.quantity || '')
+    setDrilledMeters(savedData?.['Drilled Meters'] || savedData?.drilled_meters || '')
+    
     setCurrentStep('form')
     setCurrentActivityIndex(projectActivities.findIndex(a => a.id === activity.id))
     // Remove from completed activities to allow re-editing
@@ -996,8 +1007,11 @@ export function EnhancedSmartActualKPIForm({
   const handleNextActivity = () => {
     const nextIndex = currentActivityIndex + 1
     if (nextIndex < projectActivities.length) {
+      const nextActivity = projectActivities[nextIndex]
       setCurrentActivityIndex(nextIndex)
-      setSelectedActivity(projectActivities[nextIndex])
+      setSelectedActivity(nextActivity)
+      setSection('') // ✅ Section is separate from Zone - leave empty for user input
+      setUnit(nextActivity.unit || '') // ✅ Auto-fill Unit from activity
     }
   }
 
@@ -1187,8 +1201,9 @@ export function EnhancedSmartActualKPIForm({
         'Activity Date': finalDate,
         'Target Date': finalDate || '',
         'Drilled Meters': '0',
-        'Section': activity.zone_ref || '',
-        'Zone': activity.zone_ref || activity.zone_number || '',
+        'Section': '', // ✅ Section is completely separate from Zone - leave empty
+        'Zone': activity.zone_ref || '', // ✅ Zone comes from activity.zone_ref
+        'Zone Number': activity.zone_number || '', // ✅ Zone Number comes from activity.zone_number
         'Recorded By': 'Engineer',
         'hasWorked': false, // Flag to indicate this activity was not worked on
         'notWorkedOn': true // Additional flag for clarity
@@ -1240,11 +1255,10 @@ export function EnhancedSmartActualKPIForm({
         'Activity Date': finalDate,
         'Target Date': finalDate || '',
         'Drilled Meters': formData.drilled_meters?.toString() || '0',
-        // ✅ Use 'Section' and 'Zone' instead of 'Zone Ref' and 'Zone Number'
-        'Section': selectedActivity?.zone_ref || '',
-        'Zone': selectedActivity?.zone_ref || selectedActivity?.zone_number || '',
-        // ❌ Removed 'Zone Ref' - use 'Section' or 'Zone' instead
-        // ❌ Removed 'Zone Number' - use 'Zone' instead
+        // ✅ Section, Zone, and Zone Number are separate fields
+        'Section': section || '', // ✅ Section is user input, completely separate from Zone
+        'Zone': selectedActivity?.zone_ref || '', // ✅ Zone comes from activity.zone_ref
+        'Zone Number': selectedActivity?.zone_number || '', // ✅ Zone Number comes from activity.zone_number
         'Recorded By': formData.recorded_by || '',
         // ✅ Add flags to track if this was worked on
         'hasWorked': true, // This form is only for activities that were worked on
@@ -2907,6 +2921,25 @@ export function EnhancedSmartActualKPIForm({
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Section
+                    <span className="ml-2 text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">
+                      Optional
+                    </span>
+                  </label>
+                  <input
+                    type="text"
+                    value={section}
+                    onChange={(e) => setSection(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+                    placeholder="e.g., -10m, Section A"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Enter section information (e.g., -10m, Section A)
+                  </p>
+                </div>
+                
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Drilled Meters
