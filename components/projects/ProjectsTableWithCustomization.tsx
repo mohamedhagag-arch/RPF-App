@@ -3861,10 +3861,10 @@ export function ProjectsTableWithCustomization({
           )
         
         case 'work_value_status':
-          // ✅ NEW: Use correct business logic
-          // Total Value: مجموع كل القيم لل BOQ مجتمعة أو KPI Planned مجتمعة
-          // Planned Value: مجموع القيم المخطط لها حتى تاريخ أمس (من KPI Planned)
-          // Earned Value: مجموع كل القيم ال KPI Actual حتى تاريخ أمس
+          // ✅ Use correct business logic from workValueCalculator.ts
+          // Total Value: مجموع كل Planned KPIs للمشروع بغض النظر عن أي شيء
+          // Planned Value: مجموع كل Planned KPIs حتى تاريخ أمس، ولا يضع في الاعتبار Activity Commencement Relation
+          // Earned Value: مجموع كل Actual KPIs
           // ✅ PERFORMANCE: Use pre-calculated workValueStatus from analytics (calculated once in ProjectsList)
           const workValueStatus = analytics?.workValueStatus || calculateWorkValueStatusNew(project)
           const totalValue = workValueStatus.total
