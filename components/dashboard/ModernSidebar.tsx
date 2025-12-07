@@ -418,7 +418,7 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
       {/* Sidebar */}
       <aside
         className={cn(
-          'fixed left-0 top-0 h-screen sidebar-modern transition-all duration-300 z-40',
+          'fixed left-0 top-0 h-screen sidebar-modern transition-all duration-300 z-40 flex flex-col',
           collapsed ? 'w-16' : 'w-64',
           mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         )}
@@ -426,9 +426,9 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
         {/* Logo Section */}
         <div className="py-4 px-4 border-b" style={{ borderColor: 'rgba(0, 0, 0, 0.06)' }}>
           {!collapsed && (
-            <div className="flex flex-col items-center gap-3">
+            <div className="flex flex-col items-center">
               {logoUrl ? (
-                <div className="w-20 h-20 rounded-lg overflow-hidden bg-white flex items-center justify-center">
+                <div className="w-32 h-32 sm:w-36 sm:h-36 rounded-lg overflow-hidden bg-white flex items-center justify-center -mb-3">
                   <img
                     src={logoUrl}
                     alt="Company Logo"
@@ -436,15 +436,15 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
                   />
                 </div>
               ) : (
-                <div className="icon-circle cyan flex items-center justify-center shadow-lg" style={{ width: '80px', height: '80px' }}>
-                  <LayoutDashboard className="h-10 w-10 text-white" />
+                <div className="icon-circle cyan flex items-center justify-center -mb-3" style={{ width: '128px', height: '128px' }}>
+                  <LayoutDashboard className="h-16 w-16 text-white" />
                 </div>
               )}
               <div className="text-center">
-                <h1 className="font-bold text-lg leading-tight" style={{ color: 'var(--text-primary)' }}>
+                <h1 className="font-bold text-xl sm:text-2xl leading-tight" style={{ color: 'var(--text-primary)' }}>
                   {companyName}
                 </h1>
-                <p className="text-xs leading-tight mt-1" style={{ color: 'var(--text-secondary)' }}>
+                <p className="text-sm leading-tight mt-1" style={{ color: 'var(--text-secondary)' }}>
                   {companySlogan}
                 </p>
               </div>
@@ -492,7 +492,7 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
         )}
 
         {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto p-4 space-y-2">
+        <nav className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-2 min-h-0" style={{ scrollbarWidth: 'thin' }}>
           {visibleItems.map((item) => {
             const Icon = item.icon
             const hasSubItems = item.subItems && item.subItems.length > 0

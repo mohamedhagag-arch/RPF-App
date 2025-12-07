@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
+import { getCachedCompanySettings } from '@/lib/companySettings'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card } from '@/components/ui/Card'
@@ -29,8 +30,50 @@ export function LoginForm() {
   const [rateLimitCooldown, setRateLimitCooldown] = useState(0) // ✅ Cooldown timer
   const [lastAttemptTime, setLastAttemptTime] = useState(0) // ✅ Track last attempt time
   
+  // ✅ Company Settings
+  const [companyName, setCompanyName] = useState('AlRabat RPF')
+  const [companySlogan, setCompanySlogan] = useState('Masters of Foundation Construction')
+  const [logoUrl, setLogoUrl] = useState('')
+  
   const supabase = getSupabaseClient()
   const router = useRouter()
+  
+  // ✅ Load company settings
+  useEffect(() => {
+    const loadCompanySettings = async () => {
+      try {
+        console.log('🔄 Loading company settings for login form...')
+        const settings = await getCachedCompanySettings()
+        
+        setCompanyName(settings.company_name)
+        setCompanySlogan(settings.company_slogan)
+        setLogoUrl(settings.company_logo_url || '')
+        
+        console.log('✅ Company settings loaded for login form:', settings)
+      } catch (error) {
+        console.error('❌ Error loading company settings for login form:', error)
+        // استخدام القيم الافتراضية في حالة الخطأ
+        setCompanyName('AlRabat RPF')
+        setCompanySlogan('Masters of Foundation Construction')
+        setLogoUrl('')
+      }
+    }
+    
+    loadCompanySettings()
+    
+    // إضافة مستمع لتحديثات إعدادات الشركة
+    const handleStorageChange = () => {
+      loadCompanySettings()
+    }
+    
+    window.addEventListener('storage', handleStorageChange)
+    window.addEventListener('companySettingsUpdated', handleStorageChange)
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange)
+      window.removeEventListener('companySettingsUpdated', handleStorageChange)
+    }
+  }, [])
 
   // ✅ Rate limiting cooldown timer
   useEffect(() => {
@@ -87,6 +130,13 @@ export function LoginForm() {
         setSuccess('Password reset email sent! Check your inbox.')
         setForgotPassword(false)
       } else if (isSignUp) {
+        // ✅ Validate company email for sign up
+        if (!validateCompanyEmail(email)) {
+          setError('Company email required / يلزم إيميل الشركة')
+          setIsSubmitting(false)
+          setLoading(false)
+          return
+        }
         const { error } = await supabase.auth.signUp({
           email,
           password,
@@ -104,6 +154,8 @@ export function LoginForm() {
         setSuccess('Account created successfully! Please check your email to verify your account.')
         setIsSignUp(false)
       } else {
+        // ✅ LOGIN: Allow any email (including old emails) to login
+        // Only new registrations require @rabatpfc.com email
         // ✅ Retry logic with exponential backoff for rate limit errors
         let retries = 0
         const maxRetries = 2
@@ -179,12 +231,34 @@ export function LoginForm() {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
   }
 
+  // ✅ Validate company email domain
+  const validateCompanyEmail = (email: string) => {
+    const emailLower = email.toLowerCase().trim()
+    // Only allow emails ending with @rabatpfc.com
+    return emailLower.endsWith('@rabatpfc.com')
+  }
+
   const validatePassword = (password: string) => {
     return password.length >= 6
   }
 
   return (
-    <div className="min-h-screen relative overflow-hidden flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+    <>
+      <style jsx>{`
+        .star-point {
+          position: absolute;
+          background: rgba(59, 130, 246, 0.9);
+          border-radius: 50%;
+          box-shadow: 0 0 4px rgba(59, 130, 246, 0.8), 0 0 8px rgba(59, 130, 246, 0.6);
+          animation: twinkle 1s ease-in-out infinite;
+          transform: translate(-50%, -50%);
+        }
+        @keyframes twinkle {
+          0%, 100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+          50% { opacity: 0.5; transform: translate(-50%, -50%) scale(0.8); }
+        }
+      `}</style>
+      <div className="min-h-screen relative overflow-hidden flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
       {/* Clean Background */}
       <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900 dark:from-gray-950 dark:via-gray-900 dark:to-slate-950">
         {/* Subtle animated gradient orbs */}
@@ -196,39 +270,126 @@ export function LoginForm() {
       </div>
 
       {/* Content */}
-      <div className="relative z-10 max-w-md w-full space-y-8">
-        {/* Header */}
-        <div className="flex justify-between items-center">
-          <div className="flex items-center space-x-3">
-            <div className="bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 p-3 rounded-xl shadow-lg">
-              <Building2 className="h-6 w-6 text-white" />
-            </div>
-            <div>
-              <span className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
-                AlRabat RPF
-              </span>
-              <p className="text-xs text-blue-300/70 font-medium">Foundation of Success</p>
-            </div>
-          </div>
+      <div className="relative z-10 max-w-md w-full space-y-8 mx-auto">
+        {/* Theme Toggle - Top Right */}
+        <div className="flex justify-end">
           <ThemeToggle />
+        </div>
+        
+        {/* Logo Section - Simple and Clean */}
+        <div className="text-center mb-8">
+          {/* Logo - No Frame, Natural Size with Stars Effect */}
+          {logoUrl ? (
+            <div 
+              className="mx-auto mb-6 relative group"
+              onMouseMove={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect()
+                const x = ((e.clientX - rect.left) / rect.width) * 100
+                const y = ((e.clientY - rect.top) / rect.height) * 100
+                const stars = e.currentTarget.querySelector('.stars-effect') as HTMLElement
+                
+                if (stars) {
+                  const starPositions = [
+                    { x: x, y: y, size: 2 },
+                    { x: x - 5, y: y - 5, size: 1.5 },
+                    { x: x + 5, y: y + 5, size: 1.5 },
+                    { x: x - 8, y: y + 3, size: 1 },
+                    { x: x + 8, y: y - 3, size: 1 },
+                    { x: x - 3, y: y + 8, size: 1 },
+                    { x: x + 3, y: y - 8, size: 1 },
+                  ]
+                  
+                  const starsHTML = starPositions.map((star, i) => 
+                    `<div class="star-point" style="left: ${star.x}%; top: ${star.y}%; width: ${star.size}px; height: ${star.size}px; animation-delay: ${i * 0.1}s;"></div>`
+                  ).join('')
+                  
+                  stars.innerHTML = starsHTML
+                  stars.style.opacity = '1'
+                }
+              }}
+              onMouseLeave={(e) => {
+                const stars = e.currentTarget.querySelector('.stars-effect') as HTMLElement
+                if (stars) {
+                  stars.style.opacity = '0'
+                  setTimeout(() => {
+                    stars.innerHTML = ''
+                  }, 200)
+                }
+              }}
+            >
+              <div className="relative inline-block">
+                <img
+                  src={logoUrl}
+                  alt="Company Logo"
+                  className="mx-auto max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg h-auto object-contain relative z-10"
+                />
+                <div className="stars-effect absolute inset-0 pointer-events-none transition-opacity duration-200 rounded-lg z-20"></div>
+              </div>
+            </div>
+          ) : (
+            <div 
+              className="mx-auto mb-6 relative group"
+              onMouseMove={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect()
+                const x = ((e.clientX - rect.left) / rect.width) * 100
+                const y = ((e.clientY - rect.top) / rect.height) * 100
+                const stars = e.currentTarget.querySelector('.stars-effect') as HTMLElement
+                
+                if (stars) {
+                  const starPositions = [
+                    { x: x, y: y, size: 2 },
+                    { x: x - 5, y: y - 5, size: 1.5 },
+                    { x: x + 5, y: y + 5, size: 1.5 },
+                    { x: x - 8, y: y + 3, size: 1 },
+                    { x: x + 8, y: y - 3, size: 1 },
+                  ]
+                  
+                  const starsHTML = starPositions.map((star, i) => 
+                    `<div class="star-point" style="left: ${star.x}%; top: ${star.y}%; width: ${star.size}px; height: ${star.size}px; animation-delay: ${i * 0.1}s;"></div>`
+                  ).join('')
+                  
+                  stars.innerHTML = starsHTML
+                  stars.style.opacity = '1'
+                }
+              }}
+              onMouseLeave={(e) => {
+                const stars = e.currentTarget.querySelector('.stars-effect') as HTMLElement
+                if (stars) {
+                  stars.style.opacity = '0'
+                  setTimeout(() => {
+                    stars.innerHTML = ''
+                  }, 200)
+                }
+              }}
+            >
+              <div className="relative mx-auto h-24 w-24 sm:h-28 sm:w-28 bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 rounded-full flex items-center justify-center shadow-lg">
+                <Building2 className="h-12 w-12 sm:h-14 sm:w-14 text-white drop-shadow-lg relative z-10" />
+                <div className="stars-effect absolute inset-0 pointer-events-none transition-opacity duration-200 rounded-full z-20"></div>
+              </div>
+            </div>
+          )}
+          
+          {/* Company Name - Normal Size */}
+          <h1 className="text-3xl sm:text-4xl font-bold mb-2 text-white">
+            {companyName}
+          </h1>
+          
+          {/* Slogan - Normal Size */}
+          <p className="text-base sm:text-lg text-blue-200/80 dark:text-blue-300 mb-6">
+            {companySlogan}
+          </p>
         </div>
         
         {/* Welcome Section */}
         <div className="text-center">
-          <div className="inline-block mb-6">
-            <div className="bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 p-4 rounded-2xl shadow-xl">
-              <Sparkles className="h-8 w-8 text-white" />
-            </div>
-          </div>
-          
-          <h2 className="text-4xl font-bold text-white mb-3">
+          <h2 className="text-4xl sm:text-5xl font-bold text-white mb-3">
             {forgotPassword ? 'Reset Password' : isSignUp ? 'Create Account' : 'Welcome Back'}
           </h2>
-          <p className="text-lg text-blue-200/80 font-medium">
+          <p className="text-lg sm:text-xl text-blue-200/80 font-medium">
             {forgotPassword 
               ? 'Enter your email to receive a password reset link'
               : isSignUp 
-                ? 'Join AlRabat RPF - Foundation of your Success'
+                ? `Join ${companyName} - ${companySlogan}`
                 : 'Sign in to your account to continue'
             }
           </p>
@@ -311,13 +472,40 @@ export function LoginForm() {
                   onChange={(e) => setEmail(e.target.value)}
                   onFocus={() => setIsFocused({ ...isFocused, email: true })}
                   onBlur={() => setIsFocused({ ...isFocused, email: false })}
-                  className={`pl-12 pr-12 bg-white/10 dark:bg-gray-800/50 border-white/20 dark:border-gray-700/50 text-white placeholder:text-white/50 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/50 backdrop-blur-sm transition-all ${email && !validateEmail(email) ? 'border-red-400 ring-2 ring-red-500/50' : ''}`}
-                  placeholder="Enter your email address"
+                  className={`pl-12 pr-12 bg-white/10 dark:bg-gray-800/50 border-white/20 dark:border-gray-700/50 text-white placeholder:text-white/50 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/50 backdrop-blur-sm transition-all ${email && (!validateEmail(email) || (isSignUp && !validateCompanyEmail(email))) ? 'border-red-400 ring-2 ring-red-500/50' : ''}`}
+                  placeholder={isSignUp ? "example@rabatpfc.com" : "Enter your email address"}
                 />
-                {email && validateEmail(email) && (
+                {email && validateEmail(email) && (!isSignUp || validateCompanyEmail(email)) && (
                   <CheckCircle className="absolute right-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-green-400" />
                 )}
               </div>
+              {isSignUp && email && validateEmail(email) && !validateCompanyEmail(email) && (
+                <div className="mt-3 p-4 bg-gradient-to-r from-red-500/30 to-orange-500/20 dark:from-red-900/40 dark:to-orange-900/30 border-2 border-red-400/70 dark:border-red-600/70 rounded-lg backdrop-blur-sm shadow-lg">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0 mt-0.5">
+                      <AlertCircle className="h-6 w-6 text-red-300 dark:text-red-400" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-bold text-red-100 dark:text-red-200 mb-2">
+                        Company Email Required / يلزم إيميل الشركة
+                      </p>
+                      <p className="text-sm text-red-50/90 dark:text-red-300/90 mb-2 leading-relaxed">
+                        Only company email addresses (@rabatpfc.com) are allowed for registration.
+                      </p>
+                      <p className="text-sm text-red-50/90 dark:text-red-300/90 mb-3 leading-relaxed">
+                        يُسمح فقط بإيميلات الشركة (@rabatpfc.com) للتسجيل.
+                      </p>
+                      <div className="flex items-center gap-2 mt-3 p-2 bg-white/20 dark:bg-gray-800/50 rounded border border-red-300/50 dark:border-red-700/50 backdrop-blur-sm">
+                        <Mail className="h-4 w-4 text-blue-300 dark:text-blue-400 flex-shrink-0" />
+                        <p className="text-sm text-white dark:text-gray-200">
+                          <span className="font-semibold">Example / مثال:</span>{' '}
+                          <span className="font-mono text-blue-200 dark:text-blue-400 font-bold">firstname.lastname@rabatpfc.com</span>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
               {email && !validateEmail(email) && (
                 <p className="mt-2 text-xs text-red-400 flex items-center gap-1">
                   <AlertCircle className="h-3 w-3" />
@@ -379,7 +567,7 @@ export function LoginForm() {
 
             <Button
               type="submit"
-              disabled={isSubmitting || loading || Boolean(email && !validateEmail(email)) || Boolean(password && !validatePassword(password))}
+              disabled={isSubmitting || loading || Boolean(email && !validateEmail(email)) || Boolean(isSignUp && email && !validateCompanyEmail(email)) || Boolean(password && !validatePassword(password))}
               className="w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:via-indigo-700 hover:to-purple-700 text-white font-semibold py-4 px-6 rounded-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl hover:shadow-2xl transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
             >
               {loading ? (
@@ -445,14 +633,12 @@ export function LoginForm() {
 
           <div className="border-t border-white/10 dark:border-gray-700/50 pt-6 space-y-2">
             <p className="text-xs text-white/60 font-medium">
-              © 2025 AlRabat RPF - Foundation of your Success
-            </p>
-            <p className="text-xs text-white/50 font-medium">
-              Masters of Foundation Construction
+              © {new Date().getFullYear()} {companyName} - {companySlogan}
             </p>
           </div>
         </div>
       </div>
     </div>
+    </>
   )
 }
