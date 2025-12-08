@@ -93,7 +93,7 @@ export const defaultQRSettings: QRSettings = {
   logoUrl: '',
   logoSize: 20,
   logoOpacity: 1,
-  logoPadding: 0,
+  logoPadding: 12, // Increased default padding for better scanning reliability
   textEnabled: true,
   textContent: 'Employee QR Code',
   textPosition: 'bottom',

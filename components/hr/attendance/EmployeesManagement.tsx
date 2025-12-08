@@ -453,8 +453,14 @@ export function EmployeesManagement() {
       const QRCode = await import('qrcode')
       
       // Generate QR code matrix - EXACTLY like QRRenderer
+      // IMPORTANT: Use 'H' (High) error correction when logo is enabled for better scanning reliability
+      // This ensures QR code can be scanned even with logo covering data modules
+      const errorLevel = qrSettings.logoEnabled && qrSettings.logoUrl 
+        ? 'H' // Force High error correction when logo is present
+        : (qrSettings.errorCorrectionLevel || 'H') // Default to High for best reliability
+      
       const qr = QRCode.create(qrCode, {
-        errorCorrectionLevel: (qrSettings.errorCorrectionLevel || 'M') as any,
+        errorCorrectionLevel: errorLevel as any,
         maskPattern: undefined
       })
       const matrix = qr.modules
@@ -590,7 +596,7 @@ export function EmployeesManagement() {
       if (qrSettings.logoEnabled && qrSettings.logoUrl) {
         const actualQrSize = matrixSize * cellSize
         const logoPxSize = (actualQrSize * qrSettings.logoSize) / 100
-        const logoPadding = qrSettings.logoPadding || 8 // EXACTLY like QRRenderer
+        const logoPadding = qrSettings.logoPadding || 12 // Increased default padding for better scanning
         const logoWithPadding = logoPxSize + (logoPadding * 2)
         const qrCenterX = offsetX + actualQrSize / 2
         const qrCenterY = offsetY + actualQrSize / 2
@@ -849,7 +855,7 @@ export function EmployeesManagement() {
           // Draw logo with aspect ratio preservation - EXACTLY like QRRenderer (preserveAspectRatio="xMidYMid meet")
           const actualQrSize = matrixSize * cellSize
           const logoPxSize = (actualQrSize * qrSettings.logoSize) / 100
-          const logoPadding = qrSettings.logoPadding || 8
+          const logoPadding = qrSettings.logoPadding || 12 // Increased default padding for better scanning
           const availableWidth = logoPxSize
           const availableHeight = logoPxSize
           
@@ -1163,11 +1169,36 @@ export function EmployeesManagement() {
     setSuccess('')
 
     try {
-      // Dynamically import ExcelJS
-      const ExcelJS = await import('exceljs')
+      // Dynamically import ExcelJS with proper error handling
+      // Use dynamic import with explicit path to avoid chunk loading issues
+      let ExcelJS: any
+      try {
+        const exceljsModule = await import('exceljs')
+        // ExcelJS can be exported as default or as named export
+        ExcelJS = exceljsModule.default || exceljsModule
+        // If still not found, try accessing Workbook directly
+        if (!ExcelJS || (!ExcelJS.Workbook && !exceljsModule.Workbook)) {
+          // Last resort: try to get it from the module
+          ExcelJS = exceljsModule
+        }
+      } catch (importError: any) {
+        console.error('Failed to import ExcelJS:', importError)
+        setError(`Failed to load Excel library: ${importError.message}. Please refresh the page and try again.`)
+        setIsExporting(false)
+        return
+      }
       
-      // Create workbook
-      const workbook = new ExcelJS.Workbook()
+      // Verify ExcelJS is loaded correctly
+      const Workbook = ExcelJS.Workbook || (ExcelJS as any).default?.Workbook
+      if (!Workbook) {
+        console.error('ExcelJS structure:', ExcelJS)
+        setError('ExcelJS library structure is invalid. Please refresh the page and try again.')
+        setIsExporting(false)
+        return
+      }
+      
+      // Create workbook using the correct constructor
+      const workbook = new Workbook()
       const worksheet = workbook.addWorksheet('Employee QR Codes')
 
       // Set column headers
@@ -1307,7 +1338,7 @@ export function EmployeesManagement() {
           }
 
         // Center align all cells
-        row.eachCell((cell) => {
+        row.eachCell((cell: any) => {
           cell.alignment = { vertical: 'middle', horizontal: 'center' }
         })
 

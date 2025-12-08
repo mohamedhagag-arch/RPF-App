@@ -732,6 +732,11 @@ export function QRSettings() {
               <p className="text-xs text-gray-500 mt-2">
                 Higher levels allow more damage/obstruction but increase QR code complexity
               </p>
+              {settings.logoEnabled && settings.logoUrl && settings.errorCorrectionLevel !== 'H' && (
+                <p className="text-xs text-amber-600 mt-2 font-medium">
+                  ⚠️ Warning: Logo is enabled. Error Correction Level has been automatically set to High (H) for reliable scanning.
+                </p>
+              )}
             </CardContent>
           </Card>
 
@@ -761,7 +766,14 @@ export function QRSettings() {
                     <input 
                       type="checkbox" 
                       checked={settings.logoEnabled} 
-                      onChange={(e) => updateSetting('logoEnabled', e.target.checked)} 
+                      onChange={(e) => {
+                        const enabled = e.target.checked
+                        updateSetting('logoEnabled', enabled)
+                        // Auto-set error correction to High when logo is enabled
+                        if (enabled && settings.errorCorrectionLevel !== 'H') {
+                          updateSetting('errorCorrectionLevel', 'H')
+                        }
+                      }} 
                       className="rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                     />
                   </div>
@@ -775,11 +787,26 @@ export function QRSettings() {
                         <input 
                           type="range" 
                           min="10" 
-                          max="40" 
-                          value={settings.logoSize} 
-                          onChange={(e) => updateSetting('logoSize', Number(e.target.value))} 
+                          max="25" 
+                          value={Math.min(settings.logoSize, 25)} 
+                          onChange={(e) => {
+                            const newSize = Number(e.target.value)
+                            updateSetting('logoSize', newSize)
+                            // Always use High error correction when logo is enabled
+                            if (settings.errorCorrectionLevel !== 'H') {
+                              updateSetting('errorCorrectionLevel', 'H')
+                            }
+                          }} 
                           className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600" 
                         />
+                        <p className="text-xs text-gray-500 mt-1">
+                          💡 Smaller logos (10-20%) scan better. Keep size under 25% for best results.
+                        </p>
+                        {settings.logoSize > 20 && (
+                          <p className="text-xs text-amber-600 mt-1 font-medium">
+                            ⚠️ Large logo size may affect scanning. Error correction set to High (H).
+                          </p>
+                        )}
                       </div>
                       <div>
                         <div className="flex justify-between text-xs text-slate-500 mb-1">
@@ -795,6 +822,26 @@ export function QRSettings() {
                           onChange={(e) => updateSetting('logoOpacity', parseFloat(e.target.value))} 
                           className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600" 
                         />
+                      </div>
+                      <div>
+                        <div className="flex justify-between text-xs text-slate-500 mb-1">
+                          <span>Padding (White Border)</span>
+                          <span>{Math.round(settings.logoPadding || 12)}px</span>
+                        </div>
+                        <input 
+                          type="range" 
+                          min="8" 
+                          max="20" 
+                          value={settings.logoPadding || 12} 
+                          onChange={(e) => {
+                            const newPadding = Number(e.target.value)
+                            updateSetting('logoPadding', newPadding)
+                          }} 
+                          className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600" 
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                          💡 More padding = better scanning. White border around logo helps scanners read the code.
+                        </p>
                       </div>
                       {settings.logoUrl && (
                         <div className="flex items-center gap-2">

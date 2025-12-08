@@ -57,9 +57,27 @@ const nextConfig = {
               test: /node_modules/,
               priority: 20,
             },
+            // Separate chunk for exceljs to avoid loading issues
+            exceljs: {
+              name: 'exceljs',
+              test: /[\\/]node_modules[\\/]exceljs[\\/]/,
+              chunks: 'all',
+              priority: 30,
+            },
           },
         },
       }
+    }
+    
+    // Fix for exceljs dynamic import issues
+    config.resolve = {
+      ...config.resolve,
+      fallback: {
+        ...config.resolve?.fallback,
+        fs: false,
+        path: false,
+        crypto: false,
+      },
     }
     
     return config

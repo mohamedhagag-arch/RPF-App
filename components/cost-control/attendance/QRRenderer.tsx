@@ -14,8 +14,14 @@ export const QRRenderer: React.FC<Props> = ({ qrCode, settings, gradientId }) =>
   // Generate Matrix
   const matrix = useMemo(() => {
     try {
+      // IMPORTANT: Use 'H' (High) error correction when logo is enabled for better scanning reliability
+      // This ensures QR code can be scanned even with logo covering data modules
+      const errorLevel = settings.logoEnabled && settings.logoUrl 
+        ? 'H' // Force High error correction when logo is present
+        : (settings.errorCorrectionLevel || 'H') // Default to High for best reliability
+      
       const qr = qrcode.create(qrCode, { 
-        errorCorrectionLevel: settings.errorCorrectionLevel as any,
+        errorCorrectionLevel: errorLevel as any,
         maskPattern: undefined
       })
       return qr.modules
@@ -23,7 +29,7 @@ export const QRRenderer: React.FC<Props> = ({ qrCode, settings, gradientId }) =>
       console.error("QR Generation Error", e)
       return null
     }
-  }, [qrCode, settings.errorCorrectionLevel])
+  }, [qrCode, settings.errorCorrectionLevel, settings.logoEnabled, settings.logoUrl])
 
   if (!matrix) return null
 
@@ -78,7 +84,7 @@ export const QRRenderer: React.FC<Props> = ({ qrCode, settings, gradientId }) =>
     // Calculate actual QR data size (without quiet zone)
     const actualQrSize = size * cellSize
     const logoPxSize = (actualQrSize * settings.logoSize) / 100
-    const logoPadding = settings.logoPadding || 8
+    const logoPadding = settings.logoPadding || 12 // Increased default padding for better scanning
     const logoWithPadding = logoPxSize + (logoPadding * 2)
     // Calculate center of QR code data (not including quiet zone)
     const qrCenterX = offsetX + actualQrSize / 2
@@ -273,7 +279,7 @@ export const QRRenderer: React.FC<Props> = ({ qrCode, settings, gradientId }) =>
     // Calculate actual QR data size (without quiet zone)
     const actualQrSize = size * cellSize
     const logoPxSize = (actualQrSize * settings.logoSize) / 100
-    const logoPadding = settings.logoPadding || 8 // Padding around logo
+    const logoPadding = settings.logoPadding || 12 // Increased default padding for better scanning
     const logoWithPadding = logoPxSize + (logoPadding * 2)
     // Calculate center of QR code data (not including quiet zone)
     const qrCenterX = offsetX + actualQrSize / 2
