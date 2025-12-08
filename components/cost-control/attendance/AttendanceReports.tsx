@@ -129,23 +129,47 @@ export function AttendanceReports() {
       }
 
       const today = new Date().toISOString().split('T')[0]
-      const exportData = reports.map((record: any) => {
-        const emp = record.employee || {}
-        return {
-          'Date': record.date || '',
-          'Employee Code': emp.employee_code || '',
-          'Employee Name': emp.name || '',
-          'Department': emp.department || '',
-          'Job Title': emp.job_title || '',
-          'Type': record.type || '',
-          'Check Time': record.check_time || '',
-          'Location': record.location?.name || '',
-          'Work Duration (Hours)': record.work_duration_hours || '',
-          'Is Late': record.is_late ? 'Yes' : 'No',
-          'Is Early': record.is_early ? 'Yes' : 'No',
-          'Notes': record.notes || ''
+      
+      // Helper to yield control to browser for better responsiveness
+      const yieldToBrowser = () => new Promise(resolve => {
+        if ('requestIdleCallback' in window) {
+          requestIdleCallback(() => resolve(void 0), { timeout: 5 })
+        } else {
+          setTimeout(resolve, 5)
         }
       })
+      
+      // Process data in smaller chunks to avoid blocking UI
+      const CHUNK_SIZE = 500 // Process 500 records at a time
+      const exportData: any[] = []
+      
+      // Process reports in chunks with delays to allow UI updates
+      for (let i = 0; i < reports.length; i += CHUNK_SIZE) {
+        const chunk = reports.slice(i, i + CHUNK_SIZE)
+        const chunkData = chunk.map((record: any) => {
+          const emp = record.employee || {}
+          return {
+            'Date': record.date || '',
+            'Employee Code': emp.employee_code || '',
+            'Employee Name': emp.name || '',
+            'Department': emp.department || '',
+            'Job Title': emp.job_title || '',
+            'Type': record.type || '',
+            'Check Time': record.check_time || '',
+            'Location': record.location?.name || '',
+            'Work Duration (Hours)': record.work_duration_hours || '',
+            'Is Late': record.is_late ? 'Yes' : 'No',
+            'Is Early': record.is_early ? 'Yes' : 'No',
+            'Notes': record.notes || ''
+          }
+        })
+        exportData.push(...chunkData)
+        
+        // Yield to browser between chunks to keep UI responsive
+        if (i + CHUNK_SIZE < reports.length) {
+          await yieldToBrowser()
+        }
+      }
 
       const filename = `attendance_report_${today}`
       const { exportData: exportDataFn } = await import('@/lib/exportImportUtils')

@@ -28,6 +28,20 @@ export function QRCodeDisplay({
   // Use settings size if provided, otherwise use prop or default
   const qrSize = size || settings.size
 
+  // Validate QR code format - ensure it's in unified JSON format for proper scanning
+  // The QR code should be a JSON string with 'id' and 'employee_code' fields
+  const isValidQRFormat = React.useMemo(() => {
+    if (!qrCode) return false
+    try {
+      const parsed = JSON.parse(qrCode)
+      return parsed && typeof parsed === 'object' && parsed.id && parsed.employee_code
+    } catch {
+      // Not JSON format - this is old format (e.g., "EMP-XXX")
+      // This won't work with QRCodeScanner for automatic login
+      return false
+    }
+  }, [qrCode])
+
   const handleCopy = () => {
     navigator.clipboard.writeText(qrCode)
     setCopied(true)
@@ -341,6 +355,28 @@ export function QRCodeDisplay({
         <div className="text-center">
           <QrCode className="w-12 h-12 mx-auto mb-2 opacity-50" />
           <p>No QR Code available</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Warn if QR code is not in unified format (won't work with camera scanner)
+  if (!isValidQRFormat) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <div className="text-center space-y-4 max-w-md">
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+            <p className="text-yellow-800 dark:text-yellow-200 font-semibold mb-2">⚠️ QR Code Format Issue</p>
+            <p className="text-yellow-700 dark:text-yellow-300 text-sm">
+              This QR code is in an old format and cannot be scanned by the camera for automatic login.
+              <br />
+              <br />
+              Please click "View QR Code" again to regenerate it in the unified format.
+            </p>
+          </div>
+          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+            <p className="text-xs text-gray-600 dark:text-gray-400 font-mono break-all">{qrCode}</p>
+          </div>
         </div>
       </div>
     )

@@ -42,53 +42,84 @@ export function ActiveUsersIndicator() {
         if (data.success) {
           const users = data.users || []
           
-          // Fetch current activities for each user
-          const usersWithActivities = await Promise.all(
-            users.map(async (user: OnlineUser) => {
-              try {
-                const supabase = getSupabaseClient()
-                const sessionId = sessionStorage.getItem('session_id')
-                
-                // Get the most recent activity for this user (within last 2 minutes)
-                const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString()
-                const { data: activityData } = await (supabase as any)
-                  .from('user_activities')
-                  .select('*')
-                  .eq('user_email', user.email)
-                  .eq('is_active', true)
-                  .gte('created_at', twoMinutesAgo)
-                  .order('created_at', { ascending: false })
-                  .limit(1)
-                  .maybeSingle()
-                
-                if (activityData) {
-                  // Parse metadata for more details
-                  const metadata = activityData.metadata || {}
-                  const queryParams = metadata.query_params || ''
-                  
-                  return {
-                    ...user,
-                    current_activity: {
-                      page_title: activityData.page_title || activityData.page_path || 'Unknown',
-                      page_path: activityData.current_page || activityData.page_path || '',
-                      action: activityData.action_type || 'view',
-                      description: activityData.description || '',
-                      timestamp: activityData.created_at,
-                      query_params: queryParams,
-                      full_path: metadata.full_path || activityData.current_page || '',
-                    }
+          // Fetch all active activities at once (more efficient and avoids RLS filtering issues)
+          try {
+            const supabase = getSupabaseClient()
+            const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString()
+            
+            // Get all active activities (RLS policy allows this)
+            const { data: allActiveActivities, error: activitiesError } = await (supabase as any)
+              .from('user_activities')
+              .select('*')
+              .eq('is_active', true)
+              .gte('created_at', tenMinutesAgo)
+              .order('created_at', { ascending: false })
+            
+            // Silently handle 403 errors (permission issues)
+            if (activitiesError) {
+              // Only log non-403 errors
+              if (activitiesError.code !== 'PGRST301' && activitiesError.status !== 403) {
+                console.error('Error fetching active activities:', activitiesError)
+              }
+              // Return users without activities if we can't fetch
+              setOnlineCount(users.length)
+              setOnlineUsers(users)
+              return
+            }
+            
+            // Create a map of user email to their most recent activity
+            const activitiesByUser = new Map<string, any>()
+            if (allActiveActivities) {
+              allActiveActivities.forEach((activity: any) => {
+                if (activity.user_email) {
+                  const email = activity.user_email.toLowerCase()
+                  // Keep only the most recent activity per user
+                  if (!activitiesByUser.has(email) || 
+                      new Date(activity.created_at) > new Date(activitiesByUser.get(email).created_at)) {
+                    activitiesByUser.set(email, activity)
                   }
                 }
-              } catch (error) {
-                console.error('Error fetching activity for user:', user.email, error)
+              })
+            }
+            
+            // Map users with their activities
+            const usersWithActivities = users.map((user: OnlineUser) => {
+              const userEmail = user.email.toLowerCase()
+              const activityData = activitiesByUser.get(userEmail)
+              
+              if (activityData) {
+                // Parse metadata for more details
+                const metadata = activityData.metadata || {}
+                const queryParams = metadata.query_params || ''
+                
+                return {
+                  ...user,
+                  current_activity: {
+                    page_title: activityData.page_title || activityData.page_path || 'Unknown',
+                    page_path: activityData.current_page || activityData.page_path || '',
+                    action: activityData.action_type || 'view',
+                    description: activityData.description || '',
+                    timestamp: activityData.created_at,
+                    query_params: queryParams,
+                    full_path: metadata.full_path || activityData.current_page || '',
+                  }
+                }
               }
               
               return user
             })
-          )
-          
-          setOnlineCount(usersWithActivities.length)
-          setOnlineUsers(usersWithActivities)
+            
+            setOnlineCount(usersWithActivities.length)
+            setOnlineUsers(usersWithActivities)
+          } catch (error: any) {
+            // Silently handle 403 errors (permission issues)
+            if (error?.status !== 403 && error?.code !== 'PGRST301') {
+              console.error('Error fetching activities:', error)
+            }
+            // Return users without activities if we can't fetch
+            setOnlineCount(users.length)
+            setOnlineUsers(users)
+          }
         }
       } catch (error) {
         console.error('Error fetching online users:', error)

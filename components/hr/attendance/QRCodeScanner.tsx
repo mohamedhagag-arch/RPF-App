@@ -232,13 +232,76 @@ export function QRCodeScanner({
 
       // Try to parse as JSON (new format with employee data)
       try {
-        const qrData = JSON.parse(qrCode)
+        // Trim whitespace and clean the QR code string
+        let cleanedQRCode = qrCode.trim()
+        
+        // Remove any leading/trailing quotes that might be added by the scanner
+        cleanedQRCode = cleanedQRCode.replace(/^["']|["']$/g, '')
+        
+        console.log('📱 Scanned QR Code (raw, length:', cleanedQRCode.length, '):', cleanedQRCode.substring(0, 150) + (cleanedQRCode.length > 150 ? '...' : ''))
+        
+        // Try to parse as JSON
+        let qrData: any
+        let parseAttempt = 0
+        try {
+          parseAttempt = 1
+          qrData = JSON.parse(cleanedQRCode)
+          console.log('✅ Direct JSON parse successful')
+        } catch (parseError: any) {
+          console.log('⚠️ Direct parse failed:', parseError.message)
+          
+          // If direct parse fails, try to fix common issues
+          // Sometimes QR codes have extra whitespace or formatting
+          let fixedQRCode = cleanedQRCode
+            .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+            .replace(/,\s*}/g, '}') // Remove trailing comma before }
+            .replace(/,\s*]/g, ']') // Remove trailing comma before ]
+            .replace(/\n/g, '') // Remove newlines
+            .replace(/\r/g, '') // Remove carriage returns
+            .trim()
+          
+          try {
+            parseAttempt = 2
+            console.log('🔄 Attempting to fix QR code format...')
+            console.log('   Fixed QR Code:', fixedQRCode.substring(0, 150) + (fixedQRCode.length > 150 ? '...' : ''))
+            qrData = JSON.parse(fixedQRCode)
+            console.log('✅ Fixed JSON parse successful')
+          } catch (fixError: any) {
+            console.error('❌ Fixed parse also failed:', fixError.message)
+            // Try one more time with more aggressive cleaning
+            try {
+              parseAttempt = 3
+              // Remove all whitespace except spaces, then try to parse
+              const aggressiveFix = fixedQRCode
+                .replace(/[^\S ]/g, '') // Remove all whitespace except spaces
+                .replace(/\s*{\s*/g, '{')
+                .replace(/\s*}\s*/g, '}')
+                .replace(/\s*:\s*/g, ':')
+                .replace(/\s*,\s*/g, ',')
+              
+              console.log('🔄 Attempting aggressive fix...')
+              console.log('   Aggressive Fix:', aggressiveFix.substring(0, 150) + (aggressiveFix.length > 150 ? '...' : ''))
+              qrData = JSON.parse(aggressiveFix)
+              console.log('✅ Aggressive fix successful')
+              cleanedQRCode = aggressiveFix // Update cleaned code
+            } catch (aggressiveError: any) {
+              console.error('❌ All parse attempts failed')
+              throw new Error(`Failed to parse QR code after ${parseAttempt} attempts: ${aggressiveError.message}`)
+            }
+          }
+        }
+        
+        console.log('📋 Parsed QR Data (attempt', parseAttempt, '):', qrData)
         
         // Check if it's the new format (has id and employee_code)
-        if (qrData.id && qrData.employee_code) {
+        if (qrData && typeof qrData === 'object' && qrData.id && qrData.employee_code) {
           console.log('✅ QR Code contains employee data (new format)')
+          console.log('   - ID:', qrData.id)
+          console.log('   - Employee Code:', qrData.employee_code)
+          console.log('   - Name:', qrData.name)
           
           // Verify employee exists and is active in database
+          console.log('🔍 Searching for employee in database...')
           const { data: dbEmployee, error: verifyError } = await supabase
             .from(TABLES.ATTENDANCE_EMPLOYEES)
             // @ts-ignore
@@ -247,51 +310,145 @@ export function QRCodeScanner({
             .eq('status', 'Active')
             .single()
 
-          if (verifyError || !dbEmployee) {
-            setError('Employee not found or inactive in database')
+          if (verifyError) {
+            console.error('❌ Database error:', verifyError)
+            console.error('   - Code:', verifyError.code)
+            console.error('   - Message:', verifyError.message)
+            console.error('   - Details:', verifyError.details)
+            setError(`Database error: ${verifyError.message}`)
             return
           }
 
+          if (!dbEmployee) {
+            console.error('❌ Employee not found in database')
+            console.error('   - Searched for ID:', qrData.id)
+            console.error('   - Searched for Code:', qrData.employee_code)
+            setError(`Employee not found: ID ${qrData.id}, Code ${qrData.employee_code}`)
+            return
+          }
+
+          // Type assertion for dbEmployee
+          const employeeData = dbEmployee as AttendanceEmployee
+          console.log('✅ Employee found in database!')
+          console.log('   - Name:', employeeData.name)
+          console.log('   - Employee Code:', employeeData.employee_code)
+          console.log('   - Status:', employeeData.status)
+
           // Use data from database (most up-to-date)
           employee = {
-            ...(dbEmployee as any),
-            qr_code: qrCode // Store the QR code JSON
+            ...employeeData,
+            qr_code: cleanedQRCode // Store the cleaned QR code JSON
           } as AttendanceEmployee
+          
+          console.log('✅ Employee object created successfully')
         } else {
-          throw new Error('Invalid QR code format')
+          console.error('❌ Invalid QR code format - missing id or employee_code')
+          console.error('   - qrData type:', typeof qrData)
+          console.error('   - qrData:', qrData)
+          console.error('   - Has id:', !!qrData?.id, qrData?.id)
+          console.error('   - Has employee_code:', !!qrData?.employee_code, qrData?.employee_code)
+          throw new Error('Invalid QR code format: missing required fields (id, employee_code)')
         }
-      } catch (jsonError) {
+      } catch (jsonError: any) {
         // Not JSON, try old format (EMP-XXX) or direct employee_code lookup
         console.log('⚠️ QR Code is not JSON, trying old format...')
+        console.log('   - QR Code value:', qrCode.substring(0, 50) + (qrCode.length > 50 ? '...' : ''))
+        console.log('   - Parse error:', jsonError.message)
         
-        // Try to find by qr_code field (old format)
+        // Try to find by qr_code field (old format) or employee_code
+        console.log('🔍 Searching by old format (qr_code or employee_code)...')
         const { data: employees, error: fetchError } = await supabase
           .from(TABLES.ATTENDANCE_EMPLOYEES)
           // @ts-ignore
           .select('*')
-          .or(`qr_code.eq.${qrCode},employee_code.eq.${qrCode}`)
+          .or(`qr_code.eq.${qrCode.trim()},employee_code.eq.${qrCode.trim()}`)
           .eq('status', 'Active')
           .limit(1)
 
-        if (fetchError) throw fetchError
+        if (fetchError) {
+          console.error('❌ Database fetch error:', fetchError)
+          throw fetchError
+        }
 
         if (!employees || employees.length === 0) {
-          setError('Employee not found for this QR code')
+          console.error('❌ No employee found for QR code:', qrCode.substring(0, 50))
+          setError(`Employee not found for QR code: ${qrCode.substring(0, 30)}...`)
+          
+          // Suggest that the QR code might need to be regenerated
+          console.log('💡 Suggestion: This QR code might be in an old format. Please regenerate it.')
           return
         }
 
+        console.log('✅ Employee found using old format lookup')
         employee = employees[0] as AttendanceEmployee
+        
+        // IMPORTANT: Convert this employee's QR code to unified format for future scans
+        // This ensures the QR code will work next time
+        try {
+          // Use the EXACT same format as generateQRCode function
+          const qrData: {
+            id: string
+            employee_code: string
+            name: string
+            job_title: string | null
+            department: string | null
+            phone_number: string | null
+            email: string | null
+          } = {
+            id: String(employee.id).trim(),
+            employee_code: String(employee.employee_code).trim(),
+            name: String(employee.name || '').trim(),
+            job_title: employee.job_title ? String(employee.job_title).trim() : null,
+            department: employee.department ? String(employee.department).trim() : null,
+            phone_number: employee.phone_number ? String(employee.phone_number).trim() : null,
+            email: employee.email ? String(employee.email).trim() : null
+          }
+          
+          const unifiedQRCode = JSON.stringify(qrData, null, 0) // null, 0 = no spaces, consistent order
+          
+          // Update in background (don't wait for it)
+          supabase
+            .from(TABLES.ATTENDANCE_EMPLOYEES)
+            // @ts-ignore
+            .update({ qr_code: unifiedQRCode })
+            .eq('id', employee.id)
+            .then(({ error: updateError }) => {
+              if (updateError) {
+                console.error('Failed to update QR code to unified format:', updateError)
+              } else {
+                console.log('✅ Updated employee QR code to unified format for future scans')
+              }
+            })
+        } catch (updateErr) {
+          console.error('Error updating QR code format:', updateErr)
+        }
       }
 
       if (!employee) {
-        setError('Failed to process QR code')
+        console.error('❌ Employee is null after processing')
+        setError('Failed to process QR code: Employee is null')
         return
       }
+
+      console.log('✅ Final employee object:', {
+        id: employee.id,
+        name: employee.name,
+        employee_code: employee.employee_code,
+        status: employee.status
+      })
 
       setSuccess(`✅ Scanned: ${employee.name} (${employee.employee_code})`)
       
       // Call success callback immediately (don't stop scanning for continuous mode)
-      onScanSuccess(employee)
+      console.log('📞 Calling onScanSuccess callback...')
+      try {
+        onScanSuccess(employee)
+        console.log('✅ onScanSuccess called successfully')
+      } catch (callbackError: any) {
+        console.error('❌ Error in onScanSuccess callback:', callbackError)
+        setError('Error processing scan: ' + callbackError.message)
+        return
+      }
       
       // Clear success message after 2 seconds to prepare for next scan
       setTimeout(() => {
