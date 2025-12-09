@@ -23,16 +23,18 @@ export async function getCompanySettings(): Promise<CompanySettings | null> {
     }
     
     if (!data || (Array.isArray(data) && (data as any[]).length === 0)) {
-      console.log('⚠️ No company settings found, using defaults')
-      return {
-        company_name: 'AlRabat RPF',
-        company_slogan: 'Masters of Foundation Construction',
-        company_logo_url: undefined
-      }
+      console.log('⚠️ No company settings found in database')
+      return null // Return null to indicate no data, not defaults
     }
     
     const settings = Array.isArray(data) ? (data as any[])[0] : data
-    console.log('✅ Company settings loaded:', settings)
+    console.log('✅ Company settings loaded from database:', settings)
+    
+    // Validate that we have actual data
+    if (!settings || (!(settings as any)?.company_name && !(settings as any)?.company_slogan)) {
+      console.log('⚠️ Invalid company settings data')
+      return null
+    }
     
     return {
       company_name: (settings as any)?.company_name || 'AlRabat RPF',
@@ -42,11 +44,7 @@ export async function getCompanySettings(): Promise<CompanySettings | null> {
     }
   } catch (error) {
     console.error('❌ Exception in getCompanySettings:', error)
-    return {
-      company_name: 'AlRabat RPF',
-      company_slogan: 'Masters of Foundation Construction',
-      company_logo_url: undefined
-    }
+    return null // Return null on error, not defaults
   }
 }
 
@@ -97,29 +95,78 @@ export async function updateCompanySettings(
 let cachedSettings: CompanySettings | null = null
 let cacheTimestamp: number = 0
 const CACHE_DURATION = 5 * 60 * 1000 // 5 دقائق
+const CACHE_KEY = 'company_settings_cache'
+
+// Default settings - only used as fallback
+const DEFAULT_SETTINGS: CompanySettings = {
+  company_name: 'AlRabat RPF',
+  company_slogan: 'Masters of Foundation Construction',
+  company_logo_url: undefined
+}
 
 export async function getCachedCompanySettings(): Promise<CompanySettings> {
   const now = Date.now()
   
-  // إذا كانت البيانات في التخزين المؤقت ولم تنته صلاحيتها
+  // Try to load from localStorage first (persistent cache)
+  try {
+    const storedCache = localStorage.getItem(CACHE_KEY)
+    if (storedCache) {
+      const parsedCache = JSON.parse(storedCache)
+      if (parsedCache.settings && parsedCache.timestamp && (now - parsedCache.timestamp) < CACHE_DURATION) {
+        console.log('📦 Using localStorage cached company settings')
+        cachedSettings = parsedCache.settings
+        cacheTimestamp = parsedCache.timestamp
+        return parsedCache.settings
+      }
+    }
+  } catch (e) {
+    console.warn('⚠️ Failed to load from localStorage cache:', e)
+  }
+  
+  // إذا كانت البيانات في التخزين المؤقت في الذاكرة ولم تنته صلاحيتها
   if (cachedSettings && (now - cacheTimestamp) < CACHE_DURATION) {
-    console.log('📦 Using cached company settings')
+    console.log('📦 Using memory cached company settings')
     return cachedSettings
   }
   
   // جلب البيانات من قاعدة البيانات
   const settings = await getCompanySettings()
-  if (settings) {
+  
+  // Only cache if we got valid settings from database (not defaults)
+  // Check both company_name and company_slogan to ensure it's not default
+  const isDefaultSettings = settings && (
+    settings.company_name === DEFAULT_SETTINGS.company_name &&
+    settings.company_slogan === DEFAULT_SETTINGS.company_slogan
+  )
+  
+  if (settings && !isDefaultSettings) {
     cachedSettings = settings
     cacheTimestamp = now
-    console.log('💾 Company settings cached')
+    
+    // Also save to localStorage for persistence
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify({
+        settings,
+        timestamp: now
+      }))
+      console.log('💾 Company settings cached to memory and localStorage')
+    } catch (e) {
+      console.warn('⚠️ Failed to save to localStorage cache:', e)
+      console.log('💾 Company settings cached to memory only')
+    }
+    
+    return settings
   }
   
-  return settings || {
-    company_name: 'AlRabat RPF',
-    company_slogan: 'Masters of Foundation Construction',
-    company_logo_url: undefined
+  // If we got null or defaults, try to use cached values if available
+  if (cachedSettings) {
+    console.log('⚠️ Database returned null/defaults, using cached settings')
+    return cachedSettings
   }
+  
+  // Last resort: return defaults
+  console.log('⚠️ No cached settings available, using defaults')
+  return DEFAULT_SETTINGS
 }
 
 /**
@@ -128,7 +175,20 @@ export async function getCachedCompanySettings(): Promise<CompanySettings> {
 export function clearCompanySettingsCache(): void {
   cachedSettings = null
   cacheTimestamp = 0
-  console.log('🗑️ Company settings cache cleared')
+  
+  // Also clear localStorage cache
+  try {
+    localStorage.removeItem(CACHE_KEY)
+    console.log('🗑️ Company settings cache cleared (memory + localStorage)')
+  } catch (e) {
+    console.warn('⚠️ Failed to clear localStorage cache:', e)
+    console.log('🗑️ Company settings cache cleared (memory only)')
+  }
+  
+  // Dispatch event to notify all components
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('companySettingsCacheCleared'))
+  }
 }
 
 /**

@@ -66,10 +66,12 @@ export default function RegisterPage() {
     
     window.addEventListener('storage', handleStorageChange)
     window.addEventListener('companySettingsUpdated', handleStorageChange)
+    window.addEventListener('companySettingsCacheCleared', handleStorageChange)
     
     return () => {
       window.removeEventListener('storage', handleStorageChange)
       window.removeEventListener('companySettingsUpdated', handleStorageChange)
+      window.removeEventListener('companySettingsCacheCleared', handleStorageChange)
     }
   }, [])
 

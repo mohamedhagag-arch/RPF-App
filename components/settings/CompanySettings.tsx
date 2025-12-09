@@ -105,7 +105,12 @@ export function CompanySettings({ onClose }: CompanySettingsProps) {
       const result = await updateCompanySettings(companyName, companySlogan, logoUrl)
       
       if (result.success) {
+        // مسح التخزين المؤقت قبل إرسال الإشارة
         clearCompanySettingsCache()
+        
+        // إرسال إشارة تحديث للعنوان الديناميكي
+        window.dispatchEvent(new CustomEvent('companySettingsUpdated'))
+        
         setAutoSaveStatus('saved')
         setLastSaved(new Date())
         setError('') // Clear any previous errors
