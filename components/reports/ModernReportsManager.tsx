@@ -12,13 +12,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Alert } from '@/components/ui/Alert'
-import { PrintableReport } from './PrintableReport'
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 import { calculateProjectLookAhead, ProjectLookAhead } from './LookAheadHelper'
 import { KPICChartReportView } from './KPICChartReportView'
 import { DelayedActivitiesReportView } from './DelayedActivitiesReportView'
 import { ActivityPeriodicalProgressReportView } from './ActivityPeriodicalProgressReportView'
 import { ProjectTimelineView } from './ProjectTimelineView'
+import { PrintButton } from '@/components/ui/PrintButton'
 import {
   FileText,
   Download,
@@ -28,7 +28,6 @@ import {
   Calendar,
   Filter,
   RefreshCw,
-  Printer,
   Plus,
   Minus,
   Archive,
@@ -126,458 +125,6 @@ export function ModernReportsManager() {
   }
   const CACHE_EXPIRATION_MS = 30 * 60 * 1000 // 30 minutes
 
-  // Handle Print - Open in new tab with only printable content
-  const handlePrint = useCallback(() => {
-    // Create a new tab
-    const printWindow = window.open('', '_blank')
-    
-    if (!printWindow) {
-      alert('Please allow popups to print the report')
-      return
-    }
-
-    // Get the printable content
-    const printableContent = document.querySelector('.printable-report')
-    
-    if (!printableContent) {
-      alert('Printable content not found')
-      return
-    }
-
-    // Clone the content to avoid modifying the original
-    const clonedContent = printableContent.cloneNode(true) as HTMLElement
-    
-    // Remove all elements with .no-print class
-    const noPrintElements = clonedContent.querySelectorAll('.no-print')
-    noPrintElements.forEach(el => el.remove())
-    
-    // CRITICAL: Remove all inline styles from tables and cells that prevent proper printing
-    const allTables = clonedContent.querySelectorAll('table')
-    allTables.forEach(table => {
-      // Remove inline styles from table
-      if (table.hasAttribute('style')) {
-        const style = table.getAttribute('style') || ''
-        // Remove width, tableLayout, table-layout, minWidth, maxWidth
-        const newStyle = style
-          .replace(/width[^;]*;?/gi, '')
-          .replace(/table-layout[^;]*;?/gi, '')
-          .replace(/tableLayout[^;]*;?/gi, '')
-          .replace(/min-width[^;]*;?/gi, '')
-          .replace(/max-width[^;]*;?/gi, '')
-        if (newStyle.trim()) {
-          table.setAttribute('style', newStyle)
-        } else {
-          table.removeAttribute('style')
-        }
-      }
-      
-      // Remove inline width styles from all th and td
-      const allCells = table.querySelectorAll('th, td')
-      allCells.forEach(cell => {
-        if (cell.hasAttribute('style')) {
-          const style = cell.getAttribute('style') || ''
-          // Remove width, minWidth, maxWidth
-          const newStyle = style
-            .replace(/width[^;]*;?/gi, '')
-            .replace(/min-width[^;]*;?/gi, '')
-            .replace(/max-width[^;]*;?/gi, '')
-          if (newStyle.trim()) {
-            cell.setAttribute('style', newStyle)
-          } else {
-            cell.removeAttribute('style')
-          }
-        }
-      })
-    })
-    
-    // Remove all overflow restrictions from containers
-    const overflowContainers = clonedContent.querySelectorAll('[class*="overflow"], .print-table-container')
-    overflowContainers.forEach(container => {
-      if (container instanceof HTMLElement) {
-        container.style.overflow = 'visible'
-        container.style.maxHeight = 'none'
-        container.style.height = 'auto'
-        container.style.width = '100%'
-      }
-    })
-    
-    // Get all stylesheets
-    const styles = Array.from(document.styleSheets)
-      .map(styleSheet => {
-        try {
-          return Array.from(styleSheet.cssRules)
-            .map(rule => rule.cssText)
-            .join('\n')
-        } catch (e) {
-          return ''
-        }
-      })
-      .join('\n')
-
-    // Get inline styles
-    const inlineStyles = Array.from(document.querySelectorAll('style'))
-      .map(style => style.innerHTML)
-      .join('\n')
-
-    // Create comprehensive print CSS - COMPLETE REWRITE
-    const printCSS = `
-      @media print {
-        /* ========== PAGE SETUP ========== */
-        @page {
-          size: A4 landscape !important;
-          margin: 0.8cm !important;
-        }
-
-        * {
-          -webkit-print-color-adjust: exact !important;
-          print-color-adjust: exact !important;
-        }
-
-        body {
-          background: white !important;
-          color: #000 !important;
-          font-family: Arial, sans-serif !important;
-          font-size: 9pt !important;
-          margin: 0 auto !important;
-          padding: 0 !important;
-          line-height: 1.4 !important;
-          text-align: center !important;
-        }
-
-        /* ========== HIDE NON-PRINTABLE ========== */
-        .no-print,
-        button:not(.print-button),
-        .print-button,
-        svg,
-        [class*="icon"] {
-          display: none !important;
-        }
-
-        /* ========== TABLES - CRITICAL ========== */
-        /* Remove ALL overflow restrictions */
-        .print-table-container,
-        [class*="overflow"] {
-          overflow: visible !important;
-          max-height: none !important;
-          height: auto !important;
-          width: 100% !important;
-        }
-
-        /* Force table to use auto layout and show all columns */
-        table,
-        .print-table,
-        table[style],
-        table[style*="width"],
-        table[style*="tableLayout"],
-        table[style*="table-layout"] {
-          width: 100% !important;
-          table-layout: auto !important;
-          border-collapse: collapse !important;
-          font-size: 6pt !important;
-          margin: 5px auto !important;
-        }
-
-        /* Table cells - flexible widths, allow text wrapping */
-        th,
-        td,
-        th[style],
-        td[style],
-        th[style*="width"],
-        td[style*="width"],
-        .print-table th,
-        .print-table td,
-        .print-table th[style],
-        .print-table td[style] {
-          padding: 3px 4px !important;
-          border: 0.5px solid #000 !important;
-          font-size: 6pt !important;
-          white-space: normal !important;
-          word-wrap: break-word !important;
-          word-break: break-word !important;
-          overflow: visible !important;
-          width: auto !important;
-          min-width: auto !important;
-          max-width: none !important;
-          line-height: 1.3 !important;
-        }
-
-        /* Table headers */
-        th {
-          background: #f0f0f0 !important;
-          font-weight: bold !important;
-          text-align: center !important;
-        }
-
-        /* Table body cells */
-        td {
-          text-align: center !important;
-        }
-
-        /* Remove sticky positioning */
-        .sticky,
-        [class*="sticky"] {
-          position: static !important;
-          z-index: auto !important;
-        }
-
-        /* Table structure */
-        thead {
-          display: table-header-group !important;
-        }
-
-        tbody {
-          display: table-row-group !important;
-        }
-
-        tr {
-          page-break-inside: avoid !important;
-        }
-
-        /* ========== CARDS & SECTIONS ========== */
-        [class*="Card"] {
-          border: 1px solid #000 !important;
-          border-radius: 0 !important;
-          padding: 8px !important;
-          margin: 5px auto !important;
-          background: white !important;
-          page-break-inside: avoid !important;
-          text-align: center !important;
-        }
-
-        /* ========== TEXT SIZES ========== */
-        p, span, div {
-          font-size: 8pt !important;
-          line-height: 1.4 !important;
-          text-align: center !important;
-        }
-
-        .text-3xl { font-size: 14pt !important; text-align: center !important; }
-        .text-2xl { font-size: 12pt !important; text-align: center !important; }
-        .text-xl { font-size: 10pt !important; text-align: center !important; }
-        .text-sm { font-size: 8pt !important; text-align: center !important; }
-        .text-xs { font-size: 7pt !important; text-align: center !important; }
-
-        h1 { font-size: 14pt !important; text-align: center !important; }
-        h2 { font-size: 12pt !important; text-align: center !important; }
-        h3 { font-size: 10pt !important; text-align: center !important; }
-        h4 { font-size: 9pt !important; text-align: center !important; }
-
-        /* ========== CLEANUP ========== */
-        * {
-          box-shadow: none !important;
-          text-shadow: none !important;
-          border-radius: 0 !important;
-        }
-
-        .bg-gradient-to-br,
-        [class*="gradient"],
-        [class*="bg-blue"],
-        [class*="bg-green"] {
-          background: white !important;
-          color: #000 !important;
-          border: 1px solid #000 !important;
-        }
-
-        .space-y-6 > * { margin: 3px 0 !important; }
-        .gap-4, .gap-6 { gap: 3px !important; }
-        .p-6, .p-4 { padding: 5px !important; }
-
-        /* ========== REPORT HEADER/FOOTER ========== */
-        .report-header {
-          display: block !important;
-          margin-bottom: 10px !important;
-        }
-
-        .report-footer {
-          position: fixed !important;
-          bottom: 0 !important;
-          left: 0 !important;
-          right: 0 !important;
-          padding: 5px 1cm !important;
-          border-top: 1px solid #000 !important;
-          background: white !important;
-          font-size: 7pt !important;
-        }
-      }
-
-      /* Screen preview styles - Better formatting */
-      @media screen {
-        * {
-          box-sizing: border-box;
-        }
-
-        body {
-          margin: 0;
-          padding: 0;
-          background: #f5f5f5;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-          font-size: 14px;
-          line-height: 1.5;
-        }
-        
-        .print-button {
-          position: fixed;
-          top: 20px;
-          right: 20px;
-          padding: 12px 24px;
-          background: #3b82f6;
-          color: white;
-          border: none;
-          border-radius: 6px;
-          cursor: pointer;
-          font-size: 14px;
-          font-weight: 500;
-          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-          z-index: 1000;
-        }
-        
-        .print-button:hover {
-          background: #2563eb;
-        }
-        
-        .print-content {
-          background: white;
-          padding: 30px;
-          margin: 20px;
-          border-radius: 8px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-          max-width: 100%;
-          overflow-x: auto;
-          min-height: 100vh;
-        }
-
-        .print-content > * {
-          margin: 0;
-          padding: 0;
-        }
-
-        .print-content > div {
-          width: 100%;
-          max-width: 100%;
-        }
-
-        /* Tables in screen preview */
-        table {
-          width: 100%;
-          border-collapse: separate;
-          border-spacing: 0;
-          margin: 15px 0;
-          font-size: 12px;
-          table-layout: auto;
-        }
-
-        th, td {
-          padding: 10px 12px;
-          border: 1px solid #ddd;
-          text-align: left;
-          vertical-align: top;
-          word-wrap: break-word;
-          overflow-wrap: break-word;
-        }
-
-        th {
-          background: #f8f9fa;
-          font-weight: 600;
-          position: relative;
-        }
-
-        /* Prevent table cells from overlapping */
-        tr {
-          display: table-row;
-        }
-
-        tbody tr:hover {
-          background: #f8f9fa;
-        }
-
-        /* Cards in screen preview */
-        [class*="Card"] {
-          margin: 15px 0;
-          padding: 15px;
-          border: 1px solid #e0e0e0;
-          border-radius: 8px;
-          background: white;
-        }
-
-        /* Grid layouts */
-        .grid {
-          display: grid;
-          gap: 15px;
-        }
-
-        /* Spacing */
-        .space-y-6 > * {
-          margin-top: 20px;
-          margin-bottom: 20px;
-        }
-
-        .gap-4 {
-          gap: 15px;
-        }
-
-        .gap-6 {
-          gap: 20px;
-        }
-
-        /* Text sizes */
-        h1 { font-size: 24px; margin: 20px 0; }
-        h2 { font-size: 20px; margin: 18px 0; }
-        h3 { font-size: 18px; margin: 16px 0; }
-        h4 { font-size: 16px; margin: 14px 0; }
-
-        .text-3xl { font-size: 30px; }
-        .text-2xl { font-size: 24px; }
-        .text-xl { font-size: 20px; }
-        .text-sm { font-size: 14px; }
-        .text-xs { font-size: 12px; }
-
-        /* Remove overflow restrictions for screen */
-        .print-table-container,
-        [class*="overflow"] {
-          overflow-x: auto;
-          overflow-y: visible;
-        }
-
-        /* Ensure tables are visible */
-        .print-table {
-          width: 100%;
-          min-width: 100%;
-        }
-      }
-    `
-
-    // Create the print HTML
-    const printHTML = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Reports & Analytics - Print</title>
-          <style>
-            ${styles}
-            ${inlineStyles}
-            ${printCSS}
-          </style>
-        </head>
-        <body>
-          <button class="print-button" onclick="window.print()">🖨️ Print</button>
-          <div class="print-content">
-            <div style="max-width: 100%; overflow-x: auto;">
-              ${clonedContent.innerHTML}
-            </div>
-          </div>
-        </body>
-      </html>
-    `
-
-    // Write to the new tab
-    printWindow.document.write(printHTML)
-    printWindow.document.close()
-    
-    // Focus the new tab
-    printWindow.focus()
-  }, [])
 
   // ✅ Close dropdown when clicking outside
   useEffect(() => {
@@ -1373,7 +920,6 @@ export function ModernReportsManager() {
   }
 
   return (
-    <PrintableReport title="Reports & Analytics" reportType={activeReport}>
     <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between no-print">
@@ -1397,10 +943,6 @@ export function ModernReportsManager() {
             <Download className="h-4 w-4 mr-2" />
               Export
             </Button>
-            <Button variant="outline" size="sm" onClick={handlePrint}>
-              <Printer className="h-4 w-4 mr-2" />
-              Print
-          </Button>
         </div>
       </div>
 
@@ -1777,9 +1319,35 @@ export function ModernReportsManager() {
         })}
       </div>
 
+      {/* Print Button Section */}
+      <div className="flex items-center justify-end mb-4 gap-2 print-hide">
+        <PrintButton
+          label="Print Report"
+          variant="primary"
+          printTitle={(() => {
+            const tabLabels: Record<string, string> = {
+              'overview': 'Overview Report',
+              'projects': 'Projects Report',
+              'activities': 'Activities Report',
+              'kpis': 'KPIs Report',
+              'kpi-chart': 'KPI Chart Report',
+              'financial': 'Financial Report',
+              'performance': 'Performance Report',
+              'lookahead': 'LookAhead Report',
+              'monthly-revenue': 'Monthly Revenue Report',
+              'delayed-activities': 'Delayed Activities Report',
+              'activity-periodical-progress': 'Activity Periodical Progress Report',
+              'project-timeline': 'Project Timeline Report'
+            }
+            return tabLabels[activeReport] || 'Report'
+          })()}
+          showSettings={true}
+        />
+      </div>
+
       {/* Report Content */}
-        <div className="report-section">
-          {activeReport === 'overview' && (
+      <div className="report-section">
+        {activeReport === 'overview' && (
             <OverviewReport stats={stats} filteredData={filteredData} formatCurrency={formatCurrency} formatPercentage={formatPercentage} />
           )}
           {activeReport === 'projects' && (
@@ -1831,17 +1399,16 @@ export function ModernReportsManager() {
               formatCurrency={formatCurrency} 
             />
           )}
-          {activeReport === 'project-timeline' && (
-            <ProjectTimelineView 
-              activities={activities} 
-              projects={projects} 
-              kpis={kpis}
-              formatCurrency={formatCurrency} 
-            />
-          )}
-        </div>
+        {activeReport === 'project-timeline' && (
+          <ProjectTimelineView 
+            activities={activities} 
+            projects={projects} 
+            kpis={kpis}
+            formatCurrency={formatCurrency} 
+          />
+        )}
       </div>
-    </PrintableReport>
+    </div>
   )
 }
 
