@@ -1320,7 +1320,9 @@ export default function LPOListContent() {
                             : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
                         } ${index % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50/50 dark:bg-gray-850/50'}`}
                       >
-                        <td className="px-4 py-3 text-sm sticky left-0 z-10 bg-inherit border-r border-gray-200 dark:border-gray-700">
+                        <td className={`px-4 py-3 text-sm sticky left-0 z-10 border-r border-gray-200 dark:border-gray-700 ${
+                          index % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-850'
+                        } ${selectedLPOs.has(lpo.id) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
                           {guard.hasAccess('procurement.lpo.delete') && (
                             <button
                               onClick={() => handleSelectLPO(lpo.id, !selectedLPOs.has(lpo.id))}
@@ -1336,7 +1338,9 @@ export default function LPOListContent() {
                             </button>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-sm sticky left-12 z-10 bg-inherit border-r border-gray-200 dark:border-gray-700">
+                        <td className={`px-4 py-3 text-sm sticky left-12 z-10 border-r border-gray-200 dark:border-gray-700 ${
+                          index % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-850'
+                        } ${selectedLPOs.has(lpo.id) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
                           <div className="font-semibold text-blue-600 dark:text-blue-400">
                             {lpo.lpo_no || <span className="text-red-500 italic text-xs">Required</span>}
                           </div>
@@ -1399,7 +1403,9 @@ export default function LPOListContent() {
                             {lpo.status || 'Issued'}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-sm sticky right-0 z-10 bg-inherit border-l border-gray-200 dark:border-gray-700">
+                        <td className={`px-4 py-3 text-sm sticky right-0 z-10 border-l border-gray-200 dark:border-gray-700 ${
+                          index % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-850'
+                        } ${selectedLPOs.has(lpo.id) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
                           <div className="flex items-center justify-end gap-2">
                             <PermissionButton
                               permission="procurement.lpo.edit"
@@ -1409,18 +1415,18 @@ export default function LPOListContent() {
                               }}
                               variant="ghost"
                               size="sm"
-                              className="h-8 w-8 p-0 hover:bg-blue-100 dark:hover:bg-blue-900/30"
+                              className="h-10 w-10 p-0 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-md"
                             >
-                              <Edit className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                              <Edit className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                             </PermissionButton>
                             <PermissionButton
                               permission="procurement.lpo.delete"
                               onClick={() => handleDelete(lpo.id)}
                               variant="ghost"
                               size="sm"
-                              className="h-8 w-8 p-0 hover:bg-red-100 dark:hover:bg-red-900/30"
+                              className="h-10 w-10 p-0 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-md"
                             >
-                              <Trash2 className="h-4 w-4 text-red-600 dark:text-red-400" />
+                              <Trash2 className="h-5 w-5 text-red-600 dark:text-red-400" />
                             </PermissionButton>
                           </div>
                         </td>
@@ -1523,6 +1529,14 @@ function LPOFormModal({ lpo, onSave, onClose }: LPOFormModalProps) {
   const [items, setItems] = useState<{ item_description: string }[]>([])
   const [paymentTerms, setPaymentTerms] = useState<{ payment_term: string }[]>([])
   const [loadingData, setLoadingData] = useState(false)
+  
+  // Search states for dropdowns
+  const [vendorSearch, setVendorSearch] = useState('')
+  const [itemSearch, setItemSearch] = useState('')
+  const [paymentTermSearch, setPaymentTermSearch] = useState('')
+  const [showVendorDropdown, setShowVendorDropdown] = useState(false)
+  const [showItemDropdown, setShowItemDropdown] = useState(false)
+  const [showPaymentTermDropdown, setShowPaymentTermDropdown] = useState(false)
 
   // Load vendors, items, and payment terms for dropdowns
   useEffect(() => {
@@ -1694,25 +1708,53 @@ function LPOFormModal({ lpo, onSave, onClose }: LPOFormModalProps) {
                   Vendor <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
-                  <select
+                  <Input
+                    type="text"
                     value={formData.vendor}
-                    onChange={(e) => setFormData({ ...formData, vendor: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    onChange={(e) => {
+                      setFormData({ ...formData, vendor: e.target.value })
+                      setVendorSearch(e.target.value)
+                      setShowVendorDropdown(true)
+                    }}
+                    onFocus={() => setShowVendorDropdown(true)}
+                    onBlur={() => setTimeout(() => setShowVendorDropdown(false), 200)}
+                    placeholder="Search or enter vendor name..."
                     required
-                  >
-                    <option value="">Select Vendor</option>
-                    {vendors.map((v, idx) => (
-                      <option key={idx} value={v.name}>{v.name}</option>
-                    ))}
-                  </select>
-                  {formData.vendor && !vendors.find(v => v.name === formData.vendor) && (
-                    <Input
-                      type="text"
-                      value={formData.vendor}
-                      onChange={(e) => setFormData({ ...formData, vendor: e.target.value })}
-                      placeholder="Or enter new vendor name"
-                      className="mt-2"
-                    />
+                    className="w-full"
+                  />
+                  {showVendorDropdown && vendors.length > 0 && (
+                    <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                      {vendors
+                        .filter(v => !vendorSearch || v.name.toLowerCase().includes(vendorSearch.toLowerCase()))
+                        .slice(0, 20)
+                        .map((v, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => {
+                              setFormData({ ...formData, vendor: v.name })
+                              setVendorSearch('')
+                              setShowVendorDropdown(false)
+                            }}
+                            className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-white"
+                          >
+                            {v.name}
+                          </button>
+                        ))}
+                      {vendorSearch && !vendors.find(v => v.name.toLowerCase() === vendorSearch.toLowerCase()) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFormData({ ...formData, vendor: vendorSearch })
+                            setVendorSearch('')
+                            setShowVendorDropdown(false)
+                          }}
+                          className="w-full text-left px-4 py-2 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-medium"
+                        >
+                          + Add "{vendorSearch}"
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -1764,24 +1806,52 @@ function LPOFormModal({ lpo, onSave, onClose }: LPOFormModalProps) {
                   Item Description
                 </label>
                 <div className="relative">
-                  <select
+                  <Input
+                    type="text"
                     value={formData.item_description}
-                    onChange={(e) => setFormData({ ...formData, item_description: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">Select Item</option>
-                    {items.map((item, idx) => (
-                      <option key={idx} value={item.item_description}>{item.item_description}</option>
-                    ))}
-                  </select>
-                  {formData.item_description && !items.find(i => i.item_description === formData.item_description) && (
-                    <Input
-                      type="text"
-                      value={formData.item_description}
-                      onChange={(e) => setFormData({ ...formData, item_description: e.target.value })}
-                      placeholder="Or enter new item description"
-                      className="mt-2"
-                    />
+                    onChange={(e) => {
+                      setFormData({ ...formData, item_description: e.target.value })
+                      setItemSearch(e.target.value)
+                      setShowItemDropdown(true)
+                    }}
+                    onFocus={() => setShowItemDropdown(true)}
+                    onBlur={() => setTimeout(() => setShowItemDropdown(false), 200)}
+                    placeholder="Search or enter item description..."
+                    className="w-full"
+                  />
+                  {showItemDropdown && items.length > 0 && (
+                    <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                      {items
+                        .filter(item => !itemSearch || item.item_description.toLowerCase().includes(itemSearch.toLowerCase()))
+                        .slice(0, 20)
+                        .map((item, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => {
+                              setFormData({ ...formData, item_description: item.item_description })
+                              setItemSearch('')
+                              setShowItemDropdown(false)
+                            }}
+                            className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-white"
+                          >
+                            {item.item_description}
+                          </button>
+                        ))}
+                      {itemSearch && !items.find(i => i.item_description.toLowerCase() === itemSearch.toLowerCase()) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFormData({ ...formData, item_description: itemSearch })
+                            setItemSearch('')
+                            setShowItemDropdown(false)
+                          }}
+                          className="w-full text-left px-4 py-2 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-medium"
+                        >
+                          + Add "{itemSearch}"
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -1879,24 +1949,52 @@ function LPOFormModal({ lpo, onSave, onClose }: LPOFormModalProps) {
                   Payment Terms
                 </label>
                 <div className="relative">
-                  <select
+                  <Input
+                    type="text"
                     value={formData.payment_terms}
-                    onChange={(e) => setFormData({ ...formData, payment_terms: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">Select Payment Terms</option>
-                    {paymentTerms.map((term, idx) => (
-                      <option key={idx} value={term.payment_term}>{term.payment_term}</option>
-                    ))}
-                  </select>
-                  {formData.payment_terms && !paymentTerms.find(t => t.payment_term === formData.payment_terms) && (
-                    <Input
-                      type="text"
-                      value={formData.payment_terms}
-                      onChange={(e) => setFormData({ ...formData, payment_terms: e.target.value })}
-                      placeholder="Or enter new payment terms"
-                      className="mt-2"
-                    />
+                    onChange={(e) => {
+                      setFormData({ ...formData, payment_terms: e.target.value })
+                      setPaymentTermSearch(e.target.value)
+                      setShowPaymentTermDropdown(true)
+                    }}
+                    onFocus={() => setShowPaymentTermDropdown(true)}
+                    onBlur={() => setTimeout(() => setShowPaymentTermDropdown(false), 200)}
+                    placeholder="Search or enter payment terms..."
+                    className="w-full"
+                  />
+                  {showPaymentTermDropdown && paymentTerms.length > 0 && (
+                    <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                      {paymentTerms
+                        .filter(term => !paymentTermSearch || term.payment_term.toLowerCase().includes(paymentTermSearch.toLowerCase()))
+                        .slice(0, 20)
+                        .map((term, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => {
+                              setFormData({ ...formData, payment_terms: term.payment_term })
+                              setPaymentTermSearch('')
+                              setShowPaymentTermDropdown(false)
+                            }}
+                            className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-white"
+                          >
+                            {term.payment_term}
+                          </button>
+                        ))}
+                      {paymentTermSearch && !paymentTerms.find(t => t.payment_term.toLowerCase() === paymentTermSearch.toLowerCase()) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFormData({ ...formData, payment_terms: paymentTermSearch })
+                            setPaymentTermSearch('')
+                            setShowPaymentTermDropdown(false)
+                          }}
+                          className="w-full text-left px-4 py-2 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-medium"
+                        >
+                          + Add "{paymentTermSearch}"
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
