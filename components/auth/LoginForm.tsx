@@ -11,7 +11,7 @@ import { Alert } from '@/components/ui/Alert'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { 
   Eye, EyeOff, Mail, Lock, User, Building2, CheckCircle, AlertCircle, 
-  Sparkles, Shield, ArrowRight, Loader2
+  Sparkles, Shield, ArrowRight, Loader2, KeyRound, RefreshCw
 } from 'lucide-react'
 
 export function LoginForm() {
@@ -29,6 +29,12 @@ export function LoginForm() {
   const [isSubmitting, setIsSubmitting] = useState(false) // ✅ حماية من الطلبات المتعددة
   const [rateLimitCooldown, setRateLimitCooldown] = useState(0) // ✅ Cooldown timer
   const [lastAttemptTime, setLastAttemptTime] = useState(0) // ✅ Track last attempt time
+  
+  // ✅ OTP States
+  const [useOTP, setUseOTP] = useState(false)
+  const [otpSent, setOtpSent] = useState(false)
+  const [otpCode, setOtpCode] = useState('')
+  const [otpTimer, setOtpTimer] = useState(0)
   
   // ✅ Company Settings
   const [companyName, setCompanyName] = useState('AlRabat RPF')
@@ -92,6 +98,22 @@ export function LoginForm() {
       return () => clearInterval(timer)
     }
   }, [rateLimitCooldown])
+
+  // ✅ OTP Timer
+  useEffect(() => {
+    if (otpTimer > 0) {
+      const timer = setInterval(() => {
+        setOtpTimer(prev => {
+          if (prev <= 1) {
+            clearInterval(timer)
+            return 0
+          }
+          return prev - 1
+        })
+      }, 1000)
+      return () => clearInterval(timer)
+    }
+  }, [otpTimer])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -244,13 +266,92 @@ export function LoginForm() {
     return password.length >= 6
   }
 
+  // ✅ Handle OTP Send
+  const handleSendOTP = async () => {
+    if (!validateEmail(email)) {
+      setError('Please enter a valid email address')
+      return
+    }
+
+    try {
+      setLoading(true)
+      setError('')
+      setSuccess('')
+      
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+        },
+      })
+
+      if (error) throw error
+
+      setOtpSent(true)
+      setOtpTimer(60) // 60 seconds cooldown
+      setSuccess('Verification code sent! Please check your email.')
+    } catch (error: any) {
+      console.error('OTP send error:', error)
+      setError(error.message || 'Failed to send verification code. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // ✅ Handle OTP Verify
+  const handleVerifyOTP = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    
+    if (!otpCode || otpCode.length !== 6) {
+      setError('Please enter a valid 6-digit code')
+      return
+    }
+
+    try {
+      setLoading(true)
+      setError('')
+      setSuccess('')
+
+      const { data, error } = await supabase.auth.verifyOtp({
+        email,
+        token: otpCode,
+        type: 'email',
+      })
+
+      if (error) throw error
+
+      if (data.session) {
+        setSuccess('Login successful! Redirecting...')
+        setTimeout(() => {
+          router.push('/dashboard')
+        }, 1000)
+      }
+    } catch (error: any) {
+      console.error('OTP verify error:', error)
+      setError(error.message || 'Invalid verification code. Please try again.')
+      setOtpCode('')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // ✅ Handle Resend OTP
+  const handleResendOTP = async () => {
+    if (otpTimer > 0) {
+      setError(`Please wait ${otpTimer} seconds before requesting a new code.`)
+      return
+    }
+    await handleSendOTP()
+  }
+
   // Handle Google Sign In
   const handleGoogleSignIn = async () => {
     try {
       setLoading(true)
       setError('')
       
-      // Redirect to a callback page that will validate email domain
+      // Use Supabase's built-in callback URL which handles OAuth redirects
+      // The redirectTo should point to your app's callback page
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -262,7 +363,15 @@ export function LoginForm() {
         },
       })
       
-      if (error) throw error
+      if (error) {
+        console.error('Google OAuth error:', error)
+        // Check if it's a redirect_uri_mismatch error
+        if (error.message?.includes('redirect_uri_mismatch') || error.message?.includes('redirect')) {
+          setError('OAuth configuration error. Please contact the administrator. Error: redirect_uri_mismatch')
+        } else {
+          throw error
+        }
+      }
     } catch (error: any) {
       console.error('Google sign in error:', error)
       setError(error.message || 'Failed to sign in with Google. Please try again.')
@@ -542,7 +651,7 @@ export function LoginForm() {
               )}
             </div>
 
-            {!forgotPassword && (
+            {!forgotPassword && !useOTP && (
               <div>
                 <label htmlFor="password" className="block text-sm font-semibold text-white/90 mb-2">
                   Password
@@ -580,6 +689,109 @@ export function LoginForm() {
               </div>
             )}
 
+            {/* OTP Section */}
+            {!forgotPassword && useOTP && (
+              <div>
+                {!otpSent ? (
+                  <div>
+                    <label htmlFor="otp-email" className="block text-sm font-semibold text-white/90 mb-2">
+                      Email Address
+                    </label>
+                    <div className="relative">
+                      <Mail className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-blue-400" />
+                      <Input
+                        id="otp-email"
+                        type="email"
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="pl-12 bg-white/10 dark:bg-gray-800/50 border-white/20 dark:border-gray-700/50 text-white placeholder:text-white/50 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/50 backdrop-blur-sm"
+                        placeholder="Enter your email address"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      onClick={handleSendOTP}
+                      disabled={loading || !validateEmail(email)}
+                      className="w-full mt-4 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:via-indigo-700 hover:to-purple-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl hover:shadow-2xl transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
+                    >
+                      {loading ? (
+                        <>
+                          <Loader2 className="h-5 w-5 animate-spin" />
+                          <span>Sending...</span>
+                        </>
+                      ) : (
+                        <>
+                          <KeyRound className="h-5 w-5" />
+                          <span>Send Verification Code</span>
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                ) : (
+                  <div>
+                    <label htmlFor="otp-code" className="block text-sm font-semibold text-white/90 mb-2">
+                      Verification Code
+                    </label>
+                    <div className="relative">
+                      <KeyRound className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-blue-400" />
+                      <Input
+                        id="otp-code"
+                        type="text"
+                        required
+                        value={otpCode}
+                        onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        className="pl-12 pr-12 bg-white/10 dark:bg-gray-800/50 border-white/20 dark:border-gray-700/50 text-white placeholder:text-white/50 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/50 backdrop-blur-sm text-center text-2xl tracking-widest font-mono"
+                        placeholder="000000"
+                        maxLength={6}
+                      />
+                    </div>
+                    <p className="mt-2 text-xs text-white/70 text-center">
+                      Enter the 6-digit code sent to {email}
+                    </p>
+                    <div className="flex gap-2 mt-4">
+                      <Button
+                        type="button"
+                        onClick={(e) => handleVerifyOTP(e)}
+                        disabled={loading || otpCode.length !== 6}
+                        className="flex-1 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:via-indigo-700 hover:to-purple-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl hover:shadow-2xl transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
+                      >
+                        {loading ? (
+                          <>
+                            <Loader2 className="h-5 w-5 animate-spin" />
+                            <span>Verifying...</span>
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle className="h-5 w-5" />
+                            <span>Verify Code</span>
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={handleResendOTP}
+                        disabled={loading || otpTimer > 0}
+                        className="bg-white/10 hover:bg-white/20 dark:bg-gray-800/50 dark:hover:bg-gray-700/50 text-white font-semibold py-3 px-4 rounded-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl flex items-center justify-center gap-2 border border-white/20 dark:border-gray-700/50"
+                      >
+                        {otpTimer > 0 ? (
+                          <>
+                            <RefreshCw className="h-4 w-4 animate-spin" />
+                            <span>{otpTimer}s</span>
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="h-4 w-4" />
+                            <span>Resend</span>
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {!isSignUp && !forgotPassword && (
               <div className="flex items-center justify-between">
                 <button
@@ -590,29 +802,46 @@ export function LoginForm() {
                   <Shield className="h-3.5 w-3.5" />
                   Forgot your password?
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUseOTP(!useOTP)
+                    setOtpSent(false)
+                    setOtpCode('')
+                    setOtpTimer(0)
+                    setError('')
+                    setSuccess('')
+                  }}
+                  className="text-sm text-blue-300 hover:text-blue-200 font-medium transition-colors flex items-center gap-2"
+                >
+                  <KeyRound className="h-3.5 w-3.5" />
+                  {useOTP ? 'Use Password' : 'Use OTP'}
+                </button>
               </div>
             )}
 
-            <Button
-              type="submit"
-              disabled={isSubmitting || loading || Boolean(email && !validateEmail(email)) || Boolean(isSignUp && email && !validateCompanyEmail(email)) || Boolean(password && !validatePassword(password))}
-              className="w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:via-indigo-700 hover:to-purple-700 text-white font-semibold py-4 px-6 rounded-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl hover:shadow-2xl transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  <span>Processing...</span>
-                </>
-              ) : (
-                <>
-                  <span>{forgotPassword ? 'Send Reset Link' : isSignUp ? 'Create Account' : 'Sign In'}</span>
-                  <ArrowRight className="h-5 w-5" />
-                </>
-              )}
-            </Button>
+            {!useOTP && (
+              <Button
+                type="submit"
+                disabled={isSubmitting || loading || Boolean(email && !validateEmail(email)) || Boolean(isSignUp && email && !validateCompanyEmail(email)) || Boolean(password && !validatePassword(password))}
+                className="w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:via-indigo-700 hover:to-purple-700 text-white font-semibold py-4 px-6 rounded-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl hover:shadow-2xl transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <span>Processing...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>{forgotPassword ? 'Send Reset Link' : isSignUp ? 'Create Account' : 'Sign In'}</span>
+                    <ArrowRight className="h-5 w-5" />
+                  </>
+                )}
+              </Button>
+            )}
 
-            {/* Google Sign In Button - TEMPORARILY DISABLED */}
-            {false && !forgotPassword && (
+            {/* Google Sign In Button */}
+            {!forgotPassword && (
               <div className="mt-4">
                 <div className="relative">
                   <div className="absolute inset-0 flex items-center">
@@ -627,7 +856,7 @@ export function LoginForm() {
                 <Button
                   type="button"
                   onClick={handleGoogleSignIn}
-                  disabled={true}
+                  disabled={loading}
                   className="w-full mt-4 bg-white hover:bg-gray-50 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-900 dark:text-white font-semibold py-3 px-6 rounded-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-3 border border-gray-300 dark:border-gray-600"
                 >
                   {loading ? (

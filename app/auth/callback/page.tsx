@@ -10,6 +10,7 @@ import { Alert } from '@/components/ui/Alert'
 export default function AuthCallback() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [countdown, setCountdown] = useState(15)
   const router = useRouter()
   const supabase = getSupabaseClient()
 
@@ -35,14 +36,14 @@ export default function AuthCallback() {
           return
         }
 
-        // Validate email domain for new users
+        // Validate email domain - STRICT: Only company emails allowed
         const userEmail = session.user.email?.toLowerCase().trim() || ''
         const isCompanyEmail = userEmail.endsWith('@rabatpfc.com')
         
         console.log('🔍 Auth Callback: Validating email:', {
           email: userEmail,
           isCompanyEmail,
-          isNewUser: !session.user.user_metadata?.email_verified
+          userId: session.user.id
         })
 
         // Check if user exists in users table
@@ -52,22 +53,45 @@ export default function AuthCallback() {
           .eq('id', session.user.id)
           .single()
 
-        // If user doesn't exist in users table, it's a new registration
-        if (!existingUser && !isCompanyEmail) {
-          console.error('❌ New user with non-company email:', userEmail)
+        // STRICT VALIDATION: Block all non-company emails, even for existing users
+        if (!isCompanyEmail) {
+          console.error('❌ Non-company email detected:', userEmail)
           
-          // Sign out the user
+          // Sign out the user immediately
           await supabase.auth.signOut()
           
-          setError('Company email required / يلزم إيميل الشركة. Only @rabatpfc.com emails are allowed for new registrations.')
+          // If user exists in database, delete the auth record to prevent future logins
+          if (existingUser) {
+            console.warn('⚠️ Existing user with non-company email - blocking access:', userEmail)
+            // Note: We can't delete the auth user from client side, but we've signed them out
+          }
+          
+          setError('Company email required / يلزم إيميل الشركة. Only @rabatpfc.com emails are allowed for Google Sign-In. Please use a company email address.')
           setLoading(false)
-          setTimeout(() => router.push('/register'), 5000)
+          
+          // Start countdown timer
+          const countdownInterval = setInterval(() => {
+            setCountdown((prev) => {
+              if (prev <= 1) {
+                clearInterval(countdownInterval)
+                router.push('/')
+                return 0
+              }
+              return prev - 1
+            })
+          }, 1000)
+          
+          // Fallback redirect after 15 seconds
+          setTimeout(() => {
+            clearInterval(countdownInterval)
+            router.push('/')
+          }, 15000)
           return
         }
 
-        // If user exists, allow login regardless of email domain (for backward compatibility)
+        // If user exists and has company email, allow login
         if (existingUser) {
-          console.log('✅ Existing user, allowing login:', userEmail)
+          console.log('✅ Existing user with company email, allowing login:', userEmail)
           router.push('/dashboard')
           return
         }
@@ -128,8 +152,15 @@ export default function AuthCallback() {
           <Alert variant="error" className="flex items-center space-x-2 bg-red-500/20 border-red-500/50 text-red-200 backdrop-blur-sm">
             <AlertCircle className="h-5 w-5" />
             <div className="flex-1">
-              <p className="font-semibold mb-2">{error}</p>
-              <p className="text-sm text-red-300/80">Redirecting in a few seconds...</p>
+              <p className="font-semibold mb-3 text-lg">{error}</p>
+              <div className="space-y-2">
+                <p className="text-sm text-red-300/80">
+                  سيتم إعادة التوجيه خلال <span className="font-bold text-red-200">{countdown}</span> ثانية...
+                </p>
+                <p className="text-sm text-red-300/80">
+                  Redirecting in <span className="font-bold text-red-200">{countdown}</span> seconds...
+                </p>
+              </div>
             </div>
           </Alert>
         </div>

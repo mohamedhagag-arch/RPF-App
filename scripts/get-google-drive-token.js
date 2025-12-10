@@ -24,7 +24,21 @@ const REDIRECT_URI = 'http://localhost:3000/api/auth/google/callback'
 if (!CLIENT_ID || !CLIENT_SECRET) {
   console.error('❌ Missing GOOGLE_DRIVE_CLIENT_ID or GOOGLE_DRIVE_CLIENT_SECRET')
   console.error('   Please set them in .env.local file')
+  console.error('\n📋 Example format:')
+  console.error('   GOOGLE_DRIVE_CLIENT_ID=123456789-xxxxx.apps.googleusercontent.com')
+  console.error('   GOOGLE_DRIVE_CLIENT_SECRET=GOCSPX-xxxxx')
   process.exit(1)
+}
+
+// Validate format
+if (!CLIENT_ID.includes('.apps.googleusercontent.com')) {
+  console.warn('⚠️  Warning: CLIENT_ID format looks incorrect')
+  console.warn('   Expected format: xxxxx-xxxxx.apps.googleusercontent.com')
+}
+
+if (!CLIENT_SECRET.startsWith('GOCSPX-')) {
+  console.warn('⚠️  Warning: CLIENT_SECRET format looks incorrect')
+  console.warn('   Expected format: GOCSPX-xxxxx')
 }
 
 // Create readline interface
@@ -84,8 +98,36 @@ async function getToken() {
     })
     
     if (!tokenResponse.ok) {
-      const error = await tokenResponse.text()
-      console.error('❌ Failed to get tokens:', error)
+      const errorText = await tokenResponse.text()
+      let errorData
+      try {
+        errorData = JSON.parse(errorText)
+      } catch {
+        errorData = { error: errorText }
+      }
+      
+      console.error('❌ Failed to get tokens:')
+      console.error(JSON.stringify(errorData, null, 2))
+      
+      if (errorData.error === 'invalid_client') {
+        console.error('\n🔍 Troubleshooting:')
+        console.error('   1. Check that GOOGLE_DRIVE_CLIENT_ID and GOOGLE_DRIVE_CLIENT_SECRET are correct')
+        console.error('   2. Make sure you copied the values from Google Cloud Console correctly')
+        console.error('   3. Verify that the OAuth client is enabled in Google Cloud Console')
+        console.error('   4. Check that redirect_uri matches: http://localhost:3000/api/auth/google/callback')
+        console.error('   5. Ensure the OAuth consent screen is configured properly')
+        console.error('\n📋 To fix:')
+        console.error('   1. Go to: https://console.cloud.google.com/apis/credentials')
+        console.error('   2. Find your OAuth 2.0 Client ID')
+        console.error('   3. Copy the Client ID and Client Secret')
+        console.error('   4. Update .env.local with the correct values')
+      } else if (errorData.error === 'invalid_grant') {
+        console.error('\n🔍 Troubleshooting:')
+        console.error('   1. The authorization code may have expired (codes expire after 10 minutes)')
+        console.error('   2. The code may have been used already')
+        console.error('   3. Try getting a new authorization code')
+      }
+      
       process.exit(1)
     }
     
