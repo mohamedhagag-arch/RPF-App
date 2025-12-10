@@ -37,6 +37,8 @@ import {
   FileCheck,
   Clock,
   Database,
+  ShoppingCart,
+  Building2,
   type LucideIcon
 } from 'lucide-react'
 
@@ -93,6 +95,16 @@ const sidebarItems: SidebarItem[] = [
       { icon: Calendar, label: 'Attendance', tab: 'hr/attendance', badgeIcon: Calendar, badgeColor: 'bg-gradient-to-br from-green-500 to-emerald-500' },
       { icon: UserCheck, label: 'Check-In/Out', tab: 'hr/attendance/check-in-out', badgeIcon: UserCheck, badgeColor: 'bg-gradient-to-br from-blue-500 to-indigo-500' },
       { icon: FileCheck, label: 'Review Attendance', tab: 'hr/attendance/review', badgeIcon: FileCheck, badgeColor: 'bg-gradient-to-br from-purple-500 to-pink-500' },
+    ]
+  },
+  { 
+    icon: ShoppingCart, 
+    label: 'Procurement', 
+    tab: 'procurement',
+    badgeIcon: ShoppingCart, 
+    badgeColor: 'bg-gradient-to-br from-teal-500 to-cyan-500',
+    subItems: [
+      { icon: Building2, label: 'Vendor List', tab: 'procurement/vendor-list', badgeIcon: Building2, badgeColor: 'bg-gradient-to-br from-indigo-500 to-purple-500' },
     ]
   },
   { 
@@ -155,6 +167,9 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
     if (tab === 'hr/attendance') return '/hr/attendance'
     if (tab === 'hr/attendance/check-in-out') return '/hr/attendance/check-in-out'
     if (tab === 'hr/attendance/review') return '/hr/attendance/review'
+    // Procurement
+    if (tab === 'procurement') return '/procurement'
+    if (tab === 'procurement/vendor-list') return '/procurement/vendor-list'
     return `/${tab}`
   }
 
@@ -199,6 +214,10 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
     if (activeTab === 'hr/manpower' || activeTab === 'hr/attendance' || activeTab === 'hr/attendance/check-in-out' || activeTab === 'hr/attendance/review') {
       setExpandedItems(prev => new Set(prev).add('hr'))
     }
+    // Auto-expand procurement if any sub-item is active
+    if (activeTab === 'procurement/vendor-list') {
+      setExpandedItems(prev => new Set(prev).add('procurement'))
+    }
   }, [activeTab])
 
   // تحميل إعدادات الشركة من قاعدة البيانات
@@ -237,6 +256,9 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
         pathname === '/hr/attendance/check-in-out' || 
         pathname === '/hr/attendance/review') {
       setExpandedItems(prev => new Set([...Array.from(prev), 'hr']))
+    }
+    if (pathname === '/procurement/vendor-list') {
+      setExpandedItems(prev => new Set([...Array.from(prev), 'procurement']))
     }
   }, [pathname])
 
@@ -325,6 +347,19 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
           return hasAnyFormAccess
         }
         return false
+      case 'procurement':
+        // Show procurement if user has access to any sub-item
+        if (item.subItems) {
+          return item.subItems.some(subItem => {
+            switch (subItem.tab) {
+              case 'procurement/vendor-list':
+                return guard.hasAccess('procurement.vendor_list.view')
+              default:
+                return false
+            }
+          })
+        }
+        return guard.hasAccess('procurement.view')
       case 'settings':
         return guard.hasAccess('settings.view')
       default:
@@ -370,6 +405,8 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
             case 'forms/user':
               // ✅ Admin always has access, others need users.create or users.edit
               return guard.isAdmin() || guard.hasAccess('users.create') || guard.hasAccess('users.edit')
+            case 'procurement/vendor-list':
+              return guard.hasAccess('procurement.vendor_list.view')
             default:
               return true
           }

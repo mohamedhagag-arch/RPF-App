@@ -7,7 +7,7 @@
 export interface Permission {
   id: string
   name: string
-  category: 'projects' | 'boq' | 'kpi' | 'users' | 'reports' | 'settings' | 'system' | 'database' | 'cost-control' | 'hr'
+  category: 'projects' | 'boq' | 'kpi' | 'users' | 'reports' | 'settings' | 'system' | 'database' | 'cost-control' | 'hr' | 'procurement'
   description: string
   action: 'view' | 'create' | 'edit' | 'delete' | 'manage' | 'export' | 'approve' | 'backup' | 'restore'
 }
@@ -256,6 +256,33 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: 'companies.edit', name: 'Edit Companies', category: 'settings', description: 'Can edit company information', action: 'edit' },
   { id: 'companies.delete', name: 'Delete Companies', category: 'settings', description: 'Can delete companies', action: 'delete' },
   { id: 'settings.manage', name: 'Manage All Settings', category: 'settings', description: 'Can manage all system settings (full access)', action: 'manage' },
+  
+  // Procurement Permissions
+  { id: 'procurement.view', name: 'View Procurement', category: 'procurement', description: 'Can view procurement module and overview', action: 'view' },
+  { id: 'procurement.vendor_list.view', name: 'View Vendor List', category: 'procurement', description: 'Can view vendor list', action: 'view' },
+  { id: 'procurement.vendor_list.create', name: 'Create Vendors', category: 'procurement', description: 'Can create new vendors', action: 'create' },
+  { id: 'procurement.vendor_list.edit', name: 'Edit Vendors', category: 'procurement', description: 'Can edit vendor information', action: 'edit' },
+  { id: 'procurement.vendor_list.delete', name: 'Delete Vendors', category: 'procurement', description: 'Can delete vendors', action: 'delete' },
+  { id: 'procurement.vendor_list.import', name: 'Import Vendors', category: 'procurement', description: 'Can import vendors from files', action: 'manage' },
+  { id: 'procurement.vendor_list.export', name: 'Export Vendors', category: 'procurement', description: 'Can export vendor data', action: 'export' },
+  { id: 'procurement.items_list.view', name: 'View Items List', category: 'procurement', description: 'Can view items list', action: 'view' },
+  { id: 'procurement.items_list.create', name: 'Create Items', category: 'procurement', description: 'Can create new items', action: 'create' },
+  { id: 'procurement.items_list.edit', name: 'Edit Items', category: 'procurement', description: 'Can edit item information', action: 'edit' },
+  { id: 'procurement.items_list.delete', name: 'Delete Items', category: 'procurement', description: 'Can delete items', action: 'delete' },
+  { id: 'procurement.items_list.import', name: 'Import Items', category: 'procurement', description: 'Can import items from files', action: 'manage' },
+  { id: 'procurement.items_list.export', name: 'Export Items', category: 'procurement', description: 'Can export items data', action: 'export' },
+  { id: 'procurement.payment_terms.view', name: 'View Payment Terms', category: 'procurement', description: 'Can view payment terms list', action: 'view' },
+  { id: 'procurement.payment_terms.create', name: 'Create Payment Terms', category: 'procurement', description: 'Can create new payment terms', action: 'create' },
+  { id: 'procurement.payment_terms.edit', name: 'Edit Payment Terms', category: 'procurement', description: 'Can edit payment term information', action: 'edit' },
+  { id: 'procurement.payment_terms.delete', name: 'Delete Payment Terms', category: 'procurement', description: 'Can delete payment terms', action: 'delete' },
+  { id: 'procurement.payment_terms.import', name: 'Import Payment Terms', category: 'procurement', description: 'Can import payment terms from files', action: 'manage' },
+  { id: 'procurement.payment_terms.export', name: 'Export Payment Terms', category: 'procurement', description: 'Can export payment terms data', action: 'export' },
+  { id: 'procurement.lpo.view', name: 'View LPO Database', category: 'procurement', description: 'Can view LPO database', action: 'view' },
+  { id: 'procurement.lpo.create', name: 'Create LPO Records', category: 'procurement', description: 'Can create new LPO records', action: 'create' },
+  { id: 'procurement.lpo.edit', name: 'Edit LPO Records', category: 'procurement', description: 'Can edit LPO record information', action: 'edit' },
+  { id: 'procurement.lpo.delete', name: 'Delete LPO Records', category: 'procurement', description: 'Can delete LPO records', action: 'delete' },
+  { id: 'procurement.lpo.import', name: 'Import LPO Records', category: 'procurement', description: 'Can import LPO records from files', action: 'manage' },
+  { id: 'procurement.lpo.export', name: 'Export LPO Records', category: 'procurement', description: 'Can export LPO records data', action: 'export' },
 ]
 
 // الصلاحيات الافتراضية لكل دور
@@ -290,6 +317,11 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'hr.attendance.reports.view', 'hr.attendance.reports.export',
     'hr.attendance.settings.view', 'hr.attendance.settings.manage',
     'hr.attendance.qr.view', 'hr.attendance.qr.manage',
+    // Procurement
+    'procurement.view', 'procurement.vendor_list.view', 'procurement.vendor_list.create', 'procurement.vendor_list.edit', 'procurement.vendor_list.delete', 'procurement.vendor_list.import', 'procurement.vendor_list.export',
+    'procurement.items_list.view', 'procurement.items_list.create', 'procurement.items_list.edit', 'procurement.items_list.delete', 'procurement.items_list.import', 'procurement.items_list.export',
+    'procurement.payment_terms.view', 'procurement.payment_terms.create', 'procurement.payment_terms.edit', 'procurement.payment_terms.delete', 'procurement.payment_terms.import', 'procurement.payment_terms.export',
+    'procurement.lpo.view', 'procurement.lpo.create', 'procurement.lpo.edit', 'procurement.lpo.delete', 'procurement.lpo.import', 'procurement.lpo.export',
     // Settings (manage most settings)
     'settings.view', 'settings.company', 'settings.divisions', 'settings.project_types', 'settings.currencies', 'settings.activities', 'settings.holidays', 'settings.holidays.view', 'settings.holidays.create', 'settings.holidays.edit', 'settings.holidays.delete',
     'settings.manage', 'companies.view', 'companies.create', 'companies.edit', 'companies.delete',
@@ -336,6 +368,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'cost_control.view', 'cost_control.manpower.view', 'cost_control.designation_rates.view', 'cost_control.machine_list.view', 'cost_control.machinery_day_rates.view',
     // HR (limited - view and check-in/out)
     'hr.view', 'hr.attendance.view', 'hr.attendance.check_in_out', 'hr.attendance.reports.view',
+    // Procurement (view only)
+    'procurement.view', 'procurement.vendor_list.view', 'procurement.items_list.view', 'procurement.payment_terms.view', 'procurement.lpo.view',
     // Settings (view only)
     'settings.view', 'project_types.view', 'activities.view', 'departments.view', 'job_titles.view', 'companies.view',
     // Users (limited)
@@ -361,6 +395,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'cost_control.view', 'cost_control.manpower.view', 'cost_control.designation_rates.view', 'cost_control.machine_list.view', 'cost_control.machinery_day_rates.view',
     // HR (view only)
     'hr.view', 'hr.manpower.view', 'hr.attendance.view', 'hr.attendance.reports.view',
+    // Procurement (view only)
+    'procurement.view', 'procurement.vendor_list.view', 'procurement.items_list.view', 'procurement.payment_terms.view', 'procurement.lpo.view',
     'settings.view', 'project_types.view', 'activities.view', 'departments.view', 'job_titles.view', 'companies.view',
     'directory.view', 'directory.search', 'profile.view',
     'system.search', 'user_guide.view', 'active_users.view',
@@ -387,6 +423,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'cost_control.view', 'cost_control.manpower.view', 'cost_control.designation_rates.view', 'cost_control.machine_list.view', 'cost_control.machinery_day_rates.view',
     // HR (view only)
     'hr.view', 'hr.manpower.view', 'hr.attendance.view', 'hr.attendance.reports.view',
+    // Procurement (view only)
+    'procurement.view', 'procurement.vendor_list.view', 'procurement.items_list.view', 'procurement.payment_terms.view', 'procurement.lpo.view',
     // Settings (view only)
     'settings.view', 'project_types.view', 'activities.view', 'departments.view', 'job_titles.view', 'companies.view',
     // Users (limited)

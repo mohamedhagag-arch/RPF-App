@@ -143,18 +143,40 @@ export async function exportData(
 
 /**
  * Parse CSV file
+ * Handles both single-column and multi-column CSV files
  */
 export function parseCSV(csvText: string): any[] {
   const lines = csvText.split('\n').filter(line => line.trim())
   if (lines.length === 0) return []
 
-  // Parse headers
-  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''))
+  // Parse headers - handle both comma-separated and single-column CSV
+  const firstLine = lines[0].trim()
+  const hasCommas = firstLine.includes(',')
+  
+  let headers: string[]
+  if (hasCommas) {
+    // Multi-column CSV
+    headers = firstLine.split(',').map(h => h.trim().replace(/^"|"$/g, ''))
+  } else {
+    // Single-column CSV - use the first line as header
+    headers = [firstLine.replace(/^"|"$/g, '')]
+  }
   
   // Parse rows
   const data: any[] = []
   for (let i = 1; i < lines.length; i++) {
-    const values = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''))
+    const line = lines[i].trim()
+    if (!line) continue
+    
+    let values: string[]
+    if (hasCommas) {
+      // Multi-column CSV - split by comma
+      values = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''))
+    } else {
+      // Single-column CSV - the entire line is the value
+      values = [line.replace(/^"|"$/g, '')]
+    }
+    
     const row: any = {}
     headers.forEach((header, index) => {
       row[header] = values[index] || ''
@@ -252,6 +274,7 @@ export async function importFromFile(
 
 /**
  * Validate imported data structure
+ * Supports flexible column name matching (case-insensitive, with spaces/underscores)
  */
 export function validateImportedData(
   data: any[],
@@ -268,10 +291,67 @@ export function validateImportedData(
   const firstRow = data[0]
   const availableColumns = Object.keys(firstRow)
   
-  requiredColumns.forEach(col => {
-    if (!availableColumns.includes(col)) {
-      errors.push(`Required column not found: ${col}`)
+  // Helper function to normalize column names for comparison
+  const normalizeColumnName = (name: string): string => {
+    return name.toLowerCase().replace(/[\s_\-]/g, '')
+  }
+  
+  // Create a map of normalized available column names
+  const normalizedAvailableColumns = new Map<string, string>()
+  availableColumns.forEach(col => {
+    const normalized = normalizeColumnName(col)
+    if (!normalizedAvailableColumns.has(normalized)) {
+      normalizedAvailableColumns.set(normalized, col)
     }
+  })
+  
+  // Map of required columns to their possible variations
+  const requiredColumnVariations: Record<string, string[]> = {
+    'name': [
+      'name', 'Name', 'NAME',
+      'vendor name', 'Vendor Name', 'VENDOR NAME',
+      'vendor_name', 'Vendor_Name', 'VENDOR_NAME',
+      'vendor', 'Vendor', 'VENDOR'
+    ],
+    'item_description': [
+      'item_description', 'Item Description', 'ITEM DESCRIPTION',
+      'item description', 'Item_Description', 'ITEM_DESCRIPTION',
+      'description', 'Description', 'DESCRIPTION',
+      'item', 'Item', 'ITEM'
+    ]
+  }
+  
+  requiredColumns.forEach(requiredCol => {
+    // Check exact match first
+    if (availableColumns.includes(requiredCol)) {
+      return // Column found, skip to next
+    }
+    
+    // Check normalized match
+    const normalizedRequired = normalizeColumnName(requiredCol)
+    if (normalizedAvailableColumns.has(normalizedRequired)) {
+      return // Column found with different case/spacing, skip to next
+    }
+    
+    // Check variations if available
+    const variations = requiredColumnVariations[requiredCol.toLowerCase()]
+    if (variations) {
+      let found = false
+      for (const variation of variations) {
+        const normalizedVariation = normalizeColumnName(variation)
+        if (normalizedAvailableColumns.has(normalizedVariation)) {
+          found = true
+          break
+        }
+      }
+      if (found) {
+        return // Column found in variations, skip to next
+      }
+    }
+    
+    // Column not found
+    const foundVariations = variations ? ` (looking for: ${requiredCol} or variations like ${variations.slice(0, 2).join(', ')})` : ''
+    errors.push(`Required column not found: ${requiredCol}${foundVariations}`)
   })
   
   return {

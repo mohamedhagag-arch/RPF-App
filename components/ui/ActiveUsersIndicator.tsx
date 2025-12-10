@@ -55,11 +55,16 @@ export function ActiveUsersIndicator() {
               .gte('created_at', tenMinutesAgo)
               .order('created_at', { ascending: false })
             
-            // Silently handle 403 errors (permission issues)
+            // Handle errors (including 403 permission issues)
             if (activitiesError) {
-              // Only log non-403 errors
-              if (activitiesError.code !== 'PGRST301' && activitiesError.status !== 403) {
-                console.error('Error fetching active activities:', activitiesError)
+              // Log error details for debugging
+              if (process.env.NODE_ENV === 'development') {
+                console.warn('⚠️ Error fetching active activities:', {
+                  code: activitiesError.code,
+                  message: activitiesError.message,
+                  details: activitiesError.details,
+                  hint: activitiesError.hint
+                })
               }
               // Return users without activities if we can't fetch
               setOnlineCount(users.length)

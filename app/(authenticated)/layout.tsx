@@ -173,7 +173,7 @@ export default function AuthenticatedLayout({
       const redirectTimer = setTimeout(() => {
         if (typeof window !== 'undefined' && !user) {
           const currentPath = window.location.pathname
-          const protectedRoutes = ['/dashboard', '/projects', '/boq', '/kpi', '/reports', '/settings', '/profile', '/directory', '/hr', '/cost-control']
+          const protectedRoutes = ['/dashboard', '/projects', '/boq', '/kpi', '/reports', '/settings', '/profile', '/directory', '/hr', '/cost-control', '/procurement']
           const isOnProtectedRoute = protectedRoutes.some(route => currentPath.startsWith(route))
           
           // Only redirect if we're on a protected route and still no user
@@ -219,6 +219,8 @@ export default function AuthenticatedLayout({
     if (pathname === '/hr/attendance') return 'hr/attendance'
     if (pathname === '/hr/attendance/check-in-out') return 'hr/attendance/check-in-out'
     if (pathname === '/hr/attendance/review') return 'hr/attendance/review'
+    if (pathname === '/procurement') return 'procurement'
+    if (pathname === '/procurement/vendor-list') return 'procurement/vendor-list'
     return 'dashboard'
   }
 
@@ -258,6 +260,10 @@ export default function AuthenticatedLayout({
       router.push('/hr/attendance/check-in-out')
     } else if (tab === 'hr/attendance/review') {
       router.push('/hr/attendance/review')
+    } else if (tab === 'procurement') {
+      router.push('/procurement')
+    } else if (tab === 'procurement/vendor-list') {
+      router.push('/procurement/vendor-list')
     } else {
       router.push(`/${tab}`)
     }
