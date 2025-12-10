@@ -529,6 +529,7 @@ export function EnhancedSmartActualKPIForm({
   /**
    * Check if two zones match using multiple strategies
    * CRITICAL: Must use Project Full Code for accurate matching
+   * ✅ ENHANCED for P5073: "Parking-Side-A" is the FULL zone name - don't split it!
    */
   const zonesMatch = (zone1: string, zone2: string, projectFullCode: string, projectCode: string): boolean => {
     if (!zone1 || !zone2) return false
@@ -536,39 +537,90 @@ export function EnhancedSmartActualKPIForm({
     const z1 = zone1.trim()
     const z2 = zone2.trim()
     
-    // Strategy 1: Exact match (case-insensitive)
+    // Strategy 1: Exact match (case-insensitive) - SIMPLEST and MOST RELIABLE
     if (z1.toLowerCase() === z2.toLowerCase()) {
+      console.log(`✅ [zonesMatch] Exact match: "${z1}" === "${z2}"`)
       return true
     }
     
-    // Strategy 2: Normalize both and compare (using Project Full Code first!)
+    // ✅ Strategy 2: Extract FULL zone name after removing project code
+    // For P5073: "P5073 - Parking-Side-A" -> "Parking-Side-A" (FULL zone name, not split!)
+    const extractFullZoneName = (zoneStr: string, projCode: string, projFullCode: string): string => {
+      let zone = zoneStr.trim()
+      
+      // ✅ CRITICAL: Remove project code prefix ONLY, keep the FULL zone name
+      // Handle "P5073 - Parking-Side-A" -> "Parking-Side-A" (keep FULL zone name)
+      if (projFullCode) {
+        // Try "P5073 - " pattern first (most common format)
+        const fullCodePattern1 = new RegExp(`^${projFullCode}\\s*-\\s*`, 'i')
+        if (fullCodePattern1.test(zone)) {
+          const extracted = zone.replace(fullCodePattern1, '').trim()
+          console.log(`🔍 [extractFullZoneName] Extracted from "${zone}": "${extracted}" (removed "${projFullCode} - ")`)
+          return extracted.toLowerCase().trim()
+        }
+        // Try "P5073 " pattern
+        const fullCodePattern2 = new RegExp(`^${projFullCode}\\s+`, 'i')
+        if (fullCodePattern2.test(zone)) {
+          const extracted = zone.replace(fullCodePattern2, '').trim()
+          console.log(`🔍 [extractFullZoneName] Extracted from "${zone}": "${extracted}" (removed "${projFullCode} ")`)
+          return extracted.toLowerCase().trim()
+        }
+        // Try "P5073-" pattern
+        const fullCodePattern3 = new RegExp(`^${projFullCode}-`, 'i')
+        if (fullCodePattern3.test(zone)) {
+          const extracted = zone.replace(fullCodePattern3, '').trim()
+          console.log(`🔍 [extractFullZoneName] Extracted from "${zone}": "${extracted}" (removed "${projFullCode}-")`)
+          return extracted.toLowerCase().trim()
+        }
+      }
+      
+      // Try with project code only
+      if (projCode) {
+        const codePattern1 = new RegExp(`^${projCode}\\s*-\\s*`, 'i')
+        if (codePattern1.test(zone)) {
+          const extracted = zone.replace(codePattern1, '').trim()
+          console.log(`🔍 [extractFullZoneName] Extracted from "${zone}": "${extracted}" (removed "${projCode} - ")`)
+          return extracted.toLowerCase().trim()
+        }
+        const codePattern2 = new RegExp(`^${projCode}\\s+`, 'i')
+        if (codePattern2.test(zone)) {
+          const extracted = zone.replace(codePattern2, '').trim()
+          console.log(`🔍 [extractFullZoneName] Extracted from "${zone}": "${extracted}" (removed "${projCode} ")`)
+          return extracted.toLowerCase().trim()
+        }
+        const codePattern3 = new RegExp(`^${projCode}-`, 'i')
+        if (codePattern3.test(zone)) {
+          const extracted = zone.replace(codePattern3, '').trim()
+          console.log(`🔍 [extractFullZoneName] Extracted from "${zone}": "${extracted}" (removed "${projCode}-")`)
+          return extracted.toLowerCase().trim()
+        }
+      }
+      
+      // If no project code found, return zone as-is (it's already the full zone name)
+      console.log(`🔍 [extractFullZoneName] No project code found in "${zone}", using as-is`)
+      return zone.toLowerCase().trim()
+    }
+    
+    // ✅ Extract FULL zone names (e.g., "Parking-Side-A" stays as "Parking-Side-A", not split!)
+    const fullZoneName1 = extractFullZoneName(z1, projectCode, projectFullCode)
+    const fullZoneName2 = extractFullZoneName(z2, projectCode, projectFullCode)
+    
+    // ✅ Strategy 3: Compare FULL zone names after removing project code
+    // This handles "P5073 - Parking-Side-A" vs "Parking-Side-A" -> both become "Parking-Side-A"
+    if (fullZoneName1 && fullZoneName2 && fullZoneName1 === fullZoneName2) {
+      console.log(`✅ [zonesMatch] Full zone name match: "${fullZoneName1}" === "${fullZoneName2}" (from "${z1}" and "${z2}")`)
+      return true
+    }
+    
+    // Strategy 4: Normalize both and compare (using Project Full Code first!)
     const normalized1 = normalizeZone(zone1, projectFullCode, projectCode)
     const normalized2 = normalizeZone(zone2, projectFullCode, projectCode)
     if (normalized1 && normalized2 && normalized1 === normalized2) {
+      console.log(`✅ [zonesMatch] Normalized match: "${normalized1}" === "${normalized2}" (from "${z1}" and "${z2}")`)
       return true
     }
     
-    // Strategy 3: Extract zone numbers and compare
-    const zoneNum1 = extractZoneNumber(normalized1 || z1)
-    const zoneNum2 = extractZoneNumber(normalized2 || z2)
-    if (zoneNum1 && zoneNum2 && zoneNum1 === zoneNum2) {
-      return true
-    }
-    
-    // Strategy 4: Extract zone numbers from original strings (before normalization)
-    const originalZoneNum1 = extractZoneNumber(z1)
-    const originalZoneNum2 = extractZoneNumber(z2)
-    if (originalZoneNum1 && originalZoneNum2 && originalZoneNum1 === originalZoneNum2) {
-      return true
-    }
-    
-    // Strategy 5: Check if one zone contains the other (after normalization)
-    if (normalized1 && normalized2) {
-      if (normalized1.includes(normalized2) || normalized2.includes(normalized1)) {
-        return true
-      }
-    }
-    
+    console.log(`❌ [zonesMatch] No match: "${z1}" vs "${z2}" (full zone names: "${fullZoneName1}" vs "${fullZoneName2}", normalized: "${normalized1}" vs "${normalized2}")`)
     return false
   }
   
@@ -661,21 +713,116 @@ export function EnhancedSmartActualKPIForm({
       return false
     }
     
-    // 3. Zone Matching (strict)
-    const kpiZoneRaw = (kpi['Zone'] || kpi['Zone Number'] || rawKPI['Zone'] || rawKPI['Zone Number'] || '').toString().trim()
+    // 3. Zone Matching (strict) - CRITICAL FIX for P5073 and other projects
+    // ✅ CRITICAL: Use Zone column ONLY, NOT Section column!
+    // Zone is stored in "Zone" or "Zone Number" columns in database
+    // Section is a separate field and should NOT be used for zone matching
+    // ✅ IMPORTANT: Check ALL possible zone fields from database
+    const kpiZoneRaw = (
+      kpi['Zone'] ||           // Primary Zone column
+      kpi['Zone Number'] ||    // Zone Number column
+      rawKPI['Zone'] ||        // Zone from raw data
+      rawKPI['Zone Number'] || // Zone Number from raw data
+      kpi.zone ||              // Zone (lowercase field name)
+      kpi.zone_number ||       // Zone Number (lowercase field name)
+      ''                        // Default to empty
+    ).toString().trim()
+    
+    // ✅ CRITICAL: DO NOT use Section - it's a different field!
+    const kpiSection = (kpi['Section'] || kpi.section || rawKPI['Section'] || '').toString().trim()
+    
     const activityZoneRaw = (activity.zone_ref || activity.zone_number || '').toString().trim()
     
-    if (activityZoneRaw && activityZoneRaw.trim() !== '') {
+    // ✅ DEBUG: Log zone values to ensure we're using Zone and not Section
+    if (kpiSection && kpiSection !== '' && (!kpiZoneRaw || kpiZoneRaw === '')) {
+      console.warn(`⚠️ [kpiMatchesActivityStrict] WARNING: KPI has Section="${kpiSection}" but no Zone! This KPI may be missing zone data.`, {
+        kpiId: kpi.id,
+        kpiActivityName: kpi['Activity Name'] || kpi.activity_name,
+        kpiSection: kpiSection,
+        kpiZone: kpiZoneRaw || 'NONE',
+        allKpiFields: Object.keys(kpi).filter(k => k.toLowerCase().includes('zone') || k.toLowerCase().includes('section'))
+      })
+    }
+    
+    console.log(`🔍 [kpiMatchesActivityStrict] Zone matching:`, {
+      kpiId: kpi.id,
+      kpiZoneFromZone: kpi['Zone'] || 'NONE',
+      kpiZoneFromZoneNumber: kpi['Zone Number'] || 'NONE',
+      kpiZoneFromRaw: rawKPI['Zone'] || 'NONE',
+      kpiZoneFromRawZoneNumber: rawKPI['Zone Number'] || 'NONE',
+      kpiZoneFinal: kpiZoneRaw || 'NONE',
+      kpiSection: kpiSection || 'NONE (not used for matching)',
+      activityZone: activityZoneRaw || 'NONE',
+      activityName: activity.activity_name
+    })
+    
+    // ✅ CRITICAL FIX: Normalize zone values to handle edge cases
+    const normalizedActivityZone = activityZoneRaw && activityZoneRaw.trim() !== '' && activityZoneRaw !== '0' && activityZoneRaw !== 'Enabling Division' ? activityZoneRaw.trim() : ''
+    const normalizedKpiZone = kpiZoneRaw && kpiZoneRaw.trim() !== '' && kpiZoneRaw !== '0' && kpiZoneRaw !== 'Enabling Division' ? kpiZoneRaw.trim() : ''
+    
+    // ✅ CRITICAL FIX for P5073: Format activity zone for matching (same format as KPIs)
+    // KPIs may have "P5073 - Parking-Side-B" format, so we need to match that
+    let activityZoneForMatching = normalizedActivityZone
+    if (normalizedActivityZone && projectFullCode) {
+      // If activity zone doesn't include project code, format it as "P5073 - Parking-Side-B"
+      if (!normalizedActivityZone.includes(projectFullCode) && !normalizedActivityZone.includes(projectCode)) {
+        activityZoneForMatching = `${projectFullCode} - ${normalizedActivityZone}`
+      } else {
+        activityZoneForMatching = normalizedActivityZone
+      }
+    }
+    
+    // ✅ CRITICAL: If activity has zone, KPI MUST have zone and they MUST match
+    if (normalizedActivityZone) {
       // Activity has zone - KPI MUST have zone and they MUST match
-      if (!kpiZoneRaw || kpiZoneRaw.trim() === '') {
+      if (!normalizedKpiZone) {
+        // Log for debugging P5073 issue
+        console.log(`❌ [kpiMatchesActivityStrict] Zone mismatch: Activity has zone="${normalizedActivityZone}" (formatted: "${activityZoneForMatching}") but KPI has no zone`, {
+          activityName: activity.activity_name,
+          kpiId: kpi.id,
+          kpiActivityName: kpi['Activity Name'] || kpi.activity_name,
+          kpiProjectFullCode: kpi['Project Full Code'] || kpi.project_full_code
+        })
         return false
       }
       
-      // Use zonesMatch for accurate zone matching
-      return zonesMatch(activityZoneRaw, kpiZoneRaw, projectFullCode, projectCode)
+      // ✅ CRITICAL: Try matching with both formats (original and formatted)
+      // This handles cases where activity zone is "Parking-Side-B" and KPI zone is "P5073 - Parking-Side-B"
+      const zoneMatch1 = zonesMatch(activityZoneForMatching, normalizedKpiZone, projectFullCode, projectCode)
+      const zoneMatch2 = zonesMatch(normalizedActivityZone, normalizedKpiZone, projectFullCode, projectCode)
+      const zoneMatch = zoneMatch1 || zoneMatch2
+      
+      if (!zoneMatch) {
+        // Log for debugging P5073 issue
+        console.log(`❌ [kpiMatchesActivityStrict] Zone mismatch: Activity zone="${normalizedActivityZone}" (formatted: "${activityZoneForMatching}") vs KPI zone="${normalizedKpiZone}"`, {
+          activityName: activity.activity_name,
+          kpiId: kpi.id,
+          kpiActivityName: kpi['Activity Name'] || kpi.activity_name,
+          projectFullCode,
+          projectCode,
+          match1: zoneMatch1,
+          match2: zoneMatch2
+        })
+      } else {
+        console.log(`✅ [kpiMatchesActivityStrict] Zone match: Activity zone="${normalizedActivityZone}" (formatted: "${activityZoneForMatching}") === KPI zone="${normalizedKpiZone}"`)
+      }
+      return zoneMatch
     }
     
-    // If activity has no zone, accept KPI (with or without zone)
+    // ✅ CRITICAL: If activity has no zone but KPI has zone, exclude it
+    // This ensures that activities without zone don't match KPIs with specific zones
+    // This is important for P5073 where we want zone-specific filtering
+    if (normalizedKpiZone) {
+      // Activity has no zone but KPI has zone - exclude it (KPI belongs to specific zone, not this activity)
+      console.log(`❌ [kpiMatchesActivityStrict] Zone mismatch: Activity has no zone but KPI has zone="${normalizedKpiZone}"`, {
+        activityName: activity.activity_name,
+        kpiId: kpi.id,
+        kpiActivityName: kpi['Activity Name'] || kpi.activity_name
+      })
+      return false
+    }
+    
+    // ✅ If both have no zone, accept (both are project-level, not zone-specific)
     return true
   }
   
@@ -763,17 +910,60 @@ export function EnhancedSmartActualKPIForm({
       })
       
       // ✅ CRITICAL: Filter KPIs to match THIS activity only (strict matching)
+      const activityZoneRaw = (activity.zone_ref || activity.zone_number || '').toString().trim()
+      const normalizedActivityZone = activityZoneRaw && activityZoneRaw.trim() !== '' && activityZoneRaw !== '0' && activityZoneRaw !== 'Enabling Division' ? activityZoneRaw.trim() : ''
+      
+      // ✅ CRITICAL FIX for P5073: Format zone for matching (same as EnhancedQuantitySummary)
+      const projectFullCode = (selectedProject?.project_full_code || selectedProject?.project_code || '').toString().trim()
+      const projectCode = (selectedProject?.project_code || '').toString().trim()
+      let zoneForMatching = normalizedActivityZone
+      if (normalizedActivityZone && projectFullCode) {
+        // Format zone as "P5073 - Parking-Side-B" for matching with KPIs
+        if (!normalizedActivityZone.includes(projectFullCode) && !normalizedActivityZone.includes(projectCode)) {
+          zoneForMatching = `${projectFullCode} - ${normalizedActivityZone}`
+        } else {
+          zoneForMatching = normalizedActivityZone
+        }
+      }
+      
+      console.log(`🔍 [getActivityQuantities] Filtering KPIs for activity: "${activity.activity_name}"`, {
+        activityZone: normalizedActivityZone || 'NONE (project-level)',
+        activityZoneRaw: activityZoneRaw || 'NONE',
+        zoneForMatching: zoneForMatching || 'NONE',
+        totalActualKPIs: actualKPIs.length,
+        projectFullCode: selectedProject?.project_full_code || selectedProject?.project_code
+      })
+      
       const matchedActualKPIs = actualKPIs.filter((kpi: any) => {
         const matches = kpiMatchesActivityStrict(kpi, activity)
         if (!matches) {
           const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || '').toLowerCase().trim()
           const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
-          console.log(`❌ [getActivityQuantities] KPI excluded: Activity="${kpiActivityName}" !== Target="${activityName}"`)
+          const kpiZone = (kpi['Zone'] || kpi['Zone Number'] || '').toString().trim()
+          console.log(`❌ [getActivityQuantities] KPI excluded:`, {
+            kpiId: kpi.id,
+            kpiActivity: kpiActivityName,
+            targetActivity: activityName,
+            kpiZone: kpiZone || 'NONE',
+            activityZone: normalizedActivityZone || 'NONE',
+            zoneForMatching: zoneForMatching || 'NONE',
+            projectFullCode: kpi['Project Full Code'] || kpi.project_full_code
+          })
+        } else {
+          // Log successful matches for debugging
+          const kpiZone = (kpi['Zone'] || kpi['Zone Number'] || '').toString().trim()
+          console.log(`✅ [getActivityQuantities] KPI matched:`, {
+            kpiId: kpi.id,
+            kpiActivity: kpi['Activity Name'] || kpi.activity_name,
+            kpiZone: kpiZone || 'NONE',
+            activityZone: normalizedActivityZone || 'NONE',
+            quantity: getKPIQuantity(kpi)
+          })
         }
         return matches
       })
       
-      console.log(`📊 [getActivityQuantities] Activity: "${activity.activity_name}"`, {
+      console.log(`📊 [getActivityQuantities] Activity: "${activity.activity_name}" (Zone: ${normalizedActivityZone || 'NONE'})`, {
         totalActualKPIs: actualKPIs.length,
         matchedActualKPIs: matchedActualKPIs.length,
         matchedKPIs: matchedActualKPIs.map((kpi: any) => ({
@@ -781,7 +971,7 @@ export function EnhancedSmartActualKPIForm({
           activityName: kpi['Activity Name'] || kpi.activity_name,
           quantity: getKPIQuantity(kpi),
           projectFullCode: kpi['Project Full Code'] || kpi.project_full_code,
-          zone: kpi['Zone'] || kpi.zone
+          zone: kpi['Zone'] || kpi['Zone Number'] || 'NONE'
         }))
       })
       
@@ -881,24 +1071,51 @@ export function EnhancedSmartActualKPIForm({
             })
           }
           
-          // Filter by Activity Name (flexible matching)
+          // ✅ CRITICAL FIX: Use EXACT same logic as getActivityQuantities and kpiMatchesActivityStrict
+          // Filter by Activity Name (STRICT - exact match only, case-insensitive)
           actualKPIs = actualKPIs.filter((kpi: any) => {
-            const kpiActivityName = (kpi['Activity Name'] || '').toLowerCase().trim()
-            const nameMatch = kpiActivityName === activityName ||
-                            kpiActivityName.includes(activityName) ||
-                            activityName.includes(kpiActivityName)
+            // 1. Project Match (already filtered by Project Full Code above, but verify)
+            const kpiFullCode = (kpi['Project Full Code'] || '').toString().trim().toUpperCase()
+            if (kpiFullCode !== projectFullCode) {
+              return false
+            }
             
-            if (!nameMatch) return false
+            // 2. Activity Name Match (STRICT - exact match only, case-insensitive)
+            const kpiActivityName = (kpi['Activity Name'] || kpi.activity_name || '').toLowerCase().trim()
+            const activityNameMatch = kpiActivityName && activityName && kpiActivityName === activityName
+            if (!activityNameMatch) {
+              return false
+            }
             
-            // ✅ CRITICAL: Filter by Zone if activity has zone - must use zonesMatch for accurate matching
-            if (activityZoneRaw && activityZoneRaw.trim() !== '') {
-              const kpiZoneRaw = (kpi['Zone'] || kpi['Zone Number'] || '').toString().trim()
-              if (!kpiZoneRaw || kpiZoneRaw === '') {
-                return false // Exclude KPIs without zone if activity has zone
+            // 3. Zone Match (STRICT - must match exactly)
+            const kpiZoneRaw = (kpi['Zone'] || kpi['Zone Number'] || '').toString().trim()
+            const normalizedActivityZone = activityZoneRaw && activityZoneRaw.trim() !== '' && activityZoneRaw !== '0' && activityZoneRaw !== 'Enabling Division' ? activityZoneRaw.trim() : ''
+            const normalizedKpiZone = kpiZoneRaw && kpiZoneRaw.trim() !== '' && kpiZoneRaw !== '0' && kpiZoneRaw !== 'Enabling Division' ? kpiZoneRaw.trim() : ''
+            
+            // ✅ CRITICAL: If activity has zone, KPI MUST have zone and they MUST match
+            if (normalizedActivityZone) {
+              if (!normalizedKpiZone) {
+                // Activity has zone but KPI has no zone - exclude it
+                return false
               }
               
-              // ✅ Use zonesMatch with Project Full Code for accurate zone matching
-              return zonesMatch(activityZoneRaw, kpiZoneRaw, projectFullCode, projectCode)
+              // ✅ Format activity zone for matching (same as getActivityQuantities)
+              let activityZoneForMatching = normalizedActivityZone
+              if (!normalizedActivityZone.includes(projectFullCode) && !normalizedActivityZone.includes(projectCode)) {
+                activityZoneForMatching = `${projectFullCode} - ${normalizedActivityZone}`
+              }
+              
+              // ✅ Try matching with both formats (original and formatted)
+              const zoneMatch1 = zonesMatch(activityZoneForMatching, normalizedKpiZone, projectFullCode, projectCode)
+              const zoneMatch2 = zonesMatch(normalizedActivityZone, normalizedKpiZone, projectFullCode, projectCode)
+              if (!zoneMatch1 && !zoneMatch2) {
+                return false
+              }
+            } else {
+              // ✅ If activity has no zone but KPI has zone, exclude it
+              if (normalizedKpiZone) {
+                return false
+              }
             }
             
             return true
@@ -3016,19 +3233,35 @@ export function EnhancedSmartActualKPIForm({
                           preCalculatedTotal={total}
                           preCalculatedPlanned={planned}
                           zone={(() => {
-                            // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
+                            // ✅ CRITICAL FIX: Always pass zone from activity to ensure zone-specific filtering
+                            // For project P5073 and others, quantities should be calculated per zone, not for entire project
                             const projectFullCode = selectedProject?.project_full_code || selectedProject?.project_code || ''
+                            const projectCode = selectedProject?.project_code || ''
                             const activityZone = selectedActivity?.zone_ref || selectedActivity?.zone_number || ''
-                            if (activityZone && projectFullCode) {
-                              // If zone already contains project code, use it as is
-                              if (activityZone.includes(projectFullCode)) {
+                            
+                            // ✅ If activity has zone, format and pass it (for zone-specific filtering)
+                            if (activityZone && activityZone.trim() !== '' && activityZone !== '0' && activityZone !== 'Enabling Division') {
+                              // ✅ CRITICAL: For P5073, zones may be stored as "Parking", "Parking-Side-A", etc.
+                              // We need to ensure proper matching with KPIs that may have "P5073 - Parking" format
+                              
+                              // If zone already contains project code or project full code, use it as is
+                              if (activityZone.includes(projectFullCode) || activityZone.includes(projectCode)) {
+                                console.log(`🔍 [EnhancedQuantitySummary] Using zone as-is: "${activityZone}"`)
                                 return activityZone
                               }
-                              // Otherwise, format as: full code + zone
-                              return `${projectFullCode}-${activityZone}`
+                              
+                              // ✅ For P5073 format: If zone is like "Parking" or "Parking-Side-A", format as "P5073 - Parking"
+                              // This ensures matching with KPIs that have "P5073 - Parking" format
+                              const formattedZone = `${projectFullCode} - ${activityZone}`
+                              console.log(`🔍 [EnhancedQuantitySummary] Formatted zone: "${activityZone}" -> "${formattedZone}"`)
+                              return formattedZone
                             }
-                            return activityZone || undefined
-                          })()} // ✅ Pass Zone from activity (formatted as full code + zone)
+                            
+                            // ✅ If activity has no zone, pass undefined (will show all zones for project)
+                            // This is correct behavior - if activity has no zone, show project totals
+                            console.log(`🔍 [EnhancedQuantitySummary] No zone for activity, showing project totals`)
+                            return undefined
+                          })()} // ✅ Pass Zone from activity (formatted as full code + zone) - CRITICAL for zone-specific filtering
                           projectFullCode={selectedProject?.project_full_code || selectedProject?.project_code || undefined} // ✅ Pass Project Full Code
                           onTotalsChange={(totals) => {
                             // ✅ Note: Total comes from BOQ Activity (planned_units), not from KPIs
