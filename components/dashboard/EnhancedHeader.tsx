@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { useAuth } from '@/app/providers'
 import { Button } from '@/components/ui/Button'
@@ -23,6 +23,8 @@ import {
 } from 'lucide-react'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { EnhancedSearch } from '@/components/ui/EnhancedSearch'
+import { KPINotificationsDropdown } from '@/components/ui/KPINotificationsDropdown'
+import { kpiNotificationService } from '@/lib/kpiNotificationService'
 
 interface EnhancedHeaderProps {
   user: User | null
@@ -45,10 +47,12 @@ export function EnhancedHeader({
   onGlobalFiltersChange
 }: EnhancedHeaderProps) {
   const guard = usePermissionGuard()
-  const { signOut } = useAuth()
-  const [notifications, setNotifications] = useState(3)
+  const { signOut, appUser } = useAuth()
+  const [notifications, setNotifications] = useState(0)
+  const [showNotifications, setShowNotifications] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
+  const notificationButtonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -58,6 +62,48 @@ export function EnhancedHeader({
     document.addEventListener('fullscreenchange', handleFullscreenChange)
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
   }, [])
+
+  // Load notification count
+  useEffect(() => {
+    if (appUser?.id) {
+      loadNotificationCount()
+      // Refresh notification count every 30 seconds
+      const interval = setInterval(() => {
+        loadNotificationCount()
+      }, 30000)
+
+      return () => clearInterval(interval)
+    }
+  }, [appUser?.id])
+
+  // Close notifications dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        notificationButtonRef.current &&
+        !notificationButtonRef.current.contains(event.target as Node) &&
+        !(event.target as HTMLElement).closest('[data-notification-dropdown]')
+      ) {
+        setShowNotifications(false)
+      }
+    }
+
+    if (showNotifications) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showNotifications])
+
+  const loadNotificationCount = async () => {
+    if (!appUser?.id) return
+
+    try {
+      const count = await kpiNotificationService.getNotificationCount(appUser.id)
+      setNotifications(count)
+    } catch (error) {
+      console.error('Error loading notification count:', error)
+    }
+  }
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -173,18 +219,37 @@ export function EnhancedHeader({
           {/* Right Section - User Info and Actions */}
           <div className="flex items-center space-x-4">
             {/* Notifications */}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="relative"
-            >
-              <Bell className="h-4 w-4" />
-              {notifications > 0 && (
-                <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
-                  {notifications}
-                </span>
+            <div className="relative">
+              <Button
+                ref={notificationButtonRef}
+                variant="ghost"
+                size="sm"
+                className="relative"
+                onClick={() => {
+                  setShowNotifications(!showNotifications)
+                  if (!showNotifications) {
+                    loadNotificationCount()
+                  }
+                }}
+              >
+                <Bell className="h-4 w-4" />
+                {notifications > 0 && (
+                  <span className="absolute -top-1 -right-1 h-5 w-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-semibold">
+                    {notifications > 99 ? '99+' : notifications}
+                  </span>
+                )}
+              </Button>
+              {showNotifications && (
+                <div data-notification-dropdown>
+                  <KPINotificationsDropdown
+                    onClose={() => {
+                      setShowNotifications(false)
+                      loadNotificationCount()
+                    }}
+                  />
+                </div>
               )}
-            </Button>
+            </div>
 
             {/* Fullscreen Toggle */}
             <Button

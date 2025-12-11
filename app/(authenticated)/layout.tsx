@@ -4,11 +4,13 @@ import { useAuth } from '@/app/providers'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { ModernSidebar } from '@/components/dashboard/ModernSidebar'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { UserDropdown } from '@/components/ui/UserDropdown'
 import { ActiveUsersIndicator } from '@/components/ui/ActiveUsersIndicator'
-import { Users } from 'lucide-react'
+import { KPINotificationsDropdown } from '@/components/ui/KPINotificationsDropdown'
+import { kpiNotificationService } from '@/lib/kpiNotificationService'
+import { Users, Bell } from 'lucide-react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { ConnectionMonitor } from '@/components/common/ConnectionMonitor'
 import { ProfileCompletionWrapper } from '@/components/auth/ProfileCompletionWrapper'
@@ -39,6 +41,9 @@ export default function AuthenticatedLayout({
   const pathname = usePathname()
   const [mounted, setMounted] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [notificationCount, setNotificationCount] = useState(0)
+  const [showNotifications, setShowNotifications] = useState(false)
+  const notificationButtonRef = useRef<HTMLButtonElement | null>(null)
   const supabase = createClientComponentClient()
   const activityTracker = useActivityTracker()
 
@@ -46,6 +51,79 @@ export default function AuthenticatedLayout({
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  // Load notification count and check for pending KPIs
+  useEffect(() => {
+    if (appUser?.id) {
+      loadNotificationCount()
+      // Check for pending KPIs and create notifications if needed (once on mount)
+      checkPendingKPIs()
+      // Refresh notification count every 30 seconds
+      const interval = setInterval(() => {
+        loadNotificationCount()
+      }, 30000)
+
+      return () => clearInterval(interval)
+    }
+  }, [appUser?.id])
+
+  const checkPendingKPIs = async () => {
+    try {
+      console.log('🔍 Checking for pending KPIs that need notifications...')
+      await kpiNotificationService.notifyPendingKPIs()
+      // Wait a bit for notifications to be created
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      // Reload notification count after checking
+      await loadNotificationCount()
+    } catch (error: any) {
+      console.error('Error checking pending KPIs:', error)
+      // Check if table doesn't exist
+      if (error?.code === '42P01' || error?.message?.includes('does not exist')) {
+        console.warn('⚠️ kpi_notifications table does not exist. Please run Database/setup-kpi-notifications-complete.sql')
+        console.warn('   Or run: Database/kpi-notifications-table.sql then Database/fix-kpi-notifications-rls.sql')
+      }
+    }
+  }
+
+  // Close notifications dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      if (
+        notificationButtonRef.current &&
+        !notificationButtonRef.current.contains(target) &&
+        !target.closest('[data-notification-dropdown]')
+      ) {
+        setShowNotifications(false)
+      }
+    }
+
+    if (showNotifications) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showNotifications])
+
+  const loadNotificationCount = async () => {
+    if (!appUser?.id) {
+      console.log('⚠️ No user ID available for notification count')
+      return
+    }
+
+    try {
+      const count = await kpiNotificationService.getNotificationCount(appUser.id)
+      setNotificationCount(count)
+      if (count > 0) {
+        console.log(`✅ Found ${count} unread notification(s) for user ${appUser.id}`)
+      }
+    } catch (error: any) {
+      console.error('Error loading notification count:', error)
+      // Check if table doesn't exist
+      if (error?.code === '42P01' || error?.message?.includes('does not exist')) {
+        console.warn('⚠️ kpi_notifications table does not exist. Please run Database/kpi-notifications-table.sql')
+      }
+    }
+  }
 
   // Track page views for active users with high precision
   useEffect(() => {
@@ -335,6 +413,38 @@ export default function AuthenticatedLayout({
 
             <div className="flex items-center gap-3">
               <ThemeToggle />
+              
+              {/* KPI Notifications */}
+              <div className="relative">
+                <button
+                  ref={(el) => { notificationButtonRef.current = el }}
+                  onClick={() => {
+                    setShowNotifications(!showNotifications)
+                    if (!showNotifications) {
+                      loadNotificationCount()
+                    }
+                  }}
+                  className="relative flex items-center justify-center p-2 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                  title="KPI Notifications"
+                >
+                  <Bell className="h-5 w-5" />
+                  {notificationCount > 0 && (
+                    <span className="absolute -top-1 -right-1 h-5 w-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-semibold">
+                      {notificationCount > 99 ? '99+' : notificationCount}
+                    </span>
+                  )}
+                </button>
+                {showNotifications && (
+                  <div data-notification-dropdown>
+                    <KPINotificationsDropdown
+                      onClose={() => {
+                        setShowNotifications(false)
+                        loadNotificationCount()
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
               
               {/* Active Users Indicator */}
               <ActiveUsersIndicator />
