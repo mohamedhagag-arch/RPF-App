@@ -893,16 +893,17 @@ export function KPITableWithCustomization({
         // In this case, we MUST calculate from Rate × Quantity, never use the Value
         const isValueActuallyQuantity = valueFromKPI > 0 && quantityForValue > 0 && Math.abs(valueFromKPI - quantityForValue) < 0.01
         
-        // ✅ PRIORITY 1: Calculate from Quantity × Rate if Quantity is available
-        // This is ALWAYS the correct method when we have a quantity
-        if (quantityForValue > 0) {
-          if (rateForValue > 0) {
-            // We have both Quantity and Rate - calculate the financial value
-            totalValue = quantityForValue * rateForValue
-            if (process.env.NODE_ENV === 'development') {
-              console.log(`✅ [KPI Value] Calculating from Rate × Quantity: ${quantityForValue} × ${rateForValue} = ${totalValue}`)
-            }
-          } else if (isValueActuallyQuantity) {
+        // ✅ PRIORITY 1: ALWAYS calculate from Quantity × Rate if both Quantity and Rate are available
+        // This is ALWAYS the correct method - never use Value from KPI when we can calculate
+        if (quantityForValue > 0 && rateForValue > 0) {
+          // We have both Quantity and Rate - ALWAYS calculate the financial value
+          totalValue = quantityForValue * rateForValue
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`✅ [KPI Value] Calculating from Rate × Quantity: ${quantityForValue} × ${rateForValue} = ${totalValue}`)
+          }
+        } else if (quantityForValue > 0) {
+          // We have quantity but no rate
+          if (isValueActuallyQuantity) {
             // Value equals quantity, so we cannot use it - we need Rate
             // Keep totalValue as 0 and show warning
             if (process.env.NODE_ENV === 'development') {
@@ -910,7 +911,6 @@ export function KPITableWithCustomization({
             }
           } else if (valueFromKPI > 0 && !isValueActuallyQuantity) {
             // Value is different from quantity, so it's a real financial value
-            // But we prefer Rate × Quantity if Rate is available
             // Since Rate is 0, use Value as fallback
             totalValue = valueFromKPI
             if (process.env.NODE_ENV === 'development') {

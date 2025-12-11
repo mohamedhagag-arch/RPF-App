@@ -405,8 +405,8 @@ export function formatCurrencyByCodeSync(amount: number, currencyCode?: string):
   }
   
   const formattedAmount = new Intl.NumberFormat('en-US', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
   }).format(amount)
   
   return `${formattedAmount} ${currency.symbol}`

@@ -103,10 +103,6 @@ export function IntelligentKPIForm({
           setAvailableZones([])
         }
       }
-      // Handle date formatting - Support all possible date field names
-      const targetDateValue = kpi['Target Date'] || kpi.target_date || kpi['target_date'] || ''
-      const actualDateValue = kpi['Actual Date'] || kpi.actual_date || kpi['actual_date'] || ''
-      
       // Convert date to YYYY-MM-DD format for input[type="date"]
       const formatDateForInput = (dateStr: string) => {
         if (!dateStr) return ''
@@ -153,50 +149,71 @@ export function IntelligentKPIForm({
         }
       }
       
-      setTargetDate(formatDateForInput(targetDateValue))
-      setActualDate(formatDateForInput(actualDateValue))
+      // ✅ FIX: Get dates with EXACT SAME logic as Date column in table
+      // EXACT COPY from KPITableWithCustomization.tsx date column
+      const rawKPIDate = (kpi as any).raw || {}
       
-      console.log('📅 Date fields loaded:', {
-        targetDate: targetDateValue,
-        actualDate: actualDateValue,
-        formattedTargetDate: formatDateForInput(targetDateValue),
-        formattedActualDate: formatDateForInput(actualDateValue),
-        rawKpiData: {
-          'Target Date': kpi['Target Date'],
-          'Actual Date': kpi['Actual Date'],
-          target_date: kpi.target_date,
-          actual_date: kpi.actual_date
-        },
-        allKpiKeys: Object.keys(kpi)
+      // Priority 1: Day column (if available and formatted)
+      const dayValue = kpi.day || rawKPIDate['Day'] || ''
+      
+      // Priority 2: Actual Date (for Actual KPIs) or Target Date (for Planned KPIs)
+      // ✅ EXACT SAME as table: kpi.actual_date || rawKPIDate['Actual Date']
+      const actualDateValue = kpi.actual_date || rawKPIDate['Actual Date'] || ''
+      const targetDateValue = kpi.target_date || rawKPIDate['Target Date'] || ''
+      
+      // Priority 3: Activity Date
+      const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
+      
+      // Determine which date to use based on Input Type (EXACT SAME AS TABLE)
+      // ✅ Use kpi.input_type directly like table (not lowercase)
+      const isActual = kpi.input_type === 'Actual' // ✅ EXACT SAME as table: kpi.input_type === 'Actual'
+      
+      let dateToUse = ''
+      if (isActual && actualDateValue) {
+        dateToUse = actualDateValue
+      } else if (!isActual && targetDateValue) {
+        dateToUse = targetDateValue
+      } else if (dayValue) {
+        // If Day is available, try to use it or fallback to Activity Date
+        dateToUse = activityDateValue || dayValue
+      } else {
+        dateToUse = activityDateValue || actualDateValue || targetDateValue
+      }
+      
+      // Set dates based on Input Type
+      if (isActual) {
+        setActualDate(formatDateForInput(dateToUse))
+        setTargetDate('') // Clear target date for Actual KPIs
+      } else {
+        setTargetDate(formatDateForInput(dateToUse))
+        setActualDate('') // Clear actual date for Planned KPIs
+      }
+      
+      // ✅ DEBUG: Log all possible date fields to find the correct one
+      console.log('📅 [Date Detection] All date fields:', {
+        inputType: kpi.input_type || kpi['Input Type'],
+        isActual,
+        // Direct KPI fields
+        'kpi.actual_date': kpi.actual_date,
+        'kpi.target_date': kpi.target_date,
+        'kpi.activity_date': kpi.activity_date,
+        'kpi.day': kpi.day,
+        // Raw fields
+        "rawKPIDate['Actual Date']": rawKPIDate['Actual Date'],
+        "rawKPIDate['Target Date']": rawKPIDate['Target Date'],
+        "rawKPIDate['Activity Date']": rawKPIDate['Activity Date'],
+        "rawKPIDate['Day']": rawKPIDate['Day'],
+        // All KPI keys
+        allKpiKeys: Object.keys(kpi),
+        allRawKeys: Object.keys(rawKPIDate),
+        // Resolved values
+        actualDateValue,
+        targetDateValue,
+        activityDateValue,
+        dayValue,
+        dateToUse,
+        formattedDate: formatDateForInput(dateToUse)
       })
-      
-      // Debug: Check all possible date fields
-      const allDateFields = Object.keys(kpi).filter(key => 
-        key.toLowerCase().includes('date') || 
-        key.toLowerCase().includes('actual') ||
-        key.toLowerCase().includes('target')
-      )
-      console.log('🔍 All date-related fields:', allDateFields)
-      
-      // Try to find the actual date in any possible field
-      const possibleActualDateFields = [
-        'Actual Date', 'actual_date', 'actualDate', 'Actual_Date',
-        'Date', 'date', 'Activity Date', 'activity_date'
-      ]
-      
-      let foundActualDate = ''
-      for (const field of possibleActualDateFields) {
-        if (kpi[field]) {
-          foundActualDate = kpi[field]
-          console.log(`✅ Found actual date in field '${field}':`, foundActualDate)
-          break
-        }
-      }
-      
-      if (foundActualDate && foundActualDate !== actualDateValue) {
-        console.log('🔄 Using found actual date:', foundActualDate)
-        setActualDate(formatDateForInput(foundActualDate))
-      }
       // ✅ CRITICAL FIX: Extract zone value correctly and format it like Smart KPI Form
       // Zone may be stored as "P8888-01-1", "01-1", or just "1"
       // We need to extract the actual zone value (last part) then format as projectFullCode-zone
@@ -1410,7 +1427,13 @@ export function IntelligentKPIForm({
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Drilled Meters (Optional)
+                <span className="flex items-center gap-2">
+                  <span className="text-lg">🔧</span>
+                  Drilling
+                  <span className="ml-2 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 px-2 py-1 rounded-full">
+                    Optional
+                  </span>
+                </span>
               </label>
               <input
                 type="number"
@@ -1420,9 +1443,13 @@ export function IntelligentKPIForm({
                   setDrilledMeters(e.target.value)
                   setHasUserChangedFields(true)
                 }}
-                placeholder="0.00"
+                placeholder="Enter drilled meters (optional)..."
                 className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                min="0"
               />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Only for drilling activities - leave empty if not applicable
+              </p>
             </div>
           </div>
 

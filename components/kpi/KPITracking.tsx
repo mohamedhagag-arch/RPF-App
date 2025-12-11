@@ -2662,30 +2662,35 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     return total
   }, [plannedKPIs, getActivityRate])
   
-  // ✅ FIXED: Calculate Actual Value - Use Actual Value directly from database
-  // For Actual KPIs, we should use the Actual Value field directly, not calculate from Rate × Quantity
+  // ✅ FIXED: Calculate Actual Value - Use SAME LOGIC as Value column in table (Quantity × Rate)
+  // This ensures consistency between the card and the table column
   const totalActualValue = useMemo(() => {
     if (actualKPIs.length === 0) {
       return 0
     }
 
     let total = 0
-    let fromActualValue = 0
+    let fromRateCalculation = 0
     let fromValue = 0
     let skipped = 0
     
     actualKPIs.forEach((k: ProcessedKPI) => {
       const rawKPI = (k as any).raw || {}
+      const quantity = k.quantity || parseFloat(String(rawKPI['Quantity'] || '0').replace(/,/g, '')) || 0
       
-      // ✅ PRIORITY 1: Use Actual Value directly from KPI (most accurate for Actual KPIs)
-      const actualValue = k.actual_value || parseFloat(String(rawKPI['Actual Value'] || '0').replace(/,/g, '')) || 0
-      if (actualValue > 0) {
-        total += actualValue
-        fromActualValue++
+      // ✅ PRIORITY 1: ALWAYS calculate from Quantity × Rate if both are available (SAME AS TABLE)
+      // This matches the Value column logic exactly
+      if (quantity > 0) {
+        const rate = getActivityRate(k)
+        if (rate > 0) {
+          const calculatedValue = quantity * rate
+          total += calculatedValue
+          fromRateCalculation++
           return
+        }
       }
       
-      // ✅ PRIORITY 2: Fallback to Value field if Actual Value is not available
+      // ✅ PRIORITY 2: Fallback to Value field if Rate is not available
       let kpiValue = 0
       
       // Try raw['Value'] (from database with capital V)
@@ -2706,6 +2711,12 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
       }
       
+      // ✅ Check if Value equals Quantity (means it's quantity, not value)
+      if (kpiValue > 0 && quantity > 0 && Math.abs(kpiValue - quantity) < 0.01) {
+        // Value equals quantity, so it's not a real value - skip
+        kpiValue = 0
+      }
+      
       if (kpiValue > 0) {
         total += kpiValue
         fromValue++
@@ -2720,20 +2731,20 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     if (process.env.NODE_ENV === 'development') {
       console.log(`📊 [Actual Value] Calculated for ${actualKPIs.length} Actual KPIs:`, {
         total,
-        fromActualValue,
+        fromRateCalculation,
         fromValue,
         skipped,
         percentages: {
-          fromActualValue: actualKPIs.length > 0 ? ((fromActualValue / actualKPIs.length) * 100).toFixed(1) + '%' : '0%',
+          fromRateCalculation: actualKPIs.length > 0 ? ((fromRateCalculation / actualKPIs.length) * 100).toFixed(1) + '%' : '0%',
           fromValue: actualKPIs.length > 0 ? ((fromValue / actualKPIs.length) * 100).toFixed(1) + '%' : '0%',
           skipped: actualKPIs.length > 0 ? ((skipped / actualKPIs.length) * 100).toFixed(1) + '%' : '0%'
         },
-        note: 'Using Actual Value directly from database (Priority: 1) Actual Value, 2) Value field)'
+        note: 'Using SAME LOGIC as Value column: Quantity × Rate (Priority 1), Value field as fallback (Priority 2)'
       })
     }
     
     return total
-  }, [actualKPIs])
+  }, [actualKPIs, getActivityRate])
   // Calculate achievement rates
   const valueAchievementRate = totalPlannedValue > 0 ? (totalActualValue / totalPlannedValue) * 100 : 0
   const quantityAchievementRate = totalPlannedQty > 0 ? (totalActualQty / totalPlannedQty) * 100 : 0
@@ -3422,8 +3433,9 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           activities={activities}
           onSubmit={editingKPI ? async (data) => {
             await handleUpdateKPI(editingKPI.id, data)
-            setShowForm(false)
-            setEditingKPI(null)
+            // ✅ Don't close form automatically - let user continue editing
+            // setShowForm(false)
+            // setEditingKPI(null)
           } : handleCreateKPI}
           onCancel={() => {
             setShowForm(false)
