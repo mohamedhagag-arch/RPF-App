@@ -261,13 +261,14 @@ class KPINotificationService {
     try {
       console.log(`🔍 Fetching unread notifications for user: ${userId}`)
       
+      // Use DISTINCT ON to get only one notification per kpi_id at database level
       const { data, error } = await this.supabase
         .from('kpi_notifications')
         .select('*')
         .eq('recipient_id', userId)
         .eq('is_read', false)
         .order('created_at', { ascending: false })
-        .limit(50)
+        .limit(100) // Get more to filter duplicates
 
       if (error) {
         console.error('❌ Error fetching notifications:', error)
@@ -276,19 +277,78 @@ class KPINotificationService {
 
       console.log(`📬 Found ${data?.length || 0} unread notifications for user ${userId}`)
       
-      // Debug: Show sample notification if any
+      // Remove duplicates: Keep only the most recent notification for each kpi_id
       if (data && data.length > 0) {
-        const sample = data[0] as any
-        console.log('📋 Sample notification:', {
-          id: sample.id,
-          title: sample.title,
-          recipient_id: sample.recipient_id,
-          is_read: sample.is_read,
-          created_at: sample.created_at
+        const notificationsMap = new Map<string, KPINotification>()
+        const seenIds = new Set<string>() // Track notification IDs to avoid exact duplicates
+        const seenKpiRecipientPairs = new Set<string>() // Track kpi_id + recipient_id pairs
+        
+        for (const notification of data as KPINotification[]) {
+          const notif = notification as any
+          
+          // Skip if we've seen this exact notification ID
+          if (notif.id && seenIds.has(notif.id)) {
+            console.log(`🔧 Skipping duplicate notification ID: ${notif.id}`)
+            continue
+          }
+          seenIds.add(notif.id)
+          
+          // Create a unique key: kpi_id + recipient_id (to handle same KPI for same user)
+          const pairKey = `${notif.kpi_id || 'no-kpi'}_${notif.recipient_id}`
+          
+          // Skip if we've already seen this kpi_id + recipient_id combination
+          if (seenKpiRecipientPairs.has(pairKey)) {
+            console.log(`🔧 Skipping duplicate kpi_id+recipient pair: ${pairKey}`)
+            continue
+          }
+          seenKpiRecipientPairs.add(pairKey)
+          
+          // Use kpi_id as key for grouping, or 'no-kpi-' + id if kpi_id is null
+          const key = notif.kpi_id || `no-kpi-${notif.id}`
+          const existing = notificationsMap.get(key)
+          
+          // Keep the most recent one (data is already sorted by created_at DESC)
+          if (!existing) {
+            notificationsMap.set(key, notification)
+          } else {
+            const existingDate = existing.created_at ? new Date(existing.created_at).getTime() : 0
+            const currentDate = notif.created_at ? new Date(notif.created_at).getTime() : 0
+            
+            if (currentDate > existingDate) {
+              notificationsMap.set(key, notification)
+            }
+          }
+        }
+        
+        const uniqueNotifications = Array.from(notificationsMap.values())
+        if (uniqueNotifications.length < data.length) {
+          console.log(`🔧 Removed ${data.length - uniqueNotifications.length} duplicate notification(s) from results`)
+        }
+        
+        // Sort by created_at DESC again after deduplication
+        uniqueNotifications.sort((a, b) => {
+          const dateA = a.created_at ? new Date(a.created_at).getTime() : 0
+          const dateB = b.created_at ? new Date(b.created_at).getTime() : 0
+          return dateB - dateA
         })
+        
+        // Debug: Show sample notification if any
+        if (uniqueNotifications.length > 0) {
+          const sample = uniqueNotifications[0] as any
+          console.log('📋 Sample notification:', {
+            id: sample.id,
+            kpi_id: sample.kpi_id,
+            title: sample.title,
+            recipient_id: sample.recipient_id,
+            is_read: sample.is_read,
+            created_at: sample.created_at
+          })
+        }
+        
+        return uniqueNotifications.slice(0, 50) // Return max 50
       }
 
-      return (data || []) as KPINotification[]
+      return []
     } catch (error) {
       console.error('Error in getUnreadNotifications:', error)
       return []
@@ -517,78 +577,28 @@ class KPINotificationService {
 
       console.log(`📊 Summary: ${notifications.length} new notifications to create, ${skippedCount} KPIs already have notifications`)
 
-      // If we added current user to recipients, create notifications for them for existing pending KPIs
-      try {
-        const { data: currentUser } = await this.supabase.auth.getUser()
-        if (currentUser?.user?.id) {
-          const currentUserId = currentUser.user.id
-          const isCurrentUserInRecipients = recipients.includes(currentUserId)
-          
-          if (isCurrentUserInRecipients) {
-            // Check if current user has notifications for these pending KPIs
-            const notificationsForCurrentUser: KPINotification[] = []
-            
-            for (const kpi of (pendingKPIs || []) as any[]) {
-              if (!kpi || !kpi.id) continue
-              
-              // Check if notification exists for current user
-              const { data: existingForCurrentUser } = await this.supabase
-                .from('kpi_notifications')
-                .select('id')
-                .eq('kpi_id', kpi.id)
-                .eq('recipient_id', currentUserId)
-                .eq('notification_type', 'kpi_created')
-                .limit(1)
-
-              if (!existingForCurrentUser || existingForCurrentUser.length === 0) {
-                // Create notification for current user
-                const title = `KPI Needs Approval - ${kpi['Activity Name'] || 'Activity'}`
-                const message = `A ${kpi['Input Type'] || 'Actual'} KPI for project ${kpi['Project Code'] || kpi['Project Full Code'] || 'N/A'} needs your approval`
-
-                notificationsForCurrentUser.push({
-                  kpi_id: kpi.id,
-                  recipient_id: currentUserId,
-                  notification_type: 'kpi_created',
-                  title,
-                  message,
-                  metadata: {
-                    project_code: kpi['Project Code'] || kpi['Project Full Code'],
-                    activity_name: kpi['Activity Name'],
-                    quantity: kpi['Quantity'],
-                    input_type: kpi['Input Type'],
-                    approval_status: kpi['Approval Status'] || 'pending'
-                  }
-                })
-              }
-            }
-
-            if (notificationsForCurrentUser.length > 0) {
-              console.log(`👤 Creating ${notificationsForCurrentUser.length} notifications for current user`)
-              const { error: currentUserError } = await (this.supabase
-                .from('kpi_notifications') as any)
-                .insert(notificationsForCurrentUser)
-
-              if (currentUserError) {
-                console.error('Error creating notifications for current user:', currentUserError)
-              } else {
-                console.log(`✅ Created ${notificationsForCurrentUser.length} notifications for current user`)
-                // Add to main notifications array
-                notifications.push(...notificationsForCurrentUser)
-              }
-            }
-          }
+      // Remove duplicates: Check for duplicate notifications (same kpi_id + recipient_id)
+      const uniqueNotifications = new Map<string, KPINotification>()
+      for (const notification of notifications) {
+        const key = `${notification.kpi_id}_${notification.recipient_id}`
+        if (!uniqueNotifications.has(key)) {
+          uniqueNotifications.set(key, notification)
+        } else {
+          console.log(`⚠️ Duplicate notification removed: KPI ${notification.kpi_id} for recipient ${notification.recipient_id}`)
         }
-      } catch (err) {
-        // Ignore errors
-        console.log('Could not create notifications for current user:', err)
+      }
+      
+      const finalNotifications = Array.from(uniqueNotifications.values())
+      if (finalNotifications.length < notifications.length) {
+        console.log(`🔧 Removed ${notifications.length - finalNotifications.length} duplicate notification(s)`)
       }
 
-      if (notifications.length > 0) {
+      if (finalNotifications.length > 0) {
         // Insert in batches of 100
         const batchSize = 100
         let totalInserted = 0
-        for (let i = 0; i < notifications.length; i += batchSize) {
-          const batch = notifications.slice(i, i + batchSize)
+        for (let i = 0; i < finalNotifications.length; i += batchSize) {
+          const batch = finalNotifications.slice(i, i + batchSize)
           const { error } = await (this.supabase
             .from('kpi_notifications') as any)
             .insert(batch)
@@ -603,7 +613,7 @@ class KPINotificationService {
             })
           } else {
             totalInserted += batch.length
-            console.log(`✅ Created ${batch.length} notifications (Total: ${totalInserted}/${notifications.length})`)
+            console.log(`✅ Created ${batch.length} notifications (Total: ${totalInserted}/${finalNotifications.length})`)
           }
         }
         console.log(`✅ Successfully created ${totalInserted} notifications for pending KPIs`)

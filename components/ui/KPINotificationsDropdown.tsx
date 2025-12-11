@@ -44,21 +44,25 @@ export function KPINotificationsDropdown({ onClose }: KPINotificationsDropdownPr
       console.log(`📬 Loaded ${unreadNotifications.length} unread notifications`)
       setNotifications(unreadNotifications)
       
-      // Always check for pending KPIs when dropdown opens (to catch new ones)
-      try {
-        console.log('🔄 Checking for pending KPIs that need notifications...')
-        await kpiNotificationService.notifyPendingKPIs()
-        // Reload after checking
-        const updatedNotifications = await kpiNotificationService.getUnreadNotifications(appUser.id)
-        setNotifications(updatedNotifications)
-        if (updatedNotifications.length > unreadNotifications.length) {
-          console.log(`✅ Found ${updatedNotifications.length - unreadNotifications.length} new notification(s)`)
-        }
-      } catch (err: any) {
-        console.error('Error checking pending KPIs:', err)
-        // Show error in UI if table doesn't exist
-        if (err?.code === '42P01' || err?.message?.includes('does not exist')) {
-          setError('Notifications table not found. Please run Database/kpi-notifications-table.sql')
+      // Check for pending KPIs only if we have no notifications (to avoid duplicates)
+      if (unreadNotifications.length === 0) {
+        try {
+          console.log('🔄 Checking for pending KPIs that need notifications...')
+          await kpiNotificationService.notifyPendingKPIs()
+          // Wait a bit for notifications to be created
+          await new Promise(resolve => setTimeout(resolve, 500))
+          // Reload after checking
+          const updatedNotifications = await kpiNotificationService.getUnreadNotifications(appUser.id)
+          setNotifications(updatedNotifications)
+          if (updatedNotifications.length > unreadNotifications.length) {
+            console.log(`✅ Found ${updatedNotifications.length - unreadNotifications.length} new notification(s)`)
+          }
+        } catch (err: any) {
+          console.error('Error checking pending KPIs:', err)
+          // Show error in UI if table doesn't exist
+          if (err?.code === '42P01' || err?.message?.includes('does not exist')) {
+            setError('Notifications table not found. Please run Database/kpi-notifications-table.sql')
+          }
         }
       }
     } catch (err: any) {
