@@ -132,8 +132,10 @@ export default function ManpowerPage() {
   const extractTimeOnly = (datetimeValue: string): string => {
     if (!datetimeValue) return ''
     
+    const valueStr = String(datetimeValue).trim()
+    
     // Handle 12-hour format with AM/PM (e.g., "6:45 PM", "7:00 AM")
-    const time12HourMatch = datetimeValue.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
+    const time12HourMatch = valueStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
     if (time12HourMatch) {
       let hours = parseInt(time12HourMatch[1])
       const minutes = time12HourMatch[2]
@@ -148,24 +150,58 @@ export default function ManpowerPage() {
       return `${hours.toString().padStart(2, '0')}:${minutes}`
     }
     
-    // If already in time format (HH:mm)
-    if (/^\d{2}:\d{2}$/.test(datetimeValue)) {
-      return datetimeValue
+    // ✅ Handle time format with seconds (HH:mm:ss or H:mm:ss) - e.g., "09:28:00", "9:28:00"
+    const timeWithSecondsMatch = valueStr.match(/^(\d{1,2}):(\d{2}):(\d{2})$/)
+    if (timeWithSecondsMatch) {
+      const hours = timeWithSecondsMatch[1].padStart(2, '0')
+      const minutes = timeWithSecondsMatch[2]
+      return `${hours}:${minutes}`
+    }
+    
+    // If already in time format (HH:mm) - exact match
+    if (/^\d{2}:\d{2}$/.test(valueStr)) {
+      return valueStr
+    }
+    
+    // If in time format with single digit hour (H:mm) - e.g., "6:45"
+    const singleHourMatch = valueStr.match(/^(\d{1,2}):(\d{2})$/)
+    if (singleHourMatch) {
+      const hours = singleHourMatch[1].padStart(2, '0')
+      const minutes = singleHourMatch[2]
+      return `${hours}:${minutes}`
     }
     
     // If in datetime-local format (YYYY-MM-DDTHH:mm)
-    if (/T\d{2}:\d{2}$/.test(datetimeValue)) {
-      return datetimeValue.split('T')[1]
+    if (/T\d{2}:\d{2}$/.test(valueStr)) {
+      return valueStr.split('T')[1]
     }
     
-    // If in datetime format with seconds (YYYY-MM-DDTHH:mm:ss)
-    if (/T\d{2}:\d{2}:\d{2}/.test(datetimeValue)) {
-      const timePart = datetimeValue.split('T')[1]
-      return timePart.split(':').slice(0, 2).join(':')
+    // If in datetime format with seconds (YYYY-MM-DDTHH:mm:ss or YYYY-MM-DD HH:mm:ss)
+    const datetimeWithSeconds = valueStr.match(/(\d{4}-\d{2}-\d{2})[T\s](\d{2}):(\d{2}):(\d{2})/)
+    if (datetimeWithSeconds) {
+      return `${datetimeWithSeconds[2]}:${datetimeWithSeconds[3]}`
     }
     
-    // Return as is if format is unknown
-    return datetimeValue
+    // If in datetime format without seconds (YYYY-MM-DD HH:mm)
+    const datetimeWithoutSeconds = valueStr.match(/(\d{4}-\d{2}-\d{2})[T\s](\d{2}):(\d{2})/)
+    if (datetimeWithoutSeconds) {
+      return `${datetimeWithoutSeconds[2]}:${datetimeWithoutSeconds[3]}`
+    }
+    
+    // Try to parse as Date object and extract time
+    try {
+      const dateObj = new Date(valueStr)
+      if (!isNaN(dateObj.getTime())) {
+        const hours = dateObj.getHours().toString().padStart(2, '0')
+        const minutes = dateObj.getMinutes().toString().padStart(2, '0')
+        return `${hours}:${minutes}`
+      }
+    } catch (e) {
+      // Ignore parsing errors
+    }
+    
+    // Return as is if format is unknown (might be valid time format we didn't catch)
+    return valueStr
   }
 
   // ✅ Calculate Total Hours from Start and Finish times
@@ -173,89 +209,106 @@ export default function ManpowerPage() {
     if (!start || !finish) return 0
     
     try {
+      // Helper function to normalize time to HH:mm format (remove seconds if present)
+      const normalizeTime = (timeStr: string): string => {
+        if (!timeStr) return ''
+        const trimmed = timeStr.trim()
+        // If time has seconds (HH:mm:ss), remove seconds
+        if (/^\d{1,2}:\d{2}:\d{2}$/.test(trimmed)) {
+          const parts = trimmed.split(':')
+          return `${parts[0].padStart(2, '0')}:${parts[1]}`
+        }
+        // If already in HH:mm or H:mm format, normalize to HH:mm
+        if (/^\d{1,2}:\d{2}$/.test(trimmed)) {
+          const parts = trimmed.split(':')
+          return `${parts[0].padStart(2, '0')}:${parts[1]}`
+        }
+        return trimmed
+      }
+      
+      // Helper function to get date string from formData.date
+      const getDateStr = (): string => {
+        if (!formData.date) return new Date().toISOString().split('T')[0]
+        
+        if (/^\d{4}-\d{2}-\d{2}$/.test(formData.date)) return formData.date
+        
+        // Try to convert other formats
+        const formats = [
+          /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,
+          /^(\d{1,2})-(\d{1,2})-(\d{4})$/,
+          /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/,
+        ]
+        for (const format of formats) {
+          const matchResult = formData.date.match(format)
+          if (matchResult?.[1] && matchResult?.[2] && matchResult?.[3]) {
+            const match = matchResult as RegExpMatchArray
+            let day, month, year
+            if (format === formats[2]) {
+              year = match[1]
+              month = match[2].padStart(2, '0')
+              day = match[3].padStart(2, '0')
+            } else {
+              day = match[1].padStart(2, '0')
+              month = match[2].padStart(2, '0')
+              year = match[3]
+            }
+            if (year && month && day) {
+              return `${year}-${month}-${day}`
+            }
+          }
+        }
+        return new Date().toISOString().split('T')[0]
+      }
+      
       // Parse start time
       let startDate: Date
-      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(start)) {
+      // Check for datetime format with seconds: YYYY-MM-DDTHH:mm:ss
+      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(start)) {
         startDate = new Date(start)
-      } else if (/^\d{2}:\d{2}$/.test(start)) {
-        // If only time, use date from formData.date or today
-        const dateStr = formData.date 
-          ? (() => {
-              if (/^\d{4}-\d{2}-\d{2}$/.test(formData.date)) return formData.date
-              // Try to convert other formats
-              const formats = [
-                /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,
-                /^(\d{1,2})-(\d{1,2})-(\d{4})$/,
-                /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/,
-              ]
-              for (const format of formats) {
-                const matchResult = formData.date.match(format)
-                if (matchResult?.[1] && matchResult?.[2] && matchResult?.[3]) {
-                  const match = matchResult as RegExpMatchArray
-                  let day, month, year
-                  if (format === formats[2]) {
-                    year = match[1]
-                    month = match[2].padStart(2, '0')
-                    day = match[3].padStart(2, '0')
-                  } else {
-                    day = match[1].padStart(2, '0')
-                    month = match[2].padStart(2, '0')
-                    year = match[3]
-                  }
-                  if (year && month && day) {
-                    return `${year}-${month}-${day}`
-                  }
-                }
-              }
-              return ''
-            })()
-          : new Date().toISOString().split('T')[0]
-        startDate = new Date(`${dateStr}T${start}`)
-      } else {
+      } 
+      // Check for datetime format without seconds: YYYY-MM-DDTHH:mm
+      else if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(start)) {
+        startDate = new Date(start)
+      } 
+      // Check for time with seconds: HH:mm:ss or H:mm:ss
+      else if (/^\d{1,2}:\d{2}:\d{2}$/.test(start)) {
+        const normalizedTime = normalizeTime(start)
+        const dateStr = getDateStr()
+        startDate = new Date(`${dateStr}T${normalizedTime}`)
+      }
+      // Check for time without seconds: HH:mm or H:mm
+      else if (/^\d{1,2}:\d{2}$/.test(start)) {
+        const normalizedTime = normalizeTime(start)
+        const dateStr = getDateStr()
+        startDate = new Date(`${dateStr}T${normalizedTime}`)
+      } 
+      else {
         return 0
       }
       
       // Parse finish time
       let finishDate: Date
-      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(finish)) {
+      // Check for datetime format with seconds: YYYY-MM-DDTHH:mm:ss
+      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(finish)) {
         finishDate = new Date(finish)
-      } else if (/^\d{2}:\d{2}$/.test(finish)) {
-        // If only time, use date from formData.date or start date
-        const dateStr = formData.date 
-          ? (() => {
-              if (/^\d{4}-\d{2}-\d{2}$/.test(formData.date)) return formData.date
-              // Try to convert other formats
-              const formats = [
-                /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,
-                /^(\d{1,2})-(\d{1,2})-(\d{4})$/,
-                /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/,
-              ]
-              for (const format of formats) {
-                const matchResult = formData.date.match(format)
-                if (matchResult?.[1] && matchResult?.[2] && matchResult?.[3]) {
-                  const match = matchResult as RegExpMatchArray
-                  let day, month, year
-                  if (format === formats[2]) {
-                    year = match[1]
-                    month = match[2].padStart(2, '0')
-                    day = match[3].padStart(2, '0')
-                  } else {
-                    day = match[1].padStart(2, '0')
-                    month = match[2].padStart(2, '0')
-                    year = match[3]
-                  }
-                  if (year && month && day) {
-                    return `${year}-${month}-${day}`
-                  }
-                }
-              }
-              return ''
-            })()
-          : (start && /^\d{4}-\d{2}-\d{2}T/.test(start))
-            ? start.split('T')[0]
-            : new Date().toISOString().split('T')[0]
-        finishDate = new Date(`${dateStr}T${finish}`)
-      } else {
+      } 
+      // Check for datetime format without seconds: YYYY-MM-DDTHH:mm
+      else if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(finish)) {
+        finishDate = new Date(finish)
+      } 
+      // Check for time with seconds: HH:mm:ss or H:mm:ss
+      else if (/^\d{1,2}:\d{2}:\d{2}$/.test(finish)) {
+        const normalizedTime = normalizeTime(finish)
+        const dateStr = getDateStr()
+        finishDate = new Date(`${dateStr}T${normalizedTime}`)
+      }
+      // Check for time without seconds: HH:mm or H:mm
+      else if (/^\d{1,2}:\d{2}$/.test(finish)) {
+        const normalizedTime = normalizeTime(finish)
+        const dateStr = getDateStr()
+        finishDate = new Date(`${dateStr}T${normalizedTime}`)
+      } 
+      else {
         return 0
       }
       
@@ -282,12 +335,13 @@ export default function ManpowerPage() {
   }
 
   // ✅ Calculate Cost based on Designation Rate
-  // Updated to use the correct default values from Designation Rates:
+  // Updated to use Total Hours and Overtime directly (not Standard Working Hours)
+  // - Cost = (Total Hours - Overtime) * hourly_rate + Overtime * overtime_hourly_rate
   // - overtime_hourly_rate defaults to hourly_rate (not hourly_rate * 1.5)
   // - off_day_hourly_rate defaults to hourly_rate * 2
   const calculateCost = (
     designation: string,
-    standardHours: number,
+    totalHours: number,
     overtimeHours: number,
     isOffDay: boolean = false // Optional: flag to indicate if this is an off-day
   ): number => {
@@ -316,10 +370,11 @@ export default function ManpowerPage() {
     // Calculate costs based on whether it's an off-day or regular day
     if (isOffDay) {
       // For off-days, use off_day_hourly_rate for all hours
-      const totalHours = standardHours + overtimeHours
       return totalHours * offDayRate
     } else {
-      // For regular days, use hourly_rate for standard hours and overtime_hourly_rate for overtime
+      // ✅ For regular days, calculate based on Total Hours and Overtime directly
+      // Standard Hours = Total Hours - Overtime
+      const standardHours = Math.max(0, totalHours - overtimeHours)
       const standardCost = standardHours * hourlyRate
       const overtimeCost = overtimeHours * overtimeRate
       return standardCost + overtimeCost
@@ -328,17 +383,102 @@ export default function ManpowerPage() {
 
   // ✅ Auto-calculate Total Hours and Overtime when Start, Finish, or Standard Working Hours change
   useEffect(() => {
-    if (formData.start && formData.finish) {
-      const totalHours = calculateTotalHours(formData.start, formData.finish)
+    // ✅ Check if we have valid time values (can be HH:mm, HH:mm:ss, or YYYY-MM-DDTHH:mm)
+    const hasValidStart = formData.start && (formData.start.trim() !== '' && formData.start !== '--:--')
+    const hasValidFinish = formData.finish && (formData.finish.trim() !== '' && formData.finish !== '--:--')
+    
+    if (hasValidStart && hasValidFinish) {
+      // ✅ Ensure we have datetime format for calculations
+      // If time is stored as HH:mm only, combine with date
+      let startForCalc = formData.start
+      let finishForCalc = formData.finish
+      
+      // If start/finish are in HH:mm format, combine with date
+      if (/^\d{1,2}:\d{2}$/.test(startForCalc) || /^\d{1,2}:\d{2}:\d{2}$/.test(startForCalc)) {
+        const dateStr = formData.date 
+          ? (() => {
+              if (/^\d{4}-\d{2}-\d{2}$/.test(formData.date)) return formData.date
+              // Try to convert other formats
+              const formats = [
+                /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,
+                /^(\d{1,2})-(\d{1,2})-(\d{4})$/,
+                /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/,
+              ]
+              for (const format of formats) {
+                const matchResult = formData.date.match(format)
+                if (matchResult?.[1] && matchResult?.[2] && matchResult?.[3]) {
+                  const match = matchResult as RegExpMatchArray
+                  let day, month, year
+                  if (format === formats[2]) {
+                    year = match[1]
+                    month = match[2].padStart(2, '0')
+                    day = match[3].padStart(2, '0')
+                  } else {
+                    day = match[1].padStart(2, '0')
+                    month = match[2].padStart(2, '0')
+                    year = match[3]
+                  }
+                  if (year && month && day) {
+                    return `${year}-${month}-${day}`
+                  }
+                }
+              }
+              return new Date().toISOString().split('T')[0]
+            })()
+          : new Date().toISOString().split('T')[0]
+        
+        // Normalize time to HH:mm format
+        const startTime = extractTimeOnly(startForCalc)
+        const finishTime = extractTimeOnly(finishForCalc)
+        
+        if (startTime && dateStr) {
+          startForCalc = `${dateStr}T${startTime}`
+        }
+        if (finishTime && dateStr) {
+          finishForCalc = `${dateStr}T${finishTime}`
+        }
+      }
+      
+      console.log('🔄 Calculating hours from:', {
+        originalStart: formData.start,
+        originalFinish: formData.finish,
+        startForCalc,
+        finishForCalc,
+        date: formData.date
+      })
+      
+      const totalHours = calculateTotalHours(startForCalc, finishForCalc)
       const overtime = calculateOvertime(totalHours, formData.standardWorkingHours)
       const standardHours = parseFloat(formData.standardWorkingHours) || 8
       const overtimeHours = Math.max(0, totalHours - standardHours)
       
-      // Recalculate cost if designation is selected
-      let newCost = formData.cost
-      if (formData.designation) {
-        const calculatedCost = calculateCost(formData.designation, standardHours, overtimeHours)
+      console.log('📊 Calculated values:', {
+        totalHours,
+        overtime,
+        standardHours,
+        overtimeHours
+      })
+      
+      // ✅ Always recalculate cost if designation is selected (even if it was manually entered)
+      // Cost is calculated based on Total Hours and Overtime (not Standard Working Hours)
+      let newCost = ''
+      if (formData.designation && totalHours > 0) {
+        // ✅ Use Total Hours and Overtime directly (not Standard Working Hours)
+        const calculatedCost = calculateCost(formData.designation, totalHours, overtimeHours)
         newCost = calculatedCost > 0 ? calculatedCost.toFixed(2) : ''
+        console.log('💰 Auto-calculated cost:', {
+          designation: formData.designation,
+          totalHours,
+          overtimeHours,
+          standardHoursCalculated: totalHours - overtimeHours,
+          calculatedCost: newCost
+        })
+      } else if (!formData.designation) {
+        // Clear cost if no designation
+        newCost = ''
+      } else {
+        // Keep existing cost if no hours
+        newCost = formData.cost
       }
       
       setFormData((prev) => ({
@@ -349,6 +489,10 @@ export default function ManpowerPage() {
       }))
     } else {
       // Clear if start or finish is empty
+      console.log('⚠️ Missing start or finish time, clearing calculations', {
+        start: formData.start,
+        finish: formData.finish
+      })
       setFormData((prev) => ({
         ...prev,
         totalHours: '',
@@ -808,18 +952,36 @@ export default function ManpowerPage() {
     setFormSuccess('')
 
     try {
-      // Prepare all records for database
-      const recordsToInsert = previewRecords.map(record => ({
-        'Date': record.date || null,
-        'PROJECT CODE': record.projectCode,
-        'LABOUR CODE': record.labourCode || null,
-        'Designation': record.designation || null,
-        'START': record.start ? extractTimeOnly(record.start) : null,
-        'FINISH': record.finish ? extractTimeOnly(record.finish) : null,
-        'OVERTIME': record.overtime || null,
-        'Total Hours': record.totalHours ? parseFloat(record.totalHours) : 0,
-        'Cost': record.cost ? parseFloat(record.cost) : 0
-      }))
+      // ✅ Prepare all records for database with auto-calculated Cost
+      const recordsToInsert = previewRecords.map(record => {
+        // ✅ Recalculate Cost automatically for each record
+        // Cost is calculated based on Total Hours and Overtime (not Standard Working Hours)
+        let calculatedCost = 0
+        if (record.designation && record.totalHours) {
+          const totalHours = parseFloat(record.totalHours) || 0
+          const overtimeHours = parseFloat(record.overtime) || 0
+          // ✅ Use Total Hours and Overtime directly
+          calculatedCost = calculateCost(record.designation, totalHours, overtimeHours)
+        }
+        
+        return {
+          'Date': record.date || null,
+          'PROJECT CODE': record.projectCode,
+          'LABOUR CODE': record.labourCode || null,
+          'Designation': record.designation || null,
+          'START': record.start ? extractTimeOnly(record.start) : null,
+          'FINISH': record.finish ? extractTimeOnly(record.finish) : null,
+          'OVERTIME': record.overtime || null,
+          'Total Hours': record.totalHours ? parseFloat(record.totalHours) : 0,
+          'Cost': calculatedCost > 0 ? calculatedCost : (record.cost ? parseFloat(record.cost) : 0)
+        }
+      })
+      
+      console.log('💰 Recalculated costs for all records:', recordsToInsert.map(r => ({
+        designation: r.Designation,
+        totalHours: r['Total Hours'],
+        cost: r.Cost
+      })))
 
       console.log('📦 Submitting MANPOWER records:', recordsToInsert.length)
 
@@ -905,6 +1067,23 @@ export default function ManpowerPage() {
         throw new Error('Project Code is required')
       }
 
+      // ✅ Recalculate Cost automatically before saving
+      // Cost is calculated based on Total Hours and Overtime (not Standard Working Hours)
+      let calculatedCost = 0
+      if (formData.designation && formData.totalHours) {
+        const totalHours = parseFloat(formData.totalHours) || 0
+        const overtimeHours = parseFloat(formData.overtime) || 0
+        // ✅ Use Total Hours and Overtime directly
+        calculatedCost = calculateCost(formData.designation, totalHours, overtimeHours)
+        console.log('💰 Recalculated cost before save:', {
+          designation: formData.designation,
+          totalHours,
+          overtimeHours,
+          standardHoursCalculated: totalHours - overtimeHours,
+          calculatedCost
+        })
+      }
+      
       // Prepare data for database
       const manpowerData: any = {
         'Date': formData.date || null,
@@ -915,7 +1094,7 @@ export default function ManpowerPage() {
         'FINISH': formData.finish ? extractTimeOnly(formData.finish) : null,
         'OVERTIME': formData.overtime || null,
         'Total Hours': formData.totalHours ? parseFloat(formData.totalHours) : 0,
-        'Cost': formData.cost ? parseFloat(formData.cost) : 0
+        'Cost': calculatedCost > 0 ? calculatedCost : (formData.cost ? parseFloat(formData.cost) : 0)
       }
 
       console.log('📦 Updating MANPOWER record:', editingRecord.id, manpowerData)
@@ -1035,7 +1214,25 @@ export default function ManpowerPage() {
 
   // ✅ Handle Edit Record
   const handleEditRecord = (record: ManpowerRecord) => {
-    const rawRecord = (record as any).raw || record
+    // ✅ Get raw record - try multiple ways
+    let rawRecord = (record as any).raw || record
+    
+    // ✅ If record doesn't have raw, it might be the record itself
+    // Check if record has direct properties that match database columns
+    if (!rawRecord || Object.keys(rawRecord).length === 0) {
+      rawRecord = record
+    }
+    
+    // ✅ Debug: Log the record structure first
+    console.log('🔍 handleEditRecord - Record structure:', {
+      hasRaw: !!(record as any).raw,
+      recordKeys: Object.keys(record),
+      rawRecordKeys: rawRecord ? Object.keys(rawRecord) : [],
+      recordType: typeof record,
+      recordStart: (record as any).START || record.start,
+      recordFinish: (record as any).FINISH || record.finish,
+      fullRecord: record
+    })
     
     // Helper function to convert date to YYYY-MM-DD format
     const convertDateToInputFormat = (dateStr: string): string => {
@@ -1075,22 +1272,118 @@ export default function ManpowerPage() {
     
     setEditingRecord(record)
     const dateValue = (rawRecord['Date'] || rawRecord['date'] || record.date || '').toString()
-    const startValue = (rawRecord['START'] || rawRecord['start'] || record.start || '').toString()
-    const finishValue = (rawRecord['FINISH'] || rawRecord['finish'] || record.finish || '').toString()
+    
+    // ✅ Try multiple ways to get START and FINISH values (case-insensitive search)
+    // Helper function to find time value from multiple sources
+    const findTimeValue = (keyVariations: string[]): string => {
+      // Try all variations in rawRecord first
+      for (const key of keyVariations) {
+        const value = rawRecord?.[key]
+        if (value !== null && value !== undefined && value !== '' && String(value).trim() !== '') {
+          const strValue = String(value).trim()
+          console.log(`✅ Found time value in rawRecord[${key}]:`, strValue)
+          return strValue
+        }
+      }
+      
+      // Try all variations in record
+      for (const key of keyVariations) {
+        const value = (record as any)?.[key] || record?.[key as keyof ManpowerRecord]
+        if (value !== null && value !== undefined && value !== '' && String(value).trim() !== '') {
+          const strValue = String(value).trim()
+          console.log(`✅ Found time value in record[${key}]:`, strValue)
+          return strValue
+        }
+      }
+      
+      // Try case-insensitive search in all keys
+      const allKeys = [...Object.keys(rawRecord || {}), ...Object.keys(record || {})]
+      const baseKey = keyVariations[0].toLowerCase()
+      for (const key of allKeys) {
+        const keyLower = key.toLowerCase()
+        if (keyLower === baseKey || 
+            keyLower.replace(/\s+/g, '_') === baseKey ||
+            keyLower.replace(/_/g, ' ') === baseKey ||
+            keyLower.includes(baseKey)) {
+          const value = rawRecord?.[key] || (record as any)?.[key]
+          if (value !== null && value !== undefined && value !== '' && String(value).trim() !== '') {
+            const strValue = String(value).trim()
+            console.log(`✅ Found time value via case-insensitive search [${key}]:`, strValue)
+            return strValue
+          }
+        }
+      }
+      
+      console.log(`⚠️ Could not find time value for variations:`, keyVariations)
+      return ''
+    }
+    
+    const startValue = findTimeValue(['START', 'start', 'Start Time', 'start_time', 'Start', 'START TIME', 'StartTime'])
+    const finishValue = findTimeValue(['FINISH', 'finish', 'Finish Time', 'finish_time', 'Finish', 'FINISH TIME', 'FinishTime'])
+    
+    // ✅ Debug: Log all possible time-related keys
+    const allTimeKeys = Object.keys(rawRecord).filter(key => 
+      key.toLowerCase().includes('start') || 
+      key.toLowerCase().includes('finish') || 
+      key.toLowerCase().includes('time')
+    )
     
     console.log('🔍 Editing record - Raw values:', {
       dateValue,
       startValue,
       finishValue,
+      startValueType: typeof startValue,
+      finishValueType: typeof finishValue,
+      startValueLength: startValue?.length,
+      finishValueLength: finishValue?.length,
       designation: rawRecord['Designation'] || rawRecord['designation'] || record.designation,
-      rawRecordKeys: Object.keys(rawRecord)
+      rawRecordKeys: Object.keys(rawRecord),
+      allTimeKeys: allTimeKeys,
+      allTimeValues: allTimeKeys.map(key => ({ key, value: rawRecord[key], type: typeof rawRecord[key] })),
+      fullRawRecord: rawRecord
     })
     
     // Extract time only for form (but keep full datetime for calculations)
-    const startTimeOnly = extractTimeOnly(startValue)
-    const finishTimeOnly = extractTimeOnly(finishValue)
+    let startTimeOnly = extractTimeOnly(startValue)
+    let finishTimeOnly = extractTimeOnly(finishValue)
     
-    console.log('⏰ Extracted times:', { startTimeOnly, finishTimeOnly, originalStart: startValue, originalFinish: finishValue })
+    // ✅ If extraction failed, try parsing as Date object
+    if (!startTimeOnly && startValue) {
+      try {
+        const dateObj = new Date(startValue)
+        if (!isNaN(dateObj.getTime())) {
+          const hours = dateObj.getHours().toString().padStart(2, '0')
+          const minutes = dateObj.getMinutes().toString().padStart(2, '0')
+          startTimeOnly = `${hours}:${minutes}`
+          console.log('✅ Parsed start time from Date:', startTimeOnly, 'from:', startValue)
+        }
+      } catch (e) {
+        console.log('⚠️ Failed to parse start as Date:', e)
+      }
+    }
+    
+    if (!finishTimeOnly && finishValue) {
+      try {
+        const dateObj = new Date(finishValue)
+        if (!isNaN(dateObj.getTime())) {
+          const hours = dateObj.getHours().toString().padStart(2, '0')
+          const minutes = dateObj.getMinutes().toString().padStart(2, '0')
+          finishTimeOnly = `${hours}:${minutes}`
+          console.log('✅ Parsed finish time from Date:', finishTimeOnly, 'from:', finishValue)
+        }
+      } catch (e) {
+        console.log('⚠️ Failed to parse finish as Date:', e)
+      }
+    }
+    
+    console.log('⏰ Extracted times:', { 
+      startTimeOnly, 
+      finishTimeOnly, 
+      originalStart: startValue, 
+      originalFinish: finishValue,
+      startExtracted: !!startTimeOnly,
+      finishExtracted: !!finishTimeOnly
+    })
     
     // Extract designation - normalize the value (trim and handle case variations)
     const designationValue = (rawRecord['Designation'] || rawRecord['designation'] || record.designation || '').toString().trim()
@@ -1128,17 +1421,83 @@ export default function ManpowerPage() {
     // Use the matching rate's designation if found, otherwise use the original value
     const finalDesignationValue = matchingRate ? matchingRate.designation : designationValue
     
+    // ✅ Ensure times are in correct format for time input (HH:mm)
+    // If still empty, try one more time with different approach
+    let finalStartTime = startTimeOnly
+    let finalFinishTime = finishTimeOnly
+    
+    // If we still don't have time, check if the value might be stored differently
+    if (!finalStartTime && startValue) {
+      // Try to extract from any time-like pattern
+      const timePattern = /(\d{1,2}):(\d{2})/
+      const match = startValue.match(timePattern)
+      if (match) {
+        const hours = match[1].padStart(2, '0')
+        const minutes = match[2]
+        finalStartTime = `${hours}:${minutes}`
+        console.log('✅ Extracted start time from pattern:', finalStartTime)
+      }
+    }
+    
+    if (!finalFinishTime && finishValue) {
+      // Try to extract from any time-like pattern
+      const timePattern = /(\d{1,2}):(\d{2})/
+      const match = finishValue.match(timePattern)
+      if (match) {
+        const hours = match[1].padStart(2, '0')
+        const minutes = match[2]
+        finalFinishTime = `${hours}:${minutes}`
+        console.log('✅ Extracted finish time from pattern:', finalFinishTime)
+      }
+    }
+    
+    console.log('📝 Final form times before setting:', {
+      startTimeOnly: finalStartTime,
+      finishTimeOnly: finalFinishTime,
+      originalStart: startValue,
+      originalFinish: finishValue
+    })
+    
+    // ✅ Convert time to datetime format if we have a date, to ensure calculations work
+    const convertedDate = convertDateToInputFormat(dateValue)
+    let startForForm = finalStartTime || ''
+    let finishForForm = finalFinishTime || ''
+    
+    // If we have both date and time, combine them for calculations
+    // But keep time-only format for display in time input
+    if (convertedDate && finalStartTime) {
+      // Store as datetime-local format for calculations: YYYY-MM-DDTHH:mm
+      startForForm = `${convertedDate}T${finalStartTime}`
+    }
+    if (convertedDate && finalFinishTime) {
+      // Store as datetime-local format for calculations: YYYY-MM-DDTHH:mm
+      finishForForm = `${convertedDate}T${finalFinishTime}`
+    }
+    
+    console.log('📝 Setting form data with times:', {
+      date: convertedDate,
+      startTime: finalStartTime,
+      finishTime: finalFinishTime,
+      startForForm,
+      finishForForm
+    })
+    
     setFormData({
-      date: convertDateToInputFormat(dateValue),
+      date: convertedDate,
       projectCode: (rawRecord['PROJECT CODE'] || rawRecord['project_code'] || record.project_code || '').toString(),
       labourCode: (rawRecord['LABOUR CODE'] || rawRecord['labour_code'] || record.labour_code || '').toString(),
       designation: finalDesignationValue, // Use matching rate's designation to ensure dropdown selection works
-      start: startTimeOnly, // Store time only in form
-      finish: finishTimeOnly, // Store time only in form
+      start: startForForm, // Store as datetime-local format (YYYY-MM-DDTHH:mm) for calculations
+      finish: finishForForm, // Store as datetime-local format (YYYY-MM-DDTHH:mm) for calculations
       standardWorkingHours: '8',
       overtime: (rawRecord['OVERTIME'] || rawRecord['overtime'] || record.overtime || '').toString(),
       totalHours: (rawRecord['Total Hours'] || rawRecord['total_hours'] || record.total_hours || 0).toString(),
       cost: (rawRecord['Cost'] || rawRecord['cost'] || record.cost || 0).toString()
+    })
+    
+    console.log('✅ Form data set with times:', {
+      start: finalStartTime,
+      finish: finalFinishTime
     })
     
     // Set selected designation rate for dropdown
@@ -1862,12 +2221,13 @@ export default function ManpowerPage() {
                                   )
                                   setSelectedDesignationRate(rate || null)
                                   
-                                  // Recalculate cost if we have hours
-                                  if (formData.totalHours && formData.standardWorkingHours) {
+                                  // ✅ Recalculate cost if we have hours
+                                  // Cost is calculated based on Total Hours and Overtime (not Standard Working Hours)
+                                  if (formData.totalHours) {
                                     const totalHours = parseFloat(formData.totalHours) || 0
-                                    const standardHours = parseFloat(formData.standardWorkingHours) || 8
-                                    const overtimeHours = Math.max(0, totalHours - standardHours)
-                                    const calculatedCost = calculateCost(designation, standardHours, overtimeHours)
+                                    const overtimeHours = parseFloat(formData.overtime) || 0
+                                    // ✅ Use Total Hours and Overtime directly
+                                    const calculatedCost = calculateCost(designation, totalHours, overtimeHours)
                                     
                                     setFormData(prev => ({
                                       ...prev,
@@ -1875,7 +2235,12 @@ export default function ManpowerPage() {
                                       cost: calculatedCost > 0 ? calculatedCost.toFixed(2) : ''
                                     }))
                                   } else {
-                                    setFormData(prev => ({ ...prev, designation }))
+                                    // Even if no hours, clear cost when designation changes
+                                    setFormData(prev => ({ 
+                                      ...prev, 
+                                      designation,
+                                      cost: '' // Clear cost if no hours available
+                                    }))
                                   }
                                       setShowDesignationDropdown(true)
                                     }}
@@ -2803,12 +3168,24 @@ export default function ManpowerPage() {
                           value={(() => {
                             const startValue = formData.start
                             if (!startValue) return ''
-                            // Extract time from datetime-local format
+                            
+                            // Use extractTimeOnly to handle all formats
+                            const extractedTime = extractTimeOnly(startValue)
+                            if (extractedTime && /^\d{2}:\d{2}$/.test(extractedTime)) {
+                              return extractedTime
+                            }
+                            
+                            // Fallback: try to extract from datetime-local format
                             if (/T\d{2}:\d{2}$/.test(startValue)) {
                               return startValue.split('T')[1]
                             }
-                            // If only time format (HH:mm)
-                            if (/^\d{2}:\d{2}$/.test(startValue)) return startValue
+                            
+                            // Fallback: if already in time format (HH:mm or H:mm)
+                            if (/^\d{1,2}:\d{2}$/.test(startValue)) {
+                              const parts = startValue.split(':')
+                              return `${parts[0].padStart(2, '0')}:${parts[1]}`
+                            }
+                            
                             return ''
                           })()}
                           onChange={(e) => {
@@ -2920,12 +3297,24 @@ export default function ManpowerPage() {
                           value={(() => {
                             const finishValue = formData.finish
                             if (!finishValue) return ''
-                            // Extract time from datetime-local format
+                            
+                            // Use extractTimeOnly to handle all formats
+                            const extractedTime = extractTimeOnly(finishValue)
+                            if (extractedTime && /^\d{2}:\d{2}$/.test(extractedTime)) {
+                              return extractedTime
+                            }
+                            
+                            // Fallback: try to extract from datetime-local format
                             if (/T\d{2}:\d{2}$/.test(finishValue)) {
                               return finishValue.split('T')[1]
                             }
-                            // If only time format (HH:mm)
-                            if (/^\d{2}:\d{2}$/.test(finishValue)) return finishValue
+                            
+                            // Fallback: if already in time format (HH:mm or H:mm)
+                            if (/^\d{1,2}:\d{2}$/.test(finishValue)) {
+                              const parts = finishValue.split(':')
+                              return `${parts[0].padStart(2, '0')}:${parts[1]}`
+                            }
+                            
                             return ''
                           })()}
                           onChange={(e) => {

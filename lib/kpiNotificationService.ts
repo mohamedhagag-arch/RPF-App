@@ -384,36 +384,48 @@ class KPINotificationService {
   /**
    * Get notification count for a user
    * الحصول على عدد الإشعارات للمستخدم
+   * ✅ Updated to use the same deduplication logic as getUnreadNotifications
    */
   async getNotificationCount(userId: string): Promise<number> {
     try {
-      const { count, error } = await this.supabase
-        .from('kpi_notifications')
-        .select('*', { count: 'exact', head: true })
-        .eq('recipient_id', userId)
-        .eq('is_read', false)
-
-      if (error) {
-        console.error('Error getting notification count:', error)
-        // If table doesn't exist, return 0
-        if (error.code === '42P01' || error.message?.includes('does not exist')) {
-          console.warn('⚠️ kpi_notifications table does not exist. Please run Database/kpi-notifications-table.sql')
-        }
-        return 0
-      }
-
+      // ✅ Use the same logic as getUnreadNotifications to ensure consistency
+      // Get unread notifications and count them after deduplication
+      const unreadNotifications = await this.getUnreadNotifications(userId)
+      const count = unreadNotifications.length
+      
       // Debug: Also check total notifications (read + unread) for this user
       const { count: totalCount } = await this.supabase
         .from('kpi_notifications')
         .select('*', { count: 'exact', head: true })
         .eq('recipient_id', userId)
 
-      console.log(`📊 Notification stats for user ${userId}: ${count || 0} unread, ${totalCount || 0} total`)
+      console.log(`📊 Notification stats for user ${userId}: ${count} unread (after deduplication), ${totalCount || 0} total`)
 
-      return count || 0
+      return count
     } catch (error) {
       console.error('Error in getNotificationCount:', error)
-      return 0
+      // Fallback: try simple count if getUnreadNotifications fails
+      try {
+        const { count, error: countError } = await this.supabase
+          .from('kpi_notifications')
+          .select('*', { count: 'exact', head: true })
+          .eq('recipient_id', userId)
+          .eq('is_read', false)
+
+        if (countError) {
+          console.error('Error getting notification count (fallback):', countError)
+          // If table doesn't exist, return 0
+          if (countError.code === '42P01' || countError.message?.includes('does not exist')) {
+            console.warn('⚠️ kpi_notifications table does not exist. Please run Database/kpi-notifications-table.sql')
+          }
+          return 0
+        }
+
+        return count || 0
+      } catch (fallbackError) {
+        console.error('Error in getNotificationCount fallback:', fallbackError)
+        return 0
+      }
     }
   }
 
