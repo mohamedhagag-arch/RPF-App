@@ -63,7 +63,8 @@ export default function MachineList() {
     name: '',
     rate: '',
     machine_full_name: '',
-    rental: ''
+    rental: '',
+    category: ''
   })
 
   useEffect(() => {
@@ -107,7 +108,8 @@ export default function MachineList() {
       name: '',
       rate: '',
       machine_full_name: '',
-      rental: ''
+      rental: '',
+      category: ''
     })
     setShowModal(true)
   }
@@ -119,7 +121,8 @@ export default function MachineList() {
       name: machine.name,
       rate: machine.rate.toString(),
       machine_full_name: machine.machine_full_name || '',
-      rental: machine.rental?.toString() || ''
+      rental: machine.rental?.toString() || '',
+      category: machine.category || ''
     })
     setShowModal(true)
   }
@@ -160,7 +163,8 @@ export default function MachineList() {
         name: formData.name.trim(),
         rate: parseFloat(formData.rate),
         machine_full_name: formData.machine_full_name.trim() || null,
-        rental: formData.rental.trim() || null // Accept text values like "R" for rented
+        rental: formData.rental.trim() || null, // Accept text values like "R" for rented
+        category: formData.category.trim() || null
       }
 
       const supabaseClient = getSupabaseClient()
@@ -304,6 +308,7 @@ export default function MachineList() {
 
       const codeIndex = headers.findIndex(h => h.includes('code'))
       const nameIndex = headers.findIndex(h => h.includes('name') && !h.includes('full'))
+      const categoryIndex = headers.findIndex(h => h.includes('category'))
       const rateIndex = headers.findIndex(h => h.includes('rate'))
       const fullNameIndex = headers.findIndex(h => h.includes('full') && h.includes('name'))
       const rentalIndex = headers.findIndex(h => h.includes('rental'))
@@ -353,6 +358,7 @@ export default function MachineList() {
           code,
           name,
           rate,
+          category: categoryIndex !== -1 && values[categoryIndex] ? values[categoryIndex] : null,
           machine_full_name: fullNameIndex !== -1 && values[fullNameIndex] ? values[fullNameIndex] : null,
           rental: rentalValue,
           created_by: currentUserId
@@ -458,12 +464,13 @@ export default function MachineList() {
   }
 
   const handleExport = () => {
-    const headers = ['Code', 'Name', 'Rate', 'Machine Full Name', 'Rental']
+    const headers = ['Code', 'Name', 'Category', 'Rate', 'Machine Full Name', 'Rental']
     const csvContent = [
       headers.join(','),
       ...machines.map(machine => [
         machine.code,
         machine.name,
+        machine.category || '',
         machine.rate,
         machine.machine_full_name || '',
         machine.rental || ''
@@ -485,6 +492,7 @@ export default function MachineList() {
       const matchesSearch = (
         machine.code.toLowerCase().includes(searchLower) ||
         machine.name.toLowerCase().includes(searchLower) ||
+        (machine.category && machine.category.toLowerCase().includes(searchLower)) ||
         (machine.machine_full_name && machine.machine_full_name.toLowerCase().includes(searchLower))
       )
       if (!matchesSearch) return false
@@ -809,6 +817,7 @@ export default function MachineList() {
                     </th>
                     <th className="text-left p-3 font-semibold">Code</th>
                     <th className="text-left p-3 font-semibold">Name</th>
+                    <th className="text-left p-3 font-semibold">Category</th>
                     <th className="text-left p-3 font-semibold">Rate</th>
                     <th className="text-left p-3 font-semibold">Machine Full Name</th>
                     <th className="text-left p-3 font-semibold">Rental</th>
@@ -841,6 +850,15 @@ export default function MachineList() {
                         <span className="text-gray-900 dark:text-white">
                           {machine.name}
                         </span>
+                      </td>
+                      <td className="p-3">
+                        {machine.category ? (
+                          <span className="text-gray-900 dark:text-white">
+                            {machine.category}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400 text-sm">-</span>
+                        )}
                       </td>
                       <td className="p-3">
                         <span className="text-gray-900 dark:text-white font-semibold">
@@ -961,6 +979,17 @@ export default function MachineList() {
                     className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                     placeholder="e.g., 150.00"
                     required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-2">Category</label>
+                  <input
+                    type="text"
+                    value={formData.category}
+                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                    placeholder="e.g., Excavator, Loader, Crane..."
                   />
                 </div>
 

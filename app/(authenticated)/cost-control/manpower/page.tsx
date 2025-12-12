@@ -8,7 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Alert } from '@/components/ui/Alert'
-import { UserCheck, Download, RefreshCw, Search, X, CheckCircle, AlertCircle, Filter, SlidersHorizontal, Calendar, DollarSign, Clock, Database, ArrowRight, Plus, Save, Edit, Trash2, CheckSquare, Square } from 'lucide-react'
+import { UserCheck, Download, RefreshCw, Search, X, CheckCircle, AlertCircle, Filter, SlidersHorizontal, Calendar, DollarSign, Clock, Database, ArrowRight, Plus, Save, Edit, Trash2, CheckSquare, Square, Calculator } from 'lucide-react'
+import DesignationRates from '@/components/cost-control/DesignationRates'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { useRouter } from 'next/navigation'
 import { TABLES, DesignationRate, HRManpower } from '@/lib/supabase'
@@ -31,8 +32,11 @@ interface ManpowerRecord {
   cost?: number
 }
 
+type ManpowerTab = 'manpower' | 'designation-rates'
+
 export default function ManpowerPage() {
   const guard = usePermissionGuard()
+  const [activeTab, setActiveTab] = useState<ManpowerTab>('manpower')
   const [data, setData] = useState<ManpowerRecord[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -554,8 +558,8 @@ export default function ManpowerPage() {
           .from(tableName)
           .select('*', { count: 'exact' })
         
-        // Try multiple search patterns
-        // Use ilike for case-insensitive search
+        // ✅ Enhanced search: Use ilike for case-insensitive contains search
+        // This will match: P21-20, p21-20, P21, etc.
         query = query.ilike('"PROJECT CODE"', `%${searchTerm}%`)
         
         const { data: records, error: fetchError, count } = await query
@@ -633,11 +637,25 @@ export default function ManpowerPage() {
         searchTerm,
         baseCode: baseProjectCode,
         sampleCodesFromDB: sampleCodes.slice(0, 10),
-        matchedCodes: filteredRecords.slice(0, 5).map((r: any) => r['PROJECT CODE'] || r['project_code'])
+        matchedCodes: filteredRecords.slice(0, 5).map((r: any) => r['PROJECT CODE'] || r['project_code']),
+        sampleDates: Array.from(new Set(
+          allRecords.slice(0, 10).map((r: any) => r['Date'] || '').filter(Boolean)
+        )).slice(0, 5)
       })
       
       // ✅ تعيين البيانات المجمعة (المفلترة)
       setData(filteredRecords)
+      
+      // ✅ Debug: Log first few records to verify data structure
+      if (filteredRecords.length > 0) {
+        console.log('📋 Sample filtered records:', filteredRecords.slice(0, 3).map((r: any) => ({
+          id: r.id,
+          date: r['Date'],
+          projectCode: r['PROJECT CODE'],
+          labourCode: r['LABOUR CODE'],
+          designation: r['Designation']
+        })))
+      }
       if (filteredRecords && filteredRecords.length === 0) {
         // Show helpful error message with sample codes if available
         if (allRecords.length > 0 && sampleCodes.length > 0) {
@@ -1430,7 +1448,7 @@ export default function ManpowerPage() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              {data.length > 0 && (
+              {activeTab === 'manpower' && data.length > 0 && (
                 <Button
                   variant="outline"
                   onClick={clearSearch}
@@ -1439,41 +1457,84 @@ export default function ManpowerPage() {
                   Clear
                 </Button>
               )}
-              <PermissionButton
-                permission="cost_control.manpower.create"
-                variant="primary"
-                onClick={() => setShowAddForm(!showAddForm)}
-                className="bg-green-600 hover:bg-green-700 text-white"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                {showAddForm ? 'Cancel' : 'Add New Record'}
-              </PermissionButton>
-              <PermissionButton
-                permission="cost_control.database.manage"
-                variant="primary"
-                onClick={() => router.push('/settings?tab=database')}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white"
-              >
-                <Database className="h-4 w-4 mr-2" />
-                Database Manager
-                <ArrowRight className="h-4 w-4 ml-2" />
-              </PermissionButton>
-              {filteredData.length > 0 && (
-                <PermissionButton
-                  permission="cost_control.manpower.export"
-                  variant="outline"
-                  onClick={() => handleExport('excel')}
-                  disabled={filteredData.length === 0}
-                  title="Export data to Excel"
-                >
-                  <Download className="h-4 w-4 mr-2" />
-                  Export ({filteredData.length})
-                </PermissionButton>
+              {activeTab === 'manpower' && (
+                <>
+                  <PermissionButton
+                    permission="cost_control.manpower.create"
+                    variant="primary"
+                    onClick={() => setShowAddForm(!showAddForm)}
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    {showAddForm ? 'Cancel' : 'Add New Record'}
+                  </PermissionButton>
+                  <PermissionButton
+                    permission="cost_control.database.manage"
+                    variant="primary"
+                    onClick={() => router.push('/settings?tab=database')}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                  >
+                    <Database className="h-4 w-4 mr-2" />
+                    Database Manager
+                    <ArrowRight className="h-4 w-4 ml-2" />
+                  </PermissionButton>
+                  {filteredData.length > 0 && (
+                    <PermissionButton
+                      permission="cost_control.manpower.export"
+                      variant="outline"
+                      onClick={() => handleExport('excel')}
+                      disabled={filteredData.length === 0}
+                      title="Export data to Excel"
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Export ({filteredData.length})
+                    </PermissionButton>
+                  )}
+                </>
               )}
             </div>
           </div>
 
-          {/* Stats Cards */}
+          {/* Tabs */}
+          <div className="border-b border-gray-200 dark:border-gray-700">
+            <nav className="flex space-x-8">
+              <button
+                onClick={() => setActiveTab('manpower')}
+                className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                  activeTab === 'manpower'
+                    ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <UserCheck className="h-4 w-4" />
+                  MANPOWER
+                </div>
+              </button>
+              {guard.hasAccess('cost_control.designation_rates.view') && (
+                <button
+                  onClick={() => setActiveTab('designation-rates')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                    activeTab === 'designation-rates'
+                      ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Calculator className="h-4 w-4" />
+                    Designation Rates
+                  </div>
+                </button>
+              )}
+            </nav>
+          </div>
+
+          {/* Tab Content */}
+          {activeTab === 'designation-rates' ? (
+            <DesignationRates />
+          ) : (
+            <>
+              {/* Stats Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -3839,6 +3900,8 @@ export default function ManpowerPage() {
               )}
             </CardContent>
           </Card>
+            </>
+          )}
         </div>
       </div>
     </PermissionPage>

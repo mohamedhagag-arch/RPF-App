@@ -332,6 +332,7 @@ export interface Machine {
   rate: number
   machine_full_name?: string | null
   rental?: string | null // "R" for rented, or rental cost as text
+  category?: string | null
   created_at: string
   updated_at: string
   created_by?: string | null

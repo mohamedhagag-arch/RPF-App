@@ -1139,8 +1139,12 @@ export default function HRManpowerPage() {
                   {filteredEmployees.map((employee) => (
                     <tr key={employee.id} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
                       <td className="p-3 font-mono text-sm">{employee.employee_code}</td>
-                      <td className="p-3">{employee.employee_name}</td>
-                      <td className="p-3">{employee.designation}</td>
+                      <td className="p-3 font-medium">{employee.employee_name}</td>
+                      <td className="p-3">
+                        <span className="px-2 py-1 rounded-md text-sm font-semibold bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                          {employee.designation || '-'}
+                        </span>
+                      </td>
                       <td className="p-3">
                         <span className={`px-2 py-1 rounded text-xs font-medium ${
                           employee.status === 'Active' 

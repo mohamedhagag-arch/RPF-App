@@ -80,7 +80,6 @@ const sidebarItems: SidebarItem[] = [
         badgeColor: 'bg-gradient-to-br from-yellow-500 to-orange-500',
         subItems: [
           { icon: UserCheck, label: 'MANPOWER', tab: 'cost-control/manpower', badgeIcon: Users, badgeColor: 'bg-gradient-to-br from-blue-500 to-indigo-500' },
-          { icon: Clock, label: 'Designation Rates', tab: 'cost-control/designation-rates', badgeIcon: Clock, badgeColor: 'bg-gradient-to-br from-purple-500 to-pink-500' },
           { icon: Database, label: 'Machine List', tab: 'cost-control/machine-list', badgeIcon: Database, badgeColor: 'bg-gradient-to-br from-cyan-500 to-blue-500' },
         ]
       },

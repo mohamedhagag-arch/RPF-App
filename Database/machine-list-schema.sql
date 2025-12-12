@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS public.machine_list (
   rate NUMERIC(10, 2) NOT NULL DEFAULT 0, -- المعدل/السعر
   machine_full_name TEXT, -- الاسم الكامل للآلة
   rental NUMERIC(10, 2) DEFAULT NULL, -- تكلفة الإيجار
+  category TEXT, -- فئة الآلة
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
@@ -28,6 +29,7 @@ COMMENT ON COLUMN public.machine_list.name IS 'Machine name.';
 COMMENT ON COLUMN public.machine_list.rate IS 'Machine rate/price.';
 COMMENT ON COLUMN public.machine_list.machine_full_name IS 'Full name of the machine.';
 COMMENT ON COLUMN public.machine_list.rental IS 'Rental cost for the machine.';
+COMMENT ON COLUMN public.machine_list.category IS 'Machine category/type.';
 COMMENT ON COLUMN public.machine_list.created_by IS 'ID of the user who created the record.';
 COMMENT ON COLUMN public.machine_list.updated_by IS 'ID of the user who last updated the record.';
 COMMENT ON COLUMN public.machine_list.updated_at IS 'Timestamp of the last update.';

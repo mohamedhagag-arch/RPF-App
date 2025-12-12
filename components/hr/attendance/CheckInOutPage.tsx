@@ -27,7 +27,8 @@ import { Button } from '@/components/ui/Button'
 import { PermissionButton } from '@/components/ui/PermissionButton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Alert } from '@/components/ui/Alert'
-import { supabase, TABLES, AttendanceEmployee, AttendanceRecord, AttendanceLocation } from '@/lib/supabase'
+import { supabase, TABLES, AttendanceEmployee, AttendanceRecord, AttendanceLocation, HRManpower, DesignationRate } from '@/lib/supabase'
+import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { QRCodeScanner } from './QRCodeScanner'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { usePermissionGuard } from '@/lib/permissionGuard'
@@ -56,6 +57,15 @@ export default function CheckInOutPage() {
   const [todayRecords, setTodayRecords] = useState<AttendanceRecord[]>([])
   const [locations, setLocations] = useState<AttendanceLocation[]>([])
   const [nearestLocation, setNearestLocation] = useState<AttendanceLocation | null>(null)
+  
+  // ✅ Employee Designation from HR Manpower
+  const [employeeDesignation, setEmployeeDesignation] = useState<string | null>(null)
+  
+  // ✅ Location Selection State
+  const [locationMode, setLocationMode] = useState<'auto' | 'manual'>('auto')
+  const [selectedLocationId, setSelectedLocationId] = useState<string>('')
+  const [locationSearchQuery, setLocationSearchQuery] = useState<string>('')
+  const [showLocationDropdown, setShowLocationDropdown] = useState<boolean>(false)
   
   // UI State
   const [showQRScanner, setShowQRScanner] = useState(false)
@@ -106,15 +116,92 @@ export default function CheckInOutPage() {
   useEffect(() => {
     if (selectedEmployee) {
       loadTodayRecords(selectedEmployee.id)
+      // ✅ Load employee designation from HR Manpower
+      loadEmployeeDesignation(selectedEmployee.employee_code)
+    } else {
+      setEmployeeDesignation(null)
     }
   }, [selectedEmployee])
 
+  // ✅ Load employee designation from HR Manpower
+  const loadEmployeeDesignation = async (employeeCode: string) => {
+    try {
+      const { data, error } = await supabase
+        .from(TABLES.HR_MANPOWER)
+        // @ts-ignore
+        .select('designation')
+        .eq('employee_code', employeeCode)
+        .eq('status', 'Active')
+        .maybeSingle()
+
+      if (error) {
+        console.warn('⚠️ Error loading employee designation:', error)
+        setEmployeeDesignation(null)
+        return
+      }
+
+      if (data) {
+        const hrData = data as any
+        setEmployeeDesignation(hrData.designation)
+        console.log('✅ Loaded employee designation:', hrData.designation)
+      } else {
+        setEmployeeDesignation(null)
+        console.warn(`⚠️ No designation found for employee: ${employeeCode}`)
+      }
+    } catch (err: any) {
+      console.error('❌ Error loading employee designation:', err)
+      setEmployeeDesignation(null)
+    }
+  }
+
   // Update nearest location when location changes
   useEffect(() => {
-    if (location && locations.length > 0) {
+    if (location && locations.length > 0 && locationMode === 'auto') {
       findNearestLocation()
     }
-  }, [location, locations])
+  }, [location, locations, locationMode])
+
+  // ✅ Handle manual location selection
+  useEffect(() => {
+    if (locationMode === 'manual' && selectedLocationId) {
+      const selectedLoc = locations.find(loc => loc.id === selectedLocationId)
+      if (selectedLoc) {
+        setLocation({
+          latitude: Number(selectedLoc.latitude),
+          longitude: Number(selectedLoc.longitude),
+          accuracy: selectedLoc.radius_meters ? selectedLoc.radius_meters : undefined,
+          timestamp: Date.now()
+        })
+        setNearestLocation(selectedLoc)
+        setLocationError('')
+        setShowLocationDropdown(false)
+      }
+    } else if (locationMode === 'auto') {
+      // Reset to auto mode - get current location if not available
+      if (!location) {
+        getCurrentLocation()
+      }
+      setShowLocationDropdown(false)
+      setLocationSearchQuery('')
+    }
+  }, [locationMode, selectedLocationId, locations])
+
+  // ✅ Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      if (!target.closest('.location-dropdown-container')) {
+        setShowLocationDropdown(false)
+      }
+    }
+    
+    if (showLocationDropdown) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside)
+      }
+    }
+  }, [showLocationDropdown])
 
   // Functions
   const loadEmployees = async () => {
@@ -280,7 +367,11 @@ export default function CheckInOutPage() {
     }
 
     if (!location) {
-      setErrorMessage('Please enable location services')
+      if (locationMode === 'manual') {
+        setErrorMessage('Please select a location manually')
+      } else {
+        setErrorMessage('Please enable location services')
+      }
       return
     }
 
@@ -337,7 +428,11 @@ export default function CheckInOutPage() {
     }
 
     if (!location) {
-      setErrorMessage('Please enable location services')
+      if (locationMode === 'manual') {
+        setErrorMessage('Please select a location manually')
+      } else {
+        setErrorMessage('Please enable location services')
+      }
       return
     }
 
@@ -370,7 +465,18 @@ export default function CheckInOutPage() {
       const [checkOutHour, checkOutMinute] = checkTime.split(':').map(Number)
       const checkInMinutes = checkInHour * 60 + checkInMinute
       const checkOutMinutes = checkOutHour * 60 + checkOutMinute
-      const workDuration = (checkOutMinutes - checkInMinutes) / 60
+      let workDuration = (checkOutMinutes - checkInMinutes) / 60
+      
+      // Handle case where check-out is on the next day (if negative, assume same day minimum 0.01 hours)
+      if (workDuration < 0) {
+        // If negative, it might be next day - add 24 hours
+        workDuration = (24 * 60 - checkInMinutes + checkOutMinutes) / 60
+      }
+      
+      // Ensure minimum 0.01 hours if both times are same (to avoid 0 hours)
+      if (workDuration <= 0) {
+        workDuration = 0.01 // Minimum 1 minute
+      }
 
       const record = {
         employee_id: selectedEmployee.id,
@@ -391,7 +497,24 @@ export default function CheckInOutPage() {
 
       if (error) throw error
 
-      setSuccessMessage(`✅ Check-Out successful at ${checkTime}. Work duration: ${workDuration.toFixed(2)} hours`)
+      // ✅ Sync to MANPOWER table
+      // Pass the selected location (nearestLocation for auto mode, or manually selected location)
+      const syncResult = await syncToManpower(
+        selectedEmployee,
+        checkIn.check_time,
+        checkTime,
+        today,
+        workDuration,
+        nearestLocation // Pass the selected/nearest location
+      )
+
+      // Get project code from sync result if available
+      let projectCodeInfo = ''
+      if (syncResult && syncResult.projectCode) {
+        projectCodeInfo = ` | Project: ${syncResult.projectCode}`
+      }
+
+      setSuccessMessage(`✅ Check-Out successful at ${checkTime}. Work duration: ${workDuration.toFixed(2)} hours${projectCodeInfo}`)
       await loadTodayRecords(selectedEmployee.id)
       
       // Clear message after 3 seconds
@@ -552,6 +675,318 @@ export default function CheckInOutPage() {
     }
   }
 
+  // ✅ Sync Check-Out to MANPOWER table
+  const syncToManpower = async (
+    employee: AttendanceEmployee,
+    checkInTime: string,
+    checkOutTime: string,
+    date: string,
+    totalHours: number,
+    selectedLocation?: AttendanceLocation | null
+  ): Promise<{ projectCode: string } | undefined> => {
+    try {
+      console.log('🔄 Starting MANPOWER sync...', {
+        employee: employee.employee_code,
+        checkInTime,
+        checkOutTime,
+        date,
+        totalHours
+      })
+
+      const supabaseClient = getSupabaseClient()
+      
+      // 1. Get employee designation from HR Manpower
+      const { data: hrEmployee, error: hrError } = await supabaseClient
+        .from(TABLES.HR_MANPOWER)
+        // @ts-ignore
+        .select('employee_code, designation')
+        .eq('employee_code', employee.employee_code)
+        .eq('status', 'Active')
+        .single()
+
+      if (hrError) {
+        console.error('❌ Error fetching HR Employee:', hrError)
+      }
+
+      if (!hrEmployee) {
+        console.warn(`⚠️ Employee ${employee.employee_code} not found in HR Manpower`)
+        return undefined
+      }
+
+      console.log('✅ Found HR Employee:', hrEmployee)
+      const hrEmployeeTyped = hrEmployee as any
+
+      // 2. Get designation rate for cost calculation
+      // ✅ Enhanced search: Try exact match first, then case-insensitive match
+      let designationRate: any = null
+      let rateError: any = null
+      
+      // Strategy 1: Exact match (case-sensitive)
+      const { data: exactRate, error: exactError } = await supabaseClient
+        .from(TABLES.DESIGNATION_RATES)
+        // @ts-ignore
+        .select('*')
+        .eq('designation', hrEmployeeTyped.designation)
+        .maybeSingle()
+      
+      if (exactRate && !exactError) {
+        designationRate = exactRate
+        console.log(`✅ Found exact designation rate for: ${hrEmployeeTyped.designation}`, designationRate)
+      } else {
+        // Strategy 2: Case-insensitive match
+        const { data: caseInsensitiveRate, error: caseError } = await supabaseClient
+          .from(TABLES.DESIGNATION_RATES)
+          // @ts-ignore
+          .select('*')
+          .ilike('designation', hrEmployeeTyped.designation)
+          .maybeSingle()
+        
+        if (caseInsensitiveRate && !caseError) {
+          designationRate = caseInsensitiveRate
+          console.log(`✅ Found case-insensitive designation rate for: ${hrEmployeeTyped.designation}`, designationRate)
+        } else {
+          rateError = caseError || exactError
+          console.warn(`⚠️ No designation rate found for: ${hrEmployeeTyped.designation}`)
+          console.warn(`   Tried exact match: ${hrEmployeeTyped.designation}`)
+          console.warn(`   Tried case-insensitive match: ${hrEmployeeTyped.designation}`)
+          
+          // Strategy 3: Debug - List all available designations
+          const { data: allRates } = await supabaseClient
+            .from(TABLES.DESIGNATION_RATES)
+            // @ts-ignore
+            .select('designation')
+            .order('designation', { ascending: true })
+          
+          if (allRates && allRates.length > 0) {
+            const availableDesignations = allRates.map((r: any) => r.designation)
+            console.warn(`   Available designations in database:`, availableDesignations)
+            console.warn(`   💡 Tip: Make sure the designation "${hrEmployeeTyped.designation}" exists in Designation Rates page`)
+          }
+        }
+      }
+
+      // 3. Calculate overtime (if total hours > 8)
+      const standardHours = 8
+      const overtimeHours = Math.max(0, totalHours - standardHours)
+      const overtimeText = overtimeHours > 0 ? `${overtimeHours.toFixed(2)}h` : '0h'
+
+      // 4. Calculate cost
+      let cost = 0
+      if (designationRate) {
+        const rate = designationRate as any
+        const hourlyRate = rate.hourly_rate || 0
+        const overtimeRate = rate.overtime_hourly_rate || hourlyRate || 0
+        
+        console.log(`💰 Calculating cost for ${hrEmployeeTyped.designation}:`, {
+          hourlyRate,
+          overtimeRate,
+          totalHours,
+          standardHours,
+          overtimeHours
+        })
+        
+        const standardCost = Math.min(totalHours, standardHours) * hourlyRate
+        const overtimeCost = overtimeHours * overtimeRate
+        cost = standardCost + overtimeCost
+        
+        console.log(`💰 Cost breakdown:`, {
+          standardCost,
+          overtimeCost,
+          totalCost: cost
+        })
+      } else {
+        console.warn(`⚠️ Cannot calculate cost - no rate found for designation: ${hrEmployeeTyped.designation}`)
+      }
+
+      // 5. Get Project Code from selected location name
+      // Location name format: "P5108 - Venus - Umm Al Sheif" or "P5108"
+      let projectCode = ''
+      try {
+        // ✅ Strategy 1: Extract Project Code from selected location name
+        if (selectedLocation && selectedLocation.name) {
+          // Try to extract project code from location name (format: "P5108 - ..." or "P5108")
+          const locationName = selectedLocation.name.trim()
+          const projectCodeMatch = locationName.match(/^([P]\d+[-\w]*)/i)
+          
+          if (projectCodeMatch && projectCodeMatch[1]) {
+            projectCode = projectCodeMatch[1].trim()
+            console.log(`📋 Project Code extracted from location name "${locationName}":`, projectCode)
+          } else {
+            console.warn(`⚠️ Could not extract Project Code from location name: "${locationName}"`)
+          }
+        }
+        
+        // ✅ Strategy 2: If no project code from location, try to get from Projects table
+        if (!projectCode) {
+          const { data: projects, error: projectsError } = await supabaseClient
+            .from(TABLES.PROJECTS)
+            // @ts-ignore
+            .select('"Project Code"')
+            .not('"Project Code"', 'is', null)
+            .limit(1)
+          
+          if (projectsError) {
+            console.warn('⚠️ Error fetching from Projects table:', projectsError)
+          }
+          
+          if (projects && projects.length > 0) {
+            projectCode = (projects[0] as any)['Project Code']
+            console.log('📋 Project Code found from Projects table:', projectCode)
+          } else {
+            // ✅ Strategy 3: Fallback - Try BOQ Activities table
+            const { data: boqActivities, error: boqError } = await supabaseClient
+              .from(TABLES.BOQ_ACTIVITIES)
+              // @ts-ignore
+              .select('"Project Code"')
+              .not('"Project Code"', 'is', null)
+              .limit(1)
+            
+            if (boqError) {
+              console.warn('⚠️ Error fetching from BOQ Activities table:', boqError)
+            }
+            
+            if (boqActivities && boqActivities.length > 0) {
+              projectCode = (boqActivities[0] as any)['Project Code']
+              console.log('📋 Project Code found from BOQ Activities table:', projectCode)
+            }
+          }
+        }
+        
+        console.log('📋 Final Project Code:', projectCode || 'DEFAULT')
+      } catch (err) {
+        console.warn('⚠️ Could not fetch project code, will use DEFAULT:', err)
+      }
+
+      // 6. Format date (YYYY-MM-DD to DD/MM/YYYY or keep as is)
+      const formattedDate = date
+
+      // 7. Check if record already exists for this employee on this date
+      const { data: existingRecord, error: checkError } = await supabaseClient
+        .from(TABLES.MANPOWER)
+        // @ts-ignore
+        .select('id')
+        .eq('LABOUR CODE', employee.employee_code)
+        .eq('Date', formattedDate)
+        .limit(1)
+
+      if (checkError) {
+        console.error('❌ Error checking existing record:', checkError)
+      }
+
+      if (existingRecord && existingRecord.length > 0) {
+        console.log(`⚠️ MANPOWER record already exists for ${employee.employee_code} on ${formattedDate}, skipping sync`)
+        return { projectCode: projectCode || 'DEFAULT' }
+      }
+
+      // 8. Insert into MANPOWER table
+      const manpowerRecord: any = {
+        'Date': formattedDate,
+        'PROJECT CODE': projectCode || 'DEFAULT', // Use 'DEFAULT' if no project found
+        'LABOUR CODE': employee.employee_code,
+        'Designation': hrEmployeeTyped.designation,
+        'START': checkInTime,
+        'FINISH': checkOutTime,
+        'OVERTIME': overtimeText,
+        'Total Hours': parseFloat(totalHours.toFixed(2)),
+        'Cost': parseFloat(cost.toFixed(2))
+      }
+      
+      // ✅ Add Location = Selected Location Name (from attendance locations)
+      // Location column will contain the name of the location where employee checked in/out
+      if (selectedLocation && selectedLocation.name) {
+        manpowerRecord['Location'] = selectedLocation.name
+        console.log('📍 Adding Location (Selected Location) to MANPOWER record:', selectedLocation.name)
+      } else {
+        // Fallback: Use Project Code if no location selected
+        manpowerRecord['Location'] = projectCode || 'DEFAULT'
+        console.log('📍 Adding Location (Project Code fallback) to MANPOWER record:', projectCode || 'DEFAULT')
+      }
+
+      console.log('📦 Inserting MANPOWER record:', manpowerRecord)
+
+      const { data: insertedData, error: manpowerError } = await supabaseClient
+        .from(TABLES.MANPOWER)
+        // @ts-ignore
+        .insert([manpowerRecord])
+        .select()
+
+      if (manpowerError) {
+        // ✅ Handle Location column missing error gracefully (expected if migration not run)
+        if (manpowerError.code === 'PGRST204' && manpowerError.message?.includes('Location')) {
+          // This is expected if migration script hasn't been run yet
+          // Silently retry without Location column
+          const recordWithoutLocation = { ...manpowerRecord }
+          delete recordWithoutLocation['Location']
+          
+          const { data: retryData, error: retryError } = await supabaseClient
+            .from(TABLES.MANPOWER)
+            // @ts-ignore
+            .insert([recordWithoutLocation])
+            .select()
+          
+          if (retryError) {
+            // Only log if retry also fails
+            console.error('❌ Error syncing to MANPOWER (retry without Location):', retryError)
+            // Don't throw - we don't want to fail the check-out if MANPOWER sync fails
+          } else {
+            // Success - log quietly
+            console.log('✅ Successfully synced to MANPOWER:', {
+              insertedData: retryData,
+              employee: employee.employee_code,
+              date: formattedDate,
+              hours: totalHours,
+              cost: cost,
+              projectCode: projectCode || 'DEFAULT',
+              note: 'Location column not available - run migration to enable'
+            })
+            
+            console.log(`📋 To view this record in MANPOWER page, search for Project Code: "${projectCode || 'DEFAULT'}"`)
+            
+            // Show migration hint only once (not every time)
+            if (!sessionStorage.getItem('manpower_location_migration_hint_shown')) {
+              console.log(`💡 Tip: Run migration script to enable Location tracking: Database/manpower-add-location-column-migration.sql`)
+              sessionStorage.setItem('manpower_location_migration_hint_shown', 'true')
+            }
+            
+            return { projectCode: projectCode || 'DEFAULT' }
+          }
+        } else {
+          // Other errors - log normally
+          console.error('❌ Error syncing to MANPOWER:', manpowerError)
+          console.error('❌ Error details:', {
+            message: manpowerError.message,
+            details: manpowerError.details,
+            hint: manpowerError.hint,
+            code: manpowerError.code
+          })
+          // Don't throw - we don't want to fail the check-out if MANPOWER sync fails
+        }
+      } else {
+        console.log('✅ Successfully synced to MANPOWER:', {
+          insertedData,
+          employee: employee.employee_code,
+          date: formattedDate,
+          hours: totalHours,
+          cost: cost,
+          projectCode: projectCode || 'DEFAULT',
+          location: selectedLocation?.name || projectCode || 'DEFAULT' // Location = Selected Location Name
+        })
+        
+        // ✅ Show success message with project code for easy search
+        console.log(`📋 To view this record in MANPOWER page:`)
+        console.log(`   - Search for Project Code: "${projectCode || 'DEFAULT'}"`)
+        console.log(`   - Or search by Labour Code: "${employee.employee_code}"`)
+        console.log(`   - Or search by Date: "${formattedDate}"`)
+        
+        // Return project code for display in success message
+        return { projectCode: projectCode || 'DEFAULT' }
+      }
+    } catch (err: any) {
+      console.error('❌ Error in syncToManpower:', err)
+      // Don't throw - we don't want to fail the check-out if MANPOWER sync fails
+    }
+  }
+
   const handleCheckOutForEmployee = async (employee: AttendanceEmployee): Promise<{ status: 'success' | 'error', message: string }> => {
     if (!location) {
       setErrorMessage('Please enable location services')
@@ -628,7 +1063,24 @@ export default function CheckInOutPage() {
 
       if (insertError) throw insertError
 
-      const message = `Checked out successfully at ${checkTime} (${workHours.toFixed(2)}h worked)`
+      // ✅ Sync to MANPOWER table
+      // Pass the selected location (nearestLocation for auto mode, or manually selected location)
+      const syncResult = await syncToManpower(
+        employee,
+        checkInRecordTyped.check_time,
+        checkTime,
+        today,
+        workHours,
+        nearestLocation // Pass the selected/nearest location object
+      )
+
+      // Get project code from sync result if available
+      let projectCodeInfo = ''
+      if (syncResult && syncResult.projectCode) {
+        projectCodeInfo = ` | Project: ${syncResult.projectCode}`
+      }
+
+      const message = `Checked out successfully at ${checkTime} (${workHours.toFixed(2)}h worked)${projectCodeInfo}`
       setSuccessMessage(`✅ ${employee.name} - ${message}`)
       await loadTodayRecords(employee.id)
       setTimeout(() => setSuccessMessage(''), 3000)
@@ -699,33 +1151,158 @@ export default function CheckInOutPage() {
           {/* Location Status */}
           <Card className="border-2 border-gray-200 dark:border-gray-700">
             <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  {location ? (
-                    <MapPin className="h-6 w-6 text-green-500" />
-                  ) : (
-                    <MapPin className="h-6 w-6 text-gray-400" />
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    {location ? (
+                      <MapPin className="h-6 w-6 text-green-500" />
+                    ) : (
+                      <MapPin className="h-6 w-6 text-gray-400" />
+                    )}
+                    <div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Location</p>
+                      <p className="font-semibold text-lg">
+                        {location ? (locationMode === 'manual' ? 'Manual' : 'Active') : 'Not Available'}
+                      </p>
+                    </div>
+                  </div>
+                  {locationMode === 'auto' && (
+                    <PermissionButton
+                      permission="hr.attendance.check_in_out"
+                      variant="outline"
+                      size="sm"
+                      onClick={getCurrentLocation}
+                      disabled={isGettingLocation}
+                    >
+                      {isGettingLocation ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-4 w-4" />
+                      )}
+                    </PermissionButton>
                   )}
-                  <div>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">Location</p>
-                    <p className="font-semibold text-lg">
-                      {location ? 'Active' : 'Not Available'}
-                    </p>
+                </div>
+                
+                {/* ✅ Location Mode Selection */}
+                <div className="flex items-center gap-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                  <label className="text-xs text-gray-600 dark:text-gray-400">Mode:</label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setLocationMode('auto')}
+                      className={`px-3 py-1 text-xs rounded-md transition-all ${
+                        locationMode === 'auto'
+                          ? 'bg-indigo-500 text-white'
+                          : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                      }`}
+                    >
+                      Auto
+                    </button>
+                    <button
+                      onClick={() => setLocationMode('manual')}
+                      className={`px-3 py-1 text-xs rounded-md transition-all ${
+                        locationMode === 'manual'
+                          ? 'bg-indigo-500 text-white'
+                          : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                      }`}
+                    >
+                      Manual
+                    </button>
                   </div>
                 </div>
-                <PermissionButton
-                  permission="hr.attendance.check_in_out"
-                  variant="outline"
-                  size="sm"
-                  onClick={getCurrentLocation}
-                  disabled={isGettingLocation}
-                >
-                  {isGettingLocation ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="h-4 w-4" />
-                  )}
-                </PermissionButton>
+
+                {/* ✅ Manual Location Selection */}
+                {locationMode === 'manual' && (
+                  <div className="pt-2 relative location-dropdown-container">
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={selectedLocationId ? locations.find(l => l.id === selectedLocationId)?.name || '' : locationSearchQuery}
+                        onChange={(e) => {
+                          setLocationSearchQuery(e.target.value)
+                          setShowLocationDropdown(true)
+                          if (!e.target.value) {
+                            setSelectedLocationId('')
+                            setLocation(null)
+                            setNearestLocation(null)
+                          }
+                        }}
+                        onFocus={() => setShowLocationDropdown(true)}
+                        placeholder="Search and select location..."
+                        className="w-full px-4 py-3 text-base border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
+                      />
+                      {selectedLocationId && (
+                        <button
+                          onClick={() => {
+                            setSelectedLocationId('')
+                            setLocationSearchQuery('')
+                            setLocation(null)
+                            setNearestLocation(null)
+                          }}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-500 transition-colors"
+                        >
+                          <XCircle className="h-5 w-5" />
+                        </button>
+                      )}
+                    </div>
+                    
+                    {/* ✅ Searchable Dropdown */}
+                    {showLocationDropdown && (
+                      <div className="absolute z-50 w-full mt-2 max-h-64 overflow-y-auto bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg shadow-xl">
+                        {locations
+                          .filter(loc => 
+                            !locationSearchQuery || 
+                            loc.name.toLowerCase().includes(locationSearchQuery.toLowerCase()) ||
+                            loc.latitude.toString().includes(locationSearchQuery) ||
+                            loc.longitude.toString().includes(locationSearchQuery)
+                          )
+                          .map(loc => (
+                            <div
+                              key={loc.id}
+                              onClick={() => {
+                                setSelectedLocationId(loc.id)
+                                setLocationSearchQuery('')
+                                setShowLocationDropdown(false)
+                              }}
+                              className={`px-4 py-3 cursor-pointer hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors border-b border-gray-200 dark:border-gray-700 ${
+                                selectedLocationId === loc.id ? 'bg-indigo-100 dark:bg-indigo-900/30' : ''
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="font-semibold text-base text-gray-900 dark:text-white">
+                                    {loc.name}
+                                  </p>
+                                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                                    {loc.latitude}, {loc.longitude}
+                                  </p>
+                                </div>
+                                {selectedLocationId === loc.id && (
+                                  <CheckCircle className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        {locations.filter(loc => 
+                          !locationSearchQuery || 
+                          loc.name.toLowerCase().includes(locationSearchQuery.toLowerCase()) ||
+                          loc.latitude.toString().includes(locationSearchQuery) ||
+                          loc.longitude.toString().includes(locationSearchQuery)
+                        ).length === 0 && (
+                          <div className="px-4 py-3 text-center text-gray-500 dark:text-gray-400">
+                            No locations found
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    
+                    {selectedLocationId && location && (
+                      <p className="text-sm text-green-600 dark:text-green-400 mt-2 flex items-center gap-2">
+                        <CheckCircle className="h-4 w-4" />
+                        Location set: {locations.find(l => l.id === selectedLocationId)?.name}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

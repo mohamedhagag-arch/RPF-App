@@ -26,7 +26,8 @@ import {
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Alert } from '@/components/ui/Alert'
-import { supabase, TABLES, AttendanceEmployee, AttendanceRecord, AttendanceLocation } from '@/lib/supabase'
+import { supabase, TABLES, AttendanceEmployee, AttendanceRecord, AttendanceLocation, HRManpower, DesignationRate } from '@/lib/supabase'
+import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { QRCodeScanner } from './QRCodeScanner'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 
@@ -319,6 +320,124 @@ export default function CheckInOutPage() {
     }
   }
 
+  // ✅ Sync Check-Out to MANPOWER table
+  const syncToManpower = async (
+    employee: AttendanceEmployee,
+    checkInTime: string,
+    checkOutTime: string,
+    date: string,
+    totalHours: number
+  ): Promise<void> => {
+    try {
+      const supabaseClient = getSupabaseClient()
+      
+      // 1. Get employee designation from HR Manpower
+      const { data: hrEmployee } = await supabaseClient
+        .from(TABLES.HR_MANPOWER)
+        // @ts-ignore
+        .select('employee_code, designation')
+        .eq('employee_code', employee.employee_code)
+        .eq('status', 'Active')
+        .single()
+
+      if (!hrEmployee) {
+        console.warn(`⚠️ Employee ${employee.employee_code} not found in HR Manpower`)
+        return
+      }
+
+      const hrEmployeeTyped = hrEmployee as any
+
+      // 2. Get designation rate for cost calculation
+      const { data: designationRate } = await supabaseClient
+        .from(TABLES.DESIGNATION_RATES)
+        // @ts-ignore
+        .select('*')
+        .eq('designation', hrEmployeeTyped.designation)
+        .single()
+
+      // 3. Calculate overtime (if total hours > 8)
+      const standardHours = 8
+      const overtimeHours = Math.max(0, totalHours - standardHours)
+      const overtimeText = overtimeHours > 0 ? `${overtimeHours.toFixed(2)}h` : '0h'
+
+      // 4. Calculate cost
+      let cost = 0
+      if (designationRate) {
+        const rate = designationRate as any
+        const standardCost = Math.min(totalHours, standardHours) * (rate.hourly_rate || 0)
+        const overtimeCost = overtimeHours * (rate.overtime_hourly_rate || rate.hourly_rate || 0)
+        cost = standardCost + overtimeCost
+      }
+
+      // 5. Get available projects (try to get default project or use first available)
+      let projectCode = ''
+      try {
+        const { data: projects } = await supabaseClient
+          .from('CCD - BOQ')
+          // @ts-ignore
+          .select('"PROJECT CODE"')
+          .not('"PROJECT CODE"', 'is', null)
+          .limit(1)
+        
+        if (projects && projects.length > 0) {
+          projectCode = (projects[0] as any)['PROJECT CODE']
+        }
+      } catch (err) {
+        console.warn('⚠️ Could not fetch project code, will leave empty')
+      }
+
+      // 6. Format date (YYYY-MM-DD to DD/MM/YYYY or keep as is)
+      const formattedDate = date
+
+      // 7. Check if record already exists for this employee on this date
+      const { data: existingRecord } = await supabaseClient
+        .from('CCD - MANPOWER')
+        // @ts-ignore
+        .select('id')
+        .eq('LABOUR CODE', employee.employee_code)
+        .eq('Date', formattedDate)
+        .limit(1)
+
+      if (existingRecord && existingRecord.length > 0) {
+        console.log(`⚠️ MANPOWER record already exists for ${employee.employee_code} on ${formattedDate}, skipping sync`)
+        return
+      }
+
+      // 8. Insert into MANPOWER table
+      const manpowerRecord = {
+        'Date': formattedDate,
+        'PROJECT CODE': projectCode || 'DEFAULT', // Use 'DEFAULT' if no project found
+        'LABOUR CODE': employee.employee_code,
+        'Designation': hrEmployeeTyped.designation,
+        'START': checkInTime,
+        'FINISH': checkOutTime,
+        'OVERTIME': overtimeText,
+        'Total Hours': parseFloat(totalHours.toFixed(2)),
+        'Cost': parseFloat(cost.toFixed(2))
+      }
+
+      const { error: manpowerError } = await supabaseClient
+        .from('CCD - MANPOWER')
+        // @ts-ignore
+        .insert([manpowerRecord])
+
+      if (manpowerError) {
+        console.error('❌ Error syncing to MANPOWER:', manpowerError)
+        // Don't throw - we don't want to fail the check-out if MANPOWER sync fails
+      } else {
+        console.log('✅ Successfully synced to MANPOWER:', {
+          employee: employee.employee_code,
+          date: formattedDate,
+          hours: totalHours,
+          cost: cost
+        })
+      }
+    } catch (err: any) {
+      console.error('❌ Error in syncToManpower:', err)
+      // Don't throw - we don't want to fail the check-out if MANPOWER sync fails
+    }
+  }
+
   const handleCheckOut = async () => {
     if (!selectedEmployee) {
       setErrorMessage('Please select an employee')
@@ -379,6 +498,15 @@ export default function CheckInOutPage() {
         .insert(record)
 
       if (error) throw error
+
+      // ✅ Sync to MANPOWER table
+      await syncToManpower(
+        selectedEmployee,
+        checkIn.check_time,
+        checkTime,
+        today,
+        workDuration
+      )
 
       setSuccessMessage(`✅ Check-Out successful at ${checkTime}. Work duration: ${workDuration.toFixed(2)} hours`)
       await loadTodayRecords(selectedEmployee.id)
