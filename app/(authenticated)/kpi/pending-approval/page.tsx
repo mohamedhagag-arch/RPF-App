@@ -1521,11 +1521,19 @@ export default function PendingApprovalKPIPage() {
     getField(kpi, 'Project Full Code') || getField(kpi, 'Project Code') || ''
   ).filter(Boolean))).sort()
   
-  const uniqueActivities = Array.from(new Set(currentKPIs.map(kpi => 
+  // ✅ Smart filtering: If projects are selected, only show activities/zones from those projects
+  const filteredKPIsForActivitiesZones = selectedProjects.length > 0
+    ? currentKPIs.filter(kpi => {
+        const projectCode = getField(kpi, 'Project Full Code') || getField(kpi, 'Project Code') || ''
+        return selectedProjects.includes(projectCode)
+      })
+    : currentKPIs
+  
+  const uniqueActivities = Array.from(new Set(filteredKPIsForActivitiesZones.map(kpi => 
     getField(kpi, 'Activity Name') || ''
   ).filter(Boolean))).sort()
   
-  const uniqueZones = Array.from(new Set(currentKPIs.map(kpi => 
+  const uniqueZones = Array.from(new Set(filteredKPIsForActivitiesZones.map(kpi => 
     getField(kpi, 'Zone') || ''
   ).filter(Boolean))).sort()
   
@@ -1591,6 +1599,49 @@ export default function PendingApprovalKPIPage() {
     
     setCurrentPage(1) // Reset to first page when filters change
   }, [activeTab, pendingKPIs, rejectedKPIs, selectedProjects, selectedActivities, selectedZones])
+
+  // ✅ Smart filter: Clear invalid activities and zones when projects change
+  useEffect(() => {
+    // Only run when projects, active tab, or KPIs change - not when activities/zones change
+    const currentKPIsForValidation = activeTab === 'pending' ? pendingKPIs : rejectedKPIs
+    
+    // If projects are selected, filter KPIs to only those projects
+    const validKPIs = selectedProjects.length > 0
+      ? currentKPIsForValidation.filter(kpi => {
+          const projectCode = getField(kpi, 'Project Full Code') || getField(kpi, 'Project Code') || ''
+          return selectedProjects.includes(projectCode)
+        })
+      : currentKPIsForValidation
+    
+    // Get valid activities and zones from the filtered KPIs
+    const validActivities = Array.from(new Set(validKPIs.map(kpi => 
+      getField(kpi, 'Activity Name') || ''
+    ).filter(Boolean)))
+    
+    const validZones = Array.from(new Set(validKPIs.map(kpi => 
+      getField(kpi, 'Zone') || ''
+    ).filter(Boolean)))
+    
+    // Remove invalid activities (not in selected projects)
+    // Use functional update to avoid dependency on selectedActivities
+    setSelectedActivities(prev => {
+      if (prev.length === 0) return prev
+      const validSelectedActivities = prev.filter(activity => 
+        validActivities.includes(activity)
+      )
+      return validSelectedActivities.length !== prev.length ? validSelectedActivities : prev
+    })
+    
+    // Remove invalid zones (not in selected projects)
+    // Use functional update to avoid dependency on selectedZones
+    setSelectedZones(prev => {
+      if (prev.length === 0) return prev
+      const validSelectedZones = prev.filter(zone => 
+        validZones.includes(zone)
+      )
+      return validSelectedZones.length !== prev.length ? validSelectedZones : prev
+    })
+  }, [selectedProjects, activeTab, pendingKPIs, rejectedKPIs])
 
   if (loading && pendingKPIs.length === 0) {
     return (
