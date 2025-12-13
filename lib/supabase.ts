@@ -26,7 +26,8 @@ export const TABLES = {
   DESIGNATION_DAILY_RATE_HISTORY: 'designation_daily_rate_history', // ✅ Daily rate history with time periods
   MACHINE_LIST: 'machine_list',                        // ✅ Machine list table
   MACHINERY_DAY_RATES: 'machinery_day_rates',          // ✅ Machinery day rates table
-  KPI_REJECTED: 'kpi_rejected'                         // ✅ Rejected KPIs table (temporary storage)
+  KPI_REJECTED: 'kpi_rejected',                        // ✅ Rejected KPIs table (temporary storage)
+  KPI_IGNORED_REPORTING: 'kpi_ignored_reporting_dates' // ✅ Ignored KPI reporting dates (shared across users)
 } as const
 
 // Backward compatibility alias

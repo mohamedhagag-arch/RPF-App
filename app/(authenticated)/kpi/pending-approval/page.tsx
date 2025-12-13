@@ -642,6 +642,12 @@ export default function PendingApprovalKPIPage() {
       // ✅ Step 2: Prepare data for rejected table (copy all fields)
       // Convert kpiData to a plain object to avoid TypeScript spread issues
       const kpiDataObj = kpiData as Record<string, any>
+      
+      // ✅ Preserve the original created_by from the main KPI table
+      // This is critical - we want to maintain who originally created the KPI
+      const originalCreatedBy = kpiDataObj['created_by'] || kpiDataObj.created_by || null
+      const originalUpdatedBy = kpiDataObj['updated_by'] || kpiDataObj.updated_by || null
+      
       const rejectedData: any = {
         ...kpiDataObj,
         'Original KPI ID': kpiId,
@@ -652,6 +658,20 @@ export default function PendingApprovalKPIPage() {
 
       // Remove the id field so a new UUID is generated
       delete rejectedData.id
+      
+      // ✅ Explicitly preserve created_by and updated_by from original KPI
+      // This ensures the original creator information is maintained
+      // The database trigger will respect these values if we set them explicitly
+      if (originalCreatedBy && originalCreatedBy !== 'System') {
+        rejectedData['created_by'] = originalCreatedBy
+        rejectedData.created_by = originalCreatedBy // Support both formats
+        console.log('✅ Preserving original created_by from KPI:', originalCreatedBy)
+      }
+      
+      if (originalUpdatedBy && originalUpdatedBy !== 'System') {
+        rejectedData['updated_by'] = originalUpdatedBy
+        rejectedData.updated_by = originalUpdatedBy // Support both formats
+      }
 
       // ✅ Step 3: Insert into rejected table
       const { error: insertError } = await supabase
@@ -717,39 +737,193 @@ export default function PendingApprovalKPIPage() {
         throw new Error(fetchError?.message || 'Failed to fetch rejected KPI data')
       }
 
-      // ✅ Step 2: Prepare data for main table (remove rejection-specific fields)
+      // ✅ Step 2: Prepare data for main table (preserve ALL data except rejection-specific and invalid columns)
       const kpiDataObj = rejectedData as Record<string, any>
+      
+      // ✅ Copy ALL data first (preserve everything)
       const mainTableData: any = { ...kpiDataObj }
       
-      // Remove rejection-specific fields
+      // ✅ Remove rejection-specific fields only
       delete mainTableData['Rejection Reason']
       delete mainTableData['Rejected By']
       delete mainTableData['Rejected Date']
       delete mainTableData['Original KPI ID']
       delete mainTableData.id // Generate new ID
+      
+      // ✅ Remove ONLY columns that definitely don't exist in main KPI table
+      // COMPREHENSIVE LIST: All columns that exist in kpi_rejected but NOT in "Planning Database - KPI"
+      // Based on PRODUCTION_SCHEMA_COMPLETE.sql - the actual KPI table only has these columns:
+      // id, Project Full Code, Project Code, Project Sub Code, Activity Name, Activity, Input Type,
+      // Quantity, Unit, Section, Zone, Drilled Meters, Value, Target Date, Actual Date, Activity Date,
+      // Day, Recorded By, Notes, created_at, updated_at
+      // Plus potentially: Activity Timing, Approval Status, Approved By, Approval Date (from migrations)
+      const invalidColumns = [
+        // ============================================================
+        // REJECTION-SPECIFIC FIELDS (must be removed)
+        // ============================================================
+        'Rejection Reason',
+        'Rejected By',
+        'Rejected Date',
+        'Original KPI ID',
+        
+        // ============================================================
+        // METADATA FIELDS (rejected table specific)
+        // ============================================================
+        // Note: created_by and updated_by are PRESERVED - they exist in main KPI table
+        // Only remove them if they cause errors (they shouldn't)
+        
+        // ============================================================
+        // BOQ-SPECIFIC CALCULATED FIELDS (not in main KPI table)
+        // ============================================================
+        'Activity Actual Status',
+        'Activity Planned Status',
+        'Activity Planned Start Date',
+        'Activity Planned Completion Date',
+        'Activity Delayed?',
+        'Activity On Track?',
+        'Activity Completed',
+        'Activity Scope',                    // ❌ NOT in main KPI table
+        'Remaining Work Value',
+        'Variance Works Value',
+        'LookAhead Start Date',
+        'LookAhead Activity Completion Date',
+        'Remaining LookAhead Duration For Activity Completion',
+        
+        // ============================================================
+        // CALCULATED/PROGRESS FIELDS (NOT in actual database)
+        // ============================================================
+        'Activity Progress %',               // ❌ NOT in actual database
+        'Planned Value',                     // ❌ NOT in actual database
+        'Earned Value',                      // ❌ NOT in actual database
+        'Delay %',                           // ❌ NOT in actual database
+        'Planned Progress %',                // ❌ NOT in actual database
+        'Drilled Meters Planned Progress',   // ❌ NOT in actual database
+        'Drilled Meters Actual Progress',    // ❌ NOT in actual database
+        'Remaining Meters',                  // ❌ NOT in actual database
+        'Variance Units',                    // ❌ NOT in actual database
+        'Diffrence',                         // ❌ NOT in actual database
+        'Total Units',                       // ❌ NOT in actual database
+        'Planned Units',                     // ❌ NOT in actual database
+        'Actual Units',                      // ❌ NOT in actual database
+        'Total Value',                       // ❌ NOT in actual database
+        'Productivity Daily Rate',           // ❌ NOT in actual database
+        'Total Drilling Meters',             // ❌ NOT in actual database
+        'Planned Activity Start Date',       // ❌ NOT in actual database
+        'Deadline',                          // ❌ NOT in actual database
+        'Calendar Duration',                 // ❌ NOT in actual database
+        'Reported on Data Date?',            // ❌ NOT in actual database
+        
+        // ============================================================
+        // COLUMNS ADDED TO REJECTED TABLE (definitely NOT in main KPI)
+        // ============================================================
+        'Activity Code',                     // ❌ NOT in main KPI table
+        'Project Name',                      // ❌ NOT in main KPI table
+        'Project Full Name',                 // ❌ NOT in actual database
+        'Project Status',                    // ❌ NOT in main KPI table (causes "Could not find column" error)
+        'Zone Number',                       // ❌ NOT in main KPI table
+        'Zone Ref',                          // ❌ NOT in actual database
+        'Zone #',                            // ❌ NOT in actual database (use "Zone" instead)
+        'Column 44',                         // ❌ NOT in actual database
+        'Column 45',                         // ❌ NOT in actual database
+        'Activity Division',                 // ❌ NOT in actual database (may exist in some schemas but not production)
+        'Week',                              // ❌ NOT in actual database
+        'Month',                             // ❌ NOT in actual database
+        'Quarter',                           // ❌ NOT in actual database
+        'Area',                              // ❌ NOT in actual database
+        'Block',                             // ❌ NOT in actual database
+        'Chainage',                          // ❌ NOT in actual database
+        'Location',                          // ❌ NOT in actual database
+        'Verified By',                      // ❌ NOT in actual database
+        'Engineer Name',                     // ❌ NOT in actual database
+        'Supervisor Name',                   // ❌ NOT in actual database
+        'Quality Rating',                    // ❌ NOT in actual database
+        'Completion Status',                 // ❌ NOT in actual database
+        'Inspection Status',                 // ❌ NOT in actual database
+        'Test Results',                      // ❌ NOT in actual database
+        'Productivity Rate',                  // ❌ NOT in actual database
+        'Efficiency %',                      // ❌ NOT in actual database
+        'Variance',                          // ❌ NOT in actual database
+        'Variance %',                        // ❌ NOT in actual database
+        'Cumulative Quantity',               // ❌ NOT in actual database
+        'Cumulative Value',                  // ❌ NOT in actual database
+        'Cost',                              // ❌ NOT in actual database
+        'Budget',                            // ❌ NOT in actual database
+        'Recorded Date',                     // ❌ NOT in actual database
+        'Submission Date',                   // ❌ NOT in actual database
+        'Rate'                                // ❌ NOT in actual database (may exist in some schemas but not production)
+      ]
+      
+      // Remove invalid columns
+      invalidColumns.forEach(column => {
+        delete mainTableData[column]
+      })
+      
+      // ✅ Explicitly preserve critical fields that should NOT be lost
+      // These fields are important for tracking and should be preserved
+      const criticalFields = {
+        'Target Date': kpiDataObj['Target Date'],
+        'Actual Date': kpiDataObj['Actual Date'],
+        'Activity Date': kpiDataObj['Activity Date'],
+        'created_by': kpiDataObj['created_by'] || kpiDataObj.created_by,
+        'updated_by': kpiDataObj['updated_by'] || kpiDataObj.updated_by,
+        'Recorded By': kpiDataObj['Recorded By']
+      }
+      
+      // Restore critical fields if they were accidentally removed
+      Object.entries(criticalFields).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          mainTableData[key] = value
+        }
+      })
+      
+      // ✅ Preserve all other columns (including any custom/additional fields)
+      // This ensures no data is lost during restore
 
       // ✅ Step 3: Insert into main KPI table
-      const { error: insertError } = await supabase
+      const { data: insertedData, error: insertError } = await supabase
         .from(TABLES.KPI)
-        .insert(mainTableData)
+        .insert(mainTableData as any)
+        .select()
+        .single()
 
       if (insertError) {
-        console.error('Error inserting into main table:', insertError)
+        console.error('❌ Error inserting into main table:', insertError)
         throw insertError
       }
 
-      // ✅ Step 4: Delete from rejected table
-      const { error: deleteError } = await supabase
+      const insertedKpiId = (insertedData as any)?.id
+      if (!insertedKpiId) {
+        throw new Error('Failed to get inserted KPI ID')
+      }
+
+      console.log(`✅ Successfully inserted KPI into main table with ID: ${insertedKpiId}`)
+
+      // ✅ Step 4: Delete from rejected table (CRITICAL - must succeed)
+      const { error: deleteError, data: deleteData } = await supabase
         .from(TABLES.KPI_REJECTED)
         .delete()
         .eq('id', rejectedKpiId)
+        .select()
 
       if (deleteError) {
-        console.error('Error deleting from rejected table:', deleteError)
-        // Don't throw - the data is already in main table
+        console.error('❌ Error deleting from rejected table:', deleteError)
+        // If delete fails, rollback the insert to avoid duplicates
+        console.log(`🔄 Rolling back insert - deleting KPI ${insertedKpiId} from main table`)
+        const { error: rollbackError } = await supabase
+          .from(TABLES.KPI)
+          .delete()
+          .eq('id', insertedKpiId)
+        
+        if (rollbackError) {
+          console.error('❌ Error rolling back insert:', rollbackError)
+          throw new Error(`Failed to delete from rejected table and rollback failed. KPI may be duplicated. Please contact administrator. Original error: ${deleteError.message}`)
+        }
+        
+        throw new Error(`Failed to delete from rejected table: ${deleteError.message}. The restore was cancelled to avoid duplicates.`)
       }
 
-      setSuccess(`KPI restored successfully!`)
+      console.log(`✅ Successfully deleted rejected KPI ${rejectedKpiId} from rejected table`)
+      setSuccess(`KPI restored successfully and removed from rejected list!`)
       
       // Remove from rejected list
       setRejectedKPIs(prev => prev.filter(kpi => kpi.id !== rejectedKpiId))
@@ -793,16 +967,147 @@ export default function PendingApprovalKPIPage() {
         throw new Error(fetchError?.message || 'Failed to fetch rejected KPI data')
       }
 
-      // ✅ Step 2: Prepare data for main table
+      // ✅ Step 2: Prepare data for main table (preserve ALL data except rejection-specific and invalid columns)
       const kpiDataObj = rejectedData as Record<string, any>
+      
+      // ✅ Copy ALL data first (preserve everything)
       const mainTableData: any = { ...kpiDataObj }
       
-      // Remove rejection-specific fields
+      // ✅ Remove rejection-specific fields only
       delete mainTableData['Rejection Reason']
       delete mainTableData['Rejected By']
       delete mainTableData['Rejected Date']
       delete mainTableData['Original KPI ID']
       delete mainTableData.id // Generate new ID
+      
+      // ✅ Remove ONLY columns that definitely don't exist in main KPI table
+      // COMPREHENSIVE LIST: All columns that exist in kpi_rejected but NOT in "Planning Database - KPI"
+      // Based on PRODUCTION_SCHEMA_COMPLETE.sql - the actual KPI table only has these columns:
+      // id, Project Full Code, Project Code, Project Sub Code, Activity Name, Activity, Input Type,
+      // Quantity, Unit, Section, Zone, Drilled Meters, Value, Target Date, Actual Date, Activity Date,
+      // Day, Recorded By, Notes, created_at, updated_at
+      // Plus potentially: Activity Timing, Approval Status, Approved By, Approval Date (from migrations)
+      const invalidColumns = [
+        // ============================================================
+        // REJECTION-SPECIFIC FIELDS (must be removed)
+        // ============================================================
+        'Rejection Reason',
+        'Rejected By',
+        'Rejected Date',
+        'Original KPI ID',
+        
+        // ============================================================
+        // METADATA FIELDS (rejected table specific)
+        // ============================================================
+        // Note: created_by and updated_by are PRESERVED - they exist in main KPI table
+        // Only remove them if they cause errors (they shouldn't)
+        
+        // ============================================================
+        // BOQ-SPECIFIC CALCULATED FIELDS (not in main KPI table)
+        // ============================================================
+        'Activity Actual Status',
+        'Activity Planned Status',
+        'Activity Planned Start Date',
+        'Activity Planned Completion Date',
+        'Activity Delayed?',
+        'Activity On Track?',
+        'Activity Completed',
+        'Activity Scope',                    // ❌ NOT in main KPI table
+        'Remaining Work Value',
+        'Variance Works Value',
+        'LookAhead Start Date',
+        'LookAhead Activity Completion Date',
+        'Remaining LookAhead Duration For Activity Completion',
+        
+        // ============================================================
+        // CALCULATED/PROGRESS FIELDS (NOT in actual database)
+        // ============================================================
+        'Activity Progress %',               // ❌ NOT in actual database
+        'Planned Value',                     // ❌ NOT in actual database
+        'Earned Value',                      // ❌ NOT in actual database
+        'Delay %',                           // ❌ NOT in actual database
+        'Planned Progress %',                // ❌ NOT in actual database
+        'Drilled Meters Planned Progress',   // ❌ NOT in actual database
+        'Drilled Meters Actual Progress',    // ❌ NOT in actual database
+        'Remaining Meters',                  // ❌ NOT in actual database
+        'Variance Units',                    // ❌ NOT in actual database
+        'Diffrence',                         // ❌ NOT in actual database
+        'Total Units',                       // ❌ NOT in actual database
+        'Planned Units',                     // ❌ NOT in actual database
+        'Actual Units',                      // ❌ NOT in actual database
+        'Total Value',                       // ❌ NOT in actual database
+        'Productivity Daily Rate',           // ❌ NOT in actual database
+        'Total Drilling Meters',             // ❌ NOT in actual database
+        'Planned Activity Start Date',       // ❌ NOT in actual database
+        'Deadline',                          // ❌ NOT in actual database
+        'Calendar Duration',                 // ❌ NOT in actual database
+        'Reported on Data Date?',            // ❌ NOT in actual database
+        
+        // ============================================================
+        // COLUMNS ADDED TO REJECTED TABLE (definitely NOT in main KPI)
+        // ============================================================
+        'Activity Code',                     // ❌ NOT in main KPI table
+        'Project Name',                      // ❌ NOT in main KPI table
+        'Project Full Name',                 // ❌ NOT in actual database
+        'Project Status',                    // ❌ NOT in main KPI table (causes "Could not find column" error)
+        'Zone Number',                       // ❌ NOT in main KPI table
+        'Zone Ref',                          // ❌ NOT in actual database
+        'Zone #',                            // ❌ NOT in actual database (use "Zone" instead)
+        'Column 44',                         // ❌ NOT in actual database
+        'Column 45',                         // ❌ NOT in actual database
+        'Activity Division',                 // ❌ NOT in actual database (may exist in some schemas but not production)
+        'Week',                              // ❌ NOT in actual database
+        'Month',                             // ❌ NOT in actual database
+        'Quarter',                           // ❌ NOT in actual database
+        'Area',                              // ❌ NOT in actual database
+        'Block',                             // ❌ NOT in actual database
+        'Chainage',                          // ❌ NOT in actual database
+        'Location',                          // ❌ NOT in actual database
+        'Verified By',                      // ❌ NOT in actual database
+        'Engineer Name',                     // ❌ NOT in actual database
+        'Supervisor Name',                   // ❌ NOT in actual database
+        'Quality Rating',                    // ❌ NOT in actual database
+        'Completion Status',                 // ❌ NOT in actual database
+        'Inspection Status',                 // ❌ NOT in actual database
+        'Test Results',                      // ❌ NOT in actual database
+        'Productivity Rate',                  // ❌ NOT in actual database
+        'Efficiency %',                      // ❌ NOT in actual database
+        'Variance',                          // ❌ NOT in actual database
+        'Variance %',                        // ❌ NOT in actual database
+        'Cumulative Quantity',               // ❌ NOT in actual database
+        'Cumulative Value',                  // ❌ NOT in actual database
+        'Cost',                              // ❌ NOT in actual database
+        'Budget',                            // ❌ NOT in actual database
+        'Recorded Date',                     // ❌ NOT in actual database
+        'Submission Date',                   // ❌ NOT in actual database
+        'Rate'                                // ❌ NOT in actual database (may exist in some schemas but not production)
+      ]
+      
+      // Remove invalid columns
+      invalidColumns.forEach(column => {
+        delete mainTableData[column]
+      })
+      
+      // ✅ Explicitly preserve critical fields that should NOT be lost
+      // These fields are important for tracking and should be preserved
+      const criticalFields = {
+        'Target Date': kpiDataObj['Target Date'],
+        'Actual Date': kpiDataObj['Actual Date'],
+        'Activity Date': kpiDataObj['Activity Date'],
+        'created_by': kpiDataObj['created_by'] || kpiDataObj.created_by,
+        'updated_by': kpiDataObj['updated_by'] || kpiDataObj.updated_by,
+        'Recorded By': kpiDataObj['Recorded By']
+      }
+      
+      // Restore critical fields if they were accidentally removed
+      Object.entries(criticalFields).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          mainTableData[key] = value
+        }
+      })
+      
+      // ✅ Preserve all other columns (including any custom/additional fields)
+      // This ensures no data is lost during restore
 
       // ✅ Step 3: Apply edited data if provided
       if (editedData && Object.keys(editedData).length > 0) {
@@ -854,16 +1159,33 @@ export default function PendingApprovalKPIPage() {
         // Don't throw - the KPI is already in main table
       }
 
-      // ✅ Step 6: Delete from rejected table
-      const { error: deleteError } = await supabase
+      // ✅ Step 6: Delete from rejected table (CRITICAL - must succeed)
+      const { error: deleteError, data: deleteData } = await supabase
         .from(TABLES.KPI_REJECTED)
         .delete()
         .eq('id', rejectedKpiId)
+        .select()
 
       if (deleteError) {
-        console.error('Error deleting from rejected table:', deleteError)
-        // Don't throw - the data is already in main table
+        console.error('❌ Error deleting from rejected table:', deleteError)
+        // If delete fails, try to rollback the insert to avoid duplicates
+        const { error: rollbackError } = await supabase
+          .from(TABLES.KPI)
+          .delete()
+          .eq('Project Full Code', mainTableData['Project Full Code'])
+          .eq('Activity Name', mainTableData['Activity Name'])
+          .eq('Activity Date', mainTableData['Activity Date'] || mainTableData['Actual Date'] || mainTableData['Target Date'])
+          .order('created_at', { ascending: false })
+          .limit(1)
+        
+        if (rollbackError) {
+          console.error('❌ Error rolling back insert:', rollbackError)
+        }
+        
+        throw new Error(`Failed to delete from rejected table: ${deleteError.message}. The KPI was not restored to avoid duplicates.`)
       }
+
+      console.log(`✅ Successfully deleted rejected KPI ${rejectedKpiId} from rejected table`)
 
       setSuccess(`KPI approved and moved to main table successfully!`)
       

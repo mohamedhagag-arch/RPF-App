@@ -156,6 +156,277 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   const [useCustomizedTable, setUseCustomizedTable] = useState(false)
   const [hasInitializedView, setHasInitializedView] = useState(false)
   
+  // ✅ Tab state for "Not Submitted KPI's"
+  const [activeTab, setActiveTab] = useState<'kpis' | 'not-submitted'>('kpis')
+  
+  // ✅ New data structure: entries with date + project combination
+  interface NotSubmittedEntry {
+    id: string // project_id + date combination
+    project: Project
+    date: Date
+    dateString: string // YYYY-MM-DD
+    dayString: string // "Jan 1, 2024 - Monday"
+    isIgnored: boolean
+  }
+  
+  const [notSubmittedEntries, setNotSubmittedEntries] = useState<NotSubmittedEntry[]>([])
+  const [loadingNotSubmitted, setLoadingNotSubmitted] = useState(false)
+  const [ignoredReportingDates, setIgnoredReportingDates] = useState<Map<string, Set<string>>>(new Map()) // project_id -> Set of date strings
+  const [selectedEntries, setSelectedEntries] = useState<Set<string>>(new Set()) // Selected entry IDs for bulk operations
+  const [dateRangeFilter, setDateRangeFilter] = useState<{ start: string; end: string }>({ start: '', end: '' }) // Filter by date range
+  const [projectFilter, setProjectFilter] = useState<string>('') // Filter by project code/name
+  const [divisionFilter, setDivisionFilter] = useState<string>('') // Filter by division
+  const [sortBy, setSortBy] = useState<'date' | 'project'>('date') // Sort option
+  
+  // ✅ Get supabase client early so it can be used in callbacks
+  const supabase = getSupabaseClient()
+  
+  // ✅ Helper function to format date as Day string (e.g., "Jan 1, 2024 - Monday")
+  const formatDateAsDay = (date: Date): string => {
+    const weekday = date.toLocaleDateString('en-US', { weekday: 'long' })
+    return `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${weekday}`
+  }
+  
+  // ✅ Fetch all projects with "on-going" status that don't have KPI records from Dec 12, 2025 onwards
+  const fetchNotSubmittedProjects = useCallback(async () => {
+    try {
+      setLoadingNotSubmitted(true)
+      
+      // Start date: December 12, 2025
+      const startDate = new Date('2025-12-12')
+      startDate.setHours(0, 0, 0, 0)
+      const today = new Date()
+      today.setHours(23, 59, 59, 999)
+      
+      console.log('🔍 Fetching projects without KPIs from Dec 12, 2025 to today')
+      
+      // ✅ STEP 1: Generate all dates from start date to today
+      const allDates: Date[] = []
+      const currentDate = new Date(startDate)
+      while (currentDate <= today) {
+        allDates.push(new Date(currentDate))
+        currentDate.setDate(currentDate.getDate() + 1)
+      }
+      
+      console.log(`📅 Checking ${allDates.length} dates from ${formatDateAsDay(startDate)} to ${formatDateAsDay(today)}`)
+      
+      // ✅ STEP 2: Fetch ALL projects from projects list
+      const { data: allProjects, error: projectsError } = await supabase
+        .from(TABLES.PROJECTS)
+        .select('*')
+        .order('created_at', { ascending: false })
+      
+      if (projectsError) {
+        console.error('❌ Error fetching all projects:', projectsError)
+        setLoadingNotSubmitted(false)
+        return
+      }
+      
+      if (!allProjects || allProjects.length === 0) {
+        console.log('⚠️ No projects found in database')
+        setNotSubmittedEntries([])
+        setLoadingNotSubmitted(false)
+        return
+      }
+      
+      console.log(`📊 Fetched ${allProjects.length} total projects from database`)
+      
+      // ✅ STEP 3: Map and filter for "ongoing" status projects
+      const mappedAllProjects = (allProjects || []).map(mapProjectFromDB)
+      const ongoingProjects = mappedAllProjects.filter((project) => {
+        const status = (
+          project.project_status || 
+          (project as any)['Project Status'] || 
+          (project as any).raw?.['Project Status'] || 
+          ''
+        ).toLowerCase().trim()
+        
+        const isOngoing = 
+          status === 'on-going' ||
+          status === 'ongoing' ||
+          status === 'on going' ||
+          status.includes('on-going') ||
+          status.includes('ongoing')
+        
+        return isOngoing
+      })
+      
+      console.log(`📊 Found ${ongoingProjects.length} ongoing projects`)
+      
+      if (ongoingProjects.length === 0) {
+        setNotSubmittedEntries([])
+        setLoadingNotSubmitted(false)
+        return
+      }
+      
+      // ✅ STEP 4: Fetch ALL KPIs from start date to today (more efficient than per-date queries)
+      interface KPIWithDates {
+        id: string
+        'Project Full Code'?: string
+        'Project Code'?: string
+        project_full_code?: string
+        project_code?: string
+        Day?: string
+        'Activity Date'?: string
+        'Actual Date'?: string
+        'Target Date'?: string
+      }
+      
+      // Fetch all KPIs that might match our date range
+      const { data: allKPIs, error: kpisError } = await supabase
+        .from(TABLES.KPI)
+        .select('id, "Project Full Code", "Project Code", Day, "Activity Date", "Actual Date", "Target Date"')
+        .gte('"Activity Date"', startDate.toISOString().split('T')[0])
+        .lte('"Activity Date"', today.toISOString().split('T')[0])
+      
+      // Also fetch by other date fields
+      const { data: kpisByActualDate } = await supabase
+        .from(TABLES.KPI)
+        .select('id, "Project Full Code", "Project Code", Day, "Activity Date", "Actual Date", "Target Date"')
+        .gte('"Actual Date"', startDate.toISOString().split('T')[0])
+        .lte('"Actual Date"', today.toISOString().split('T')[0])
+      
+      const { data: kpisByTargetDate } = await supabase
+        .from(TABLES.KPI)
+        .select('id, "Project Full Code", "Project Code", Day, "Activity Date", "Actual Date", "Target Date"')
+        .gte('"Target Date"', startDate.toISOString().split('T')[0])
+        .lte('"Target Date"', today.toISOString().split('T')[0])
+      
+      // Combine all KPIs and deduplicate
+      const allKPIsCombined: KPIWithDates[] = []
+      const kpiIds = new Set<string>()
+      
+      const addKPI = (kpi: any) => {
+        if (kpi && kpi.id && !kpiIds.has(kpi.id)) {
+          allKPIsCombined.push(kpi)
+          kpiIds.add(kpi.id)
+        }
+      }
+      
+      if (allKPIs) allKPIs.forEach(addKPI)
+      if (kpisByActualDate) kpisByActualDate.forEach(addKPI)
+      if (kpisByTargetDate) kpisByTargetDate.forEach(addKPI)
+      
+      // Also fetch by Day field (need to check all day strings)
+      const dayStrings = allDates.map(d => formatDateAsDay(d))
+      for (const dayString of dayStrings) {
+        const { data: kpisByDay } = await supabase
+          .from(TABLES.KPI)
+          .select('id, "Project Full Code", "Project Code", Day, "Activity Date", "Actual Date", "Target Date"')
+          .eq('Day', dayString)
+        if (kpisByDay) kpisByDay.forEach(addKPI)
+      }
+      
+      console.log(`📊 Found ${allKPIsCombined.length} total KPIs in date range`)
+      
+      // ✅ STEP 5: Build map of project+date combinations that have KPIs
+      // Format: "project_full_code|dateString" -> true
+      const projectsWithKPIsMap = new Map<string, boolean>()
+      
+      allKPIsCombined.forEach((kpi: any) => {
+        const projectFullCode = (kpi['Project Full Code'] || kpi.project_full_code || '').toUpperCase().trim()
+        const projectCode = (kpi['Project Code'] || kpi.project_code || '').toUpperCase().trim()
+        
+        // Check all date fields
+        const dates = [
+          kpi['Activity Date'],
+          kpi['Actual Date'],
+          kpi['Target Date']
+        ].filter(Boolean)
+        
+        // Also check Day field
+        const dayString = kpi.Day
+        if (dayString) {
+          // Try to parse day string to get date
+          const dayDate = new Date(dayString.split(' - ')[0])
+          if (!isNaN(dayDate.getTime())) {
+            dates.push(dayDate.toISOString().split('T')[0])
+          }
+        }
+        
+        dates.forEach(dateStr => {
+          if (projectFullCode) {
+            projectsWithKPIsMap.set(`${projectFullCode}|${dateStr}`, true)
+          }
+          if (projectCode) {
+            projectsWithKPIsMap.set(`${projectCode}|${dateStr}`, true)
+          }
+        })
+      })
+      
+      // ✅ STEP 6: Load all ignored reporting dates
+      const { data: allIgnoredRecords } = await supabase
+        .from(TABLES.KPI_IGNORED_REPORTING)
+        .select('project_id, ignored_date, ignored_day_string')
+        .gte('ignored_date', startDate.toISOString().split('T')[0])
+        .lte('ignored_date', today.toISOString().split('T')[0])
+      
+      const ignoredDatesMap = new Map<string, Set<string>>()
+      if (allIgnoredRecords) {
+        allIgnoredRecords.forEach((record: any) => {
+          const projectId = record.project_id
+          if (!ignoredDatesMap.has(projectId)) {
+            ignoredDatesMap.set(projectId, new Set())
+          }
+          const dateSet = ignoredDatesMap.get(projectId)!
+          if (record.ignored_date) dateSet.add(record.ignored_date)
+          if (record.ignored_day_string) dateSet.add(record.ignored_day_string)
+        })
+      }
+      
+      console.log(`📋 Loaded ${allIgnoredRecords?.length || 0} ignored reporting records`)
+      
+      // ✅ STEP 7: Build entries for each project+date combination without KPI
+      const entries: NotSubmittedEntry[] = []
+      
+      ongoingProjects.forEach((project) => {
+        const projectFullCode = (project.project_full_code || '').toUpperCase().trim()
+        const projectCode = (project.project_code || '').toUpperCase().trim()
+        const projectIgnoredDates = ignoredDatesMap.get(project.id) || new Set()
+        
+        allDates.forEach((date) => {
+          const dateString = date.toISOString().split('T')[0]
+          const dayString = formatDateAsDay(date)
+          
+          // Check if project has KPI for this date
+          const hasKPI = projectsWithKPIsMap.has(`${projectFullCode}|${dateString}`) ||
+                        (projectCode && projectsWithKPIsMap.has(`${projectCode}|${dateString}`))
+          
+          // Check if reporting is ignored for this date
+          const isIgnored = projectIgnoredDates.has(dateString) || projectIgnoredDates.has(dayString)
+          
+          // Create entry if no KPI and not ignored
+          if (!hasKPI && !isIgnored) {
+            entries.push({
+              id: `${project.id}|${dateString}`,
+              project,
+              date: new Date(date),
+              dateString,
+              dayString,
+              isIgnored: false
+            })
+          }
+        })
+      })
+      
+      console.log(`✅ Found ${entries.length} project-date combinations without KPIs`)
+      setNotSubmittedEntries(entries)
+      
+    } catch (error: any) {
+      console.error('❌ Error fetching not submitted projects:', error)
+      setNotSubmittedEntries([])
+    } finally {
+      setLoadingNotSubmitted(false)
+    }
+  }, [supabase])
+  
+  // ✅ Load not submitted projects when tab is active
+  useEffect(() => {
+    if (activeTab === 'not-submitted') {
+      fetchNotSubmittedProjects()
+    }
+  }, [activeTab, fetchNotSubmittedProjects])
+  
   // Ensure Standard View is only enabled if user has permission (only on initial load)
   useEffect(() => {
     // Only set initial value once, not on every guard change
@@ -194,7 +465,6 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   const [sortColumn, setSortColumn] = useState<string | null>(null)
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   
-  const supabase = getSupabaseClient()
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('kpi') // ✅ Smart loading
   
   // ✅ Permission check - return access denied if user doesn't have permission
@@ -1168,6 +1438,11 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       if (selectedProjects.length > 0) {
         await fetchData(selectedProjects)
       }
+      
+      // ✅ Refresh not submitted projects list if tab is active
+      if (activeTab === 'not-submitted') {
+        await fetchNotSubmittedProjects()
+      }
     } catch (error: any) {
       console.error('Create failed:', error)
       setError(error.message)
@@ -1451,6 +1726,11 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         } catch (fallbackError) {
           console.error('❌ Fallback refresh also failed:', fallbackError)
         }
+      }
+      
+      // ✅ Refresh not submitted projects list if tab is active
+      if (activeTab === 'not-submitted') {
+        await fetchNotSubmittedProjects()
       }
       
       // ✅ Auto-save calculations after KPI update
@@ -2799,6 +3079,11 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
       if (selectedProjects.length > 0) {
         await fetchData(selectedProjects)
       }
+      
+      // ✅ Refresh not submitted projects list if tab is active
+      if (activeTab === 'not-submitted') {
+        await fetchNotSubmittedProjects()
+      }
     } catch (error: any) {
       console.error('❌ Import failed:', error)
       throw new Error(`Import failed: ${error.message}`)
@@ -2859,6 +3144,43 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     <div className="space-y-6 max-w-full overflow-hidden kpi-container">
       {/* Header Section */}
       <div className="space-y-6">
+        {/* Tab Navigation */}
+        <div className="flex items-center gap-6 border-b border-gray-200 dark:border-gray-700">
+          <button
+            onClick={() => setActiveTab('kpis')}
+            className={`relative flex items-center gap-2 px-1 py-3 text-sm font-medium transition-colors ${
+              activeTab === 'kpis'
+                ? 'text-purple-600 dark:text-purple-400'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+            }`}
+          >
+            <Target className={`h-5 w-5 ${activeTab === 'kpis' ? 'text-purple-600 dark:text-purple-400' : 'text-gray-500 dark:text-gray-400'}`} />
+            <span>KPI Tracking</span>
+            {activeTab === 'kpis' && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-purple-600 dark:bg-purple-400"></span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('not-submitted')}
+            className={`relative flex items-center gap-2 px-1 py-3 text-sm font-medium transition-colors ${
+              activeTab === 'not-submitted'
+                ? 'text-purple-600 dark:text-purple-400'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+            }`}
+          >
+            <AlertCircle className={`h-5 w-5 ${activeTab === 'not-submitted' ? 'text-purple-600 dark:text-purple-400' : 'text-gray-500 dark:text-gray-400'}`} />
+            <span>Not Submitted KPI's</span>
+            {notSubmittedEntries.length > 0 && (
+              <span className="ml-1 px-2 py-0.5 text-xs font-bold rounded-full bg-red-500 text-white">
+                {notSubmittedEntries.length}
+              </span>
+            )}
+            {activeTab === 'not-submitted' && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-purple-600 dark:bg-purple-400"></span>
+            )}
+          </button>
+        </div>
+        
         {/* Title and Description */}
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div className="flex-1">
@@ -2980,6 +3302,407 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         </div>
       </div>
       
+      {/* Tab Content */}
+      {activeTab === 'not-submitted' ? (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <CardTitle className="flex items-center gap-2 text-gray-900 dark:text-white">
+                <AlertCircle className="w-5 h-5 text-orange-500" />
+                Not Submitted KPI's
+                <span className="text-sm font-normal text-gray-500 dark:text-gray-400">
+                  ({notSubmittedEntries.length} {notSubmittedEntries.length === 1 ? 'entry' : 'entries'} from Dec 12, 2025 onwards)
+                </span>
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={() => fetchNotSubmittedProjects()}
+                  variant="outline"
+                  size="sm"
+                  disabled={loadingNotSubmitted}
+                >
+                  <Clock className="h-4 w-4 mr-2" />
+                  {loadingNotSubmitted ? 'Refreshing...' : 'Refresh'}
+                </Button>
+              </div>
+            </div>
+            
+            {/* Filters and Bulk Actions */}
+            <div className="mt-4 flex flex-wrap items-center gap-4">
+              {/* Date Range Filter */}
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Date Range:</label>
+                <input
+                  type="date"
+                  value={dateRangeFilter.start}
+                  onChange={(e) => setDateRangeFilter({ ...dateRangeFilter, start: e.target.value })}
+                  placeholder="Start date"
+                  className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500 dark:focus:ring-purple-400"
+                  min="2025-12-12"
+                  max={new Date().toISOString().split('T')[0]}
+                />
+                <span className="text-sm text-gray-500 dark:text-gray-400">to</span>
+                <input
+                  type="date"
+                  value={dateRangeFilter.end}
+                  onChange={(e) => setDateRangeFilter({ ...dateRangeFilter, end: e.target.value })}
+                  placeholder="End date"
+                  className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500 dark:focus:ring-purple-400"
+                  min={dateRangeFilter.start || "2025-12-12"}
+                  max={new Date().toISOString().split('T')[0]}
+                />
+                {(dateRangeFilter.start || dateRangeFilter.end) && (
+                  <Button
+                    onClick={() => setDateRangeFilter({ start: '', end: '' })}
+                    variant="outline"
+                    size="sm"
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
+              
+              {/* Project Filter */}
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Filter by Project:</label>
+                <input
+                  type="text"
+                  value={projectFilter}
+                  onChange={(e) => setProjectFilter(e.target.value)}
+                  placeholder="Project code or name..."
+                  className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500 dark:focus:ring-purple-400"
+                />
+                {projectFilter && (
+                  <Button
+                    onClick={() => setProjectFilter('')}
+                    variant="outline"
+                    size="sm"
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
+              
+              {/* Division Filter */}
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Filter by Division:</label>
+                <select
+                  value={divisionFilter}
+                  onChange={(e) => setDivisionFilter(e.target.value)}
+                  className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500 dark:focus:ring-purple-400"
+                >
+                  <option value="">All Divisions</option>
+                  {(() => {
+                    const uniqueDivisions = Array.from(new Set(notSubmittedEntries.map(e => e.project.responsible_division).filter(Boolean))).sort()
+                    return uniqueDivisions.map(div => (
+                      <option key={div} value={div}>{div}</option>
+                    ))
+                  })()}
+                </select>
+                {divisionFilter && (
+                  <Button
+                    onClick={() => setDivisionFilter('')}
+                    variant="outline"
+                    size="sm"
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
+              
+              {/* Sort Option */}
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Sort by:</label>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as 'date' | 'project')}
+                  className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500 dark:focus:ring-purple-400"
+                >
+                  <option value="date">Date (Primary) → Project Code</option>
+                  <option value="project">Project Code (Primary) → Date</option>
+                </select>
+              </div>
+              
+              {/* Bulk Actions */}
+              {selectedEntries.size > 0 && (
+                <div className="flex items-center gap-2 ml-auto">
+                  <span className="text-sm text-gray-600 dark:text-gray-400">
+                    {selectedEntries.size} selected
+                  </span>
+                  <Button
+                    onClick={async () => {
+                      try {
+                        const entriesToIgnore = notSubmittedEntries.filter(e => selectedEntries.has(e.id))
+                        const ignoredBy = appUser?.email || authUser?.email || guard.user?.email || 'System'
+                        
+                        const ignoreData = entriesToIgnore.map(entry => ({
+                          project_id: entry.project.id,
+                          project_full_code: entry.project.project_full_code || entry.project.project_code,
+                          ignored_date: entry.dateString,
+                          ignored_day_string: entry.dayString,
+                          ignored_by: ignoredBy,
+                          reason: 'Bulk ignore - user selected multiple entries'
+                        }))
+                        
+                        const { error } = await supabase
+                          .from(TABLES.KPI_IGNORED_REPORTING)
+                          .insert(ignoreData as any)
+                        
+                        if (error) {
+                          // Even if some entries fail (e.g., duplicates), refresh to show current state
+                          console.error('❌ Error bulk ignoring:', error)
+                          // Still refresh to show which entries were successfully ignored
+                          await fetchNotSubmittedProjects()
+                          setSelectedEntries(new Set())
+                          if (error.code !== '23505') {
+                            // Only show alert for non-duplicate errors
+                            alert(`Error: ${error.message}`)
+                          }
+                        } else {
+                          console.log(`✅ Bulk ignored ${entriesToIgnore.length} entries`)
+                          setSelectedEntries(new Set())
+                          // Refresh the list after successful bulk ignore
+                          await fetchNotSubmittedProjects()
+                        }
+                      } catch (error: any) {
+                        console.error('❌ Error bulk ignoring:', error)
+                        // Still try to refresh even on error
+                        await fetchNotSubmittedProjects()
+                        setSelectedEntries(new Set())
+                        alert(`Error: ${error.message || 'Unknown error'}`)
+                      }
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="bg-orange-50 hover:bg-orange-100 border-orange-300 text-orange-700 dark:bg-orange-900/20 dark:border-orange-700 dark:text-orange-300"
+                  >
+                    <X className="h-4 w-4 mr-1" />
+                    Bulk Ignore ({selectedEntries.size})
+                  </Button>
+                  <Button
+                    onClick={() => setSelectedEntries(new Set())}
+                    variant="outline"
+                    size="sm"
+                  >
+                    Clear Selection
+                  </Button>
+                </div>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            {loadingNotSubmitted ? (
+              <div className="flex items-center justify-center py-12">
+                <LoadingSpinner />
+                <span className="ml-3 text-gray-600 dark:text-gray-400">Loading entries...</span>
+              </div>
+            ) : (() => {
+              // Filter and sort entries
+              let filteredEntries = [...notSubmittedEntries]
+              
+              // Apply date range filter
+              if (dateRangeFilter.start || dateRangeFilter.end) {
+                filteredEntries = filteredEntries.filter(e => {
+                  const entryDate = e.dateString
+                  if (dateRangeFilter.start && entryDate < dateRangeFilter.start) return false
+                  if (dateRangeFilter.end && entryDate > dateRangeFilter.end) return false
+                  return true
+                })
+              }
+              
+              // Apply project filter
+              if (projectFilter) {
+                const filterLower = projectFilter.toLowerCase()
+                filteredEntries = filteredEntries.filter(e => {
+                  const projectCode = (e.project.project_full_code || e.project.project_code || '').toLowerCase()
+                  const projectName = (e.project.project_name || '').toLowerCase()
+                  return projectCode.includes(filterLower) || projectName.includes(filterLower)
+                })
+              }
+              
+              // Apply division filter
+              if (divisionFilter) {
+                filteredEntries = filteredEntries.filter(e => {
+                  return e.project.responsible_division === divisionFilter
+                })
+              }
+              
+              // Sort entries
+              filteredEntries.sort((a, b) => {
+                if (sortBy === 'date') {
+                  // Primary: Date, Secondary: Project Code
+                  const dateCompare = a.date.getTime() - b.date.getTime()
+                  if (dateCompare !== 0) return dateCompare
+                  const projectCodeA = (a.project.project_full_code || a.project.project_code || '').toUpperCase()
+                  const projectCodeB = (b.project.project_full_code || b.project.project_code || '').toUpperCase()
+                  return projectCodeA.localeCompare(projectCodeB)
+                } else {
+                  // Primary: Project Code, Secondary: Date
+                  const projectCodeA = (a.project.project_full_code || a.project.project_code || '').toUpperCase()
+                  const projectCodeB = (b.project.project_full_code || b.project.project_code || '').toUpperCase()
+                  const projectCompare = projectCodeA.localeCompare(projectCodeB)
+                  if (projectCompare !== 0) return projectCompare
+                  return a.date.getTime() - b.date.getTime()
+                }
+              })
+              
+              return filteredEntries.length === 0 ? (
+                <div className="text-center py-12">
+                  <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                    All Good!
+                  </h3>
+                  <p className="text-gray-600 dark:text-gray-400">
+                    {dateRangeFilter.start || dateRangeFilter.end || projectFilter || divisionFilter
+                      ? 'No entries match your filters.'
+                      : 'All ongoing projects have KPI records from Dec 12, 2025 onwards.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="mb-4 p-3 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg">
+                    <p className="text-sm text-orange-800 dark:text-orange-200">
+                      <AlertCircle className="h-4 w-4 inline mr-2" />
+                      Showing {filteredEntries.length} of {notSubmittedEntries.length} entries {dateRangeFilter.start || dateRangeFilter.end || projectFilter || divisionFilter ? '(filtered)' : ''}
+                    </p>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            <input
+                              type="checkbox"
+                              checked={filteredEntries.length > 0 && filteredEntries.every(e => selectedEntries.has(e.id))}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedEntries(new Set(filteredEntries.map(e => e.id)))
+                                } else {
+                                  setSelectedEntries(new Set())
+                                }
+                              }}
+                              className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                            />
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Date
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Project Code
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Project Name
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Division
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Actions
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+                        {filteredEntries.map((entry) => (
+                          <tr key={entry.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                            <td className="px-4 py-3">
+                              <input
+                                type="checkbox"
+                                checked={selectedEntries.has(entry.id)}
+                                onChange={(e) => {
+                                  const newSelected = new Set(selectedEntries)
+                                  if (e.target.checked) {
+                                    newSelected.add(entry.id)
+                                  } else {
+                                    newSelected.delete(entry.id)
+                                  }
+                                  setSelectedEntries(newSelected)
+                                }}
+                                className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                              />
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
+                              {entry.dayString}
+                            </td>
+                            <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">
+                              {entry.project.project_full_code || `${entry.project.project_code}${entry.project.project_sub_code ? '-' + entry.project.project_sub_code : ''}`}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
+                              {entry.project.project_name}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
+                              {entry.project.responsible_division}
+                            </td>
+                            <td className="px-4 py-3 text-sm">
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  onClick={() => {
+                                    setActiveTab('kpis')
+                                    setSelectedProjects([entry.project.project_full_code || entry.project.project_code])
+                                    setTimeout(() => {
+                                      setShowForm(true)
+                                    }, 100)
+                                  }}
+                                  size="sm"
+                                  variant="outline"
+                                >
+                                  <Plus className="h-4 w-4 mr-1" />
+                                  Add KPI
+                                </Button>
+                                <Button
+                                  onClick={async () => {
+                                    try {
+                                      const ignoredBy = appUser?.email || authUser?.email || guard.user?.email || 'System'
+                                      
+                                      const { error } = await supabase
+                                        .from(TABLES.KPI_IGNORED_REPORTING)
+                                        .insert({
+                                          project_id: entry.project.id,
+                                          project_full_code: entry.project.project_full_code || entry.project.project_code,
+                                          ignored_date: entry.dateString,
+                                          ignored_day_string: entry.dayString,
+                                          ignored_by: ignoredBy,
+                                          reason: 'User ignored reporting for this date'
+                                        } as any)
+                                      
+                                      if (error) {
+                                        if (error.code === '23505') {
+                                          console.warn('⚠️ Reporting already ignored for this project on this date.')
+                                          // Still refresh even if already ignored
+                                          await fetchNotSubmittedProjects()
+                                        } else {
+                                          throw error
+                                        }
+                                      } else {
+                                        console.log(`✅ Ignored reporting for project ${entry.project.project_full_code || entry.project.project_code} on ${entry.dayString}`)
+                                        // Refresh the list after successful ignore
+                                        await fetchNotSubmittedProjects()
+                                      }
+                                    } catch (error: any) {
+                                      console.error('❌ Error ignoring reporting:', error)
+                                      alert(`Error: ${error.message || 'Unknown error'}`)
+                                    }
+                                  }}
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                                >
+                                  <X className="h-4 w-4 mr-1" />
+                                  Ignore
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )
+            })()}
+          </CardContent>
+        </Card>
+      ) : (
+        <>
       {/* Smart Filter */}
       <SmartFilter
         projects={projects.map(p => {
@@ -3424,6 +4147,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           )}
         </CardContent>
       </Card>
+      )}
+        </>
       )}
 
       {showForm && (
