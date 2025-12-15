@@ -225,6 +225,18 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: 'cost_control.machinery_day_rates.delete', name: 'Delete Machinery Day Rates', category: 'cost-control', description: 'Can delete machinery day rates', action: 'delete' },
   { id: 'cost_control.database.view', name: 'View Cost Control Database', category: 'cost-control', description: 'Can view cost control database manager', action: 'view' },
   { id: 'cost_control.database.manage', name: 'Manage Cost Control Database', category: 'cost-control', description: 'Can manage cost control database (import, export, clear)', action: 'manage' },
+  { id: 'cost_control.material.view', name: 'View Material', category: 'cost-control', description: 'Can view material list', action: 'view' },
+  { id: 'cost_control.material.create', name: 'Create Material', category: 'cost-control', description: 'Can create new materials', action: 'create' },
+  { id: 'cost_control.material.edit', name: 'Edit Material', category: 'cost-control', description: 'Can edit material information', action: 'edit' },
+  { id: 'cost_control.material.delete', name: 'Delete Material', category: 'cost-control', description: 'Can delete materials', action: 'delete' },
+  { id: 'cost_control.material.import', name: 'Import Material', category: 'cost-control', description: 'Can import materials from files', action: 'manage' },
+  { id: 'cost_control.material.export', name: 'Export Material', category: 'cost-control', description: 'Can export material data', action: 'export' },
+  { id: 'cost_control.subcontractor.view', name: 'View Subcontractor', category: 'cost-control', description: 'Can view subcontractor list', action: 'view' },
+  { id: 'cost_control.subcontractor.create', name: 'Create Subcontractor', category: 'cost-control', description: 'Can create new subcontractors', action: 'create' },
+  { id: 'cost_control.subcontractor.edit', name: 'Edit Subcontractor', category: 'cost-control', description: 'Can edit subcontractor information', action: 'edit' },
+  { id: 'cost_control.subcontractor.delete', name: 'Delete Subcontractor', category: 'cost-control', description: 'Can delete subcontractors', action: 'delete' },
+  { id: 'cost_control.subcontractor.import', name: 'Import Subcontractor', category: 'cost-control', description: 'Can import subcontractors from files', action: 'manage' },
+  { id: 'cost_control.subcontractor.export', name: 'Export Subcontractor', category: 'cost-control', description: 'Can export subcontractor data', action: 'export' },
   
   // HR Permissions
   { id: 'hr.view', name: 'View HR', category: 'hr', description: 'Can view HR module and overview', action: 'view' },
@@ -309,6 +321,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'cost_control.machine_list.view', 'cost_control.machine_list.create', 'cost_control.machine_list.edit', 'cost_control.machine_list.delete', 'cost_control.machine_list.export',
     'cost_control.machinery_day_rates.view', 'cost_control.machinery_day_rates.create', 'cost_control.machinery_day_rates.edit', 'cost_control.machinery_day_rates.delete',
     'cost_control.database.view', 'cost_control.database.manage',
+    'cost_control.material.view', 'cost_control.material.create', 'cost_control.material.edit', 'cost_control.material.delete', 'cost_control.material.import', 'cost_control.material.export',
+    'cost_control.subcontractor.view', 'cost_control.subcontractor.create', 'cost_control.subcontractor.edit', 'cost_control.subcontractor.delete', 'cost_control.subcontractor.import', 'cost_control.subcontractor.export',
     // HR
     'hr.view', 'hr.manpower.view', 'hr.manpower.create', 'hr.manpower.edit', 'hr.manpower.delete',
     'hr.attendance.view', 'hr.attendance.check_in_out', 'hr.attendance.review',
@@ -365,7 +379,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly', 'reports.export', 'reports.print',
     'reports.lookahead', 'reports.critical', 'reports.performance',
     // Cost Control (view only)
-    'cost_control.view', 'cost_control.manpower.view', 'cost_control.designation_rates.view', 'cost_control.machine_list.view', 'cost_control.machinery_day_rates.view',
+    'cost_control.view', 'cost_control.manpower.view', 'cost_control.designation_rates.view', 'cost_control.machine_list.view', 'cost_control.machinery_day_rates.view', 'cost_control.material.view', 'cost_control.subcontractor.view',
     // HR (limited - view and check-in/out)
     'hr.view', 'hr.attendance.view', 'hr.attendance.check_in_out', 'hr.attendance.reports.view',
     // Procurement (view only)
@@ -392,7 +406,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly',
     'reports.lookahead', 'reports.critical', 'reports.performance',
     // Cost Control (view only)
-    'cost_control.view', 'cost_control.manpower.view', 'cost_control.designation_rates.view', 'cost_control.machine_list.view', 'cost_control.machinery_day_rates.view',
+    'cost_control.view', 'cost_control.manpower.view', 'cost_control.designation_rates.view', 'cost_control.machine_list.view', 'cost_control.machinery_day_rates.view', 'cost_control.material.view', 'cost_control.subcontractor.view',
     // HR (view only)
     'hr.view', 'hr.manpower.view', 'hr.attendance.view', 'hr.attendance.reports.view',
     // Procurement (view only)
@@ -420,7 +434,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly', 'reports.export', 'reports.print',
     'reports.lookahead', 'reports.critical', 'reports.performance',
     // Cost Control (view only)
-    'cost_control.view', 'cost_control.manpower.view', 'cost_control.designation_rates.view', 'cost_control.machine_list.view', 'cost_control.machinery_day_rates.view',
+    'cost_control.view', 'cost_control.manpower.view', 'cost_control.designation_rates.view', 'cost_control.machine_list.view', 'cost_control.machinery_day_rates.view', 'cost_control.material.view', 'cost_control.subcontractor.view',
     // HR (view only)
     'hr.view', 'hr.manpower.view', 'hr.attendance.view', 'hr.attendance.reports.view',
     // Procurement (view only)

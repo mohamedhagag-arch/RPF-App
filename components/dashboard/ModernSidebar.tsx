@@ -39,6 +39,8 @@ import {
   Database,
   ShoppingCart,
   Building2,
+  Package,
+  HardHat,
   type LucideIcon
 } from 'lucide-react'
 
@@ -81,6 +83,8 @@ const sidebarItems: SidebarItem[] = [
         subItems: [
           { icon: UserCheck, label: 'MANPOWER', tab: 'cost-control/manpower', badgeIcon: Users, badgeColor: 'bg-gradient-to-br from-blue-500 to-indigo-500' },
           { icon: Database, label: 'Machine List', tab: 'cost-control/machine-list', badgeIcon: Database, badgeColor: 'bg-gradient-to-br from-cyan-500 to-blue-500' },
+          { icon: Package, label: 'Material', tab: 'cost-control/material', badgeIcon: Package, badgeColor: 'bg-gradient-to-br from-orange-500 to-red-500' },
+          { icon: HardHat, label: 'Subcontractor', tab: 'cost-control/subcontractor', badgeIcon: HardHat, badgeColor: 'bg-gradient-to-br from-purple-500 to-pink-500' },
         ]
       },
   { 
@@ -160,6 +164,8 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
     if (tab === 'cost-control/manpower') return '/cost-control/manpower'
     if (tab === 'cost-control/designation-rates') return '/cost-control/designation-rates'
     if (tab === 'cost-control/machine-list') return '/cost-control/machine-list'
+    if (tab === 'cost-control/material') return '/cost-control/material'
+    if (tab === 'cost-control/subcontractor') return '/cost-control/subcontractor'
     // HR
     if (tab === 'hr') return '/hr'
     if (tab === 'hr/manpower') return '/hr/manpower'
@@ -206,7 +212,7 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
       setExpandedItems(prev => new Set(prev).add('forms'))
     }
     // Auto-expand cost-control if any sub-item is active
-    if (activeTab === 'cost-control/manpower' || activeTab === 'cost-control/attendance' || activeTab === 'cost-control/attendance/check-in-out') {
+    if (activeTab === 'cost-control/manpower' || activeTab === 'cost-control/attendance' || activeTab === 'cost-control/attendance/check-in-out' || activeTab === 'cost-control/material' || activeTab === 'cost-control/subcontractor') {
       setExpandedItems(prev => new Set(prev).add('cost-control'))
     }
     // Auto-expand hr if any sub-item is active
@@ -247,7 +253,9 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
   useEffect(() => {
     if (pathname === '/cost-control/manpower' || 
         pathname === '/cost-control/designation-rates' || 
-        pathname === '/cost-control/machine-list') {
+        pathname === '/cost-control/machine-list' ||
+        pathname === '/cost-control/material' ||
+        pathname === '/cost-control/subcontractor') {
       setExpandedItems(prev => new Set([...Array.from(prev), 'cost-control']))
     }
     if (pathname === '/hr/manpower' || 
@@ -279,6 +287,10 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
                 return guard.hasAccess('cost_control.designation_rates.view')
               case 'cost-control/machine-list':
                 return guard.hasAccess('cost_control.machine_list.view')
+              case 'cost-control/material':
+                return guard.hasAccess('cost_control.material.view')
+              case 'cost-control/subcontractor':
+                return guard.hasAccess('cost_control.subcontractor.view')
               default:
                 return false
             }
@@ -351,10 +363,12 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
         if (item.subItems) {
           return item.subItems.some(subItem => {
             switch (subItem.tab) {
-              case 'procurement/vendor-list':
-                return guard.hasAccess('procurement.vendor_list.view')
-              default:
-                return false
+            case 'procurement/vendor-list':
+              return guard.hasAccess('procurement.vendor_list.view')
+            case 'procurement/material':
+              return guard.hasAccess('procurement.material.view')
+            default:
+              return false
             }
           })
         }
@@ -383,6 +397,10 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
               return guard.hasAccess('cost_control.designation_rates.view')
             case 'cost-control/machine-list':
               return guard.hasAccess('cost_control.machine_list.view')
+            case 'cost-control/material':
+              return guard.hasAccess('cost_control.material.view')
+            case 'cost-control/subcontractor':
+              return guard.hasAccess('cost_control.subcontractor.view')
             case 'hr/manpower':
               return guard.hasAccess('hr.manpower.view')
             case 'hr/attendance':

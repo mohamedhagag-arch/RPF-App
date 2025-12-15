@@ -94,6 +94,10 @@ export default function VendorListContent() {
   const [editingVendor, setEditingVendor] = useState<Vendor | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [selectedVendors, setSelectedVendors] = useState<Set<string>>(new Set())
+  const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([])
+  const [categorySearch, setCategorySearch] = useState('')
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false)
+  const [loadingCategories, setLoadingCategories] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
     code: '',
@@ -118,7 +122,103 @@ export default function VendorListContent() {
 
   useEffect(() => {
     loadVendors()
+    loadCategories()
   }, [])
+
+  const loadCategories = async () => {
+    try {
+      setLoadingCategories(true)
+      const { data, error: fetchError } = await supabase
+        .from('vendor_categories')
+        .select('id, name')
+        .eq('is_active', true)
+        .order('name', { ascending: true })
+
+      if (fetchError) {
+        // If table doesn't exist, create it or just continue without categories
+        if (fetchError.code === 'PGRST116' || fetchError.message.includes('does not exist')) {
+          console.log('Vendor categories table does not exist yet. Please run: Database/create-vendor-categories-table.sql')
+          setCategories([])
+          return
+        }
+        // If 403 error (permission denied), suggest running fix script
+        if (fetchError.code === '42501' || fetchError.message.includes('permission denied') || fetchError.message.includes('RLS') || (fetchError as any).status === 403) {
+          console.error('Permission denied. Please run: Database/fix-vendor-categories-rls.sql in Supabase SQL Editor')
+          setCategories([])
+          return
+        }
+        console.error('Error loading categories:', fetchError)
+        setCategories([])
+        return
+      }
+
+      setCategories(data || [])
+    } catch (error: any) {
+      console.error('Error loading categories:', error)
+      setCategories([])
+    } finally {
+      setLoadingCategories(false)
+    }
+  }
+
+  const handleAddNewCategory = async (categoryName: string) => {
+    if (!categoryName.trim()) {
+      return
+    }
+
+    try {
+      setLoadingCategories(true)
+      // Check if category already exists
+      const { data: existing } = await supabase
+        .from('vendor_categories')
+        .select('id, name')
+        .eq('name', categoryName.trim())
+        .single()
+
+      if (existing) {
+        // Category already exists, just select it
+        setFormData(prev => ({ ...prev, category: existing.name }))
+        setCategorySearch('')
+        setShowCategoryDropdown(false)
+        return
+      }
+
+      // Add new category
+      const { data: newCategory, error: insertError } = await supabase
+        .from('vendor_categories')
+        .insert([{ name: categoryName.trim(), is_active: true }])
+        .select('id, name')
+        .single()
+
+      if (insertError) {
+        // If table doesn't exist, just use the text value
+        if (insertError.code === 'PGRST116' || insertError.message.includes('does not exist')) {
+          console.log('Vendor categories table does not exist. Using text value directly.')
+          setFormData(prev => ({ ...prev, category: categoryName.trim() }))
+          setCategorySearch('')
+          setShowCategoryDropdown(false)
+          return
+        }
+        throw insertError
+      }
+
+      // Reload categories
+      await loadCategories()
+
+      // Set the newly added category
+      setFormData(prev => ({ ...prev, category: newCategory.name }))
+      setCategorySearch('')
+      setShowCategoryDropdown(false)
+    } catch (error: any) {
+      console.error('Error adding category:', error)
+      // If error, just use the text value directly
+      setFormData(prev => ({ ...prev, category: categoryName.trim() }))
+      setCategorySearch('')
+      setShowCategoryDropdown(false)
+    } finally {
+      setLoadingCategories(false)
+    }
+  }
 
   const loadVendors = async () => {
     try {
@@ -379,6 +479,8 @@ export default function VendorListContent() {
       await loadVendors()
       setShowForm(false)
       setEditingVendor(null)
+      setCategorySearch('')
+      setShowCategoryDropdown(false)
       setFormData({
         name: '',
         code: '',
@@ -442,6 +544,7 @@ export default function VendorListContent() {
       const sum = pricesRate + delivery + quality + facility + capacity
       const totalRate = sum / 5 // Average rating (0-5)
 
+      const categoryValue = editingVendor.category || ''
       setFormData({
         name: editingVendor.name || '',
         code: editingVendor.code || '',
@@ -460,9 +563,10 @@ export default function VendorListContent() {
         facility: editingVendor.facility?.toString() || '',
         capacity: editingVendor.capacity?.toString() || '',
         total_rate: totalRate > 0 ? Math.max(0, Math.min(5, totalRate)).toFixed(2) : '',
-        category: editingVendor.category || '',
+        category: categoryValue,
         date: editingVendor.date || ''
       })
+      setCategorySearch(categoryValue)
     } else if (showForm) {
       setFormData({
         name: '',
@@ -485,6 +589,8 @@ export default function VendorListContent() {
         category: '',
         date: ''
       })
+      setCategorySearch('')
+      setShowCategoryDropdown(false)
     }
   }, [editingVendor, showForm])
 
@@ -1072,11 +1178,57 @@ export default function VendorListContent() {
                     <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
                       Category
                     </label>
-                    <Input
-                      value={formData.category}
-                      onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
-                      placeholder="Category"
-                    />
+                    <div className="relative">
+                      <Input
+                        type="text"
+                        value={formData.category}
+                        onChange={(e) => {
+                          setFormData(prev => ({ ...prev, category: e.target.value }))
+                          setCategorySearch(e.target.value)
+                          setShowCategoryDropdown(true)
+                        }}
+                        onFocus={() => setShowCategoryDropdown(true)}
+                        onBlur={() => setTimeout(() => setShowCategoryDropdown(false), 200)}
+                        placeholder="Search or enter category..."
+                        className="w-full"
+                      />
+                      {showCategoryDropdown && (
+                        <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                          {categories
+                            .filter(cat => !categorySearch || cat.name.toLowerCase().includes(categorySearch.toLowerCase()))
+                            .slice(0, 20)
+                            .map((cat) => (
+                              <button
+                                key={cat.id}
+                                type="button"
+                                onClick={() => {
+                                  setFormData(prev => ({ ...prev, category: cat.name }))
+                                  setCategorySearch('')
+                                  setShowCategoryDropdown(false)
+                                }}
+                                className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-white"
+                              >
+                                {cat.name}
+                              </button>
+                            ))}
+                          {categorySearch && !categories.find(cat => cat.name.toLowerCase() === categorySearch.toLowerCase()) && (
+                            <button
+                              type="button"
+                              onClick={() => handleAddNewCategory(categorySearch)}
+                              disabled={loadingCategories}
+                              className="w-full text-left px-4 py-2 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-medium disabled:opacity-50"
+                            >
+                              {loadingCategories ? 'Adding...' : `+ Add "${categorySearch}"`}
+                            </button>
+                          )}
+                          {categories.length === 0 && !loadingCategories && (
+                            <div className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">
+                              No categories found. Type a name and click "+ Add" to create one.
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <div>
@@ -1366,6 +1518,8 @@ export default function VendorListContent() {
                     onClick={() => {
                       setShowForm(false)
                       setEditingVendor(null)
+                      setCategorySearch('')
+                      setShowCategoryDropdown(false)
                     }}
                   >
                     Cancel

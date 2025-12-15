@@ -318,6 +318,22 @@ export function validateImportedData(
       'item description', 'Item_Description', 'ITEM_DESCRIPTION',
       'description', 'Description', 'DESCRIPTION',
       'item', 'Item', 'ITEM'
+    ],
+    'subcon_name': [
+      'subcon_name', 'Subcon Name', 'SUBCON NAME',
+      'subcon. name', 'SUBCON. NAME', 'SUBCON.NAME',
+      'subcon name', 'Subcon_Name', 'SUBCON_NAME',
+      'subcontractor', 'Subcontractor', 'SUBCONTRACTOR',
+      'subcontractor name', 'Subcontractor Name', 'SUBCONTRACTOR NAME',
+      'subcontractor_name', 'Subcontractor_Name', 'SUBCONTRACTOR_NAME'
+    ],
+    'sucon. name': [
+      'subcon_name', 'Subcon Name', 'SUBCON NAME',
+      'subcon. name', 'SUBCON. NAME', 'SUBCON.NAME',
+      'subcon name', 'Subcon_Name', 'SUBCON_NAME',
+      'subcontractor', 'Subcontractor', 'SUBCONTRACTOR',
+      'subcontractor name', 'Subcontractor Name', 'SUBCONTRACTOR NAME',
+      'subcontractor_name', 'Subcontractor_Name', 'SUBCONTRACTOR_NAME'
     ]
   }
   
@@ -334,7 +350,7 @@ export function validateImportedData(
     }
     
     // Check variations if available
-    const variations = requiredColumnVariations[requiredCol.toLowerCase()]
+    const variations = requiredColumnVariations[requiredCol.toLowerCase()] || requiredColumnVariations[normalizeColumnName(requiredCol)]
     if (variations) {
       let found = false
       for (const variation of variations) {
@@ -349,8 +365,18 @@ export function validateImportedData(
       }
     }
     
+    // Also check if any available column matches the normalized required column (partial match)
+    // This handles cases where the column name might be slightly different
+    const availableColumnsArray = Array.from(normalizedAvailableColumns.entries())
+    for (const [normalizedAvail, originalAvail] of availableColumnsArray) {
+      if (normalizedAvail.includes(normalizedRequired) || normalizedRequired.includes(normalizedAvail)) {
+        // Partial match found - this is acceptable
+        return
+      }
+    }
+    
     // Column not found
-    const foundVariations = variations ? ` (looking for: ${requiredCol} or variations like ${variations.slice(0, 2).join(', ')})` : ''
+    const foundVariations = variations ? ` (looking for: ${requiredCol} or variations like ${variations.slice(0, 3).join(', ')})` : ''
     errors.push(`Required column not found: ${requiredCol}${foundVariations}`)
   })
   

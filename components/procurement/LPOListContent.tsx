@@ -1528,15 +1528,18 @@ function LPOFormModal({ lpo, onSave, onClose }: LPOFormModalProps) {
   const [vendors, setVendors] = useState<{ name: string }[]>([])
   const [items, setItems] = useState<{ item_description: string }[]>([])
   const [paymentTerms, setPaymentTerms] = useState<{ payment_term: string }[]>([])
+  const [categories, setCategories] = useState<{ id: string; name: string }[]>([])
   const [loadingData, setLoadingData] = useState(false)
   
   // Search states for dropdowns
   const [vendorSearch, setVendorSearch] = useState('')
   const [itemSearch, setItemSearch] = useState('')
   const [paymentTermSearch, setPaymentTermSearch] = useState('')
+  const [categorySearch, setCategorySearch] = useState('')
   const [showVendorDropdown, setShowVendorDropdown] = useState(false)
   const [showItemDropdown, setShowItemDropdown] = useState(false)
   const [showPaymentTermDropdown, setShowPaymentTermDropdown] = useState(false)
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false)
 
   // Load vendors, items, and payment terms for dropdowns
   useEffect(() => {
@@ -1563,6 +1566,14 @@ function LPOFormModal({ lpo, onSave, onClose }: LPOFormModalProps) {
           .select('payment_term')
           .order('payment_term')
         if (termsData) setPaymentTerms(termsData)
+
+        // Load categories
+        const { data: categoriesData } = await supabase
+          .from('vendor_categories')
+          .select('id, name')
+          .eq('is_active', true)
+          .order('name', { ascending: true })
+        if (categoriesData) setCategories(categoriesData)
       } catch (error) {
         console.error('Error loading dropdown data:', error)
       } finally {
@@ -1794,12 +1805,111 @@ function LPOFormModal({ lpo, onSave, onClose }: LPOFormModalProps) {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   LPO Category
                 </label>
-                <Input
-                  type="text"
-                  value={formData.lpo_category}
-                  onChange={(e) => setFormData({ ...formData, lpo_category: e.target.value })}
-                  placeholder="Enter category"
-                />
+                <div className="relative">
+                  <Input
+                    type="text"
+                    value={formData.lpo_category}
+                    onChange={(e) => {
+                      setFormData({ ...formData, lpo_category: e.target.value })
+                      setCategorySearch(e.target.value)
+                      setShowCategoryDropdown(true)
+                    }}
+                    onFocus={() => setShowCategoryDropdown(true)}
+                    onBlur={() => setTimeout(() => setShowCategoryDropdown(false), 200)}
+                    placeholder="Search or enter category..."
+                    className="w-full"
+                  />
+                  {showCategoryDropdown && (
+                    <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                      {categories
+                        .filter(cat => !categorySearch || cat.name.toLowerCase().includes(categorySearch.toLowerCase()))
+                        .slice(0, 20)
+                        .map((cat) => (
+                          <button
+                            key={cat.id}
+                            type="button"
+                            onClick={() => {
+                              setFormData({ ...formData, lpo_category: cat.name })
+                              setCategorySearch('')
+                              setShowCategoryDropdown(false)
+                            }}
+                            className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-white"
+                          >
+                            {cat.name}
+                          </button>
+                        ))}
+                      {categorySearch && !categories.find(cat => cat.name.toLowerCase() === categorySearch.toLowerCase()) && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!categorySearch.trim()) return
+                            
+                            try {
+                              // Check if category already exists
+                              const { data: existing } = await supabase
+                                .from('vendor_categories')
+                                .select('id, name')
+                                .eq('name', categorySearch.trim())
+                                .single()
+
+                              if (existing) {
+                                setFormData({ ...formData, lpo_category: existing.name })
+                                setCategorySearch('')
+                                setShowCategoryDropdown(false)
+                                return
+                              }
+
+                              // Add new category
+                              const { data: newCategory, error: insertError } = await supabase
+                                .from('vendor_categories')
+                                .insert([{ name: categorySearch.trim(), is_active: true }])
+                                .select('id, name')
+                                .single()
+
+                              if (insertError) {
+                                // If table doesn't exist, just use the text value
+                                if (insertError.code === 'PGRST116' || insertError.message.includes('does not exist')) {
+                                  setFormData({ ...formData, lpo_category: categorySearch.trim() })
+                                  setCategorySearch('')
+                                  setShowCategoryDropdown(false)
+                                  return
+                                }
+                                throw insertError
+                              }
+
+                              // Reload categories
+                              const { data: categoriesData } = await supabase
+                                .from('vendor_categories')
+                                .select('id, name')
+                                .eq('is_active', true)
+                                .order('name', { ascending: true })
+                              if (categoriesData) setCategories(categoriesData)
+
+                              // Set the newly added category
+                              setFormData({ ...formData, lpo_category: newCategory.name })
+                              setCategorySearch('')
+                              setShowCategoryDropdown(false)
+                            } catch (error: any) {
+                              console.error('Error adding category:', error)
+                              // If error, just use the text value directly
+                              setFormData({ ...formData, lpo_category: categorySearch.trim() })
+                              setCategorySearch('')
+                              setShowCategoryDropdown(false)
+                            }
+                          }}
+                          className="w-full text-left px-4 py-2 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-medium"
+                        >
+                          + Add "{categorySearch}"
+                        </button>
+                      )}
+                      {categories.length === 0 && (
+                        <div className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">
+                          No categories found. Type a name and click "+ Add" to create one.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">

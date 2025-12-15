@@ -5,15 +5,16 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { PermissionPage } from '@/components/ui/PermissionPage'
 import { DynamicTitle } from '@/components/ui/DynamicTitle'
 import { ModernButton } from '@/components/ui/ModernButton'
-import { Building2, Package, CreditCard, FileText } from 'lucide-react'
+import { Building2, Package, CreditCard, FileText, Tag } from 'lucide-react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { useAuth } from '@/app/providers'
 import VendorListContent from '@/components/procurement/VendorListContent'
 import ItemsListContent from '@/components/procurement/ItemsListContent'
 import PaymentTermsListContent from '@/components/procurement/PaymentTermsListContent'
 import LPOListContent from '@/components/procurement/LPOListContent'
+import { VendorCategoriesManager } from '@/components/procurement/VendorCategoriesManager'
 
-type ProcurementTab = 'vendors' | 'items' | 'payment-terms' | 'lpo'
+type ProcurementTab = 'vendors' | 'items' | 'payment-terms' | 'lpo' | 'categories'
 
 export default function VendorListPage() {
   const guard = usePermissionGuard()
@@ -28,11 +29,12 @@ export default function VendorListPage() {
   const canViewItems = isAdmin || guard.hasAccess('procurement.items_list.view')
   const canViewPaymentTerms = isAdmin || guard.hasAccess('procurement.payment_terms.view')
   const canViewLPO = isAdmin || guard.hasAccess('procurement.lpo.view')
+  const canViewCategories = isAdmin || guard.hasAccess('procurement.vendor_list.view')
   
   // Handle query parameter for tabs
   useEffect(() => {
     const tab = searchParams?.get('tab') as ProcurementTab | null
-    if (tab && ['vendors', 'items', 'payment-terms', 'lpo'].includes(tab)) {
+    if (tab && ['vendors', 'items', 'payment-terms', 'lpo', 'categories'].includes(tab)) {
       // Check permissions before setting tab
       if (tab === 'vendors' && !canViewVendors) {
         if (canViewItems) {
@@ -91,9 +93,11 @@ export default function VendorListPage() {
         setActiveTab('payment-terms')
       } else if (canViewLPO) {
         setActiveTab('lpo')
+      } else if (canViewCategories) {
+        setActiveTab('categories')
       }
     }
-  }, [searchParams, canViewVendors, canViewItems, canViewPaymentTerms, canViewLPO])
+  }, [searchParams, canViewVendors, canViewItems, canViewPaymentTerms, canViewLPO, canViewCategories])
 
   const tabs = [
     {
@@ -123,6 +127,13 @@ export default function VendorListPage() {
       icon: FileText,
       description: 'Manage and view purchase orders',
       requiresPermission: canViewLPO
+    },
+    {
+      id: 'categories' as ProcurementTab,
+      label: 'Vendor Categories',
+      icon: Tag,
+      description: 'Manage vendor categories',
+      requiresPermission: canViewCategories
     }
   ]
 
@@ -138,6 +149,9 @@ export default function VendorListPage() {
       return
     }
     if (tab === 'lpo' && !canViewLPO) {
+      return
+    }
+    if (tab === 'categories' && !canViewCategories) {
       return
     }
     
@@ -156,8 +170,10 @@ export default function VendorListPage() {
         return canViewPaymentTerms ? <PaymentTermsListContent /> : null
       case 'lpo':
         return canViewLPO ? <LPOListContent /> : null
+      case 'categories':
+        return canViewCategories ? <VendorCategoriesManager /> : null
       default:
-        return canViewVendors ? <VendorListContent /> : canViewItems ? <ItemsListContent /> : canViewPaymentTerms ? <PaymentTermsListContent /> : canViewLPO ? <LPOListContent /> : null
+        return canViewVendors ? <VendorListContent /> : canViewItems ? <ItemsListContent /> : canViewPaymentTerms ? <PaymentTermsListContent /> : canViewLPO ? <LPOListContent /> : canViewCategories ? <VendorCategoriesManager /> : null
     }
   }
 
