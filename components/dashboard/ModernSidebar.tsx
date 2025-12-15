@@ -41,6 +41,7 @@ import {
   Building2,
   Package,
   HardHat,
+  Fuel,
   type LucideIcon
 } from 'lucide-react'
 
@@ -85,6 +86,7 @@ const sidebarItems: SidebarItem[] = [
           { icon: Database, label: 'Machine List', tab: 'cost-control/machine-list', badgeIcon: Database, badgeColor: 'bg-gradient-to-br from-cyan-500 to-blue-500' },
           { icon: Package, label: 'Material', tab: 'cost-control/material', badgeIcon: Package, badgeColor: 'bg-gradient-to-br from-orange-500 to-red-500' },
           { icon: HardHat, label: 'Subcontractor', tab: 'cost-control/subcontractor', badgeIcon: HardHat, badgeColor: 'bg-gradient-to-br from-purple-500 to-pink-500' },
+          { icon: Fuel, label: 'Diesel', tab: 'cost-control/diesel', badgeIcon: Fuel, badgeColor: 'bg-gradient-to-br from-amber-500 to-yellow-500' },
         ]
       },
   { 
@@ -166,6 +168,7 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
     if (tab === 'cost-control/machine-list') return '/cost-control/machine-list'
     if (tab === 'cost-control/material') return '/cost-control/material'
     if (tab === 'cost-control/subcontractor') return '/cost-control/subcontractor'
+    if (tab === 'cost-control/diesel') return '/cost-control/diesel'
     // HR
     if (tab === 'hr') return '/hr'
     if (tab === 'hr/manpower') return '/hr/manpower'
@@ -212,7 +215,7 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
       setExpandedItems(prev => new Set(prev).add('forms'))
     }
     // Auto-expand cost-control if any sub-item is active
-    if (activeTab === 'cost-control/manpower' || activeTab === 'cost-control/attendance' || activeTab === 'cost-control/attendance/check-in-out' || activeTab === 'cost-control/material' || activeTab === 'cost-control/subcontractor') {
+    if (activeTab === 'cost-control/manpower' || activeTab === 'cost-control/attendance' || activeTab === 'cost-control/attendance/check-in-out' || activeTab === 'cost-control/material' || activeTab === 'cost-control/subcontractor' || activeTab === 'cost-control/diesel') {
       setExpandedItems(prev => new Set(prev).add('cost-control'))
     }
     // Auto-expand hr if any sub-item is active
@@ -255,7 +258,8 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
         pathname === '/cost-control/designation-rates' || 
         pathname === '/cost-control/machine-list' ||
         pathname === '/cost-control/material' ||
-        pathname === '/cost-control/subcontractor') {
+        pathname === '/cost-control/subcontractor' ||
+        pathname === '/cost-control/diesel') {
       setExpandedItems(prev => new Set([...Array.from(prev), 'cost-control']))
     }
     if (pathname === '/hr/manpower' || 
@@ -291,6 +295,8 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
                 return guard.hasAccess('cost_control.material.view')
               case 'cost-control/subcontractor':
                 return guard.hasAccess('cost_control.subcontractor.view')
+              case 'cost-control/diesel':
+                return guard.hasAccess('cost_control.diesel.view')
               default:
                 return false
             }
@@ -401,6 +407,8 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
               return guard.hasAccess('cost_control.material.view')
             case 'cost-control/subcontractor':
               return guard.hasAccess('cost_control.subcontractor.view')
+            case 'cost-control/diesel':
+              return guard.hasAccess('cost_control.diesel.view')
             case 'hr/manpower':
               return guard.hasAccess('hr.manpower.view')
             case 'hr/attendance':
