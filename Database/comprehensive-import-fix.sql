@@ -620,7 +620,14 @@ BEGIN
   RETURN QUERY SELECT 'project_types'::TEXT, deleted;
   
   -- Clear invalid company settings
-  DELETE FROM public.company_settings WHERE setting_key IS NULL;
+  -- ⚠️ REMOVED: This was deleting all company_settings records!
+  -- DELETE FROM public.company_settings WHERE setting_key IS NULL;
+  -- The company_settings table doesn't have a setting_key column,
+  -- so this query would delete ALL records!
+  -- Instead, we'll just ensure there's at least one record
+  INSERT INTO public.company_settings (company_name, company_slogan)
+  SELECT 'AlRabat RPF', 'Masters of Foundation Construction'
+  WHERE NOT EXISTS (SELECT 1 FROM public.company_settings);
   GET DIAGNOSTICS deleted = ROW_COUNT;
   RETURN QUERY SELECT 'company_settings'::TEXT, deleted;
 END;

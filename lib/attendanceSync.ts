@@ -379,3 +379,230 @@ export async function syncAttendanceDeletionToManpower(
   }
 }
 
+/**
+ * Sync MANPOWER record to Attendance Records
+ * When a MANPOWER record is updated or created, update the corresponding attendance records
+ * This is the reverse sync from syncAttendanceToManpower
+ */
+export async function syncManpowerToAttendance(
+  manpowerRecord: any // Record from 'CCD - MANPOWER' table
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const supabaseClient = getSupabaseClient()
+    
+    // Extract data from MANPOWER record
+    const employeeCode = manpowerRecord['LABOUR CODE']
+    const date = manpowerRecord['Date']
+    const startTime = manpowerRecord['START']
+    const finishTime = manpowerRecord['FINISH']
+    
+    if (!employeeCode || !date) {
+      return {
+        success: false,
+        message: 'Employee code and date are required'
+      }
+    }
+    
+    // 1. Get employee from attendance_employees
+    const { data: employee, error: employeeError } = await supabaseClient
+      .from(TABLES.ATTENDANCE_EMPLOYEES)
+      // @ts-ignore
+      .select('*')
+      .eq('employee_code', employeeCode)
+      .maybeSingle()
+    
+    if (employeeError || !employee) {
+      console.warn(`⚠️ Employee ${employeeCode} not found in attendance_employees`)
+      return {
+        success: false,
+        message: `Employee ${employeeCode} not found in attendance_employees`
+      }
+    }
+    
+    const employeeTyped = employee as AttendanceEmployee
+    
+    // 2. Get existing attendance records for this employee on this date
+    const { data: existingRecords, error: recordsError } = await supabaseClient
+      .from(TABLES.ATTENDANCE_RECORDS)
+      // @ts-ignore
+      .select('*')
+      .eq('employee_id', employeeTyped.id)
+      .eq('date', date)
+      .order('check_time', { ascending: true })
+    
+    if (recordsError) {
+      console.error('❌ Error fetching attendance records:', recordsError)
+      return {
+        success: false,
+        message: 'Failed to fetch attendance records'
+      }
+    }
+    
+    // 3. If we have START and FINISH times, update or create check-in and check-out records
+    if (startTime && finishTime) {
+      // Parse times (format: "HH:MM" or "HH:MM:SS")
+      const startTimeFormatted = startTime.includes(':') ? startTime.split(':').slice(0, 2).join(':') : startTime
+      const finishTimeFormatted = finishTime.includes(':') ? finishTime.split(':').slice(0, 2).join(':') : finishTime
+      
+      // Find or create check-in record
+      const checkInRecords = existingRecords?.filter((r: any) => r.type === 'Check-In') || []
+      const checkOutRecords = existingRecords?.filter((r: any) => r.type === 'Check-Out') || []
+      
+      // Get location from MANPOWER record if available (Location column)
+      let locationId: string | null = null
+      if (manpowerRecord['Location']) {
+        const locationName = manpowerRecord['Location']
+        // Try to find location by name
+        const { data: location } = await supabaseClient
+          .from(TABLES.ATTENDANCE_LOCATIONS)
+          // @ts-ignore
+          .select('id')
+          .eq('name', locationName)
+          .maybeSingle()
+        
+        if (location) {
+          locationId = (location as any).id
+        }
+      }
+      
+      // Update or create check-in record
+      if (checkInRecords.length > 0) {
+        // Update the latest check-in record
+        const latestCheckIn = checkInRecords[checkInRecords.length - 1] as any
+        const { error: updateCheckInError } = await supabaseClient
+          .from(TABLES.ATTENDANCE_RECORDS)
+          // @ts-ignore
+          .update({
+            check_time: startTimeFormatted,
+            location_id: locationId || latestCheckIn.location_id,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', latestCheckIn.id)
+        
+        if (updateCheckInError) {
+          console.error('❌ Error updating check-in record:', updateCheckInError)
+        }
+      } else {
+        // Create new check-in record
+        const { error: createCheckInError } = await supabaseClient
+          .from(TABLES.ATTENDANCE_RECORDS)
+          // @ts-ignore
+          .insert([{
+            employee_id: employeeTyped.id,
+            date: date,
+            check_time: startTimeFormatted,
+            type: 'Check-In',
+            location_id: locationId,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }])
+        
+        if (createCheckInError) {
+          console.error('❌ Error creating check-in record:', createCheckInError)
+        }
+      }
+      
+      // Update or create check-out record
+      if (checkOutRecords.length > 0) {
+        // Update the latest check-out record
+        const latestCheckOut = checkOutRecords[checkOutRecords.length - 1] as any
+        const { error: updateCheckOutError } = await supabaseClient
+          .from(TABLES.ATTENDANCE_RECORDS)
+          // @ts-ignore
+          .update({
+            check_time: finishTimeFormatted,
+            location_id: locationId || latestCheckOut.location_id,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', latestCheckOut.id)
+        
+        if (updateCheckOutError) {
+          console.error('❌ Error updating check-out record:', updateCheckOutError)
+        }
+      } else {
+        // Create new check-out record
+        const { error: createCheckOutError } = await supabaseClient
+          .from(TABLES.ATTENDANCE_RECORDS)
+          // @ts-ignore
+          .insert([{
+            employee_id: employeeTyped.id,
+            date: date,
+            check_time: finishTimeFormatted,
+            type: 'Check-Out',
+            location_id: locationId,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }])
+        
+        if (createCheckOutError) {
+          console.error('❌ Error creating check-out record:', createCheckOutError)
+        }
+      }
+      
+      return {
+        success: true,
+        message: 'Attendance records updated successfully'
+      }
+    }
+    
+    return {
+      success: true,
+      message: 'No time data to sync'
+    }
+  } catch (error: any) {
+    console.error('❌ Error syncing MANPOWER to attendance:', error)
+    return {
+      success: false,
+      message: error.message || 'Failed to sync MANPOWER to attendance'
+    }
+  }
+}
+
+/**
+ * Sync MANPOWER record deletion to Attendance Records
+ * When a MANPOWER record is deleted, optionally delete the corresponding attendance records
+ */
+export async function syncManpowerDeletionToAttendance(
+  employeeCode: string,
+  date: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const supabaseClient = getSupabaseClient()
+    
+    // Get employee from attendance_employees
+    const { data: employee, error: employeeError } = await supabaseClient
+      .from(TABLES.ATTENDANCE_EMPLOYEES)
+      // @ts-ignore
+      .select('id')
+      .eq('employee_code', employeeCode)
+      .maybeSingle()
+    
+    if (employeeError || !employee) {
+      console.warn(`⚠️ Employee ${employeeCode} not found in attendance_employees`)
+      return {
+        success: false,
+        message: `Employee ${employeeCode} not found in attendance_employees`
+      }
+    }
+    
+    const employeeId = (employee as any).id
+    
+    // Note: We don't delete attendance records automatically when MANPOWER is deleted
+    // because attendance records are the source of truth and may be needed for other purposes
+    // Instead, we just log that the MANPOWER record was deleted
+    
+    console.log(`ℹ️ MANPOWER record deleted for ${employeeCode} on ${date}. Attendance records preserved.`)
+    
+    return {
+      success: true,
+      message: 'Attendance records preserved (not deleted)'
+    }
+  } catch (error: any) {
+    console.error('❌ Error syncing MANPOWER deletion to attendance:', error)
+    return {
+      success: false,
+      message: error.message || 'Failed to sync MANPOWER deletion to attendance'
+    }
+  }
+}
+

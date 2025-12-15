@@ -235,21 +235,51 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
         console.log('🔄 Loading company settings for sidebar...')
         const settings = await getCachedCompanySettings()
         
-        setCompanyName(settings.company_name)
-        setCompanySlogan(settings.company_slogan)
-        setLogoUrl(settings.company_logo_url || '')
+        // Ensure we always have values, even if empty
+        const name = settings?.company_name?.trim() || 'AlRabat RPF'
+        const slogan = settings?.company_slogan?.trim() || 'Masters of Foundation Construction'
+        const logo = settings?.company_logo_url?.trim() || ''
         
-        console.log('✅ Company settings loaded for sidebar:', settings)
+        setCompanyName(name)
+        setCompanySlogan(slogan)
+        setLogoUrl(logo)
+        
+        console.log('✅ Company settings loaded for sidebar:', {
+          company_name: name,
+          company_slogan: slogan,
+          has_logo: !!logo
+        })
       } catch (error) {
         console.error('❌ Error loading company settings for sidebar:', error)
         // استخدام القيم الافتراضية في حالة الخطأ
         setCompanyName('AlRabat RPF')
         setCompanySlogan('Masters of Foundation Construction')
         setLogoUrl('')
+        console.log('⚠️ Using default company settings due to error')
       }
     }
     
+    // Load immediately
     loadCompanySettings()
+    
+    // إضافة مستمع لتحديثات إعدادات الشركة
+    const handleStorageChange = () => {
+      console.log('🔄 Company settings update detected, reloading...')
+      loadCompanySettings()
+    }
+    
+    // الاستماع لتغييرات localStorage (إذا تم استخدامه)
+    window.addEventListener('storage', handleStorageChange)
+    
+    // الاستماع لتحديثات مخصصة
+    window.addEventListener('companySettingsUpdated', handleStorageChange)
+    window.addEventListener('companySettingsCacheCleared', handleStorageChange)
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange)
+      window.removeEventListener('companySettingsUpdated', handleStorageChange)
+      window.removeEventListener('companySettingsCacheCleared', handleStorageChange)
+    }
   }, [])
 
   // Auto-expand parent items based on active tab

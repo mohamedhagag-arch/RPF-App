@@ -18,6 +18,7 @@ import { buildProjectFullCode } from '@/lib/projectDataFetcher'
 import type { Project } from '@/lib/supabase'
 import { exportData, type ExportFormat } from '@/lib/exportImportUtils'
 import { usePermissionGuard } from '@/lib/permissionGuard'
+import { syncManpowerToAttendance, syncManpowerDeletionToAttendance } from '@/lib/attendanceSync'
 
 interface ManpowerRecord {
   id?: string
@@ -996,6 +997,23 @@ export default function ManpowerPage() {
 
       setFormSuccess(`✅ ${recordsToInsert.length} MANPOWER record(s) added successfully!`)
       
+      // ✅ Sync to Attendance Records for each inserted record
+      for (const record of recordsToInsert) {
+        if (record['LABOUR CODE'] && record['Date'] && record['START'] && record['FINISH']) {
+          try {
+            const syncResult = await syncManpowerToAttendance(record)
+            if (syncResult.success) {
+              console.log(`✅ Synced to Attendance for ${record['LABOUR CODE']}:`, syncResult.message)
+            } else {
+              console.warn(`⚠️ Attendance sync warning for ${record['LABOUR CODE']}:`, syncResult.message)
+            }
+          } catch (syncError) {
+            console.error(`❌ Error syncing to attendance for ${record['LABOUR CODE']}:`, syncError)
+            // Don't fail the whole operation if sync fails
+          }
+        }
+      }
+      
       // Refresh projects list if needed
       const newProjectCodes = previewRecords
         .map(r => r.projectCode)
@@ -1111,6 +1129,26 @@ export default function ManpowerPage() {
 
       setFormSuccess('✅ MANPOWER record updated successfully!')
       
+      // ✅ Sync to Attendance Records
+      try {
+        // Get the full updated record for sync (include LABOUR CODE and Date from original record)
+        const editingRecordAny = editingRecord as any
+        const fullManpowerData = {
+          ...manpowerData,
+          'LABOUR CODE': formData.labourCode || editingRecordAny.labour_code || editingRecordAny['LABOUR CODE'],
+          'Date': formData.date || editingRecordAny.date || editingRecordAny['Date']
+        }
+        const syncResult = await syncManpowerToAttendance(fullManpowerData)
+        if (syncResult.success) {
+          console.log('✅ Synced to Attendance:', syncResult.message)
+        } else {
+          console.warn('⚠️ Attendance sync warning:', syncResult.message)
+        }
+      } catch (syncError) {
+        console.error('❌ Error syncing to attendance:', syncError)
+        // Don't fail the whole operation if sync fails
+      }
+      
       // Refresh data
       if (hasSearched && projectCodeSearch) {
         await searchByProjectCodeDirect(projectCodeSearch)
@@ -1149,12 +1187,32 @@ export default function ManpowerPage() {
 
     setDeleteLoading(recordId)
     try {
+      // Get record data before deletion for sync
+      const recordToDelete = data.find(r => ((r as any).id || '') === recordId)
+      const employeeCode = recordToDelete ? ((recordToDelete as any)['LABOUR CODE'] || (recordToDelete as any).labour_code) : null
+      const date = recordToDelete ? ((recordToDelete as any)['Date'] || (recordToDelete as any).date) : null
+      
       const { error } = await supabase
         .from('CCD - MANPOWER')
         .delete()
         .eq('id', recordId)
 
       if (error) throw error
+
+      // ✅ Sync deletion to Attendance Records
+      if (employeeCode && date) {
+        try {
+          const syncResult = await syncManpowerDeletionToAttendance(employeeCode, date)
+          if (syncResult.success) {
+            console.log('✅ Synced deletion to Attendance:', syncResult.message)
+          } else {
+            console.warn('⚠️ Attendance sync warning:', syncResult.message)
+          }
+        } catch (syncError) {
+          console.error('❌ Error syncing deletion to attendance:', syncError)
+          // Don't fail the whole operation if sync fails
+        }
+      }
 
       // Remove from selected records
       const newSelected = new Set(selectedRecords)
