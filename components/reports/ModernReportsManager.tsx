@@ -4476,13 +4476,149 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // ✅ Show ALL projects (not filtered by status)
+  // The user wants to see all projects, including those that might not be "active"
   const filteredProjects = useMemo(() => {
     let filtered = projects
+    
+    // Filter by division only (if selected)
     if (selectedDivision) {
       filtered = filtered.filter((p: Project) => p.responsible_division === selectedDivision)
     }
+    
+    // ✅ Show ALL projects regardless of status
+    // This ensures all projects are visible in the report
+    
     return filtered
   }, [projects, selectedDivision])
+
+  // ✅ Helper functions for zone matching (same logic as other components)
+  const normalizeZone = useCallback((zone: string, projectCode: string, projectFullCode?: string): string => {
+    if (!zone || !projectCode) return (zone || '').toLowerCase().trim()
+    let normalized = zone.trim()
+    const codeUpper = projectCode.toUpperCase()
+    const fullCodeUpper = projectFullCode ? projectFullCode.toUpperCase() : codeUpper
+    
+    // Remove project code prefix (try full code first, then project code)
+    normalized = normalized.replace(new RegExp(`^${fullCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+    normalized = normalized.replace(new RegExp(`^${fullCodeUpper}\\s+`, 'i'), '').trim()
+    normalized = normalized.replace(new RegExp(`^${fullCodeUpper}-`, 'i'), '').trim()
+    normalized = normalized.replace(new RegExp(`^${codeUpper}\\s*-\\s*`, 'i'), '').trim()
+    normalized = normalized.replace(new RegExp(`^${codeUpper}\\s+`, 'i'), '').trim()
+    normalized = normalized.replace(new RegExp(`^${codeUpper}-`, 'i'), '').trim()
+    normalized = normalized.replace(/^\s*-\s*/, '').trim()
+    normalized = normalized.replace(/\s+/g, ' ').trim()
+    
+    return normalized.toLowerCase()
+  }, [])
+
+  const extractZoneNumber = useCallback((zone: string): string => {
+    if (!zone || zone.trim() === '') return ''
+    const normalizedZone = zone.toLowerCase().trim()
+    
+    // Try to match "zone X" or "zone-X" pattern first (most common)
+    const zonePatternMatch = normalizedZone.match(/zone\s*[-_]?\s*(\d+)/i)
+    if (zonePatternMatch && zonePatternMatch[1]) {
+      return zonePatternMatch[1]
+    }
+    
+    // Try to match standalone number at the end (e.g., "Zone 2", "Area 2")
+    const endNumberMatch = normalizedZone.match(/(\d+)\s*$/)
+    if (endNumberMatch && endNumberMatch[1]) {
+      return endNumberMatch[1]
+    }
+    
+    // Fallback: extract first number
+    const numberMatch = normalizedZone.match(/\d+/)
+    if (numberMatch) return numberMatch[0]
+    
+    return normalizedZone
+  }, [])
+
+  const getActivityZone = useCallback((activity: BOQActivity, projectFullCode?: string): string => {
+    const rawActivity = (activity as any).raw || {}
+    let zoneValue = activity.zone_number || 
+                   activity.zone_ref || 
+                   rawActivity['Zone Number'] ||
+                   rawActivity['Zone Ref'] ||
+                   rawActivity['Zone #'] ||
+                   ''
+    
+    const projectCode = (activity.project_code || '').toString().trim()
+    return normalizeZone(zoneValue.toString(), projectCode, projectFullCode || activity.project_full_code)
+  }, [normalizeZone])
+
+  const getKPIZone = useCallback((kpi: any, projectFullCode?: string): string => {
+    const rawKPI = (kpi as any).raw || {}
+    const zoneRaw = (
+      kpi.zone || 
+      rawKPI['Zone'] || 
+      rawKPI['Zone Number'] || 
+      rawKPI['Zone Ref'] ||
+      ''
+    ).toString().trim()
+    const projectCode = (kpi.project_code || kpi['Project Code'] || rawKPI['Project Code'] || '').toString().trim()
+    return normalizeZone(zoneRaw, projectCode, projectFullCode || kpi.project_full_code)
+  }, [normalizeZone])
+
+  // ✅ Helper function to check if KPI matches activity (with strict zone matching)
+  const kpiMatchesActivity = useCallback((
+    kpi: any, 
+    activity: BOQActivity, 
+    projectFullCode: string
+  ): boolean => {
+    const rawKPI = (kpi as any).raw || {}
+    const rawActivity = (activity as any).raw || {}
+    
+    // 1. Match activity name (exact match required)
+    const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
+    const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+    if (!kpiActivityName || !activityName || kpiActivityName !== activityName) {
+      return false
+    }
+    
+    // 2. Match project (must match project_full_code)
+    const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+    if (kpiProjectFullCode && projectFullCode && kpiProjectFullCode !== projectFullCode.toUpperCase()) {
+      return false
+    }
+    
+    // 3. Match zone (STRICT: if activity has zone, KPI must match exactly)
+    const activityZone = getActivityZone(activity, projectFullCode)
+    const kpiZone = getKPIZone(kpi, projectFullCode)
+    
+    if (activityZone && activityZone.trim() !== '' && activityZone !== 'n/a') {
+      // Activity has a zone - KPI must match this zone
+      if (!kpiZone || kpiZone.trim() === '' || kpiZone === 'n/a') {
+        return false // Activity has zone but KPI doesn't - no match
+      }
+      
+      // Try multiple matching strategies
+      const activityZoneNum = extractZoneNumber(activityZone)
+      const kpiZoneNum = extractZoneNumber(kpiZone)
+      
+      // Strategy 1: Exact normalized zone match
+      if (activityZone === kpiZone) {
+        return true
+      }
+      
+      // Strategy 2: Zone number match
+      if (activityZoneNum && kpiZoneNum && activityZoneNum === kpiZoneNum) {
+        return true
+      }
+      
+      // Strategy 3: One contains the other (for cases like "zone 2" vs "2")
+      if (activityZone.includes(kpiZone) || kpiZone.includes(activityZone)) {
+        return true
+      }
+      
+      // No match found
+      return false
+    }
+    
+    // If activity has no zone, allow any KPI (activity is general)
+    return true
+  }, [getActivityZone, getKPIZone, extractZoneNumber])
 
   // ✅ Helper function to get Scope for an activity
   const getActivityScope = useCallback((activity: BOQActivity): string[] => {
@@ -4980,21 +5116,80 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
   }
 
   // ✅ PERFORMANCE: Pre-filter KPIs by project to avoid repeated filtering
+  // ✅ FIX: Use filteredProjects instead of projects to ensure we include all active projects
   const projectKPIsMap = useMemo(() => {
     const map = new Map<string, { planned: any[], actual: any[] }>()
-    projects.forEach((project: Project) => {
+    
+    // Use filteredProjects to ensure we match KPIs for all active projects
+    filteredProjects.forEach((project: Project) => {
       const projectId = project.id
       const plannedKPIs: any[] = []
       const actualKPIs: any[] = []
       
+      // Build project full code for matching
+      const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+      const projectCode = (project.project_code || '').toString().trim().toUpperCase()
+      const projectSubCode = (project.project_sub_code || '').toString().trim().toUpperCase()
+      
       kpis.forEach((kpi: any) => {
         try {
-          if (matchesProject(kpi, project)) {
+          // ✅ IMPROVED: More flexible matching logic
+          const rawKPI = (kpi as any).raw || {}
+          const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+          const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+          const kpiProjectSubCode = (kpi.project_sub_code || rawKPI['Project Sub Code'] || '').toString().trim().toUpperCase()
+          
+          // Build KPI full code if not available
+          let kpiFullCode = kpiProjectFullCode
+          if (!kpiFullCode && kpiProjectCode) {
+            if (kpiProjectSubCode) {
+              if (kpiProjectSubCode.startsWith(kpiProjectCode)) {
+                kpiFullCode = kpiProjectSubCode
+              } else {
+                kpiFullCode = kpiProjectSubCode.startsWith('-') 
+                  ? `${kpiProjectCode}${kpiProjectSubCode}`
+                  : `${kpiProjectCode}-${kpiProjectSubCode}`
+              }
+            } else {
+              kpiFullCode = kpiProjectCode
+            }
+          }
+          
+          // ✅ IMPROVED: More flexible matching logic (same as other components)
+          let matches = false
+          
+          // Priority 1: Exact match on project_full_code
+          if (projectFullCode && kpiFullCode && projectFullCode === kpiFullCode) {
+            matches = true
+          }
+          // Priority 2: Match by project_id if available
+          else if (project.id && (kpi as any).project_id && project.id === (kpi as any).project_id) {
+            matches = true
+          }
+          // Priority 3: Match by project_code if full codes don't match but codes do (only if no sub codes)
+          else if (projectCode && kpiProjectCode && projectCode === kpiProjectCode) {
+            // Only match if both don't have sub codes, or if sub codes match
+            if (!projectSubCode && !kpiProjectSubCode) {
+              matches = true
+            } else if (projectSubCode && kpiProjectSubCode && projectSubCode === kpiProjectSubCode) {
+              matches = true
+            }
+          }
+          // Priority 4: Match if project_full_code starts with project code (for sub-projects)
+          else if (projectFullCode && kpiFullCode && kpiFullCode.startsWith(projectCode)) {
+            matches = true
+          }
+          // Priority 5: Match if KPI project_full_code starts with project full code (for sub-projects)
+          else if (projectFullCode && kpiFullCode && projectFullCode.startsWith(kpiProjectCode)) {
+            matches = true
+          }
+          
+          if (matches) {
             const inputType = String(
               kpi.input_type || 
               kpi['Input Type'] || 
-              (kpi as any).raw?.['Input Type'] || 
-              (kpi as any).raw?.['input_type'] ||
+              rawKPI['Input Type'] || 
+              rawKPI['input_type'] ||
               ''
             ).trim().toLowerCase()
             
@@ -5006,6 +5201,9 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
           }
         } catch (error) {
           // Skip invalid KPIs
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('[Monthly Revenue] Error matching KPI to project:', error, { kpi, project })
+          }
         }
       })
       
@@ -5013,7 +5211,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
     })
     
     return map
-  }, [kpis, projects])
+  }, [kpis, filteredProjects])
 
   // Calculate period earned value per project - حساب القيمة المنجزة لكل فترة
   // Calculate Period Planned Value (same logic as calculatePeriodEarnedValue but for Planned KPIs)
@@ -5029,10 +5227,12 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
       const periodStart = period.start
       const periodEnd = period.end
 
-      // ✅ For current/future periods, use today as the end date instead of periodEnd
-      const effectivePeriodEnd = periodEnd > today ? today : periodEnd
+      // ✅ For Planned KPIs, use periodEnd directly (no limit to today)
+      // Planned KPIs can be in the future, so we should include them all
+      const effectivePeriodEnd = periodEnd
 
       // Get KPI Planned for this period
+      // ✅ Use EXACT SAME LOGIC as KPI page date range filter
       const plannedKPIsInPeriod = allProjectKPIs.filter((kpi: any) => {
         const inputType = String(
           kpi.input_type || 
@@ -5044,159 +5244,231 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
         
         if (inputType !== 'planned') return false
         
-        // ✅ Use EXACT SAME LOGIC as Date column in table
+        // ✅ EXACT SAME LOGIC as KPITracking.tsx date range filter (lines 2577-2634)
         const rawKPIDate = (kpi as any).raw || {}
         
         // Priority 1: Day column (if available and formatted)
         const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
         
-        // Priority 2: Target Date (for Planned KPIs)
+        // Priority 2: Actual Date (for Actual KPIs) or Target Date (for Planned KPIs)
+        const actualDateValue = (kpi as any).actual_date || rawKPIDate['Actual Date'] || ''
         const targetDateValue = kpi.target_date || rawKPIDate['Target Date'] || ''
         
         // Priority 3: Activity Date
         const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
         
-        // Determine which date to use based on Input Type
-        let kpiDateStr = ''
-        if (kpi.input_type === 'Planned' && targetDateValue) {
-          kpiDateStr = targetDateValue
+        // Determine which date to use based on Input Type (SAME AS KPI PAGE)
+        let dateToUse = ''
+        if (kpi.input_type === 'Actual' && actualDateValue) {
+          dateToUse = actualDateValue
+        } else if (kpi.input_type === 'Planned' && targetDateValue) {
+          dateToUse = targetDateValue
         } else if (dayValue) {
-          kpiDateStr = activityDateValue || dayValue
+          // If Day is available, try to use it or fallback to Activity Date
+          dateToUse = activityDateValue || dayValue
         } else {
-          kpiDateStr = activityDateValue || targetDateValue
+          dateToUse = activityDateValue || actualDateValue || targetDateValue
         }
         
-        if (!kpiDateStr) return false
+        // If no date found, skip this KPI (don't include it in filtered results)
+        if (!dateToUse) {
+          return false
+        }
         
+        // Parse the date and compare with filter range (SAME AS KPI PAGE)
         try {
-          const kpiDate = new Date(kpiDateStr)
-          if (isNaN(kpiDate.getTime())) return false
+          const kpiDate = new Date(dateToUse)
+          if (isNaN(kpiDate.getTime())) {
+            return false // Invalid date, skip this KPI
+          }
           
           kpiDate.setHours(0, 0, 0, 0) // Normalize to start of day
           
-          // Normalize periodStart and effectivePeriodEnd for comparison
+          // Normalize periodStart and periodEnd for comparison (SAME AS KPI PAGE)
+          // ✅ For Planned KPIs, use periodEnd directly (no limit to today)
           const normalizedPeriodStart = new Date(periodStart)
           normalizedPeriodStart.setHours(0, 0, 0, 0)
           
-          const normalizedPeriodEnd = new Date(effectivePeriodEnd)
+          const normalizedPeriodEnd = new Date(periodEnd)
           normalizedPeriodEnd.setHours(23, 59, 59, 999) // End of day
           
-          // Check if KPI date is within range
+          // Check if KPI date is within range (SAME AS KPI PAGE)
           const inRange = kpiDate >= normalizedPeriodStart && kpiDate <= normalizedPeriodEnd
           
           return inRange
-        } catch {
-          return false
+        } catch (error) {
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('[Monthly Revenue] Error parsing date:', dateToUse, error)
+          }
+          return false // Skip this KPI if date parsing fails
         }
       })
 
       // ✅ PERFORMANCE: Use cached project activities from analytics instead of filtering every time
       const projectActivities = analytics.activities || []
 
-      // Calculate Planned Value using same logic as calculatePeriodEarnedValue
+      // ✅ Calculate Planned Value using EXACT SAME LOGIC as KPI page (KPITracking.tsx lines 2861-2943)
+      // PRIORITY 1: Use Value field directly (if Value ≠ Quantity)
+      // PRIORITY 2: Calculate from Quantity × Rate (if Value is not available or equals quantity)
       return plannedKPIsInPeriod.reduce((sum: number, kpi: any) => {
         try {
           const rawKpi = (kpi as any).raw || {}
           const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
-          const quantityValue = quantity || 0
           
-          let financialValue = 0
+          // ✅ PRIORITY 1: Use Value field directly (this should be the financial value)
+          // EXACT SAME LOGIC as KPI page
+          let kpiValue = 0
           
-          // Find related activity for rate calculation (same logic as calculatePeriodEarnedValue)
-          let relatedActivity: BOQActivity | undefined = undefined
-          const kpiActivityName = (kpi.activity_name || rawKpi['Activity Name'] || '').toLowerCase().trim()
-          const kpiProjectCode = (kpi.project_code || rawKpi['Project Code'] || '').toString().trim().toLowerCase()
-          const kpiProjectFullCode = (kpi.project_full_code || rawKpi['Project Full Code'] || '').toString().trim().toLowerCase()
-          const kpiZone = (kpi.zone || rawKpi['Zone'] || rawKpi['Zone Number'] || '').toString().toLowerCase().trim()
-          
-          // Try multiple matching strategies (same as calculateWeeklyEarnedValue)
-          if (kpiActivityName && kpiProjectFullCode) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityFullCode = (a.project_full_code || '').toString().trim().toLowerCase()
-              return activityName === kpiActivityName && activityFullCode === kpiProjectFullCode
-            })
+          // Try raw['Value'] (from database with capital V)
+          if (rawKpi['Value'] !== undefined && rawKpi['Value'] !== null) {
+            const val = rawKpi['Value']
+            kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
           }
           
-          if (!relatedActivity && kpiActivityName && kpiProjectCode) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectCode = (a.project_code || '').toString().trim().toLowerCase()
-              return activityName === kpiActivityName && activityProjectCode === kpiProjectCode
-            })
+          // Try raw.value (from database with lowercase v)
+          if (kpiValue === 0 && rawKpi.value !== undefined && rawKpi.value !== null) {
+            const val = rawKpi.value
+            kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
           }
           
-          if (relatedActivity) {
-            const rawActivity = (relatedActivity as any).raw || {}
+          // Try k.value (direct property from KPI)
+          if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
+            const val = kpi.value
+            kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+          }
+          
+          // ✅ Check if Value equals Quantity (means it's quantity, not value)
+          // If Value equals Quantity, we need to calculate from Rate × Quantity
+          if (kpiValue > 0 && quantity > 0 && Math.abs(kpiValue - quantity) < 0.01) {
+            // Value equals quantity, so it's not a real value - calculate from rate
+            kpiValue = 0
+          }
+          
+          if (kpiValue > 0) {
+            return sum + kpiValue
+          }
+          
+          // ✅ PRIORITY 2: Calculate from Quantity × Rate (if Value is not available or equals quantity)
+          // EXACT SAME LOGIC as KPI page getActivityRate (KPITracking.tsx lines 2726-2859)
+          if (quantity > 0) {
+            // Find related activity for rate calculation (EXACT SAME LOGIC as getActivityRate)
+            const kpiActivityName = (kpi.activity_name || rawKpi['Activity Name'] || '').toLowerCase().trim()
+            const kpiProjectFullCode = (kpi.project_full_code || rawKpi['Project Full Code'] || '').toString().trim().toLowerCase()
+            const kpiProjectCode = (kpi.project_code || rawKpi['Project Code'] || '').toString().trim().toLowerCase()
             
-            // ✅ PRIORITY 1: Calculate Rate = Total Value / Total Units
-            const totalValueFromActivity = relatedActivity.total_value || 
-                                         parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
-                                         0
+            // Extract KPI Zone (EXACT SAME LOGIC as getActivityRate)
+            const kpiZoneRaw = (kpi.zone || rawKpi['Zone'] || rawKpi['Zone Number'] || '').toString().trim()
+            let kpiZone = kpiZoneRaw.toLowerCase().trim()
+            if (kpiZone && kpiProjectCode) {
+              const projectCodeUpper = kpiProjectCode.toUpperCase()
+              kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+              kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
+              kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
+            }
+            if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
             
-            const totalUnits = relatedActivity.total_units || 
-                            relatedActivity.planned_units ||
-                            parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
-                            0
+            // Try multiple matching strategies (EXACT SAME LOGIC as getActivityRate)
+            let relatedActivities: BOQActivity[] = []
             
-            let rate = 0
-            if (totalUnits > 0 && totalValueFromActivity > 0) {
-              rate = totalValueFromActivity / totalUnits
-            } else {
-              rate = relatedActivity.rate || 
-                    parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
-                    0
+            // Try 1: activity_name + project_full_code + zone (most precise)
+            if (kpiActivityName && kpiProjectFullCode && kpiZone) {
+              relatedActivities = projectActivities.filter((a: BOQActivity) => {
+                const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+                const activityFullCode = (a.project_full_code || a.project_code || '').toString().trim().toLowerCase()
+                const rawActivity = (a as any).raw || {}
+                const activityZone = (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+                return activityName === kpiActivityName && 
+                       activityFullCode === kpiProjectFullCode &&
+                       (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
+              })
             }
             
-            // Calculate value = rate × quantity
-            if (rate > 0 && quantityValue > 0) {
-              financialValue = quantityValue * rate
-              if (financialValue > 0) {
-                return sum + financialValue
+            // Try 2: activity_name + project_full_code (without zone - fallback)
+            if (relatedActivities.length === 0 && kpiActivityName && kpiProjectFullCode) {
+              relatedActivities = projectActivities.filter((a: BOQActivity) => {
+                const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+                const activityFullCode = (a.project_full_code || a.project_code || '').toString().trim().toLowerCase()
+                return activityName === kpiActivityName && activityFullCode === kpiProjectFullCode
+              })
+            }
+            
+            // Try 3: activity_name + project_code + zone (if not found and project_code exists)
+            if (relatedActivities.length === 0 && kpiActivityName && kpiProjectCode && kpiZone) {
+              relatedActivities = projectActivities.filter((a: BOQActivity) => {
+                const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+                const activityProjectCode = (a.project_code || '').toString().trim().toLowerCase()
+                const rawActivity = (a as any).raw || {}
+                const activityZone = (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+                return activityName === kpiActivityName && 
+                       activityProjectCode === kpiProjectCode &&
+                       (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
+              })
+            }
+            
+            // Try 4: activity_name + project_code (without zone - fallback)
+            if (relatedActivities.length === 0 && kpiActivityName && kpiProjectCode) {
+              relatedActivities = projectActivities.filter((a: BOQActivity) => {
+                const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
+                const activityProjectCode = (a.project_code || '').toString().trim().toLowerCase()
+                return activityName === kpiActivityName && activityProjectCode === kpiProjectCode
+              })
+            }
+            
+            // If multiple activities found, prefer the one with matching zone (EXACT SAME LOGIC as getActivityRate)
+            let relatedActivity: BOQActivity | undefined = undefined
+            if (relatedActivities.length > 0) {
+              if (kpiZone && relatedActivities.length > 1) {
+                // Prefer activity with matching zone
+                relatedActivity = relatedActivities.find(a => {
+                  const rawActivity = (a as any).raw || {}
+                  const activityZone = (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+                  return activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone)
+                }) || relatedActivities[0]
+              } else {
+                relatedActivity = relatedActivities[0]
+              }
+            }
+            
+            if (relatedActivity) {
+              const rawActivity = (relatedActivity as any).raw || {}
+              
+              // ✅ PRIORITY 1: Calculate Rate = Total Value / Total Units (EXACT SAME LOGIC as getActivityRate)
+              const totalValueFromActivity = relatedActivity.total_value || 
+                                           parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                           0
+              
+              const totalUnits = relatedActivity.total_units || 
+                              relatedActivity.planned_units ||
+                              parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                              0
+              
+              if (totalUnits > 0 && totalValueFromActivity > 0) {
+                const rate = totalValueFromActivity / totalUnits
+                const calculatedValue = quantity * rate
+                return sum + calculatedValue
+              }
+              
+              // ✅ PRIORITY 2: Use rate directly from activity (fallback)
+              if (relatedActivity.rate && relatedActivity.rate > 0) {
+                const calculatedValue = quantity * relatedActivity.rate
+                return sum + calculatedValue
+              }
+              
+              // ✅ PRIORITY 3: Try to get rate from raw activity data
+              const rateFromRaw = parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
+              if (rateFromRaw > 0) {
+                const calculatedValue = quantity * rateFromRaw
+                return sum + calculatedValue
               }
             }
           }
           
-          // ✅ PRIORITY 2: Use Value directly from KPI
-          if (financialValue === 0) {
-            let kpiValue = 0
-            
-            if (rawKpi['Value'] !== undefined && rawKpi['Value'] !== null) {
-              const val = rawKpi['Value']
-              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
-            }
-            
-            if (kpiValue === 0 && rawKpi.value !== undefined && rawKpi.value !== null) {
-              const val = rawKpi.value
-              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
-            }
-            
-            if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
-              const val = kpi.value
-              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
-            }
-            
-            if (kpiValue > 0) {
-              financialValue = kpiValue
-              return sum + financialValue
-            }
-          }
-          
-          // ✅ PRIORITY 3: Try Planned Value
-          if (financialValue === 0) {
-            const plannedValue = (kpi.planned_value ?? 
-                               parseFloat(String(rawKpi['Planned Value'] || '0').replace(/,/g, ''))) || 
-                               0
-            
-            if (plannedValue > 0) {
-              financialValue = plannedValue
-              return sum + financialValue
-            }
-          }
-          
+          // If no value found, skip this KPI (same as KPI page)
           return sum
         } catch (error) {
-          console.error('[Monthly Revenue] Error calculating Planned KPI value:', error, { kpi, project })
+          if (process.env.NODE_ENV === 'development') {
+            console.error('[Monthly Revenue] Error calculating Planned KPI value:', error, { kpi, project })
+          }
           return sum
         }
       }, 0)
@@ -6987,11 +7259,11 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
   }, [allAnalytics, calculatePeriodEarnedValue, calculatePeriodPlannedValue, viewPlannedValue, showOuterRangeColumn, calculateOuterRangeValue, calculateOuterRangePlannedValue, calculateOuterRangeVirtualMaterialAmount, calculateOuterRangePlannedVirtualMaterialAmount, showVirtualMaterialValues, calculatePeriodVirtualMaterialAmount, calculatePeriodPlannedVirtualMaterialAmount])
 
   // ✅ FIX: Show ALL projects from allAnalytics, regardless of date range or KPIs
-  // The date range filter only affects which weeks show data in the table, not which projects are displayed
-  // This ensures projects like P5066-R3 and P5066-R4 always appear, even when date range changes
+  // The date range filter only affects which periods show data in the table, not which projects are displayed
+  // This ensures ALL active projects are always visible, even if they don't have KPIs in the selected period
   const projectsWithWorkInRange = useMemo(() => {
     // Always return ALL projects from allAnalytics
-    // The date range is only used for calculating weekly values, not for filtering projects
+    // The date range is only used for calculating period values, not for filtering projects
     let filtered = allAnalytics
     
     // ✅ Filter out projects with Grand Total = 0 if checkbox is checked
@@ -9367,15 +9639,20 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                           const periodEnd = period.end
                           const effectivePeriodEnd = periodEnd > today ? today : periodEnd
                           
-                          // Get Actual KPIs for this activity in this period (using strict matching)
+                          // ✅ Get Actual KPIs for this activity in this period (using improved matching logic)
                           const actualKPIs = kpis.filter((kpi: any) => {
                             const rawKPI = (kpi as any).raw || {}
                             
-                            // Match input type (Actual only)
+                            // 1. Match input type (Actual only)
                             const inputType = String(kpi.input_type || rawKPI['Input Type'] || '').trim().toLowerCase()
                             if (inputType !== 'actual') return false
                             
-                            // Match date
+                            // 2. Match activity and zone using helper function
+                            if (!kpiMatchesActivity(kpi, activity, projectFullCode)) {
+                              return false
+                            }
+                            
+                            // 3. Match date (must be within period)
                             const rawKPIDate = (kpi as any).raw || {}
                             const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
                             const actualDateValue = (kpi as any).actual_date || rawKPIDate['Actual Date'] || ''
@@ -9400,58 +9677,10 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                               normalizedPeriodStart.setHours(0, 0, 0, 0)
                               const normalizedPeriodEnd = new Date(effectivePeriodEnd)
                               normalizedPeriodEnd.setHours(23, 59, 59, 999)
-                              if (!(kpiDate >= normalizedPeriodStart && kpiDate <= normalizedPeriodEnd)) {
-                                return false
-                              }
+                              return kpiDate >= normalizedPeriodStart && kpiDate <= normalizedPeriodEnd
                             } catch {
                               return false
                             }
-                            
-                            // Extract KPI fields
-                            const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
-                            const kpiProjectFullCodeRaw = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim()
-                            const kpiProjectCodeRaw = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim()
-                            const kpiProjectFullCode = kpiProjectFullCodeRaw.toLowerCase().trim()
-                            const kpiProjectCode = kpiProjectCodeRaw.toLowerCase().trim()
-                            
-                            const kpiZoneRaw = (kpi.zone || rawKPI['Zone'] || rawKPI['Zone Ref'] || rawKPI['Zone Number'] || '').toString().trim()
-                            let kpiZone = kpiZoneRaw.toLowerCase().trim()
-                            
-                            // Clean zone
-                            if (kpiZone && kpiProjectCode) {
-                              const projectCodeUpper = kpiProjectCode.toUpperCase()
-                              kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
-                              kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
-                              kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
-                            }
-                            if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
-                            
-                            // Extract activity fields
-                            const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
-                            const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toLowerCase()
-                            const activityProjectCode = (activity.project_code || '').toString().trim().toLowerCase()
-                            const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
-                            
-                            // ✅ STRICT MATCHING
-                            if (!kpiActivityName || !activityName || kpiActivityName !== activityName) return false
-                            
-                            if (activityProjectFullCode && kpiProjectFullCode) {
-                              if (activityProjectFullCode !== kpiProjectFullCode) return false
-                            } else if (activityProjectFullCode && !kpiProjectFullCode) {
-                              if (kpiProjectCode && activityProjectFullCode !== kpiProjectCode) return false
-                            } else if (!activityProjectFullCode && kpiProjectFullCode) {
-                              if (activityProjectCode && kpiProjectFullCode !== activityProjectCode) return false
-                            } else {
-                              if (activityProjectCode && kpiProjectCode && activityProjectCode !== kpiProjectCode) return false
-                            }
-                            
-                            if (activityZone) {
-                              if (kpiZone && kpiZone !== activityZone && !activityZone.includes(kpiZone) && !kpiZone.includes(activityZone)) {
-                                return false
-                              }
-                            }
-                            
-                            return true
                           })
                           
                           // Calculate earned value for this period
@@ -9501,16 +9730,21 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                           
                           periodValues[periodIndex] += periodValue
                           
-                          // Calculate Planned values (if viewPlannedValue is enabled)
+                          // ✅ Calculate Planned values (if viewPlannedValue is enabled)
                           if (viewPlannedValue) {
                             const plannedKPIs = kpis.filter((kpi: any) => {
                               const rawKPI = (kpi as any).raw || {}
                               
-                              // Match input type (Planned only)
+                              // 1. Match input type (Planned only)
                               const inputType = String(kpi.input_type || rawKPI['Input Type'] || '').trim().toLowerCase()
                               if (inputType !== 'planned') return false
                               
-                              // Match date
+                              // 2. Match activity and zone using helper function
+                              if (!kpiMatchesActivity(kpi, activity, projectFullCode)) {
+                                return false
+                              }
+                              
+                              // 3. Match date (must be within period)
                               const kpiDate = kpi.target_date || rawKPI['Target Date'] || ''
                               if (!kpiDate) return false
                               
@@ -9522,58 +9756,10 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                                 normalizedPeriodStart.setHours(0, 0, 0, 0)
                                 const normalizedPeriodEnd = new Date(effectivePeriodEnd)
                                 normalizedPeriodEnd.setHours(23, 59, 59, 999)
-                                if (!(date >= normalizedPeriodStart && date <= normalizedPeriodEnd)) {
-                                  return false
-                                }
+                                return date >= normalizedPeriodStart && date <= normalizedPeriodEnd
                               } catch {
                                 return false
                               }
-                              
-                              // Extract KPI fields
-                              const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
-                              const kpiProjectFullCodeRaw = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim()
-                              const kpiProjectCodeRaw = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim()
-                              const kpiProjectFullCode = kpiProjectFullCodeRaw.toLowerCase().trim()
-                              const kpiProjectCode = kpiProjectCodeRaw.toLowerCase().trim()
-                              
-                              const kpiZoneRaw = (kpi.zone || rawKPI['Zone'] || rawKPI['Zone Ref'] || rawKPI['Zone Number'] || '').toString().trim()
-                              let kpiZone = kpiZoneRaw.toLowerCase().trim()
-                              
-                              // Clean zone
-                              if (kpiZone && kpiProjectCode) {
-                                const projectCodeUpper = kpiProjectCode.toUpperCase()
-                                kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
-                                kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
-                                kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
-                              }
-                              if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
-                              
-                              // Extract activity fields
-                              const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
-                              const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toLowerCase()
-                              const activityProjectCode = (activity.project_code || '').toString().trim().toLowerCase()
-                              const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
-                              
-                              // ✅ STRICT MATCHING
-                              if (!kpiActivityName || !activityName || kpiActivityName !== activityName) return false
-                              
-                              if (activityProjectFullCode && kpiProjectFullCode) {
-                                if (activityProjectFullCode !== kpiProjectFullCode) return false
-                              } else if (activityProjectFullCode && !kpiProjectFullCode) {
-                                if (kpiProjectCode && activityProjectFullCode !== kpiProjectCode) return false
-                              } else if (!activityProjectFullCode && kpiProjectFullCode) {
-                                if (activityProjectCode && kpiProjectFullCode !== activityProjectCode) return false
-                              } else {
-                                if (activityProjectCode && kpiProjectCode && activityProjectCode !== kpiProjectCode) return false
-                              }
-                              
-                              if (activityZone) {
-                                if (kpiZone && kpiZone !== activityZone && !activityZone.includes(kpiZone) && !kpiZone.includes(activityZone)) {
-                                  return false
-                                }
-                              }
-                              
-                              return true
                             })
                             
                             // Calculate planned value for this period
@@ -10182,12 +10368,13 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                         </tr>
                         {/* Activity Details Rows */}
                         {isExpanded && (() => {
-                          // Group activities by zone first
+                          // ✅ Group activities by zone first (show ALL activities, even without KPIs)
                           const activitiesByZone = new Map<string, BOQActivity[]>()
                           projectActivities.forEach((activity: BOQActivity) => {
                             const rawActivity = (activity as any).raw || {}
-                            const zone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '0').toString().trim()
-                            const zoneKey = zone || '0' // Default to '0' if no zone
+                            // Use helper function to get normalized zone
+                            const activityZone = getActivityZone(activity, projectFullCode)
+                            const zoneKey = activityZone || '0' // Default to '0' if no zone
                             if (!activitiesByZone.has(zoneKey)) {
                               activitiesByZone.set(zoneKey, [])
                             }
@@ -10215,38 +10402,35 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                             return sortedActivities.map((activity: BOQActivity) => {
                               const rawActivity = (activity as any).raw || {}
                           
-                          // Calculate Actual period values for this activity
+                          // ✅ Calculate Actual period values for this activity (using improved matching logic)
                           const activityPeriodValues = periods.map((period) => {
                             const periodStart = period.start
                             const periodEnd = period.end
                             const effectivePeriodEnd = periodEnd > today ? today : periodEnd
                             
-                            // Get Actual KPIs for this activity in this period (using same flexible logic as calculatePeriodEarnedValue)
+                            // Get Actual KPIs for this activity in this period
                             const actualKPIs = kpis.filter((kpi: any) => {
                               const rawKPI = (kpi as any).raw || {}
                               
-                              // Match input type (Actual only)
+                              // 1. Match input type (Actual only)
                               const inputType = String(kpi.input_type || rawKPI['Input Type'] || '').trim().toLowerCase()
                               if (inputType !== 'actual') return false
                               
-                              // Match date (same logic as calculatePeriodEarnedValue)
+                              // 2. Match activity and zone using helper function
+                              if (!kpiMatchesActivity(kpi, activity, projectFullCode)) {
+                                return false
+                              }
+                              
+                              // 3. Match date (must be within period)
                               const rawKPIDate = (kpi as any).raw || {}
-                              
-                              // Priority 1: Day column (if available and formatted)
                               const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
-                              
-                              // Priority 2: Actual Date (for Actual KPIs)
                               const actualDateValue = (kpi as any).actual_date || rawKPIDate['Actual Date'] || ''
-                              
-                              // Priority 3: Activity Date
                               const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
                               
-                              // Determine which date to use based on Input Type (SAME AS calculatePeriodEarnedValue)
                               let kpiDateStr = ''
                               if (kpi.input_type === 'Actual' && actualDateValue) {
                                 kpiDateStr = actualDateValue
                               } else if (dayValue) {
-                                // If Day is available, try to use it or fallback to Activity Date
                                 kpiDateStr = activityDateValue || dayValue
                               } else {
                                 kpiDateStr = activityDateValue || actualDateValue
@@ -10258,83 +10442,16 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                                 const kpiDate = new Date(kpiDateStr)
                                 if (isNaN(kpiDate.getTime())) return false
                                 
-                                kpiDate.setHours(0, 0, 0, 0) // Normalize to start of day
-                                
+                                kpiDate.setHours(0, 0, 0, 0)
                                 const normalizedPeriodStart = new Date(periodStart)
                                 normalizedPeriodStart.setHours(0, 0, 0, 0)
-                                
                                 const normalizedPeriodEnd = new Date(effectivePeriodEnd)
-                                normalizedPeriodEnd.setHours(23, 59, 59, 999) // End of day
+                                normalizedPeriodEnd.setHours(23, 59, 59, 999)
                                 
-                                if (!(kpiDate >= normalizedPeriodStart && kpiDate <= normalizedPeriodEnd)) {
-                                  return false
-                                }
+                                return kpiDate >= normalizedPeriodStart && kpiDate <= normalizedPeriodEnd
                               } catch {
                                 return false
                               }
-                              
-                              // Extract KPI fields (same logic as calculatePeriodEarnedValue)
-                              const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
-                              const kpiProjectFullCodeRaw = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim()
-                              const kpiProjectCodeRaw = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim()
-                              const kpiProjectFullCode = kpiProjectFullCodeRaw.toLowerCase().trim()
-                              const kpiProjectCode = kpiProjectCodeRaw.toLowerCase().trim()
-                              
-                              const kpiZoneRaw = (kpi.zone || rawKPI['Zone'] || rawKPI['Zone Ref'] || rawKPI['Zone Number'] || '').toString().trim()
-                              let kpiZone = kpiZoneRaw.toLowerCase().trim()
-                              
-                              // Clean zone (remove project code prefix if present)
-                              if (kpiZone && kpiProjectCode) {
-                                const projectCodeUpper = kpiProjectCode.toUpperCase()
-                                kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
-                                kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
-                                kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
-                              }
-                              if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
-                              
-                              // Extract activity fields
-                              const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
-                              const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toLowerCase()
-                              const activityProjectCode = (activity.project_code || '').toString().trim().toLowerCase()
-                              const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
-                              
-                              // ✅ STRICT MATCHING: Must match activity name exactly
-                              if (!kpiActivityName || !activityName || kpiActivityName !== activityName) {
-                                return false
-                              }
-                              
-                              // ✅ STRICT MATCHING: Must match project_full_code exactly (priority)
-                              if (activityProjectFullCode && kpiProjectFullCode) {
-                                if (activityProjectFullCode !== kpiProjectFullCode) {
-                                  return false
-                                }
-                              } else if (activityProjectFullCode && !kpiProjectFullCode) {
-                                // Activity has full code but KPI doesn't - check if KPI project_code matches
-                                if (kpiProjectCode && activityProjectFullCode !== kpiProjectCode) {
-                                  return false
-                                }
-                              } else if (!activityProjectFullCode && kpiProjectFullCode) {
-                                // Activity doesn't have full code but KPI does - check if activity project_code matches
-                                if (activityProjectCode && kpiProjectFullCode !== activityProjectCode) {
-                                  return false
-                                }
-                              } else {
-                                // Both don't have full code - match by project_code
-                                if (activityProjectCode && kpiProjectCode && activityProjectCode !== kpiProjectCode) {
-                                  return false
-                                }
-                              }
-                              
-                              // ✅ STRICT MATCHING: Zone matching (if activity has zone, KPI must match or have no zone)
-                              if (activityZone) {
-                                // Activity has a zone - KPI must either match this zone or have no zone (general KPI)
-                                if (kpiZone && kpiZone !== activityZone && !activityZone.includes(kpiZone) && !kpiZone.includes(activityZone)) {
-                                  return false
-                                }
-                              }
-                              // If activity has no zone, allow any KPI (activity is general)
-                              
-                              return true
                             })
                             
                             // Calculate earned value for this period (EXACT SAME LOGIC as calculatePeriodEarnedValue)
@@ -10411,7 +10528,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                             }, 0)
                           })
                           
-                          // Calculate Planned period values for this activity (if viewPlannedValue is enabled)
+                          // ✅ Calculate Planned period values for this activity (if viewPlannedValue is enabled)
                           const activityPlannedValues = viewPlannedValue ? periods.map((period) => {
                             const periodStart = period.start
                             const periodEnd = period.end
@@ -10421,11 +10538,16 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                             const plannedKPIs = kpis.filter((kpi: any) => {
                               const rawKPI = (kpi as any).raw || {}
                               
-                              // Match input type (Planned only)
+                              // 1. Match input type (Planned only)
                               const inputType = String(kpi.input_type || rawKPI['Input Type'] || '').trim().toLowerCase()
                               if (inputType !== 'planned') return false
                               
-                              // Match date
+                              // 2. Match activity and zone using helper function
+                              if (!kpiMatchesActivity(kpi, activity, projectFullCode)) {
+                                return false
+                              }
+                              
+                              // 3. Match date (must be within period)
                               const kpiDate = kpi.target_date || rawKPI['Target Date'] || ''
                               if (!kpiDate) return false
                               
@@ -10437,75 +10559,10 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                                 normalizedPeriodStart.setHours(0, 0, 0, 0)
                                 const normalizedPeriodEnd = new Date(effectivePeriodEnd)
                                 normalizedPeriodEnd.setHours(23, 59, 59, 999)
-                                if (!(date >= normalizedPeriodStart && date <= normalizedPeriodEnd)) {
-                                  return false
-                                }
+                                return date >= normalizedPeriodStart && date <= normalizedPeriodEnd
                               } catch {
                                 return false
                               }
-                              
-                              // Extract KPI fields
-                              const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
-                              const kpiProjectFullCodeRaw = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim()
-                              const kpiProjectCodeRaw = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim()
-                              const kpiProjectFullCode = kpiProjectFullCodeRaw.toLowerCase().trim()
-                              const kpiProjectCode = kpiProjectCodeRaw.toLowerCase().trim()
-                              
-                              const kpiZoneRaw = (kpi.zone || rawKPI['Zone'] || rawKPI['Zone Ref'] || rawKPI['Zone Number'] || '').toString().trim()
-                              let kpiZone = kpiZoneRaw.toLowerCase().trim()
-                              
-                              // Clean zone (remove project code prefix if present)
-                              if (kpiZone && kpiProjectCode) {
-                                const projectCodeUpper = kpiProjectCode.toUpperCase()
-                                kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
-                                kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
-                                kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
-                              }
-                              if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
-                              
-                              // Extract activity fields
-                              const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
-                              const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toLowerCase()
-                              const activityProjectCode = (activity.project_code || '').toString().trim().toLowerCase()
-                              const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
-                              
-                              // ✅ STRICT MATCHING: Must match activity name exactly
-                              if (!kpiActivityName || !activityName || kpiActivityName !== activityName) {
-                                return false
-                              }
-                              
-                              // ✅ STRICT MATCHING: Must match project_full_code exactly (priority)
-                              if (activityProjectFullCode && kpiProjectFullCode) {
-                                if (activityProjectFullCode !== kpiProjectFullCode) {
-                                  return false
-                                }
-                              } else if (activityProjectFullCode && !kpiProjectFullCode) {
-                                // Activity has full code but KPI doesn't - check if KPI project_code matches
-                                if (kpiProjectCode && activityProjectFullCode !== kpiProjectCode) {
-                                  return false
-                                }
-                              } else if (!activityProjectFullCode && kpiProjectFullCode) {
-                                // Activity doesn't have full code but KPI does - check if activity project_code matches
-                                if (activityProjectCode && kpiProjectFullCode !== activityProjectCode) {
-                                  return false
-                                }
-                              } else {
-                                // Both don't have full code - match by project_code
-                                if (activityProjectCode && kpiProjectCode && activityProjectCode !== kpiProjectCode) {
-                                  return false
-                                }
-                              }
-                              
-                              // ✅ STRICT MATCHING: Zone matching (if activity has zone, KPI must match or have no zone)
-                              if (activityZone) {
-                                // Activity has a zone - KPI must either match this zone or have no zone (general KPI)
-                                if (kpiZone && kpiZone !== activityZone && !activityZone.includes(kpiZone) && !kpiZone.includes(activityZone)) {
-                                  return false
-                                }
-                              }
-                              // If activity has no zone, allow any KPI (activity is general)
-                              
-                              return true
                             })
                             
                             // Calculate planned value for this period
