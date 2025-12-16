@@ -444,8 +444,15 @@ export function ModernReportsManager() {
     let filteredKPIs = kpis
 
     // Filter by division (using debounced value)
+    // ✅ FIX: Support projects with multiple divisions (e.g., "Enabling Division, Soil Improvement Division")
     if (debouncedDivision) {
-      filteredProjects = filteredProjects.filter(p => p.responsible_division === debouncedDivision)
+      filteredProjects = filteredProjects.filter(p => {
+        const division = p.responsible_division
+        if (!division) return false
+        // Check if selected division is in the project's divisions (split by comma)
+        const divisionsList = division.split(',').map(d => d.trim())
+        return divisionsList.includes(debouncedDivision)
+      })
     }
 
     // Filter by projects (multi-select, using debounced values)
@@ -882,7 +889,20 @@ export function ModernReportsManager() {
 
   // Get unique divisions
   const divisions = useMemo(() => {
-    return Array.from(new Set(projects.map(p => p.responsible_division).filter(Boolean))).sort()
+    // ✅ FIX: Split divisions that contain multiple divisions (e.g., "Enabling Division, Soil Improvement Division")
+    // Extract each division individually
+    const allDivisions = new Set<string>()
+    
+    projects.forEach((p: Project) => {
+      const division = p.responsible_division
+      if (division) {
+        // Split by comma and trim each division
+        const divisionsList = division.split(',').map(d => d.trim()).filter(Boolean)
+        divisionsList.forEach(d => allDivisions.add(d))
+      }
+    })
+    
+    return Array.from(allDivisions).sort()
   }, [projects])
 
   // ✅ PERFORMANCE: Memoize formatting functions
@@ -4408,7 +4428,20 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
   }, [])
 
   const divisions = useMemo(() => {
-    return Array.from(new Set(projects.map((p: Project) => p.responsible_division).filter(Boolean))).sort()
+    // ✅ FIX: Split divisions that contain multiple divisions (e.g., "Enabling Division, Soil Improvement Division")
+    // Extract each division individually
+    const allDivisions = new Set<string>()
+    
+    projects.forEach((p: Project) => {
+      const division = p.responsible_division
+      if (division) {
+        // Split by comma and trim each division
+        const divisionsList = division.split(',').map(d => d.trim()).filter(Boolean)
+        divisionsList.forEach(d => allDivisions.add(d))
+      }
+    })
+    
+    return Array.from(allDivisions).sort()
   }, [projects])
 
   // ✅ Load project types and project_type_activities on mount
@@ -4482,8 +4515,15 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
     let filtered = projects
     
     // Filter by division only (if selected)
+    // ✅ FIX: Support projects with multiple divisions (e.g., "Enabling Division, Soil Improvement Division")
     if (selectedDivision) {
-      filtered = filtered.filter((p: Project) => p.responsible_division === selectedDivision)
+      filtered = filtered.filter((p: Project) => {
+        const division = p.responsible_division
+        if (!division) return false
+        // Check if selected division is in the project's divisions (split by comma)
+        const divisionsList = division.split(',').map(d => d.trim())
+        return divisionsList.includes(selectedDivision)
+      })
     }
     
     // ✅ Show ALL projects regardless of status

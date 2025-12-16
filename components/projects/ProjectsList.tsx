@@ -1073,64 +1073,60 @@ export function ProjectsList({
     // Project Status filter (Smart Filter)
     // ✅ Use calculated status (same as table) for accurate filtering
     if (selectedStatuses.length > 0) {
-      let projectStatus = (project.project_status || 'upcoming').toLowerCase().trim()
+      // ✅ CRITICAL: Check manual statuses first (on-hold, cancelled) - these are set manually and don't change automatically
+      const currentStatusFromDB = (project.project_status || 'upcoming').toLowerCase().trim()
+      let projectStatus = currentStatusFromDB
       
-      // ✅ Calculate status automatically if we have activities or KPIs (same logic as table)
-      try {
-        const projectFullCode = buildProjectFullCode(project)
-        const projectCode = (project.project_code || '').trim()
-        const projectSubCode = (project.project_sub_code || '').trim()
-        
-        // ✅ PERFORMANCE: Use cached data instead of filtering allActivities/allKPIs
-        // This is much faster as data is already matched and cached per project
-        const cached = analyticsCache.get(project.id)
-        const projectActivities = cached?.activities || []
-        const projectKPIs = cached?.kpis || []
-        
-        if (projectActivities.length > 0 || projectKPIs.length > 0) {
-          const statusData: ProjectStatusData = {
-            project_id: project.id,
-            project_code: project.project_code || '',
-            project_name: project.project_name || '',
-            project_start_date: project.project_start_date || project.created_at || new Date().toISOString(),
-            project_end_date: project.project_completion_date || new Date().toISOString(),
-            current_date: new Date().toISOString(),
-            activities: projectActivities.map((activity: any) => ({
-              id: activity.id || activity.activity_id || '',
-              activity_timing: activity.activity_timing || (activity as any).raw?.['Activity Timing'] || 'post-commencement',
-              planned_units: activity.planned_units || activity.total_units || 0,
-              actual_units: activity.actual_units || 0,
-              planned_activity_start_date: activity.planned_start_date || activity.planned_activity_start_date || (activity as any).raw?.['Planned Start Date'] || '',
-              deadline: activity.deadline || (activity as any).raw?.['Deadline'] || '',
-              status: activity.status || activity.activity_completed ? 'completed' : (activity.activity_delayed ? 'delayed' : 'not_started')
-            })),
-            kpis: projectKPIs.map((kpi: any) => ({
-              id: kpi.id || '',
-              input_type: kpi.input_type || (kpi as any).raw?.['Input Type'] || 'Planned',
-              quantity: kpi.quantity || kpi.Quantity || 0,
-              target_date: kpi.target_date || kpi.activity_date || (kpi as any).raw?.['Target Date'] || '',
-              actual_date: kpi.actual_date || (kpi as any).raw?.['Actual Date']
-            }))
-          }
+      // ✅ If status is manual (on-hold, cancelled), use it directly without calculation
+      if (currentStatusFromDB === 'on-hold' || currentStatusFromDB === 'cancelled') {
+        // Use database status directly for manual statuses
+        projectStatus = currentStatusFromDB
+      } else {
+        // ✅ Calculate status automatically if we have activities or KPIs (same logic as table)
+        try {
+          const projectFullCode = buildProjectFullCode(project)
+          const projectCode = (project.project_code || '').trim()
+          const projectSubCode = (project.project_sub_code || '').trim()
           
-          const statusResult = calculateProjectStatus(statusData)
-          projectStatus = statusResult.status.toLowerCase().trim()
+          // ✅ PERFORMANCE: Use cached data instead of filtering allActivities/allKPIs
+          // This is much faster as data is already matched and cached per project
+          const cached = analyticsCache.get(project.id)
+          const projectActivities = cached?.activities || []
+          const projectKPIs = cached?.kpis || []
           
-          // Debug log (only in development)
-          if (process.env.NODE_ENV === 'development' && selectedStatuses.includes('completed')) {
-            console.log(`🔍 [Filter] Project ${project.project_code}:`, {
-              dbStatus: project.project_status,
-              calculatedStatus: statusResult.status,
-              activities: projectActivities.length,
-              kpis: projectKPIs.length,
-              selectedStatuses,
-              matches: selectedStatuses.some(s => statusResult.status.toLowerCase().trim() === s.toLowerCase().trim())
-            })
+          if (projectActivities.length > 0 || projectKPIs.length > 0) {
+            const statusData: ProjectStatusData = {
+              project_id: project.id,
+              project_code: project.project_code || '',
+              project_name: project.project_name || '',
+              project_start_date: project.project_start_date || project.created_at || new Date().toISOString(),
+              project_end_date: project.project_completion_date || new Date().toISOString(),
+              current_date: new Date().toISOString(),
+              activities: projectActivities.map((activity: any) => ({
+                id: activity.id || activity.activity_id || '',
+                activity_timing: activity.activity_timing || (activity as any).raw?.['Activity Timing'] || 'post-commencement',
+                planned_units: activity.planned_units || activity.total_units || 0,
+                actual_units: activity.actual_units || 0,
+                planned_activity_start_date: activity.planned_start_date || activity.planned_activity_start_date || (activity as any).raw?.['Planned Start Date'] || '',
+                deadline: activity.deadline || (activity as any).raw?.['Deadline'] || '',
+                status: activity.status || activity.activity_completed ? 'completed' : (activity.activity_delayed ? 'delayed' : 'not_started')
+              })),
+              kpis: projectKPIs.map((kpi: any) => ({
+                id: kpi.id || '',
+                input_type: kpi.input_type || (kpi as any).raw?.['Input Type'] || 'Planned',
+                quantity: kpi.quantity || kpi.Quantity || 0,
+                target_date: kpi.target_date || kpi.activity_date || (kpi as any).raw?.['Target Date'] || '',
+                actual_date: kpi.actual_date || (kpi as any).raw?.['Actual Date']
+              }))
+            }
+            
+            const statusResult = calculateProjectStatus(statusData)
+            projectStatus = statusResult.status.toLowerCase().trim()
           }
+        } catch (error) {
+          // Fallback to database status if calculation fails
+          console.warn('Error calculating status for filter:', error)
         }
-      } catch (error) {
-        // Fallback to database status if calculation fails
-        console.warn('Error calculating status for filter:', error)
       }
       
       // ✅ Improved matching: handle both exact match and case-insensitive
