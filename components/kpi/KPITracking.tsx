@@ -2668,6 +2668,193 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   const totalPlannedQty = plannedKPIs.reduce((sum: number, k: ProcessedKPI) => sum + k.quantity, 0)
   const totalActualQty = actualKPIs.reduce((sum: number, k: ProcessedKPI) => sum + k.quantity, 0)
   
+  // ✅ Helper: Calculate KPI Total Value using EXACT SAME LOGIC as Value column in table
+  // This ensures Summary Card values match exactly with the table's Total column
+  const calculateKPITotalValue = useCallback((kpi: ProcessedKPI): number => {
+    const rawKPI = (kpi as any).raw || {}
+    
+    // Helper: Normalize zone (remove project code prefix) - SAME AS TABLE
+    const normalizeZone = (zone: string, projectCode: string): string => {
+      if (!zone || !projectCode) return (zone || '').toLowerCase().trim()
+      let normalized = zone.trim()
+      const codeUpper = projectCode.toUpperCase()
+      normalized = normalized.replace(new RegExp(`^${codeUpper}\\s*-\\s*`, 'i'), '').trim()
+      normalized = normalized.replace(new RegExp(`^${codeUpper}\\s+`, 'i'), '').trim()
+      normalized = normalized.replace(new RegExp(`^${codeUpper}-`, 'i'), '').trim()
+      return normalized.toLowerCase()
+    }
+    
+    // Helper: Extract zone number - SAME AS TABLE
+    const extractZoneNumber = (zone: string): string => {
+      if (!zone || zone.trim() === '') return ''
+      const numberMatch = zone.match(/\d+/)
+      if (numberMatch) return numberMatch[0]
+      return zone.toLowerCase().trim()
+    }
+    
+    // Get Quantity - SAME AS TABLE
+    let quantityForValue = parseFloat(String(rawKPI['Quantity'] || '0').replace(/,/g, '')) || 0
+    if (quantityForValue === 0) {
+      quantityForValue = kpi.quantity || 0
+    }
+    
+    // Extract KPI info - SAME AS TABLE
+    const kpiProjectCode = ((kpi as any).project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+    const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+    const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
+    const kpiZoneRaw = (kpi.zone || rawKPI['Zone'] || rawKPI['Zone Number'] || '').toString().trim()
+    const kpiZone = normalizeZone(kpiZoneRaw, kpiProjectCode)
+    const kpiZoneNum = extractZoneNumber(kpiZone)
+    
+    // Find matching Activity from BOQ - SAME AS TABLE
+    let matchedActivity: any = null
+    if (activities.length > 0 && kpiActivityName) {
+      matchedActivity = activities.find((activity: any) => {
+        // 1. Activity Name must match
+        const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+        if (!activityName || (activityName !== kpiActivityName && !activityName.includes(kpiActivityName) && !kpiActivityName.includes(activityName))) {
+          return false
+        }
+        
+        // 2. Project Code must match
+        const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
+        const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+        const projectMatch = (
+          (kpiProjectCode && activityProjectCode && kpiProjectCode === activityProjectCode) ||
+          (kpiProjectFullCode && activityProjectFullCode && kpiProjectFullCode === activityProjectFullCode) ||
+          (kpiProjectCode && activityProjectFullCode && kpiProjectCode === activityProjectFullCode) ||
+          (kpiProjectFullCode && activityProjectCode && kpiProjectFullCode === activityProjectCode)
+        )
+        if (!projectMatch) return false
+        
+        // 3. Zone MUST match EXACTLY (if KPI has zone) - SAME AS TABLE
+        if (kpiZone && kpiZone.trim() !== '') {
+          const rawActivity = (activity as any).raw || {}
+          const activityZoneRaw = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
+          const activityZone = normalizeZone(activityZoneRaw, activityProjectCode)
+          
+          if (!activityZone || activityZone.trim() === '') {
+            return false // Activity has no zone but KPI has zone
+          }
+          
+          const activityZoneNum = extractZoneNumber(activityZone)
+          if (kpiZoneNum && activityZoneNum && kpiZoneNum !== activityZoneNum) {
+            return false // Zone numbers don't match
+          }
+        }
+        
+        return true
+      })
+    }
+    
+    // Calculate Rate from matched Activity - SAME AS TABLE
+    let rateForValue = 0
+    if (matchedActivity) {
+      const rawActivity = (matchedActivity as any).raw || {}
+      const totalValueFromActivity = matchedActivity.total_value || 
+                                   parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                                   0
+      const totalUnits = matchedActivity.total_units || 
+                       matchedActivity.planned_units ||
+                       parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                       0
+      if (totalUnits > 0 && totalValueFromActivity > 0) {
+        rateForValue = totalValueFromActivity / totalUnits
+      } else {
+        rateForValue = matchedActivity.rate || 
+                      parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+                      0
+      }
+    }
+    
+    // ✅ CRITICAL: If no rate from matched Activity, try multiple fallback strategies - SAME AS TABLE
+    if (rateForValue === 0) {
+      // Strategy 1: Try to get rate from KPI raw data
+      rateForValue = parseFloat(String(rawKPI['Rate'] || '0').replace(/,/g, '')) || 0
+      
+      // Strategy 2: If still 0, try to find ANY activity with same name and project (ignore zone) - SAME AS TABLE
+      if (rateForValue === 0 && activities.length > 0 && kpiActivityName) {
+        const anyMatchingActivity = activities.find((activity: any) => {
+          const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+          if (!activityName || activityName !== kpiActivityName) return false
+          
+          const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
+          const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+          const projectMatch = (
+            (kpiProjectCode && activityProjectCode && kpiProjectCode === activityProjectCode) ||
+            (kpiProjectFullCode && activityProjectFullCode && kpiProjectFullCode === activityProjectFullCode) ||
+            (kpiProjectCode && activityProjectFullCode && kpiProjectCode === activityProjectFullCode) ||
+            (kpiProjectFullCode && activityProjectCode && kpiProjectFullCode === activityProjectCode)
+          )
+          return projectMatch
+        })
+        
+        if (anyMatchingActivity) {
+          const rawActivity = (anyMatchingActivity as any).raw || {}
+          const totalValue = anyMatchingActivity.total_value || 
+                           parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
+                           0
+          const totalUnits = anyMatchingActivity.total_units || 
+                           anyMatchingActivity.planned_units ||
+                           parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                           0
+          if (totalUnits > 0 && totalValue > 0) {
+            rateForValue = totalValue / totalUnits
+          } else {
+            rateForValue = anyMatchingActivity.rate || 
+                         parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
+                         0
+          }
+        }
+      }
+    }
+    
+    // ✅ CRITICAL FIX: ALWAYS calculate from Quantity × Rate if Quantity is available - SAME AS TABLE
+    let totalValue = 0
+    
+    // Get Value from KPI for comparison
+    const valueFromKPI = kpi.value || parseFloat(String(rawKPI['Value'] || '0').replace(/,/g, '')) || 0
+    
+    // ✅ CRITICAL CHECK: If Value equals Quantity, it means it's a quantity stored in Value field
+    const isValueActuallyQuantity = valueFromKPI > 0 && quantityForValue > 0 && Math.abs(valueFromKPI - quantityForValue) < 0.01
+    
+    // ✅ PRIORITY 1: ALWAYS calculate from Quantity × Rate if both Quantity and Rate are available - SAME AS TABLE
+    if (quantityForValue > 0 && rateForValue > 0) {
+      totalValue = quantityForValue * rateForValue
+    } else if (quantityForValue > 0) {
+      // We have quantity but no rate
+      if (isValueActuallyQuantity) {
+        // Value equals quantity, so we cannot use it - we need Rate
+        totalValue = 0
+      } else if (valueFromKPI > 0 && !isValueActuallyQuantity) {
+        // Value is different from quantity, so it's a real financial value
+        totalValue = valueFromKPI
+      }
+    }
+    
+    // ✅ PRIORITY 2: FALLBACK - If still 0 and no quantity, try Planned Value or Actual Value - SAME AS TABLE
+    if (totalValue === 0 && quantityForValue === 0) {
+      if (kpi.input_type === 'Planned') {
+        const plannedValue = kpi.planned_value || parseFloat(String(rawKPI['Planned Value'] || '0').replace(/,/g, '')) || 0
+        if (plannedValue > 0) {
+          totalValue = plannedValue
+        }
+      } else if (kpi.input_type === 'Actual') {
+        const actualValue = kpi.actual_value || parseFloat(String(rawKPI['Actual Value'] || '0').replace(/,/g, '')) || 0
+        if (actualValue > 0) {
+          totalValue = actualValue
+        }
+      }
+    }
+    
+    // ✅ FINAL CHECK: If totalValue is still 0 but we have quantity, and Value equals quantity - SAME AS TABLE
+    if (totalValue === 0 && quantityForValue > 0 && isValueActuallyQuantity) {
+      totalValue = 0
+    }
+    
+    return totalValue
+  }, [activities])
+  
   // ✅ OPTIMIZED: Create activity index map for O(1) lookup instead of O(n) find() in reduce
   // This dramatically improves performance for large projects (500+ KPIs)
   // ✅ IMPROVED: Includes Zone in matching for accuracy
@@ -2858,173 +3045,39 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
     return 0
   }, [activityIndexMap])
   
-  // ✅ FIXED: Calculate Planned Value - Use Value field or calculate from Quantity × Rate
-  // IMPORTANT: If Value field equals Quantity, it means it contains quantity not value, so calculate from Rate × Quantity
+  // ✅ FIXED: Calculate Planned Value - Use EXACT SAME LOGIC as Value column in table
+  // This ensures Summary Card values match exactly with the table's Total column
   const totalPlannedValue = useMemo(() => {
     if (plannedKPIs.length === 0) {
       return 0
     }
 
+    // ✅ Calculate Total for each KPI using EXACT SAME LOGIC as table's Value column
     let total = 0
-    let fromValue = 0
-    let fromRateCalculation = 0
-    let skipped = 0
-    
-    plannedKPIs.forEach((kpi: ProcessedKPI) => {
-      const rawKPI = (kpi as any).raw || {}
-      const quantity = kpi.quantity || parseFloat(String(rawKPI['Quantity'] || '0').replace(/,/g, '')) || 0
-      
-      // ✅ PRIORITY 1: Use Value field directly (this should be the financial value)
-      let kpiValue = 0
-      
-      // Try raw['Value'] (from database with capital V)
-      if (rawKPI['Value'] !== undefined && rawKPI['Value'] !== null) {
-        const val = rawKPI['Value']
-        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
-      }
-      
-      // Try raw.value (from database with lowercase v)
-      if (kpiValue === 0 && rawKPI.value !== undefined && rawKPI.value !== null) {
-        const val = rawKPI.value
-        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
-      }
-      
-      // Try k.value (direct property from ProcessedKPI)
-      if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
-        const val = kpi.value
-        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
-      }
-      
-      // ✅ Check if Value equals Quantity (means it's quantity, not value)
-      // If Value equals Quantity, we need to calculate from Rate × Quantity
-      if (kpiValue > 0 && quantity > 0 && Math.abs(kpiValue - quantity) < 0.01) {
-        // Value equals quantity, so it's not a real value - calculate from rate
-        kpiValue = 0
-      }
-      
-      if (kpiValue > 0) {
-        total += kpiValue
-        fromValue++
-        return
-      }
-      
-      // ✅ PRIORITY 2: Calculate from Quantity × Rate (if Value is not available or equals quantity)
-      if (quantity > 0) {
-        const rate = getActivityRate(kpi)
-        if (rate > 0) {
-          const calculatedValue = quantity * rate
-          total += calculatedValue
-          fromRateCalculation++
-          return
-        }
-      }
-      
-      // If no value found, skip this KPI
-      skipped++
+    plannedKPIs.forEach((k: ProcessedKPI) => {
+      const kpiTotal = calculateKPITotalValue(k)
+      total += kpiTotal
     })
     
-    // Log calculation summary for debugging
-    if (process.env.NODE_ENV === 'development') {
-    console.log(`📊 [Planned Value] Calculated for ${plannedKPIs.length} Planned KPIs:`, {
-      total,
-        fromValue,
-        fromRateCalculation,
-      skipped,
-      percentages: {
-          fromValue: plannedKPIs.length > 0 ? ((fromValue / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%',
-          fromRateCalculation: plannedKPIs.length > 0 ? ((fromRateCalculation / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%',
-        skipped: plannedKPIs.length > 0 ? ((skipped / plannedKPIs.length) * 100).toFixed(1) + '%' : '0%'
-      },
-        note: 'Using Value field (Priority 1) or calculating from Quantity × Rate (Priority 2). Skipping if Value equals Quantity.'
-      })
-    }
-    
     return total
-  }, [plannedKPIs, getActivityRate])
+  }, [plannedKPIs, calculateKPITotalValue])
   
-  // ✅ FIXED: Calculate Actual Value - Use SAME LOGIC as Value column in table (Quantity × Rate)
-  // This ensures consistency between the card and the table column
+  // ✅ FIXED: Calculate Actual Value - Use EXACT SAME LOGIC as Value column in table
+  // This ensures Summary Card values match exactly with the table's Total column
   const totalActualValue = useMemo(() => {
     if (actualKPIs.length === 0) {
       return 0
     }
 
+    // ✅ Calculate Total for each KPI using EXACT SAME LOGIC as table's Value column
     let total = 0
-    let fromRateCalculation = 0
-    let fromValue = 0
-    let skipped = 0
-    
     actualKPIs.forEach((k: ProcessedKPI) => {
-      const rawKPI = (k as any).raw || {}
-      const quantity = k.quantity || parseFloat(String(rawKPI['Quantity'] || '0').replace(/,/g, '')) || 0
-      
-      // ✅ PRIORITY 1: ALWAYS calculate from Quantity × Rate if both are available (SAME AS TABLE)
-      // This matches the Value column logic exactly
-      if (quantity > 0) {
-        const rate = getActivityRate(k)
-        if (rate > 0) {
-          const calculatedValue = quantity * rate
-          total += calculatedValue
-          fromRateCalculation++
-          return
-        }
-      }
-      
-      // ✅ PRIORITY 2: Fallback to Value field if Rate is not available
-      let kpiValue = 0
-      
-      // Try raw['Value'] (from database with capital V)
-      if (rawKPI['Value'] !== undefined && rawKPI['Value'] !== null) {
-        const val = rawKPI['Value']
-        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
-      }
-      
-      // Try raw.value (from database with lowercase v)
-      if (kpiValue === 0 && rawKPI.value !== undefined && rawKPI.value !== null) {
-        const val = rawKPI.value
-        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
-      }
-      
-      // Try k.value (direct property from ProcessedKPI)
-      if (kpiValue === 0 && k.value !== undefined && k.value !== null) {
-        const val = k.value
-        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
-      }
-      
-      // ✅ Check if Value equals Quantity (means it's quantity, not value)
-      if (kpiValue > 0 && quantity > 0 && Math.abs(kpiValue - quantity) < 0.01) {
-        // Value equals quantity, so it's not a real value - skip
-        kpiValue = 0
-      }
-      
-      if (kpiValue > 0) {
-        total += kpiValue
-        fromValue++
-        return
-      }
-      
-      // If no value found, skip this KPI
-      skipped++
+      const kpiTotal = calculateKPITotalValue(k)
+      total += kpiTotal
     })
     
-    // Log calculation summary for debugging
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`📊 [Actual Value] Calculated for ${actualKPIs.length} Actual KPIs:`, {
-        total,
-        fromRateCalculation,
-        fromValue,
-        skipped,
-        percentages: {
-          fromRateCalculation: actualKPIs.length > 0 ? ((fromRateCalculation / actualKPIs.length) * 100).toFixed(1) + '%' : '0%',
-          fromValue: actualKPIs.length > 0 ? ((fromValue / actualKPIs.length) * 100).toFixed(1) + '%' : '0%',
-          skipped: actualKPIs.length > 0 ? ((skipped / actualKPIs.length) * 100).toFixed(1) + '%' : '0%'
-        },
-        note: 'Using SAME LOGIC as Value column: Quantity × Rate (Priority 1), Value field as fallback (Priority 2)'
-      })
-    }
-    
     return total
-  }, [actualKPIs, getActivityRate])
+  }, [actualKPIs, calculateKPITotalValue])
   // Calculate achievement rates
   const valueAchievementRate = totalPlannedValue > 0 ? (totalActualValue / totalPlannedValue) * 100 : 0
   const quantityAchievementRate = totalPlannedQty > 0 ? (totalActualQty / totalPlannedQty) * 100 : 0

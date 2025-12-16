@@ -5175,14 +5175,8 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
               matches = true
             }
           }
-          // Priority 4: Match if project_full_code starts with project code (for sub-projects)
-          else if (projectFullCode && kpiFullCode && kpiFullCode.startsWith(projectCode)) {
-            matches = true
-          }
-          // Priority 5: Match if KPI project_full_code starts with project full code (for sub-projects)
-          else if (projectFullCode && kpiFullCode && projectFullCode.startsWith(kpiProjectCode)) {
-            matches = true
-          }
+          // ✅ REMOVED: Priority 4 and Priority 5 with startsWith - too loose and causes incorrect matching
+          // These were causing KPIs from one project to match multiple projects incorrectly
           
           if (matches) {
             const inputType = String(
@@ -7399,8 +7393,8 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
     }
   }, [dateRange])
 
-  // ✅ FIXED: Calculate totals directly from filteredProjects and kpis (same as stats)
-  // This prevents double-counting when multiple projects share KPIs
+  // ✅ FIXED: Calculate totals directly from periodValuesCache (same as Grand Total column in table)
+  // This ensures Summary Card values match exactly with the table's Grand Total column
   const totals = useMemo(() => {
     // ✅ Total Contract Value = Sum of contract_amount from all filtered projects
     const totalContractValue = filteredProjects.reduce((sum: number, project: Project) => {
@@ -7408,54 +7402,16 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
       return sum + contractAmount
     }, 0)
     
-    // ✅ Total Earned Value = Sum of Actual Value from ALL Actual KPIs (no date filter)
-    // Calculate directly from kpis (same logic as stats)
+    // ✅ Total Earned Value = Sum of Grand Total from ALL projects (same as Grand Total column in table)
+    // This uses the EXACT SAME LOGIC as the table's Grand Total column: periodValues.reduce((sum, val) => sum + val, 0)
     let totalEarnedValue = 0
-    const actualKPIsList = kpis.filter((k: any) => {
-      const inputType = String(
-        k.input_type || 
-        k['Input Type'] || 
-        (k as any).raw?.['Input Type'] || 
-        (k as any).raw?.['input_type'] ||
-        ''
-      ).trim().toLowerCase()
-      return inputType === 'actual'
-    })
-    
-    actualKPIsList.forEach((kpi: any) => {
-      const rawKPI = (kpi as any).raw || {}
-      
-      // ✅ PRIORITY 1: Use Actual Value directly from KPI (most accurate)
-      const actualValue = kpi.actual_value || parseFloat(String(rawKPI['Actual Value'] || '0').replace(/,/g, '')) || 0
-      if (actualValue > 0) {
-        totalEarnedValue += actualValue
-        return
-      }
-      
-      // ✅ PRIORITY 2: Fallback to Value field if Actual Value is not available
-      let kpiValue = 0
-      
-      // Try raw['Value'] (from database with capital V)
-      if (rawKPI['Value'] !== undefined && rawKPI['Value'] !== null) {
-        const val = rawKPI['Value']
-        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
-      }
-      
-      // Try raw.value (from database with lowercase v)
-      if (kpiValue === 0 && rawKPI.value !== undefined && rawKPI.value !== null) {
-        const val = rawKPI.value
-        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
-      }
-      
-      // Try k.value (direct property from ProcessedKPI)
-      if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
-        const val = kpi.value
-        kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
-      }
-      
-      if (kpiValue > 0) {
-        totalEarnedValue += kpiValue
-      }
+    allAnalytics.forEach((analytics: any) => {
+      const projectId = analytics.project.id
+      const cachedValues = periodValuesCache.get(projectId)
+      const periodValues = cachedValues?.earned || []
+      // Calculate Grand Total for this project (same as table row)
+      const grandTotal = periodValues.reduce((sum: number, val: number) => sum + val, 0)
+      totalEarnedValue += grandTotal
     })
     
     // ✅ Calculate period earned value totals from PROJECT ROWS ONLY (not from expanded activities)
@@ -8110,7 +8066,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
       totalVirtualMaterialAmount,
       totalPlannedVirtualMaterialAmount
     }
-  }, [filteredProjects, kpis, periods, periodValuesCache, projectsWithWorkInRange, showVirtualMaterialValues, viewPlannedValue, projectKPIsMap, expandedProjects, activities, today])
+  }, [filteredProjects, periods, periodValuesCache, allAnalytics, showVirtualMaterialValues, viewPlannedValue, expandedProjects, activities, kpis, today, calculatePeriodEarnedValue, calculatePeriodPlannedValue])
 
   // Export to Excel function with advanced formatting
   const handleExportPeriodRevenue = useCallback(async () => {
@@ -9844,7 +9800,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                       })
                     } else {
                       // Use cache values (from KPIs directly)
-                    const cachedValues = periodValuesCache.get(project.id)
+                      const cachedValues = periodValuesCache.get(project.id)
                       periodValues = cachedValues?.earned || []
                       periodPlannedValues = viewPlannedValue ? (cachedValues?.planned || []) : []
                       periodVirtualMaterialAmounts = showVirtualMaterialValues ? (cachedValues?.virtualMaterialAmount || []) : []
@@ -9852,8 +9808,13 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                     }
                     
                     // Calculate grand totals
-                    let grandTotal = periodValues.reduce((sum: number, val: number) => sum + val, 0)
-                    let grandTotalPlanned = viewPlannedValue ? periodPlannedValues.reduce((sum: number, val: number) => sum + val, 0) : 0
+                    // ✅ FIX: Include outerRangeValue in grandTotal (same as Monthly Work Revenue)
+                    const cachedValues = periodValuesCache.get(project.id)
+                    const outerRangeValue = cachedValues?.outerRangeValue || 0
+                    const outerRangePlannedValue = viewPlannedValue ? (cachedValues?.outerRangePlannedValue || 0) : 0
+                    
+                    let grandTotal = periodValues.reduce((sum: number, val: number) => sum + val, 0) + outerRangeValue
+                    let grandTotalPlanned = viewPlannedValue ? (periodPlannedValues.reduce((sum: number, val: number) => sum + val, 0) + outerRangePlannedValue) : 0
                     
                     return (
                       <>
