@@ -4392,7 +4392,10 @@ function LookaheadReportView({ activities, projects, formatCurrency }: any) {
 type PeriodType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
 
 function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurrency }: any) {
-  const [selectedDivision, setSelectedDivision] = useState<string>('')
+  const [selectedDivisions, setSelectedDivisions] = useState<string[]>([]) // ✅ Changed to array for multi-select
+  const [showDivisionDropdown, setShowDivisionDropdown] = useState<boolean>(false)
+  const [divisionSearch, setDivisionSearch] = useState<string>('')
+  const divisionDropdownRef = useRef<HTMLDivElement>(null)
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ 
     start: '', 
     end: '' 
@@ -4428,21 +4431,53 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
   }, [])
 
   const divisions = useMemo(() => {
-    // ✅ FIX: Split divisions that contain multiple divisions (e.g., "Enabling Division, Soil Improvement Division")
-    // Extract each division individually
+    // ✅ FIX: Get divisions from activities (same as table) for consistency
     const allDivisions = new Set<string>()
     
-    projects.forEach((p: Project) => {
-      const division = p.responsible_division
-      if (division) {
-        // Split by comma and trim each division
-        const divisionsList = division.split(',').map(d => d.trim()).filter(Boolean)
-        divisionsList.forEach(d => allDivisions.add(d))
+    // Get divisions from activities
+    activities.forEach((activity: any) => {
+      const rawActivity = (activity as any).raw || {}
+      const division = activity.activity_division || 
+                     activity['Activity Division'] || 
+                     rawActivity['Activity Division'] || 
+                     rawActivity['activity_division'] || ''
+      
+      if (division && division.trim() !== '') {
+        allDivisions.add(division.trim())
       }
     })
     
+    // Fallback to project.responsible_division if no divisions from activities
+    if (allDivisions.size === 0) {
+      projects.forEach((p: Project) => {
+        const division = p.responsible_division
+        if (division) {
+          // Split by comma and trim each division
+          const divisionsList = division.split(',').map(d => d.trim()).filter(Boolean)
+          divisionsList.forEach(d => allDivisions.add(d))
+        }
+      })
+    }
+    
     return Array.from(allDivisions).sort()
-  }, [projects])
+  }, [projects, activities])
+
+  // ✅ Close division dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (divisionDropdownRef.current && !divisionDropdownRef.current.contains(event.target as Node)) {
+        setShowDivisionDropdown(false)
+      }
+    }
+
+    if (showDivisionDropdown) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showDivisionDropdown])
 
   // ✅ Load project types and project_type_activities on mount
   useEffect(() => {
@@ -4514,15 +4549,48 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
   const filteredProjects = useMemo(() => {
     let filtered = projects
     
-    // Filter by division only (if selected)
-    // ✅ FIX: Support projects with multiple divisions (e.g., "Enabling Division, Soil Improvement Division")
-    if (selectedDivision) {
+    // Filter by divisions (if selected) - ✅ Support multi-select
+    // ✅ FIX: Use divisions from activities (same as table) instead of project.responsible_division
+    // This ensures consistency between filter and table display
+    if (selectedDivisions.length > 0) {
       filtered = filtered.filter((p: Project) => {
-        const division = p.responsible_division
-        if (!division) return false
-        // Check if selected division is in the project's divisions (split by comma)
-        const divisionsList = division.split(',').map(d => d.trim())
-        return divisionsList.includes(selectedDivision)
+        // Build project full code for matching
+        const projectFullCode = (p.project_full_code || `${p.project_code}${p.project_sub_code ? `-${p.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+        
+        // Get all activities for this project
+        const projectActivities = activities.filter((activity: BOQActivity) => {
+          const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+          return activityFullCode === projectFullCode || activity.project_id === p.id
+        })
+        
+        // Get unique divisions from activities (same logic as divisionsDataMap)
+        const projectDivisions = new Set<string>()
+        projectActivities.forEach((activity: any) => {
+          const rawActivity = (activity as any).raw || {}
+          const division = activity.activity_division || 
+                         activity['Activity Division'] || 
+                         rawActivity['Activity Division'] || 
+                         rawActivity['activity_division'] || ''
+          
+          if (division && division.trim() !== '') {
+            projectDivisions.add(division.trim())
+          }
+        })
+        
+        // If no divisions from activities, fallback to project.responsible_division
+        if (projectDivisions.size === 0) {
+          const division = p.responsible_division
+          if (!division) return false
+          const divisionsList = division.split(',').map(d => d.trim())
+          divisionsList.forEach(d => projectDivisions.add(d))
+        }
+        
+        // Check if any selected division matches any project division (case-insensitive)
+        const projectDivisionsArray = Array.from(projectDivisions)
+        return selectedDivisions.some(selectedDiv => {
+          const normalizedSelectedDiv = selectedDiv.trim().toLowerCase()
+          return projectDivisionsArray.some(d => d.trim().toLowerCase() === normalizedSelectedDiv)
+        })
       })
     }
     
@@ -4530,7 +4598,7 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
     // This ensures all projects are visible in the report
     
     return filtered
-  }, [projects, selectedDivision])
+  }, [projects, selectedDivisions, activities])
 
   // ✅ Helper functions for zone matching (same logic as other components)
   const normalizeZone = useCallback((zone: string, projectCode: string, projectFullCode?: string): string => {
@@ -7273,24 +7341,278 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
     })
   }, [kpis, periods, activities, today, projectKPIsMap])
 
+  // ✅ PERFORMANCE: Pre-build activities map by project for faster lookup
+  const projectActivitiesMap = useMemo(() => {
+    const map = new Map<string, BOQActivity[]>()
+    activities.forEach((activity: BOQActivity) => {
+      const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+      const projectId = activity.project_id || ''
+      
+      // Index by both full code and project_id for fast lookup
+      if (activityFullCode) {
+        if (!map.has(activityFullCode)) {
+          map.set(activityFullCode, [])
+        }
+        map.get(activityFullCode)!.push(activity)
+      }
+      if (projectId) {
+        if (!map.has(projectId)) {
+          map.set(projectId, [])
+        }
+        map.get(projectId)!.push(activity)
+      }
+    })
+    return map
+  }, [activities])
+
+  // ✅ CRITICAL FIX: Calculate period values from activities (same logic as expanded view)
+  // This ensures project row values match expanded activity values
+  // ✅ PERFORMANCE: Use projectKPIsMap and projectActivitiesMap for faster lookups
   const periodValuesCache = useMemo(() => {
     const cache = new Map<string, { earned: number[], planned: number[], outerRangeValue: number, outerRangePlannedValue: number, outerRangeVirtualMaterialAmount: number, outerRangePlannedVirtualMaterialAmount: number, virtualMaterialAmount: number[], plannedVirtualMaterialAmount: number[] }>()
     
     allAnalytics.forEach((analytics: any) => {
-      const projectId = analytics.project.id
-      const earnedValues = calculatePeriodEarnedValue(analytics.project, analytics)
-      const plannedValues = viewPlannedValue ? calculatePeriodPlannedValue(analytics.project, analytics) : []
-      const outerRangeValue = showOuterRangeColumn ? calculateOuterRangeValue(analytics.project, analytics) : 0
-      const outerRangePlannedValue = showOuterRangeColumn && viewPlannedValue ? calculateOuterRangePlannedValue(analytics.project, analytics) : 0
-      const outerRangeVirtualMaterialAmount = showOuterRangeColumn && showVirtualMaterialValues ? calculateOuterRangeVirtualMaterialAmount(analytics.project, analytics) : 0
-      const outerRangePlannedVirtualMaterialAmount = showOuterRangeColumn && showVirtualMaterialValues && viewPlannedValue ? calculateOuterRangePlannedVirtualMaterialAmount(analytics.project, analytics) : 0
-      const virtualMaterialAmount = showVirtualMaterialValues ? calculatePeriodVirtualMaterialAmount(analytics.project, analytics) : []
-      const plannedVirtualMaterialAmount = showVirtualMaterialValues && viewPlannedValue ? calculatePeriodPlannedVirtualMaterialAmount(analytics.project, analytics) : []
-      cache.set(projectId, { earned: earnedValues, planned: plannedValues, outerRangeValue, outerRangePlannedValue, outerRangeVirtualMaterialAmount, outerRangePlannedVirtualMaterialAmount, virtualMaterialAmount, plannedVirtualMaterialAmount })
+      const project = analytics.project
+      const projectId = project.id
+      const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+      
+      // ✅ PERFORMANCE: Get project KPIs from pre-built map (much faster than filtering all KPIs)
+      const projectKPIs = projectKPIsMap.get(projectId)
+      const projectActualKPIs = projectKPIs?.actual || []
+      const projectPlannedKPIs = projectKPIs?.planned || []
+      
+      // ✅ PERFORMANCE: Get project activities from pre-built map
+      const projectActivities = projectActivitiesMap.get(projectFullCode) || 
+                              projectActivitiesMap.get(projectId) || 
+                              activities.filter((activity: BOQActivity) => {
+                                const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+                                return activityFullCode === projectFullCode || activity.project_id === project.id
+                              })
+      
+      // Initialize arrays with zeros
+      const earnedValues = new Array(periods.length).fill(0)
+      const plannedValues = viewPlannedValue ? new Array(periods.length).fill(0) : []
+      const virtualMaterialAmounts = showVirtualMaterialValues ? new Array(periods.length).fill(0) : []
+      const plannedVirtualMaterialAmounts = showVirtualMaterialValues && viewPlannedValue ? new Array(periods.length).fill(0) : []
+      
+      // ✅ Calculate values from activities (same logic as expanded view)
+      projectActivities.forEach((activity: BOQActivity) => {
+        const rawActivity = (activity as any).raw || {}
+        
+        // Calculate Actual period values for this activity
+        periods.forEach((period, periodIndex) => {
+          const periodStart = period.start
+          const periodEnd = period.end
+          const effectivePeriodEnd = periodEnd > today ? today : periodEnd
+          
+          // ✅ PERFORMANCE: Filter from pre-filtered project KPIs only (much faster)
+          const actualKPIs = projectActualKPIs.filter((kpi: any) => {
+            // 1. Match activity and zone using helper function
+            if (!kpiMatchesActivity(kpi, activity, projectFullCode)) {
+              return false
+            }
+            
+            // 3. Match date (must be within period)
+            const rawKPIDate = (kpi as any).raw || {}
+            const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
+            const actualDateValue = (kpi as any).actual_date || rawKPIDate['Actual Date'] || ''
+            const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
+            
+            let kpiDateStr = ''
+            if (kpi.input_type === 'Actual' && actualDateValue) {
+              kpiDateStr = actualDateValue
+            } else if (dayValue) {
+              kpiDateStr = activityDateValue || dayValue
+            } else {
+              kpiDateStr = activityDateValue || actualDateValue
+            }
+            
+            if (!kpiDateStr) return false
+            
+            try {
+              const kpiDate = new Date(kpiDateStr)
+              if (isNaN(kpiDate.getTime())) return false
+              kpiDate.setHours(0, 0, 0, 0)
+              const normalizedPeriodStart = new Date(periodStart)
+              normalizedPeriodStart.setHours(0, 0, 0, 0)
+              const normalizedPeriodEnd = new Date(effectivePeriodEnd)
+              normalizedPeriodEnd.setHours(23, 59, 59, 999)
+              return kpiDate >= normalizedPeriodStart && kpiDate <= normalizedPeriodEnd
+            } catch {
+              return false
+            }
+          })
+          
+          // Calculate earned value for this period
+          const periodValue = actualKPIs.reduce((sum: number, kpi: any) => {
+            try {
+              const rawKpi = (kpi as any).raw || {}
+              const quantityValue = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
+              
+              let financialValue = 0
+              const totalValueFromActivity = activity.total_value || parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 0
+              const totalUnits = activity.total_units || activity.planned_units || parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 0
+              let rate = 0
+              if (totalUnits > 0 && totalValueFromActivity > 0) {
+                rate = totalValueFromActivity / totalUnits
+              } else {
+                rate = activity.rate || parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
+              }
+              
+              if (rate > 0 && quantityValue > 0) {
+                financialValue = quantityValue * rate
+                if (financialValue > 0) return sum + financialValue
+              }
+              
+              let kpiValue = 0
+              if (rawKpi['Value'] !== undefined && rawKpi['Value'] !== null) {
+                const val = rawKpi['Value']
+                kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+              }
+              if (kpiValue === 0 && rawKpi.value !== undefined && rawKpi.value !== null) {
+                const val = rawKpi.value
+                kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+              }
+              if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
+                const val = kpi.value
+                kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+              }
+              if (kpiValue > 0) return sum + kpiValue
+              
+              const actualValue = kpi.actual_value || parseFloat(String(rawKpi['Actual Value'] || '0').replace(/,/g, '')) || 0
+              if (actualValue > 0) return sum + actualValue
+              
+              return sum
+            } catch {
+              return sum
+            }
+          }, 0)
+          
+          earnedValues[periodIndex] += periodValue
+          
+          // ✅ Calculate Planned values (if viewPlannedValue is enabled)
+          if (viewPlannedValue) {
+            // ✅ PERFORMANCE: Filter from pre-filtered project KPIs only (much faster)
+            const plannedKPIs = projectPlannedKPIs.filter((kpi: any) => {
+              // 1. Match activity and zone using helper function
+              if (!kpiMatchesActivity(kpi, activity, projectFullCode)) {
+                return false
+              }
+              
+              // 3. Match date (must be within period)
+              const rawKPI = (kpi as any).raw || {}
+              const kpiDate = kpi.target_date || rawKPI['Target Date'] || ''
+              if (!kpiDate) return false
+              
+              try {
+                const date = new Date(kpiDate)
+                if (isNaN(date.getTime())) return false
+                date.setHours(0, 0, 0, 0)
+                const normalizedPeriodStart = new Date(periodStart)
+                normalizedPeriodStart.setHours(0, 0, 0, 0)
+                const normalizedPeriodEnd = new Date(periodEnd)
+                normalizedPeriodEnd.setHours(23, 59, 59, 999)
+                return date >= normalizedPeriodStart && date <= normalizedPeriodEnd
+              } catch {
+                return false
+              }
+            })
+            
+            // Calculate planned value for this period
+            let plannedValue = 0
+            plannedKPIs.forEach((kpi: any) => {
+              const rawKpi = (kpi as any).raw || {}
+              const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
+              
+              const totalValue = activity.total_value || parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 0
+              const totalUnits = activity.total_units || activity.planned_units || parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 0
+              
+              let rate = 0
+              if (totalUnits > 0 && totalValue > 0) {
+                rate = totalValue / totalUnits
+              } else {
+                rate = activity.rate || parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
+              }
+              
+              if (rate > 0 && quantity > 0) {
+                plannedValue += rate * quantity
+              } else {
+                const kpiValue = parseFloat(String(kpi.value || rawKpi['Value'] || '0').replace(/,/g, '')) || 0
+                if (kpiValue > 0) {
+                  plannedValue += kpiValue
+                }
+              }
+            })
+            
+            plannedValues[periodIndex] += plannedValue
+            
+            // Calculate Planned Virtual Material (if enabled)
+            if (showVirtualMaterialValues) {
+              let virtualMaterialPercentage = 0
+              const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
+              
+              if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
+                let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
+                const parsedValue = parseFloat(cleanedValue)
+                if (!isNaN(parsedValue)) {
+                  if (parsedValue > 0 && parsedValue <= 1) {
+                    virtualMaterialPercentage = parsedValue * 100
+                  } else {
+                    virtualMaterialPercentage = parsedValue
+                  }
+                }
+              }
+              
+              if (virtualMaterialPercentage > 0 && plannedValue > 0 && activity.use_virtual_material) {
+                plannedVirtualMaterialAmounts[periodIndex] += plannedValue * (virtualMaterialPercentage / 100)
+              }
+            }
+          }
+          
+          // Calculate Actual Virtual Material (if enabled)
+          if (showVirtualMaterialValues) {
+            let virtualMaterialPercentage = 0
+            const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
+            
+            if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
+              let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
+              const parsedValue = parseFloat(cleanedValue)
+              if (!isNaN(parsedValue)) {
+                if (parsedValue > 0 && parsedValue <= 1) {
+                  virtualMaterialPercentage = parsedValue * 100
+                } else {
+                  virtualMaterialPercentage = parsedValue
+                }
+              }
+            }
+            
+            if (virtualMaterialPercentage > 0 && periodValue > 0 && activity.use_virtual_material) {
+              virtualMaterialAmounts[periodIndex] += periodValue * (virtualMaterialPercentage / 100)
+            }
+          }
+        })
+      })
+      
+      // Calculate outer range values (using existing functions)
+      const outerRangeValue = showOuterRangeColumn ? calculateOuterRangeValue(project, analytics) : 0
+      const outerRangePlannedValue = showOuterRangeColumn && viewPlannedValue ? calculateOuterRangePlannedValue(project, analytics) : 0
+      const outerRangeVirtualMaterialAmount = showOuterRangeColumn && showVirtualMaterialValues ? calculateOuterRangeVirtualMaterialAmount(project, analytics) : 0
+      const outerRangePlannedVirtualMaterialAmount = showOuterRangeColumn && showVirtualMaterialValues && viewPlannedValue ? calculateOuterRangePlannedVirtualMaterialAmount(project, analytics) : 0
+      
+      cache.set(projectId, { 
+        earned: earnedValues, 
+        planned: plannedValues, 
+        outerRangeValue, 
+        outerRangePlannedValue, 
+        outerRangeVirtualMaterialAmount, 
+        outerRangePlannedVirtualMaterialAmount, 
+        virtualMaterialAmount: virtualMaterialAmounts, 
+        plannedVirtualMaterialAmount: plannedVirtualMaterialAmounts 
+      })
     })
     
     return cache
-  }, [allAnalytics, calculatePeriodEarnedValue, calculatePeriodPlannedValue, viewPlannedValue, showOuterRangeColumn, calculateOuterRangeValue, calculateOuterRangePlannedValue, calculateOuterRangeVirtualMaterialAmount, calculateOuterRangePlannedVirtualMaterialAmount, showVirtualMaterialValues, calculatePeriodVirtualMaterialAmount, calculatePeriodPlannedVirtualMaterialAmount])
+  }, [allAnalytics, projectActivitiesMap, projectKPIsMap, periods, today, viewPlannedValue, showOuterRangeColumn, showVirtualMaterialValues, calculateOuterRangeValue, calculateOuterRangePlannedValue, calculateOuterRangeVirtualMaterialAmount, calculateOuterRangePlannedVirtualMaterialAmount, kpiMatchesActivity])
 
   // ✅ FIX: Show ALL projects from allAnalytics, regardless of date range or KPIs
   // The date range filter only affects which periods show data in the table, not which projects are displayed
@@ -8543,16 +8865,95 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">ما تم تنفيذه حتى الآن - Weekly Earned Value Report</p>
                     </div>
         <div className="flex items-center gap-4 flex-wrap">
-          <select
-            value={selectedDivision}
-            onChange={(e) => setSelectedDivision(e.target.value)}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-          >
-            <option value="">All Divisions</option>
-            {(divisions as string[]).map((div: string) => (
-              <option key={div} value={div}>{div}</option>
-            ))}
-          </select>
+          <div className="relative" ref={divisionDropdownRef}>
+            <button
+              type="button"
+              onClick={() => setShowDivisionDropdown(!showDivisionDropdown)}
+              className={`px-4 py-2 border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white flex items-center justify-between min-w-[200px] ${
+                selectedDivisions.length > 0
+                  ? 'border-blue-500 ring-2 ring-blue-200 dark:ring-blue-800'
+                  : 'border-gray-300 dark:border-gray-600'
+              } hover:border-gray-400 dark:hover:border-gray-500`}
+            >
+              <span className="text-sm truncate">
+                {selectedDivisions.length === 0
+                  ? 'All Divisions'
+                  : selectedDivisions.length === 1
+                  ? selectedDivisions[0]
+                  : `${selectedDivisions.length} divisions selected`
+                }
+              </span>
+              <ChevronDown className={`w-4 h-4 ml-2 flex-shrink-0 transition-transform ${showDivisionDropdown ? 'rotate-180' : ''}`} />
+            </button>
+            
+            {showDivisionDropdown && (
+              <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl max-h-80 overflow-hidden">
+                <div className="p-3 border-b border-gray-200 dark:border-gray-700">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search divisions..."
+                      value={divisionSearch}
+                      onChange={(e) => setDivisionSearch(e.target.value)}
+                      className="w-full pl-10 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      autoFocus
+                    />
+                  </div>
+                  {selectedDivisions.length > 0 && (
+                    <button
+                      onClick={() => setSelectedDivisions([])}
+                      className="mt-2 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
+                    >
+                      Clear selection
+                    </button>
+                  )}
+                </div>
+                <div className="max-h-64 overflow-y-auto">
+                  {(() => {
+                    const filteredDivisions = divisionSearch
+                      ? divisions.filter((div: string) => 
+                          div.toLowerCase().includes(divisionSearch.toLowerCase())
+                        )
+                      : divisions
+                    
+                    return filteredDivisions.length > 0 ? (
+                      filteredDivisions.map((div: string) => {
+                        const isSelected = selectedDivisions.includes(div)
+                        
+                        return (
+                          <label
+                            key={div}
+                            className="flex items-center space-x-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer transition-colors"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {
+                                if (isSelected) {
+                                  setSelectedDivisions(selectedDivisions.filter(d => d !== div))
+                                } else {
+                                  setSelectedDivisions([...selectedDivisions, div])
+                                }
+                              }}
+                              className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                            />
+                            <span className="text-sm text-gray-900 dark:text-gray-100 flex-1">
+                              {div}
+                            </span>
+                          </label>
+                        )
+                      })
+                    ) : (
+                      <div className="px-3 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                        No divisions found
+                      </div>
+                    )
+                  })()}
+                </div>
+              </div>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <input
               type="date"
@@ -9639,6 +10040,27 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                           const actualKPIs = kpis.filter((kpi: any) => {
                             const rawKPI = (kpi as any).raw || {}
                             
+                            // ✅ CRITICAL: First verify KPI belongs to this project (prevent cross-project matching)
+                            const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+                            const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+                            const kpiProjectId = (kpi as any).project_id || ''
+                            
+                            // Must match project first (exact match required)
+                            let projectMatches = false
+                            if (kpiProjectFullCode && projectFullCode && kpiProjectFullCode === projectFullCode) {
+                              projectMatches = true
+                            } else if (project.id && kpiProjectId && project.id === kpiProjectId) {
+                              projectMatches = true
+                            } else if (kpiProjectCode && projectFullCode.includes(kpiProjectCode)) {
+                              // Only match if project code is part of project full code (strict check)
+                              const projectCode = (project.project_code || '').toString().trim().toUpperCase()
+                              if (kpiProjectCode === projectCode) {
+                                projectMatches = true
+                              }
+                            }
+                            
+                            if (!projectMatches) return false
+                            
                             // 1. Match input type (Actual only)
                             const inputType = String(kpi.input_type || rawKPI['Input Type'] || '').trim().toLowerCase()
                             if (inputType !== 'actual') return false
@@ -9730,6 +10152,27 @@ function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurren
                           if (viewPlannedValue) {
                             const plannedKPIs = kpis.filter((kpi: any) => {
                               const rawKPI = (kpi as any).raw || {}
+                              
+                              // ✅ CRITICAL: First verify KPI belongs to this project (prevent cross-project matching)
+                              const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+                              const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+                              const kpiProjectId = (kpi as any).project_id || ''
+                              
+                              // Must match project first (exact match required)
+                              let projectMatches = false
+                              if (kpiProjectFullCode && projectFullCode && kpiProjectFullCode === projectFullCode) {
+                                projectMatches = true
+                              } else if (project.id && kpiProjectId && project.id === kpiProjectId) {
+                                projectMatches = true
+                              } else if (kpiProjectCode && projectFullCode.includes(kpiProjectCode)) {
+                                // Only match if project code is part of project full code (strict check)
+                                const projectCode = (project.project_code || '').toString().trim().toUpperCase()
+                                if (kpiProjectCode === projectCode) {
+                                  projectMatches = true
+                                }
+                              }
+                              
+                              if (!projectMatches) return false
                               
                               // 1. Match input type (Planned only)
                               const inputType = String(kpi.input_type || rawKPI['Input Type'] || '').trim().toLowerCase()
