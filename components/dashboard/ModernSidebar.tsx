@@ -481,7 +481,7 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
       {/* Mobile Overlay */}
       {mobileOpen && (
         <div 
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden"
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 lg:hidden"
           onClick={() => setMobileOpen(false)}
         />
       )}
@@ -489,7 +489,7 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
       {/* Mobile Menu Button */}
       <button
         onClick={() => setMobileOpen(!mobileOpen)}
-        className="fixed top-4 left-4 z-50 lg:hidden p-2 bg-white dark:bg-gray-800 rounded-lg shadow-lg"
+        className="fixed top-4 left-4 z-[60] lg:hidden p-2 bg-white dark:bg-gray-800 rounded-lg shadow-lg"
       >
         <Menu className="h-6 w-6 text-gray-700 dark:text-gray-300" />
       </button>
@@ -510,9 +510,11 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
       {/* Sidebar */}
       <aside
         className={cn(
-          'fixed left-0 top-0 h-screen sidebar-modern transition-all duration-300 z-40 flex flex-col',
-          collapsed ? 'w-16' : 'w-64',
-          mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+          'fixed left-0 top-0 h-screen sidebar-modern bg-white dark:bg-gray-900 shadow-2xl transition-transform duration-300 z-[80] flex flex-col',
+          collapsed ? 'w-16 lg:w-16' : 'w-64 lg:w-64',
+          mobileOpen
+            ? 'translate-x-0 opacity-100 pointer-events-auto'
+            : '-translate-x-full opacity-0 pointer-events-none lg:opacity-100 lg:pointer-events-auto lg:translate-x-0'
         )}
       >
         {/* Logo Section */}

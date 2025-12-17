@@ -649,6 +649,21 @@ export default function CheckInOutPage() {
         return { status: 'error', message }
       }
 
+      // Enforce 60 minutes cooldown after last Check-Out before new Check-In
+      if (checkOuts.length > 0) {
+        const lastOut = checkOuts[checkOuts.length - 1] as any
+        const [outH, outM] = lastOut.check_time.split(':').map(Number)
+        const outMinutes = outH * 60 + outM
+        const nowMinutes = currentTime.getHours() * 60 + currentTime.getMinutes()
+        if (nowMinutes - outMinutes < 60) {
+          const message = `Next Check-In allowed after 60 minutes from last Check-Out (${lastOut.check_time})`
+          setErrorMessage(`⌛ ${employee.name} - ${message}`)
+          setCheckingIn(false)
+          setTimeout(() => setErrorMessage(''), 4000)
+          return { status: 'error', message }
+        }
+      }
+
       const record = {
         employee_id: employee.id,
         date: today,
