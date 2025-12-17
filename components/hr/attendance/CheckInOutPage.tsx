@@ -568,12 +568,14 @@ export default function CheckInOutPage() {
       
       let result: { status: 'success' | 'error', message: string } = { status: 'success', message: '' }
       
-      // Automatically perform check-in or check-out based on qrCheckType
-      if (qrCheckType === 'Check-In') {
-        // Auto check-in
+      // Decide action based on open session state
+      const hasOpenSession = todayRecords.filter(r => r.type === 'Check-In').length > todayRecords.filter(r => r.type === 'Check-Out').length
+      const mode: 'Check-In' | 'Check-Out' = hasOpenSession ? 'Check-Out' : 'Check-In'
+      setQrCheckType(mode)
+
+      if (mode === 'Check-In') {
         result = await handleCheckInForEmployee(employee)
       } else {
-        // Auto check-out
         result = await handleCheckOutForEmployee(employee)
       }
       
@@ -582,7 +584,7 @@ export default function CheckInOutPage() {
         {
           employee,
           timestamp: new Date(),
-          type: qrCheckType,
+          type: mode,
           status: result.status,
           message: result.message
         },
@@ -620,19 +622,23 @@ export default function CheckInOutPage() {
       const today = new Date().toISOString().split('T')[0]
       const checkTime = currentTime.toTimeString().split(' ')[0].substring(0, 5)
 
-      // Check if already checked in today - prevent duplicate check-ins
+      // Load today's records to detect open session
       const { data: existingRecords } = await supabase
         .from(TABLES.ATTENDANCE_RECORDS)
         // @ts-ignore
         .select('*')
         .eq('employee_id', employee.id)
         .eq('date', today)
-        .eq('type', 'Check-In')
+        .order('check_time', { ascending: true })
 
-      if (existingRecords && existingRecords.length > 0) {
-        const existingRecord = existingRecords[0] as any
-        const message = `Already checked in today at ${existingRecord.check_time}`
-        setErrorMessage(`⚠️ ${employee.name} - ${message}. Duplicate check-in prevented.`)
+      const checkIns = (existingRecords || []).filter((r: any) => r.type === 'Check-In')
+      const checkOuts = (existingRecords || []).filter((r: any) => r.type === 'Check-Out')
+      const hasOpenSession = checkIns.length > checkOuts.length
+
+      if (hasOpenSession) {
+        const lastIn = checkIns[checkIns.length - 1] as any
+        const message = `Open session exists (last Check-In at ${lastIn.check_time}). Please Check-Out first.`
+        setErrorMessage(`⚠️ ${employee.name} - ${message}`)
         setCheckingIn(false)
         setTimeout(() => setErrorMessage(''), 4000)
         return { status: 'error', message }
@@ -1002,45 +1008,42 @@ export default function CheckInOutPage() {
       const checkTime = currentTime.toTimeString().split(' ')[0].substring(0, 5)
 
       // Get today's check-in
-      const { data: checkInRecord } = await supabase
+      // Load today's records to find last open session
+      const { data: existingRecords } = await supabase
         .from(TABLES.ATTENDANCE_RECORDS)
         // @ts-ignore
         .select('*')
         .eq('employee_id', employee.id)
         .eq('date', today)
-        .eq('type', 'Check-In')
-        .single()
+        .order('check_time', { ascending: true })
 
-      if (!checkInRecord) {
-        const message = 'Must check in first before checking out'
+      const checkIns = (existingRecords || []).filter((r: any) => r.type === 'Check-In')
+      const checkOuts = (existingRecords || []).filter((r: any) => r.type === 'Check-Out')
+      const hasOpenSession = checkIns.length > checkOuts.length
+      const openSession = hasOpenSession ? (checkIns[checkIns.length - 1] as any) : null
+
+      if (!openSession) {
+        const message = 'Must check in first (no open session found)'
         setErrorMessage(`❌ ${employee.name} - ${message}`)
         setCheckingOut(false)
         setTimeout(() => setErrorMessage(''), 3000)
         return { status: 'error', message }
       }
 
-      // Check if already checked out today
-      const { data: existingCheckOut } = await supabase
-        .from(TABLES.ATTENDANCE_RECORDS)
-        // @ts-ignore
-        .select('*')
-        .eq('employee_id', employee.id)
-        .eq('date', today)
-        .eq('type', 'Check-Out')
-        .single()
-
-      if (existingCheckOut) {
-        const existingCheckOutRecord = existingCheckOut as any
-        const message = `Already checked out today at ${existingCheckOutRecord.check_time}`
-        setSuccessMessage(`✅ ${employee.name} - ${message}`)
+      // Enforce minimum 60 minutes since last check-in
+      const [inH, inM] = openSession.check_time.split(':').map(Number)
+      const inMinutes = inH * 60 + inM
+      const nowMinutes = currentTime.getHours() * 60 + currentTime.getMinutes()
+      if (nowMinutes - inMinutes < 60) {
+        const message = 'Check-Out allowed after 60 minutes from last Check-In'
+        setErrorMessage(`⌛ ${employee.name} - ${message}`)
         setCheckingOut(false)
-        setTimeout(() => setSuccessMessage(''), 3000)
+        setTimeout(() => setErrorMessage(''), 3000)
         return { status: 'error', message }
       }
 
-      // Calculate work hours
-      const checkInRecordTyped = checkInRecord as any
-      const checkInTime = new Date(`${today}T${checkInRecordTyped.check_time}:00`)
+      // Calculate work hours for this session
+      const checkInTime = new Date(`${today}T${openSession.check_time}:00`)
       const checkOutTime = new Date(`${today}T${checkTime}:00`)
       const workHours = (checkOutTime.getTime() - checkInTime.getTime()) / (1000 * 60 * 60)
 
@@ -1067,7 +1070,7 @@ export default function CheckInOutPage() {
       // Pass the selected location (nearestLocation for auto mode, or manually selected location)
       const syncResult = await syncToManpower(
         employee,
-        checkInRecordTyped.check_time,
+        openSession.check_time,
         checkTime,
         today,
         workHours,
@@ -1358,7 +1361,8 @@ export default function CheckInOutPage() {
                     variant="outline"
                     size="md"
                     onClick={() => {
-                      setQrCheckType('Check-In')
+                      const hasOpenSession = todayRecords.filter(r => r.type === 'Check-In').length > todayRecords.filter(r => r.type === 'Check-Out').length
+                      setQrCheckType(hasOpenSession ? 'Check-Out' : 'Check-In')
                       setShowQRScanner(true)
                     }}
                     className="gap-3 px-4 py-2.5 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white border-0 shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105"
