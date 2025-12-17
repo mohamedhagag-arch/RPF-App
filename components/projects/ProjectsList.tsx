@@ -71,6 +71,9 @@ export function ProjectsList({
   const isMountedRef = useRef(true)
   const isLoadingRef = useRef(false) // ✅ Prevent multiple simultaneous loads
   const hasFetchedRef = useRef(false) // ✅ Track if initial fetch has been done
+  const lastReloadTimeRef = useRef<number>(0) // ✅ Track last reload time to prevent rapid re-fetching
+  const reloadDebounceTimerRef = useRef<NodeJS.Timeout | null>(null) // ✅ Debounce timer for database updates
+  const loadAnalyticsForProjectsRef = useRef<((projects: Project[]) => Promise<void>) | null>(null) // ✅ Store latest loadAnalyticsForProjects function
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('projects')
   
   // ==================== State Management ====================
@@ -78,6 +81,8 @@ export function ProjectsList({
   const [totalCount, setTotalCount] = useState(0)
   const [allActivities, setAllActivities] = useState<any[]>([])
   const [allKPIs, setAllKPIs] = useState<any[]>([])
+  // ✅ ENHANCED: Load all project codes for SmartFilter (lightweight, only codes and names)
+  const [allProjectsForFilter, setAllProjectsForFilter] = useState<Array<{project_code: string, project_sub_code: string, project_full_code: string, project_name: string}>>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
@@ -88,8 +93,8 @@ export function ProjectsList({
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(globalSearchTerm || '')
   // ✅ PERFORMANCE: Cache for loaded analytics data per project
   const [analyticsCache, setAnalyticsCache] = useState<Map<string, { activities: any[], kpis: any[] }>>(new Map())
-  // ✅ Trigger to force re-calculation of analytics when cache updates
-  const [analyticsCacheVersion, setAnalyticsCacheVersion] = useState(0)
+  // ✅ FIX: Use ref instead of state to prevent infinite re-renders
+  const analyticsCacheVersionRef = useRef(0)
   
   // View mode state with localStorage persistence
   const [useCustomizedTable, setUseCustomizedTable] = useState(() => {
@@ -343,22 +348,9 @@ export function ProjectsList({
       // Build project full codes for filtering using buildProjectFullCode
       const projectFullCodes = projectsToLoad.map(p => buildProjectFullCode(p))
       
-      // ✅ DEBUG: Log project full codes for P5066-R4
-      const p5066R4Project = projectsToLoad.find(p => 
-        (p.project_code || '').trim() === 'P5066' && 
-        ((p.project_sub_code || '').trim() === 'R4' || (p.project_sub_code || '').trim() === 'P5066-R4' || (p.project_sub_code || '').trim().endsWith('-R4'))
-      )
-      if (p5066R4Project) {
-        const p5066R4FullCode = buildProjectFullCode(p5066R4Project)
-        console.log('🔍 [P5066-R4] Project full codes for query:', {
-          projectCode: p5066R4Project.project_code,
-          projectSubCode: p5066R4Project.project_sub_code,
-          projectFullCode: p5066R4FullCode,
-          allProjectFullCodes: projectFullCodes
-        })
-      }
+      // ✅ Removed debug logging for P5066-R4 to reduce console noise
       
-      if (process.env.NODE_ENV === 'development') {
+      if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
         console.log('📊 Loading analytics for projects:', projectFullCodes.length)
       }
       
@@ -440,26 +432,7 @@ export function ProjectsList({
       const mappedActivities = (activitiesRes.data || []).map(mapBOQFromDB)
       const mappedKPIs = kpisData.map(mapKPIFromDB)
       
-      // ✅ DEBUG: Log KPIs for P5066-R4
-      if (p5066R4Project) {
-        const p5066R4FullCode = buildProjectFullCode(p5066R4Project)
-        const kpisForP5066R4 = mappedKPIs.filter(k => {
-          const kpiFullCode = (k.project_full_code || (k as any)['Project Full Code'] || '').toString().trim()
-          return kpiFullCode === p5066R4FullCode || kpiFullCode.toUpperCase() === p5066R4FullCode.toUpperCase()
-        })
-        console.log('🔍 [P5066-R4] KPIs fetched from database:', {
-          totalKPIsFetched: mappedKPIs.length,
-          kpisForP5066R4: kpisForP5066R4.length,
-          projectFullCode: p5066R4FullCode,
-          sampleKPIs: mappedKPIs.slice(0, 5).map(k => ({
-            kpiFullCode: (k.project_full_code || (k as any)['Project Full Code'] || '').toString().trim(),
-            kpiProjectCode: ((k as any).project_code || (k as any)['Project Code'] || '').toString().trim(),
-            kpiProjectSubCode: ((k as any).project_sub_code || (k as any)['Project Sub Code'] || '').toString().trim(),
-            activityName: k.activity_name,
-            rawProjectFullCode: (k as any).raw?.['Project Full Code'] || 'N/A'
-          }))
-        })
-      }
+      // ✅ Removed debug logging to reduce console noise
       
       // Update cache - use functional update to avoid dependency on analyticsCache
       // ✅ PERFORMANCE: Only update allActivities/allKPIs if they actually changed
@@ -525,25 +498,7 @@ export function ProjectsList({
             })
             
             // Find KPIs for this project (multiple matching strategies)
-            const isDebugProject = projectCode === 'P5066' && (projectSubCode === 'R4' || projectSubCode === 'P5066-R4' || projectSubCode.endsWith('-R4'))
-            
-            // ✅ DEBUG: Log project info for P5066-R4
-            if (isDebugProject) {
-              console.log('🔍 [P5066-R4] Starting KPI filtering:', {
-                projectCode,
-                projectSubCode,
-                projectFullCode,
-                totalKPIs: mappedKPIs.length,
-                sampleKPIs: mappedKPIs.slice(0, 3).map(k => ({
-                  kpiFullCode: k.project_full_code || (k as any)['Project Full Code'] || 'N/A',
-                  kpiProjectCode: (k as any).project_code || (k as any)['Project Code'] || 'N/A',
-                  kpiProjectSubCode: (k as any).project_sub_code || (k as any)['Project Sub Code'] || 'N/A',
-                  activityName: k.activity_name,
-                  rawProjectFullCode: (k as any).raw?.['Project Full Code'] || 'N/A',
-                  rawProjectCode: (k as any).raw?.['Project Code'] || 'N/A'
-                }))
-              })
-            }
+            // ✅ Removed debug logging for P5066-R4 to reduce console noise
             
             const projectKPIs = mappedKPIs.filter(k => {
               const kpiFullCode = ((k.project_full_code || (k as any)['Project Full Code'] || '')).toString().trim()
@@ -552,13 +507,6 @@ export function ProjectsList({
               
               // ✅ PRIORITY 1: Exact match on project_full_code (case-insensitive)
               if (kpiFullCode && kpiFullCode.toUpperCase() === projectFullCode.toUpperCase()) {
-                if (isDebugProject && mappedKPIs.indexOf(k) < 3) {
-                  console.log('✅ [P5066-R4] KPI matched by exact project_full_code:', {
-                    kpiFullCode,
-                    projectFullCode,
-                    kpiActivityName: k.activity_name
-                  })
-                }
                 return true
               }
               
@@ -573,15 +521,6 @@ export function ProjectsList({
                   kpiFullCodeBuilt = `${kpiProjectCode}-${kpiProjectSubCode}`
                 }
                 if (kpiFullCodeBuilt.toUpperCase() === projectFullCode.toUpperCase()) {
-                  if (isDebugProject && mappedKPIs.indexOf(k) < 3) {
-                    console.log('✅ [P5066-R4] KPI matched by built full code:', {
-                      kpiFullCodeBuilt,
-                      projectFullCode,
-                      kpiProjectCode,
-                      kpiProjectSubCode,
-                      kpiActivityName: k.activity_name
-                    })
-                  }
                   return true
                 }
               }
@@ -591,14 +530,6 @@ export function ProjectsList({
               if (projectCode === 'P5066' && projectSubCode && projectSubCode.toUpperCase().startsWith('P5066')) {
                 // Project has sub_code that starts with project_code (e.g., "P5066-R4")
                 if (kpiProjectCode.toUpperCase() === 'P5066' && kpiProjectSubCode && kpiProjectSubCode.toUpperCase() === projectSubCode.toUpperCase()) {
-                  if (isDebugProject && mappedKPIs.indexOf(k) < 3) {
-                    console.log('✅ [P5066-R4] KPI matched by special case (P5066-R4):', {
-                      kpiProjectCode,
-                      kpiProjectSubCode,
-                      projectSubCode,
-                      kpiActivityName: k.activity_name
-                    })
-                  }
                   return true
                 }
               }
@@ -606,38 +537,12 @@ export function ProjectsList({
               // ✅ PRIORITY 3: Match where KPI Project Full Code starts with our project_full_code (for sub-projects)
               // Only if project has sub_code (to avoid matching other projects with same project_code)
               if (projectSubCode && projectFullCode && kpiFullCode && kpiFullCode.toUpperCase().startsWith(projectFullCode.toUpperCase())) {
-                if (isDebugProject && mappedKPIs.indexOf(k) < 3) {
-                  console.log('✅ [P5066-R4] KPI matched by startsWith:', {
-                    kpiFullCode,
-                    projectFullCode,
-                    kpiActivityName: k.activity_name
-                  })
-                }
                 return true
               }
               
               // ✅ PRIORITY 4: Match by project_code if no sub_code (old data fallback)
               if (!projectSubCode && !kpiProjectSubCode && kpiProjectCode.toUpperCase() === projectCode.toUpperCase()) {
-                if (isDebugProject && mappedKPIs.indexOf(k) < 3) {
-                  console.log('✅ [P5066-R4] KPI matched by project_code only:', {
-                    kpiProjectCode,
-                    projectCode,
-                    kpiActivityName: k.activity_name
-                  })
-                }
                 return true
-              }
-              
-              // ✅ DEBUG: Log why it didn't match for P5066-R4
-              if (isDebugProject && mappedKPIs.indexOf(k) < 3) {
-                console.log('❌ [P5066-R4] KPI did not match:', {
-                  projectFullCode,
-                  kpiFullCode,
-                  kpiProjectCode,
-                  kpiProjectSubCode,
-                  kpiActivityName: k.activity_name,
-                  kpiRaw: (k as any).raw?.['Project Full Code'] || (k as any).raw?.['Project Code'] || 'N/A'
-                })
               }
               
               return false
@@ -646,16 +551,10 @@ export function ProjectsList({
             // Always set cache entry for each project (even if empty arrays)
             newCache.set(project.id, { activities: projectActivities, kpis: projectKPIs })
             
-        if (process.env.NODE_ENV === 'development') {
-              console.log(`📊 Project ${project.project_code}:`, {
-                fullCode: projectFullCode,
-                activities: projectActivities.length,
-                kpis: projectKPIs.length
-              })
-            }
+        // ✅ Removed per-project logging to reduce console noise
           })
           
-          if (process.env.NODE_ENV === 'development') {
+          if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
             console.log('✅ Analytics cache updated for all projects:', {
               totalProjects: projectsToLoad.length,
               cacheSize: newCache.size,
@@ -664,8 +563,8 @@ export function ProjectsList({
             })
           }
           
-          // ✅ Force re-calculation of analytics by updating version
-          setAnalyticsCacheVersion(prev => prev + 1)
+          // ✅ FIX: Update ref instead of state to prevent infinite re-renders
+          analyticsCacheVersionRef.current += 1
           
           return newCache
         })
@@ -675,26 +574,112 @@ export function ProjectsList({
     }
   }, [supabase, buildProjectFullCode])
   
+  // ✅ FIX: Store latest function in ref to prevent re-fetch loops
+  useEffect(() => {
+    loadAnalyticsForProjectsRef.current = loadAnalyticsForProjects
+  }, [loadAnalyticsForProjects])
+  
+  /**
+   * ✅ ENHANCED: Load all project codes for SmartFilter (lightweight query)
+   * This loads only essential fields: Project Code, Project Sub-Code, Project Name
+   */
+  const loadAllProjectsForFilter = useCallback(async () => {
+    try {
+      // ✅ FIX: Load only essential fields - Project Full Code may not exist in DB
+      // Use same logic as mapProjectFromDB to build project_full_code
+      const { data: projectsData, error } = await supabase
+        .from(TABLES.PROJECTS)
+        .select('"Project Code", "Project Sub-Code", "Project Name"')
+        .order('"Project Code"', { ascending: true })
+      
+      if (error) {
+        if (process.env.NODE_ENV === 'development') {
+          console.error('❌ Error loading projects for filter:', error)
+        }
+        return
+      }
+      
+      if (projectsData && Array.isArray(projectsData)) {
+        const mappedProjects = projectsData.map((row: any) => {
+          // ✅ FIX: Use same logic as mapProjectFromDB to get project codes
+          const projectCode = (row['Project Code'] || row['project_code'] || '').toString().trim()
+          const projectSubCode = (row['Project Sub-Code'] || row['Project Sub Code'] || row['project_sub_code'] || '').toString().trim()
+          
+          // ✅ FIX: Build project_full_code using same logic as mapProjectFromDB
+          let fullCode = ''
+          if (projectCode) {
+            if (projectSubCode) {
+              // Check if sub_code starts with project_code (e.g., "P5066-R4" where sub_code = "P5066-R4")
+              if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
+                fullCode = projectSubCode
+              } else if (projectSubCode.startsWith('-')) {
+                fullCode = `${projectCode}${projectSubCode}`
+              } else {
+                fullCode = `${projectCode}-${projectSubCode}`
+              }
+            } else {
+              fullCode = projectCode
+            }
+          }
+          
+          return {
+            project_code: projectCode,
+            project_sub_code: projectSubCode,
+            project_full_code: fullCode,
+            project_name: (row['Project Name'] || row['project_name'] || '').toString().trim()
+          }
+        }).filter(p => p.project_code) // ✅ Filter out empty project codes
+        
+        if (isMountedRef.current) {
+          setAllProjectsForFilter(mappedProjects)
+          
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`✅ Loaded ${mappedProjects.length} project codes for SmartFilter`, {
+              sample: mappedProjects.slice(0, 3).map(p => ({
+                code: p.project_code,
+                subCode: p.project_sub_code,
+                fullCode: p.project_full_code,
+                name: p.project_name
+              }))
+            })
+          }
+        }
+      }
+    } catch (error) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('❌ Exception loading projects for filter:', error)
+      }
+    }
+  }, [supabase])
+  
   /**
    * ✅ PERFORMANCE: Fetch projects with pagination and filters (only visible projects)
    * This loads only the projects needed for the current page
    */
+  // ✅ Track last request to prevent duplicate calls
+  const lastRequestRef = useRef<string>('')
+  
   const fetchProjectsPage = useCallback(async (page: number = 1, search: string = '', filters: any = {}) => {
-    // ✅ Prevent multiple simultaneous loads
-    if (isLoadingRef.current) {
+    // ✅ Prevent multiple simultaneous loads - but allow if it's a different page/search/filter/sort
+    const requestKey = `${page}_${search}_${JSON.stringify(filters)}_${sortBy}_${sortDirection}`
+    
+    if (isLoadingRef.current && lastRequestRef.current === requestKey) {
       if (process.env.NODE_ENV === 'development') {
-      console.log('⏸️ Data fetch already in progress, skipping...')
+      console.log('⏸️ Data fetch already in progress for same request, skipping...', requestKey)
       }
       return
     }
 
     try {
+      lastRequestRef.current = requestKey
       isLoadingRef.current = true
       startSmartLoading(setLoading)
       setError('')
+      // ✅ FIX: Don't clear projects during search - keep existing data visible until new data loads
+      // This prevents the "flash" of empty data when searching
       
       if (process.env.NODE_ENV === 'development') {
-        console.log('📊 Loading projects page...', { page, search, filters })
+        console.log('📊 Loading projects page...', { page, search, filters, sortBy, sortDirection })
       }
       
       // Build query with filters
@@ -713,10 +698,65 @@ export function ProjectsList({
         query = query.eq('"Project Status"', filters.status.trim())
       }
       
-      // Apply division filter (only if single division selected - multi-select handled client-side)
-      // Use correct column name from database
-      if (filters.division && filters.division.trim()) {
+      // ✅ ENHANCED: Apply Smart Filter filters at database level for better performance
+      // Multi-Project filter (Smart Filter) - apply at database level
+      // ✅ FIX: Don't use "Project Full Code" column (doesn't exist in DB)
+      // Match only by Project Code and Project Sub-Code
+      if (selectedProjects.length > 0) {
+        // Build OR condition for multiple projects
+        // Match by Project Code and Project Sub-Code only (Project Full Code doesn't exist)
+        const projectConditions: string[] = []
+        selectedProjects.forEach(selectedProject => {
+          const selectedUpper = selectedProject.toUpperCase().trim()
+          // Extract project code and sub-code from selected project (e.g., "P5066-R4" -> code="P5066", subCode="R4")
+          const parts = selectedUpper.split('-')
+          const selectedCode = parts[0] || selectedUpper
+          const selectedSubCode = parts.slice(1).join('-')
+          
+          // Match by Project Code (exact or partial)
+          projectConditions.push(`"Project Code".ilike.%${selectedCode}%`)
+          
+          // Match by Project Sub-Code if exists
+          if (selectedSubCode) {
+            projectConditions.push(`"Project Sub-Code".ilike.%${selectedSubCode}%`)
+            // Also match full code pattern (e.g., "P5066-R4" matches projects with code="P5066" and subCode="R4")
+            projectConditions.push(`"Project Sub-Code".ilike.%${selectedUpper}%`)
+          }
+          
+          // ✅ REMOVED: Don't use "Project Full Code" - column doesn't exist in database
+          
+          // Match by exact Project Code if selected project is just a code (e.g., "P5066")
+          if (!selectedSubCode) {
+            projectConditions.push(`"Project Code".eq.${selectedCode}`)
+          }
+        })
+        if (projectConditions.length > 0) {
+          query = query.or(projectConditions.join(','))
+        }
+      }
+      
+      // Multi-Division filter (Smart Filter) - apply at database level
+      if (selectedDivisions.length > 0) {
+        // Build OR condition for multiple divisions
+        const divisionConditions = selectedDivisions.map(div => `"Responsible Division".ilike.%${div.trim()}%`).join(',')
+        query = query.or(divisionConditions)
+      } else if (filters.division && filters.division.trim()) {
+        // Fallback to single division filter
         query = query.ilike('"Responsible Division"', `%${filters.division.trim()}%`)
+      }
+      
+      // Multi-Type filter (Smart Filter) - apply at database level
+      if (selectedTypes.length > 0) {
+        const typeConditions = selectedTypes.map(type => `"Project Type".ilike.%${type.trim()}%`).join(',')
+        query = query.or(typeConditions)
+      }
+      
+      // Value Range filter (Smart Filter) - apply at database level
+      if (valueRange.min !== undefined) {
+        query = query.gte('"Contract Amount"', valueRange.min)
+      }
+      if (valueRange.max !== undefined) {
+        query = query.lte('"Contract Amount"', valueRange.max)
       }
       
       // Apply date range filter
@@ -784,7 +824,10 @@ export function ProjectsList({
         // ✅ Load analytics data for visible projects only
         // Wait for analytics to load before showing projects to ensure data is available
         try {
-          await loadAnalyticsForProjects(mappedProjects)
+          // ✅ FIX: Use ref to get latest function without causing re-fetch loops
+          if (loadAnalyticsForProjectsRef.current) {
+            await loadAnalyticsForProjectsRef.current(mappedProjects)
+          }
         } catch (analyticsError) {
           console.error('❌ Error loading analytics:', analyticsError)
           // Continue even if analytics fail - show projects without analytics
@@ -801,7 +844,7 @@ export function ProjectsList({
         stopSmartLoading(setLoading)
       }
     }
-  }, [supabase, startSmartLoading, stopSmartLoading, itemsPerPage, loadAnalyticsForProjects])
+  }, [supabase, startSmartLoading, stopSmartLoading, itemsPerPage, sortBy, sortDirection])
   
   /**
    * ✅ LEGACY: Keep fetchAllData for backward compatibility (used in create/update/delete)
@@ -987,6 +1030,10 @@ export function ProjectsList({
   }, [supabase, fetchAllData])
 
   // ==================== Analytics Calculation ====================
+  // ✅ FIX: Use cache size as dependency instead of Map object to prevent infinite re-renders
+  const analyticsCacheSize = analyticsCache.size
+  const analyticsCacheKeys = Array.from(analyticsCache.keys()).join(',')
+  
   /**
    * ✅ PERFORMANCE: Calculate analytics only for visible projects using cached data
    * This only processes the projects that are currently loaded (visible on page)
@@ -1019,12 +1066,12 @@ export function ProjectsList({
     })
     
     // ✅ PERFORMANCE: Only log in development mode
-    if (process.env.NODE_ENV === 'development' && analyticsMap.size > 0) {
+    if (process.env.NODE_ENV === 'development' && analyticsMap.size > 0 && Math.random() < 0.1) {
       console.log(`✅ Calculated analytics for ${analyticsMap.size} visible projects`)
     }
     
     return analyticsMap
-  }, [projects, analyticsCache, analyticsCacheVersion])
+  }, [projects, analyticsCacheSize, analyticsCacheKeys])
   
   // ==================== Filtering & Sorting ====================
   /**
@@ -1037,38 +1084,9 @@ export function ProjectsList({
     // ✅ PERFORMANCE: Only filter visible projects (already loaded from database)
     return projects.filter(project => {
     
-    // Multi-Project filter (Smart Filter)
-    if (selectedProjects.length > 0) {
-      const projectFullCode = buildProjectFullCode(project)
-      const matchesProject = selectedProjects.some(selectedProject =>
-        projectFullCode === selectedProject ||
-        projectFullCode.includes(selectedProject) ||
-        selectedProject.includes(projectFullCode)
-      )
-      if (!matchesProject) return false
-    }
-    
-    // Multi-Division filter (Smart Filter)
-    if (selectedDivisions.length > 0) {
-      const projectDivision = (project.responsible_division || '').toLowerCase().trim()
-      const matchesDivision = selectedDivisions.some(division =>
-        projectDivision === division.toLowerCase().trim() ||
-        projectDivision.includes(division.toLowerCase().trim()) ||
-        division.toLowerCase().trim().includes(projectDivision)
-      )
-      if (!matchesDivision) return false
-    }
-    
-    // Project Type filter (Smart Filter)
-    if (selectedTypes.length > 0) {
-      const projectType = (project.project_type || '').toLowerCase().trim()
-      const matchesType = selectedTypes.some(type =>
-        projectType === type.toLowerCase().trim() ||
-        projectType.includes(type.toLowerCase().trim()) ||
-        type.toLowerCase().trim().includes(projectType)
-      )
-      if (!matchesType) return false
-    }
+    // ✅ REMOVED: Multi-Project filter - now handled at database level
+    // ✅ REMOVED: Multi-Division filter - now handled at database level
+    // ✅ REMOVED: Project Type filter - now handled at database level
     
     // Project Status filter (Smart Filter)
     // ✅ Use calculated status (same as table) for accurate filtering
@@ -1139,34 +1157,12 @@ export function ProjectsList({
       if (!matchesStatus) return false
     }
     
-    // Date range filter (Smart Filter) - based on project dates
-    if (dateRange.from || dateRange.to) {
-      const projectDate = project.project_start_date || project.created_at
-      if (projectDate) {
-        const projDate = new Date(projectDate)
-        if (dateRange.from) {
-          const fromDate = new Date(dateRange.from)
-          fromDate.setHours(0, 0, 0, 0)
-          if (projDate < fromDate) return false
-        }
-        if (dateRange.to) {
-          const toDate = new Date(dateRange.to)
-          toDate.setHours(23, 59, 59, 999)
-          if (projDate > toDate) return false
-        }
-      }
-    }
-    
-    // Contract Amount range filter (Smart Filter)
-    if (valueRange.min !== undefined || valueRange.max !== undefined) {
-      const contractAmount = project.contract_amount || 0
-      if (valueRange.min !== undefined && contractAmount < valueRange.min) return false
-      if (valueRange.max !== undefined && contractAmount > valueRange.max) return false
-    }
+    // ✅ REMOVED: Date range filter - now handled at database level
+    // ✅ REMOVED: Contract Amount range filter - now handled at database level
     
     return true
   })
-  }, [projects, selectedProjects, selectedDivisions, selectedTypes, selectedStatuses, valueRange, buildProjectFullCode, analyticsCache])
+  }, [projects, selectedStatuses, buildProjectFullCode]) // ✅ REMOVED: selectedProjects, selectedDivisions, selectedTypes, valueRange - now handled at database level
   
   // ✅ PERFORMANCE: No need for client-side pagination - already done in database
   const filteredProjects = allFilteredProjects
@@ -1252,29 +1248,74 @@ export function ProjectsList({
 
     // Listen for database updates
     const handleDatabaseUpdate = (event: CustomEvent) => {
-      const { tableName } = event.detail
+      const { tableName, timestamp } = event.detail
       
-      if (process.env.NODE_ENV === 'development') {
-      console.log(`🔔 Projects: Database updated event received for ${tableName}`)
+      // ✅ FIX: Debounce database updates to prevent rapid re-fetching
+      const now = Date.now()
+      const timeSinceLastReload = now - lastReloadTimeRef.current
+      
+      // Skip if reloaded in last 2 seconds (prevent rapid re-fetching)
+      if (timeSinceLastReload < 2000) {
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`⏸️ Projects: Skipping reload (reloaded ${Math.round(timeSinceLastReload)}ms ago)`)
+        }
+        return
+      }
+      
+      if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
+        console.log(`🔔 Projects: Database updated event received for ${tableName}`)
       }
 
       if (tableName === TABLES.PROJECTS || tableName === TABLES.BOQ_ACTIVITIES || tableName === TABLES.KPI) {
-        if (process.env.NODE_ENV === 'development') {
-        console.log(`🔄 Projects: Reloading data due to ${tableName} update...`)
+        // ✅ ENHANCED: Reload all projects for filter when projects table is updated
+        if (tableName === TABLES.PROJECTS) {
+          // ✅ FIX: Use the function directly from scope
+          loadAllProjectsForFilter()
         }
-        // ✅ Only reload if not already loading
-        if (!isLoadingRef.current) {
-          const currentFilters = {
-            status: selectedStatuses.length > 0 ? selectedStatuses[0] : '',
-            division: selectedDivisions.length > 0 ? selectedDivisions[0] : '',
-            dateRange: dateRange
+        
+        // ✅ FIX: Don't reload if user is currently searching (preserve search results)
+        // Use searchTerm (current input) or debouncedSearchTerm (last confirmed search)
+        const currentSearch = searchTerm || debouncedSearchTerm
+        if (currentSearch && currentSearch.trim()) {
+          // User is searching - skip automatic reload to preserve search results
+          if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
+            console.log(`⏸️ Projects: Skipping reload during search: "${currentSearch}"`)
           }
-          fetchProjectsPage(currentPage, debouncedSearchTerm, currentFilters)
+          return
         }
+        
+        // ✅ FIX: Clear existing debounce timer
+        if (reloadDebounceTimerRef.current) {
+          clearTimeout(reloadDebounceTimerRef.current)
+        }
+        
+        // ✅ FIX: Debounce reload by 500ms to batch multiple updates
+        // ✅ FIX: Only reload if user is NOT searching
+        reloadDebounceTimerRef.current = setTimeout(() => {
+          if (isMountedRef.current && !isLoadingRef.current) {
+            // ✅ FIX: Double-check that user is still not searching
+            const stillSearching = searchTerm || debouncedSearchTerm
+            if (stillSearching && stillSearching.trim()) {
+              return // User started searching, skip reload
+            }
+            
+            lastReloadTimeRef.current = Date.now()
+            const currentFilters = {
+              status: selectedStatuses.length > 0 ? selectedStatuses[0] : '',
+              division: selectedDivisions.length > 0 ? selectedDivisions[0] : '',
+              dateRange: dateRange
+            }
+            // ✅ FIX: Use current search (empty if not searching)
+            fetchProjectsPage(currentPage, debouncedSearchTerm || '', currentFilters)
+          }
+        }, 500) // 500ms debounce
       }
     }
 
     window.addEventListener('database-updated', handleDatabaseUpdate as EventListener)
+    
+    // ✅ ENHANCED: Load all project codes for SmartFilter on mount
+    loadAllProjectsForFilter()
     
     // ✅ Initial fetch - only once on mount
     if (!hasFetchedRef.current) {
@@ -1293,38 +1334,71 @@ export function ProjectsList({
       }
       isMountedRef.current = false
       isLoadingRef.current = false
+      if (reloadDebounceTimerRef.current) {
+        clearTimeout(reloadDebounceTimerRef.current)
+      }
       window.removeEventListener('database-updated', handleDatabaseUpdate as EventListener)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // Only run once on mount
+  }, [loadAllProjectsForFilter]) // ✅ FIX: Include loadAllProjectsForFilter in dependencies
 
   /**
    * ✅ Debounce search term to avoid too many API calls
    */
   useEffect(() => {
     const timer = setTimeout(() => {
-      setDebouncedSearchTerm(searchTerm)
+      // ✅ FIX: Only update if searchTerm actually changed
+      if (searchTerm !== debouncedSearchTerm) {
+        setDebouncedSearchTerm(searchTerm)
+        // ✅ FIX: Reset to page 1 when search changes
+        if (currentPage !== 1) {
+          setCurrentPage(1)
+        }
+      }
     }, 300) // Wait 300ms after user stops typing
 
     return () => clearTimeout(timer)
-  }, [searchTerm])
+  }, [searchTerm]) // ✅ FIX: Only depend on searchTerm to prevent infinite loops
 
   /**
    * ✅ PERFORMANCE: Reload projects when page, search, filters, or sorting change
    */
   useEffect(() => {
-    if (!hasFetchedRef.current) return // Skip if initial fetch hasn't happened yet
-    if (isLoadingRef.current) return // Skip if already loading
-    
     const currentFilters = {
       status: selectedStatuses.length > 0 ? selectedStatuses[0] : '',
       division: selectedDivisions.length > 0 ? selectedDivisions[0] : '',
       dateRange: dateRange
     }
     
+    // ✅ ENHANCED: Include Smart Filter values in request key to trigger re-fetch when they change
+    const requestKey = `${currentPage}_${debouncedSearchTerm}_${JSON.stringify(currentFilters)}_${selectedProjects.join(',')}_${selectedDivisions.join(',')}_${selectedTypes.join(',')}_${valueRange.min}_${valueRange.max}_${sortBy}_${sortDirection}`
+    
+    // ✅ FIX: Skip only if initial fetch hasn't happened AND it's the initial mount (not a user action)
+    // This allows the mount effect to handle the first fetch
+    if (!hasFetchedRef.current) {
+      // Only skip if it's truly the initial state (page 1, no search, no filters)
+      if (currentPage === 1 && !debouncedSearchTerm && selectedStatuses.length === 0 && selectedDivisions.length === 0 && !dateRange?.from && !dateRange?.to) {
+        return // Wait for initial mount effect to trigger first fetch
+      }
+      // Otherwise, mark as fetched and proceed (user changed something before initial fetch completed)
+      hasFetchedRef.current = true
+    }
+    
+    // ✅ Skip only if the exact same request is already loading
+    if (isLoadingRef.current && lastRequestRef.current === requestKey) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('⏸️ Skipping duplicate request:', requestKey)
+      }
+      return
+    }
+    
+    // ✅ Always fetch if it's a different request (user changed page/search/filter/sort)
+    if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
+      console.log('🔄 Triggering fetch for:', { currentPage, debouncedSearchTerm, currentFilters, sortBy, sortDirection })
+    }
     fetchProjectsPage(currentPage, debouncedSearchTerm, currentFilters)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, debouncedSearchTerm, selectedStatuses.join(','), selectedDivisions.join(','), dateRange?.from, dateRange?.to, sortBy, sortDirection])
+  }, [currentPage, debouncedSearchTerm, selectedProjects.join(','), selectedStatuses.join(','), selectedDivisions.join(','), selectedTypes.join(','), valueRange?.min, valueRange?.max, dateRange?.from, dateRange?.to, sortBy, sortDirection])
   
   /**
    * ✅ Handle sorting from table - triggers database-level sort
@@ -1450,31 +1524,7 @@ export function ProjectsList({
       {/* Smart Filter - Always Expanded for Project Management */}
       <SmartFilter
         alwaysExpanded={true}
-        projects={useMemo(() => projects.map(p => {
-          // Build project_full_code correctly
-          const projectCode = (p.project_code || '').trim()
-          const projectSubCode = (p.project_sub_code || '').trim()
-          
-          let projectFullCode = projectCode
-          if (projectSubCode) {
-            if (projectSubCode.toUpperCase().startsWith(projectCode.toUpperCase())) {
-              projectFullCode = projectSubCode
-            } else {
-              if (projectSubCode.startsWith('-')) {
-                projectFullCode = `${projectCode}${projectSubCode}`
-              } else {
-                projectFullCode = `${projectCode}-${projectSubCode}`
-              }
-            }
-          }
-          
-          return {
-            project_code: projectCode,
-            project_sub_code: projectSubCode,
-            project_full_code: projectFullCode,
-            project_name: p.project_name 
-          }
-        }), [projects])}
+        projects={allProjectsForFilter} // ✅ ENHANCED: Use all projects for filter, not just loaded ones
         activities={useMemo(() => allActivities.map(a => ({
           activity_name: a.activity_name,
           project_code: a.project_code,

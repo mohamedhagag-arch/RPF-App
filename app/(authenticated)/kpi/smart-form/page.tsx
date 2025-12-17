@@ -221,11 +221,7 @@ export default function SmartKPIPage() {
         // ✅ Map Zone Ref/Number to Zone (NOT to Section - Section is separate)
         // ✅ NOT from Section - Section is separate from Zone
         zoneRef: kpiData['Zone Ref'] || kpiData.zone_ref || '',
-        zoneNumber: kpiData['Zone Number'] || kpiData['Zone'] || kpiData.zone_number || kpiData.zone || '',
-        // ✅ Section is separate from Zone - user input for Actual KPIs
-        section: kpiData['Section'] || kpiData.section || '',
-        // ✅ Drilled Meters field (for drilling activities)
-        drilledMeters: kpiData['Drilled Meters'] || kpiData.drilled_meters || kpiData.drilledMeters || '0'
+        zoneNumber: kpiData['Zone Number'] || kpiData['Zone'] || kpiData.zone_number || kpiData.zone || ''
       })
       
       // ✅ CRITICAL FIX: Override Project Code to use project_code only (not project_full_code)

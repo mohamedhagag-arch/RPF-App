@@ -35,6 +35,8 @@ export function EmployeesManagement() {
   const [isExporting, setIsExporting] = useState(false)
   const [exportProgress, setExportProgress] = useState({ current: 0, total: 0 })
   const [isImportingFromHR, setIsImportingFromHR] = useState(false)
+  const [jobTitles, setJobTitles] = useState<string[]>([])
+  const [departmentsList, setDepartmentsList] = useState<string[]>([])
   const { settings: qrSettings } = useQRSettings()
   const supabaseClient = getSupabaseClient()
   const [formData, setFormData] = useState({
@@ -49,6 +51,7 @@ export function EmployeesManagement() {
 
   useEffect(() => {
     fetchEmployees()
+    fetchJobTitlesAndDepartments()
   }, [])
 
   const fetchEmployees = async () => {
@@ -95,6 +98,42 @@ export function EmployeesManagement() {
       console.error('Error fetching employees:', err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchJobTitlesAndDepartments = async () => {
+    try {
+      // Job titles
+      const { data: titles } = await supabase
+        .from(TABLES.JOB_TITLES)
+        // @ts-ignore
+        .select('title_en, is_active')
+        .eq('is_active', true)
+        .order('display_order', { ascending: true })
+        .order('title_en', { ascending: true })
+
+      setJobTitles(
+        (titles || [])
+          .map((t: any) => t.title_en)
+          .filter(Boolean)
+      )
+
+      // Departments
+      const { data: depts } = await supabase
+        .from(TABLES.DEPARTMENTS)
+        // @ts-ignore
+        .select('name_en, is_active')
+        .eq('is_active', true)
+        .order('display_order', { ascending: true })
+        .order('name_en', { ascending: true })
+
+      setDepartmentsList(
+        (depts || [])
+          .map((d: any) => d.name_en)
+          .filter(Boolean)
+      )
+    } catch (err) {
+      console.warn('Could not load job titles / departments', err)
     }
   }
 
@@ -417,7 +456,8 @@ export function EmployeesManagement() {
       emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       emp.employee_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
       emp.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      emp.department?.toLowerCase().includes(searchTerm.toLowerCase())
+      emp.department?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      emp.job_title?.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesStatus = filterStatus === 'all' || emp.status === filterStatus
     return matchesSearch && matchesStatus
   })
@@ -1585,20 +1625,34 @@ export function EmployeesManagement() {
 
                 <div>
                   <label className="block text-sm font-medium mb-1">Job Title</label>
-                  <Input
+                  <select
                     value={formData.job_title}
                     onChange={(e) => setFormData(prev => ({ ...prev, job_title: e.target.value }))}
-                    placeholder="Software Developer"
-                  />
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800"
+                  >
+                    <option value="">Select Job Title</option>
+                    {jobTitles.map((title) => (
+                      <option key={title} value={title}>
+                        {title}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium mb-1">Department</label>
-                  <Input
+                  <select
                     value={formData.department}
                     onChange={(e) => setFormData(prev => ({ ...prev, department: e.target.value }))}
-                    placeholder="IT"
-                  />
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800"
+                  >
+                    <option value="">Select Department</option>
+                    {departmentsList.map((dept) => (
+                      <option key={dept} value={dept}>
+                        {dept}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>

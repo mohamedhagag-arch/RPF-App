@@ -335,6 +335,7 @@ export function ProjectsTableWithCustomization({
       
       const updateData: any = {
         project_status: newStatus,
+        'Project Status': newStatus, // ✅ تحديث عمود "Project Status" أيضاً
         updated_at: new Date().toISOString()
       }
       
@@ -358,20 +359,39 @@ export function ProjectsTableWithCustomization({
           .from(TABLES.PROJECTS)
           .update({
             project_status: newStatus,
+            'Project Status': newStatus, // ✅ تحديث عمود "Project Status" أيضاً
             updated_at: new Date().toISOString()
           })
           .eq('id', projectId)
         
-        if (retryError && process.env.NODE_ENV === 'development') {
-          console.error(`❌ [Status Update] Failed to update project ${projectId}:`, retryError)
+        if (retryError) {
+          if (process.env.NODE_ENV === 'development') {
+            console.error(`❌ [Status Update] Failed to update project ${projectId}:`, retryError)
+          }
+          return false // فشل التحديث
+        }
+      }
+      
+      // ✅ إرسال إشعار database-updated لتحديث الواجهة تلقائياً
+      if (typeof window !== 'undefined') {
+        const event = new CustomEvent('database-updated', {
+          detail: { tableName: TABLES.PROJECTS, timestamp: Date.now() }
+        })
+        window.dispatchEvent(event)
+        
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`✅ [Status Update] Updated project ${projectId} to ${newStatus} and dispatched database-updated event`)
         }
       } else if (process.env.NODE_ENV === 'development') {
         console.log(`✅ [Status Update] Updated project ${projectId} to ${newStatus}`)
       }
+      
+      return true // نجح التحديث
     } catch (error) {
       if (process.env.NODE_ENV === 'development') {
         console.error(`❌ [Status Update] Error updating project ${projectId}:`, error)
       }
+      return false // فشل التحديث
     }
   }, [])
 
@@ -409,8 +429,7 @@ export function ProjectsTableWithCustomization({
       const projectCodeUpper = projectCode.toUpperCase()
       const projectFullCodeUpper = projectFullCode.toUpperCase()
       
-      // ✅ DEBUG: Log matching for P5066-R4
-      const isDebugProject = projectCodeUpper === 'P5066' && projectSubCode.toUpperCase() === 'R4'
+      // ✅ Removed debug logging to reduce console noise
       
       // ✅ Extract item codes from all possible sources (same logic as projectAnalytics.ts)
       const rawItem = (item as any).raw || {}
@@ -440,12 +459,6 @@ export function ProjectsTableWithCustomization({
       
       // ✅ PRIORITY 1: Direct exact match with project_full_code (MOST ACCURATE - prevents mixing projects)
       if (projectFullCodeUpper && itemProjectFullCode.toUpperCase() === projectFullCodeUpper) {
-        if (isDebugProject) {
-          console.log('✅ [P5066-R4] Matched by exact project_full_code:', {
-            projectFullCode,
-            itemProjectFullCode
-          })
-        }
         return true
       }
       
@@ -464,14 +477,6 @@ export function ProjectsTableWithCustomization({
           }
         }
         if (itemFullCode.toUpperCase() === projectFullCodeUpper) {
-          if (isDebugProject) {
-            console.log('✅ [P5066-R4] Matched by built item full code:', {
-              projectFullCode,
-              itemFullCode,
-              itemProjectCode,
-              itemProjectSubCode
-            })
-          }
           return true
         }
       }
@@ -479,12 +484,6 @@ export function ProjectsTableWithCustomization({
       // ✅ PRIORITY 3: Match where Project Full Code starts with our project_full_code (for sub-projects)
       // Only if project has sub_code (to avoid matching other projects with same project_code)
       if (projectSubCode && projectFullCode && itemProjectFullCode && itemProjectFullCode.toUpperCase().startsWith(projectFullCodeUpper)) {
-        if (isDebugProject) {
-          console.log('✅ [P5066-R4] Matched by startsWith:', {
-            projectFullCode,
-            itemProjectFullCode
-          })
-        }
         return true
       }
       
@@ -499,14 +498,6 @@ export function ProjectsTableWithCustomization({
           builtItemFullCode = `${itemProjectCode}-${itemProjectSubCode}`
         }
         if (builtItemFullCode.toUpperCase() === projectFullCodeUpper) {
-          if (isDebugProject) {
-            console.log('✅ [P5066-R4] Matched by PRIORITY 4 built item full code:', {
-              projectFullCode,
-              builtItemFullCode,
-              itemProjectCode,
-              itemProjectSubCode
-            })
-          }
           return true
         }
       }
@@ -516,13 +507,6 @@ export function ProjectsTableWithCustomization({
       if (projectCodeUpper === 'P5066' && projectSubCode && projectSubCode.toUpperCase().startsWith('P5066')) {
         // Project has sub_code that starts with project_code (e.g., "P5066-R4")
         if (itemProjectCode.toUpperCase() === 'P5066' && itemProjectSubCode && itemProjectSubCode.toUpperCase() === projectSubCode.toUpperCase()) {
-          if (isDebugProject) {
-            console.log('✅ [P5066-R4] Matched by special case (P5066-R4):', {
-              itemProjectCode,
-              itemProjectSubCode,
-              projectSubCode
-            })
-          }
           return true
         }
       }
@@ -531,27 +515,10 @@ export function ProjectsTableWithCustomization({
       // This prevents mixing projects with same project_code but different sub_code
       // Only allow project_code matching if current project has no sub_code (old data fallback)
       if (!projectSubCode && !itemProjectFullCode && itemProjectCode.toUpperCase() === projectCodeUpper) {
-        if (isDebugProject) {
-          console.log('✅ [P5066-R4] Matched by project_code only (no sub_code):', {
-            itemProjectCode,
-            projectCode
-          })
-        }
         return true
       }
       
-      // ✅ DEBUG: Log why it didn't match for P5066-R4
-      if (isDebugProject) {
-        console.log('❌ [P5066-R4] No match found:', {
-          projectFullCode,
-          projectFullCodeUpper,
-          itemProjectFullCode,
-          itemProjectCode,
-          itemProjectSubCode,
-          projectCode,
-          projectSubCode
-        })
-      }
+      // ✅ Removed debug logging to reduce console noise
       
       return false
     } catch (error) {
@@ -2769,24 +2736,10 @@ export function ProjectsTableWithCustomization({
       map.set(project.id, { divisionAmounts, divisionNames })
       
       // ✅ DEBUG: Log for first few projects to verify data is being calculated
-      if (process.env.NODE_ENV === 'development' && projects.indexOf(project) < 5) {
-        const divisionsCount = Object.keys(divisionAmounts).length
-        if (divisionsCount > 0) {
-          console.log(`✅ [${project.project_code}] Divisions calculated:`, {
-            projectId: project.id,
-            divisionsCount,
-            divisions: Object.keys(divisionNames),
-            totalAmount: Object.values(divisionAmounts).reduce((sum, val) => sum + val, 0)
-          })
-        }
-      }
+      // ✅ Removed per-project divisions logging to reduce console noise
     })
     
-    // ✅ DEBUG: Log summary
-    if (process.env.NODE_ENV === 'development') {
-      const projectsWithData = Array.from(map.entries()).filter(([_, data]) => Object.keys(data.divisionAmounts).length > 0).length
-      console.log(`✅ DivisionsDataMap: Calculated for ${map.size} projects, ${projectsWithData} have division data`)
-    }
+    // ✅ Removed summary logging to reduce console noise
     
     return map
   }, [projects, allKPIs]) // ✅ FIX: Changed to use allKPIs since we now calculate from KPIs Planned
@@ -3485,11 +3438,14 @@ export function ProjectsTableWithCustomization({
               // ✅ Update status in database if changed
               if (calculatedStatus !== currentStatusFromDB) {
                 const reason = `Auto-calculated: Planned Qty=${totalPlannedQuantity.toLocaleString()}, Actual Qty=${totalActualQuantity.toLocaleString()}, Pre-Comm KPIs=${preCommencementActualKPIs.length}, Post-Comm KPIs=${postCommencementActualKPIs.length}, Today=Completion Date=${todayIsCompletionDate}`
-                updateProjectStatusInDB(project.id, calculatedStatus, 100, reason).catch((err) => {
-                  if (process.env.NODE_ENV === 'development') {
-                    console.error(`❌ [Status Update] Failed to update ${project.project_code}:`, err)
-                  }
-                })
+                // ✅ تحديث الحالة في الداتابيز مع معالجة الأخطاء
+                updateProjectStatusInDB(project.id, calculatedStatus, 100, reason)
+                  .catch((err) => {
+                    // Only log errors, not success messages to reduce console noise
+                    if (process.env.NODE_ENV === 'development') {
+                      console.error(`❌ [Status Update] Error updating ${project.project_code}:`, err)
+                    }
+                  })
               }
               
               // ✅ DEBUG: Log status calculation in development mode

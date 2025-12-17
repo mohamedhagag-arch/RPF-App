@@ -359,16 +359,7 @@ export function calculateProjectAnalytics(
     
     const matches = codesMatch(activityCodes, projectCodeVariations)
     
-    // ✅ Only log in development mode for debugging
-    if (process.env.NODE_ENV === 'development' && allActivities.indexOf(a) < 2) {
-      console.log(`🔍 [${projectCode}] Activity matching:`, {
-        activityName: a.activity_name,
-        activityCodes,
-        projectFullCode,
-        projectCodeVariations: Array.from(projectCodeVariations),
-        matches
-      })
-    }
+    // ✅ Removed activity matching logging to reduce console noise
     
     return matches
   })
@@ -682,16 +673,7 @@ export function calculateProjectAnalytics(
   
   // ✅ DEBUG: Log calculated values for first project
   if (process.env.NODE_ENV === 'development' && projectActivities.length > 0) {
-    console.log(`📊 calculateProjectAnalytics results for ${project.project_code}:`, {
-      totalValue,
-      totalPlannedValue,
-      totalEarnedValue,
-      actualProgress,
-      plannedProgress,
-      variance,
-      projectActivitiesCount: projectActivities.length,
-      projectKPIsCount: projectKPIs.length
-    })
+    // ✅ Removed analytics results logging to reduce console noise
   }
   
   // ✅ NEW CONCEPT: Actual Quantity Progress = (Earned Quantity / Total Quantity)

@@ -169,8 +169,6 @@ export class KPIConsistencyManager {
     actualDate?: string
     zoneRef?: string
     zoneNumber?: string
-    section?: string // ✅ Section field (user input for Actual KPIs)
-    drilledMeters?: string | number // ✅ Drilled Meters field (for drilling activities)
   }): any {
     // ✅ Only include columns that exist in the unified KPI table
     return {
@@ -187,7 +185,7 @@ export class KPIConsistencyManager {
       'Actual Date': data.actualDate || '',
       // ✅ Section and Zone are separate fields
       // Section should be empty for auto-created KPIs (only filled by site engineer in Actual KPIs)
-      'Section': data.section || '', // ✅ Section is separate from Zone - user input for Actual KPIs
+      'Section': '', // ✅ Section is separate from Zone - leave empty for auto-created KPIs
       // ✅ Format Zone as: full code + zone (e.g., "P8888-P-01-0")
       'Zone': (() => {
         const projectFullCode = data.projectCode || ''
@@ -204,9 +202,7 @@ export class KPIConsistencyManager {
       })(),
       'Zone Number': data.zoneNumber || '', // ✅ Zone Number is separate field
       // ❌ Removed 'Zone Ref' - not a column in unified KPI table
-      'Activity Date': data.inputType === 'Actual' ? data.actualDate : data.targetDate,
-      // ✅ Drilled Meters field (for drilling activities)
-      'Drilled Meters': data.drilledMeters?.toString() || '0'
+      'Activity Date': data.inputType === 'Actual' ? data.actualDate : data.targetDate
     }
   }
 

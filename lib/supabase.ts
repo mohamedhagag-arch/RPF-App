@@ -21,7 +21,10 @@ export const TABLES = {
   ATTENDANCE_RECORDS: 'attendance_records',            // ✅ Attendance records
   ATTENDANCE_LOCATIONS: 'attendance_locations',        // ✅ Locations for GPS tracking
   ATTENDANCE_SETTINGS: 'attendance_settings',          // ✅ Attendance system settings
+  ATTENDANCE_DAILY_STATUSES: 'attendance_daily_statuses', // ✅ Daily attendance review statuses
   HR_MANPOWER: 'hr_manpower',                          // ✅ HR Manpower table
+  DEPARTMENTS: 'departments',                          // ✅ Departments master data
+  JOB_TITLES: 'job_titles',                            // ✅ Job titles master data
   DESIGNATION_RATES: 'designation_rates',              // ✅ Designation hourly rates table (includes daily rate fields)
   DESIGNATION_DAILY_RATE_HISTORY: 'designation_daily_rate_history', // ✅ Daily rate history with time periods
   MACHINE_LIST: 'machine_list',                        // ✅ Machine list table
@@ -244,6 +247,19 @@ export interface AttendanceRecord {
   location?: AttendanceLocation
   created_by_user?: User // User who created the record
   updated_by_user?: User // User who last updated the record
+}
+
+export interface AttendanceDailyStatus {
+  id: string
+  employee_id: string
+  date: string
+  status: 'attended' | 'vacation' | 'cancelled' | 'excused_absent' | 'absent'
+  notes?: string | null
+  recorded_by?: string | null
+  created_at: string
+  updated_at?: string
+  employee?: AttendanceEmployee
+  recorded_by_user?: User
 }
 
 export interface AttendanceLocation {

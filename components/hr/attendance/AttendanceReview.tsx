@@ -27,8 +27,8 @@ import { Alert } from '@/components/ui/Alert'
 import { supabase, TABLES, AttendanceRecord, AttendanceEmployee, AttendanceLocation } from '@/lib/supabase'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { useAuth } from '@/app/providers'
-import { usePermissionGuard } from '@/lib/permissionGuard'
 import { syncAttendanceToManpower, syncAttendanceDeletionToManpower } from '@/lib/attendanceSync'
+import { MissingAttendance } from './MissingAttendance'
 
 export default function AttendanceReview() {
   const { user, appUser } = useAuth()
@@ -39,6 +39,7 @@ export default function AttendanceReview() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [activeTab, setActiveTab] = useState<'records' | 'missing'>('records')
   
   // ✅ Group records by employee and date for displaying check-in/out times together
   const groupedRecords = useMemo(() => {
@@ -710,309 +711,339 @@ export default function AttendanceReview() {
             Review and manage employee attendance records
           </p>
         </div>
-        <PermissionButton
-          permission="hr.attendance.review"
-          onClick={handleAdd}
-          className="flex items-center gap-2"
-        >
-          <Plus className="h-5 w-5" />
-          Add Record
-        </PermissionButton>
+        <div className="flex items-center gap-3">
+          <div className="flex rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+            <button
+              onClick={() => setActiveTab('records')}
+              className={`px-4 py-2 text-sm font-semibold transition-colors ${
+                activeTab === 'records'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
+              }`}
+            >
+              Records
+            </button>
+            <button
+              onClick={() => setActiveTab('missing')}
+              className={`px-4 py-2 text-sm font-semibold transition-colors ${
+                activeTab === 'missing'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
+              }`}
+            >
+              Missing Attendance
+            </button>
+          </div>
+          {activeTab === 'records' && (
+            <PermissionButton
+              permission="hr.attendance.review"
+              onClick={handleAdd}
+              className="flex items-center gap-2"
+            >
+              <Plus className="h-5 w-5" />
+              Add Record
+            </PermissionButton>
+          )}
+        </div>
       </div>
 
-      {/* Alerts */}
-      {error && (
-        <Alert variant="error" className="animate-in slide-in-from-top-5">
-          <XCircle className="h-4 w-4" />
-          {error}
-        </Alert>
-      )}
+      {activeTab === 'records' ? (
+        <>
+          {/* Alerts */}
+          {error && (
+            <Alert variant="error" className="animate-in slide-in-from-top-5">
+              <XCircle className="h-4 w-4" />
+              {error}
+            </Alert>
+          )}
 
-      {success && (
-        <Alert className="bg-green-50 border-green-200 text-green-800 animate-in slide-in-from-top-5">
-          <CheckCircle className="h-4 w-4" />
-          {success}
-        </Alert>
-      )}
+          {success && (
+            <Alert className="bg-green-50 border-green-200 text-green-800 animate-in slide-in-from-top-5">
+              <CheckCircle className="h-4 w-4" />
+              {success}
+            </Alert>
+          )}
 
-      {/* Filters */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Filter className="h-5 w-5" />
-            Filters
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Search</label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search by name or code..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-            </div>
-
-            <div className="relative employee-dropdown-container">
-              <label className="block text-sm font-medium mb-2">Employee</label>
-              <button
-                type="button"
-                onClick={() => setShowEmployeeDropdown(!showEmployeeDropdown)}
-                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-800 text-left flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-              >
-                <span className="text-sm">
-                  {selectedEmployee 
-                    ? employees.find(e => e.id === selectedEmployee)?.name || 'Selected Employee'
-                    : 'All Employees'}
-                </span>
-                <ChevronDown 
-                  className={`h-4 w-4 transition-transform ${showEmployeeDropdown ? 'transform rotate-180' : ''}`}
-                />
-              </button>
-              
-              {showEmployeeDropdown && (
-                <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border rounded-lg shadow-lg max-h-96 overflow-hidden flex flex-col">
-                  <div className="p-2 border-b border-gray-200 dark:border-gray-700">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                      <input
-                        type="text"
-                        placeholder="Search employee..."
-                        value={employeeSearchTerm}
-                        onChange={(e) => setEmployeeSearchTerm(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm"
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    </div>
-                  </div>
-                  <div className="overflow-y-auto max-h-80">
-                    <div
-                      onClick={() => {
-                        setSelectedEmployee('')
-                        setShowEmployeeDropdown(false)
-                        setEmployeeSearchTerm('')
-                      }}
-                      className={`px-3 py-2 cursor-pointer transition-colors ${
-                        selectedEmployee === ''
-                          ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300'
-                          : 'hover:bg-gray-50 dark:hover:bg-gray-700'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className={`w-4 h-4 border-2 rounded flex items-center justify-center ${
-                          selectedEmployee === ''
-                            ? 'border-indigo-600 dark:border-indigo-400 bg-indigo-600 dark:bg-indigo-400'
-                            : 'border-gray-300 dark:border-gray-600'
-                        }`}>
-                          {selectedEmployee === '' && <Check className="h-3 w-3 text-white" />}
-                        </div>
-                        <span className="text-sm font-medium">All Employees</span>
-                      </div>
-                    </div>
-                    {employees
-                      .filter((emp) => {
-                        if (!employeeSearchTerm) return true
-                        const searchLower = employeeSearchTerm.toLowerCase()
-                        return (
-                          emp.name?.toLowerCase().includes(searchLower) ||
-                          emp.employee_code?.toLowerCase().includes(searchLower) ||
-                          emp.job_title?.toLowerCase().includes(searchLower) ||
-                          emp.department?.toLowerCase().includes(searchLower)
-                        )
-                      })
-                      .map((emp) => {
-                        const isSelected = selectedEmployee === emp.id
-                        return (
-                          <div
-                            key={emp.id}
-                            onClick={() => {
-                              setSelectedEmployee(emp.id)
-                              setShowEmployeeDropdown(false)
-                              setEmployeeSearchTerm('')
-                            }}
-                            className={`px-3 py-2 cursor-pointer transition-colors ${
-                              isSelected
-                                ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300'
-                                : 'hover:bg-gray-50 dark:hover:bg-gray-700'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2">
-                              <div className={`w-4 h-4 border-2 rounded flex items-center justify-center ${
-                                isSelected
-                                  ? 'border-indigo-600 dark:border-indigo-400 bg-indigo-600 dark:bg-indigo-400'
-                                  : 'border-gray-300 dark:border-gray-600'
-                              }`}>
-                                {isSelected && <Check className="h-3 w-3 text-white" />}
-                              </div>
-                              <div className="flex-1">
-                                <p className="text-sm font-medium">{emp.name}</p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400">
-                                  {emp.employee_code}
-                                  {emp.job_title && ` • ${emp.job_title}`}
-                                  {emp.department && ` • ${emp.department}`}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    {employees.filter((emp) => {
-                      if (!employeeSearchTerm) return false
-                      const searchLower = employeeSearchTerm.toLowerCase()
-                      return (
-                        emp.name?.toLowerCase().includes(searchLower) ||
-                        emp.employee_code?.toLowerCase().includes(searchLower) ||
-                        emp.job_title?.toLowerCase().includes(searchLower) ||
-                        emp.department?.toLowerCase().includes(searchLower)
-                      )
-                    }).length === 0 && employeeSearchTerm && (
-                      <div className="px-3 py-4 text-center text-sm text-gray-500">
-                        No employees found
-                      </div>
-                    )}
+          {/* Filters */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Filter className="h-5 w-5" />
+                Filters
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">Search</label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search by name or code..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
+                    />
                   </div>
                 </div>
-              )}
-            </div>
 
-            <div>
-              <label className="block text-sm font-medium mb-2">Date</label>
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-2">Type</label>
-              <select
-                value={selectedType}
-                onChange={(e) => setSelectedType(e.target.value as any)}
-                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="all">All Types</option>
-                <option value="Check-In">Check-In</option>
-                <option value="Check-Out">Check-Out</option>
-              </select>
-            </div>
-
-            <div className="relative location-dropdown-container">
-              <label className="block text-sm font-medium mb-2">
-                Location(s) 
-                {selectedLocations.length > 0 && (
-                  <span className="text-xs text-indigo-600 dark:text-indigo-400 ml-1">
-                    ({selectedLocations.length} selected)
-                  </span>
-                )}
-              </label>
-              {locations.length === 0 ? (
-                <div className="text-sm text-gray-500 dark:text-gray-400 py-3 px-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
-                  <MapPin className="h-4 w-4 inline-block mr-2 opacity-50" />
-                  No locations found for the selected date
-                  {selectedDate && (
-                    <span className="block text-xs mt-1">
-                      No attendance records on {new Date(selectedDate).toLocaleDateString()}
-                    </span>
-                  )}
-                </div>
-              ) : (
-                <>
+                <div className="relative employee-dropdown-container">
+                  <label className="block text-sm font-medium mb-2">Employee</label>
                   <button
                     type="button"
-                    onClick={() => setShowLocationDropdown(!showLocationDropdown)}
+                    onClick={() => setShowEmployeeDropdown(!showEmployeeDropdown)}
                     className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-800 text-left flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                   >
                     <span className="text-sm">
-                      {selectedLocations.length === 0
-                        ? 'Select locations...'
-                        : `${selectedLocations.length} location(s) selected`}
+                      {selectedEmployee 
+                        ? employees.find(e => e.id === selectedEmployee)?.name || 'Selected Employee'
+                        : 'All Employees'}
                     </span>
                     <ChevronDown 
-                      className={`h-4 w-4 transition-transform ${showLocationDropdown ? 'transform rotate-180' : ''}`}
+                      className={`h-4 w-4 transition-transform ${showEmployeeDropdown ? 'transform rotate-180' : ''}`}
                     />
                   </button>
                   
-                  {showLocationDropdown && (
-                    <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                      <div className="p-2">
-                        {locations.map((loc) => {
-                          const isSelected = selectedLocations.includes(loc.id)
-                          return (
-                            <div
-                              key={loc.id}
-                              onClick={() => {
-                                if (isSelected) {
-                                  setSelectedLocations(selectedLocations.filter(id => id !== loc.id))
-                                } else {
-                                  setSelectedLocations([...selectedLocations, loc.id])
-                                }
-                              }}
-                              className={`flex items-center gap-2 px-3 py-2 rounded cursor-pointer transition-colors ${
-                                isSelected
-                                  ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300'
-                                  : 'hover:bg-gray-50 dark:hover:bg-gray-700'
-                              }`}
-                            >
-                              <div className={`w-4 h-4 border-2 rounded flex items-center justify-center ${
-                                isSelected
-                                  ? 'border-indigo-600 dark:border-indigo-400 bg-indigo-600 dark:bg-indigo-400'
-                                  : 'border-gray-300 dark:border-gray-600'
-                              }`}>
-                                {isSelected && <Check className="h-3 w-3 text-white" />}
-                              </div>
-                              <MapPin className="h-4 w-4 text-gray-400" />
-                              <span className="text-sm flex-1">{loc.name}</span>
+                  {showEmployeeDropdown && (
+                    <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border rounded-lg shadow-lg max-h-96 overflow-hidden flex flex-col">
+                      <div className="p-2 border-b border-gray-200 dark:border-gray-700">
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                          <input
+                            type="text"
+                            placeholder="Search employee..."
+                            value={employeeSearchTerm}
+                            onChange={(e) => setEmployeeSearchTerm(e.target.value)}
+                            className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm"
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        </div>
+                      </div>
+                      <div className="overflow-y-auto max-h-80">
+                        <div
+                          onClick={() => {
+                            setSelectedEmployee('')
+                            setShowEmployeeDropdown(false)
+                            setEmployeeSearchTerm('')
+                          }}
+                          className={`px-3 py-2 cursor-pointer transition-colors ${
+                            selectedEmployee === ''
+                              ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300'
+                              : 'hover:bg-gray-50 dark:hover:bg-gray-700'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className={`w-4 h-4 border-2 rounded flex items-center justify-center ${
+                              selectedEmployee === ''
+                                ? 'border-indigo-600 dark:border-indigo-400 bg-indigo-600 dark:bg-indigo-400'
+                                : 'border-gray-300 dark:border-gray-600'
+                            }`}>
+                              {selectedEmployee === '' && <Check className="h-3 w-3 text-white" />}
                             </div>
+                            <span className="text-sm font-medium">All Employees</span>
+                          </div>
+                        </div>
+                        {employees
+                          .filter((emp) => {
+                            if (!employeeSearchTerm) return true
+                            const searchLower = employeeSearchTerm.toLowerCase()
+                            return (
+                              emp.name?.toLowerCase().includes(searchLower) ||
+                              emp.employee_code?.toLowerCase().includes(searchLower) ||
+                              emp.job_title?.toLowerCase().includes(searchLower) ||
+                              emp.department?.toLowerCase().includes(searchLower)
+                            )
+                          })
+                          .map((emp) => {
+                            const isSelected = selectedEmployee === emp.id
+                            return (
+                              <div
+                                key={emp.id}
+                                onClick={() => {
+                                  setSelectedEmployee(emp.id)
+                                  setShowEmployeeDropdown(false)
+                                  setEmployeeSearchTerm('')
+                                }}
+                                className={`px-3 py-2 cursor-pointer transition-colors ${
+                                  isSelected
+                                    ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300'
+                                    : 'hover:bg-gray-50 dark:hover:bg-gray-700'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <div className={`w-4 h-4 border-2 rounded flex items-center justify-center ${
+                                    isSelected
+                                      ? 'border-indigo-600 dark:border-indigo-400 bg-indigo-600 dark:bg-indigo-400'
+                                      : 'border-gray-300 dark:border-gray-600'
+                                  }`}>
+                                    {isSelected && <Check className="h-3 w-3 text-white" />}
+                                  </div>
+                                  <div className="flex-1">
+                                    <p className="text-sm font-medium">{emp.name}</p>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                                      {emp.employee_code}
+                                      {emp.job_title && ` • ${emp.job_title}`}
+                                      {emp.department && ` • ${emp.department}`}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        {employees.filter((emp) => {
+                          if (!employeeSearchTerm) return false
+                          const searchLower = employeeSearchTerm.toLowerCase()
+                          return (
+                            emp.name?.toLowerCase().includes(searchLower) ||
+                            emp.employee_code?.toLowerCase().includes(searchLower) ||
+                            emp.job_title?.toLowerCase().includes(searchLower) ||
+                            emp.department?.toLowerCase().includes(searchLower)
                           )
-                        })}
+                        }).length === 0 && employeeSearchTerm && (
+                          <div className="px-3 py-4 text-center text-sm text-gray-500">
+                            No employees found
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
-                  
-                  {selectedLocations.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {selectedLocations.map((locId) => {
-                        const loc = locations.find(l => l.id === locId)
-                        return loc ? (
-                          <span
-                            key={locId}
-                            className="inline-flex items-center gap-1 px-2 py-1 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded text-xs font-medium"
-                          >
-                            <MapPin className="h-3 w-3" />
-                            {loc.name}
-                            <button
-                              onClick={() => setSelectedLocations(selectedLocations.filter(id => id !== locId))}
-                              className="hover:text-indigo-900 dark:hover:text-indigo-100 transition-colors"
-                              type="button"
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                          </span>
-                        ) : null
-                      })}
-                      <button
-                        onClick={() => setSelectedLocations([])}
-                        className="text-xs text-red-600 dark:text-red-400 hover:underline font-medium"
-                        type="button"
-                      >
-                        Clear All
-                      </button>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-2">Date</label>
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-2">Type</label>
+                  <select
+                    value={selectedType}
+                    onChange={(e) => setSelectedType(e.target.value as any)}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="all">All Types</option>
+                    <option value="Check-In">Check-In</option>
+                    <option value="Check-Out">Check-Out</option>
+                  </select>
+                </div>
+
+                <div className="relative location-dropdown-container">
+                  <label className="block text-sm font-medium mb-2">
+                    Location(s) 
+                    {selectedLocations.length > 0 && (
+                      <span className="text-xs text-indigo-600 dark:text-indigo-400 ml-1">
+                        ({selectedLocations.length} selected)
+                      </span>
+                    )}
+                  </label>
+                  {locations.length === 0 ? (
+                    <div className="text-sm text-gray-500 dark:text-gray-400 py-3 px-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
+                      <MapPin className="h-4 w-4 inline-block mr-2 opacity-50" />
+                      No locations found for the selected date
+                      {selectedDate && (
+                        <span className="block text-xs mt-1">
+                          No attendance records on {new Date(selectedDate).toLocaleDateString()}
+                        </span>
+                      )}
                     </div>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setShowLocationDropdown(!showLocationDropdown)}
+                        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-800 text-left flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                      >
+                        <span className="text-sm">
+                          {selectedLocations.length === 0
+                            ? 'Select locations...'
+                            : `${selectedLocations.length} location(s) selected`}
+                        </span>
+                        <ChevronDown 
+                          className={`h-4 w-4 transition-transform ${showLocationDropdown ? 'transform rotate-180' : ''}`}
+                        />
+                      </button>
+                      
+                      {showLocationDropdown && (
+                        <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                          <div className="p-2">
+                            {locations.map((loc) => {
+                              const isSelected = selectedLocations.includes(loc.id)
+                              return (
+                                <div
+                                  key={loc.id}
+                                  onClick={() => {
+                                    if (isSelected) {
+                                      setSelectedLocations(selectedLocations.filter(id => id !== loc.id))
+                                    } else {
+                                      setSelectedLocations([...selectedLocations, loc.id])
+                                    }
+                                  }}
+                                  className={`flex items-center gap-2 px-3 py-2 rounded cursor-pointer transition-colors ${
+                                    isSelected
+                                      ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300'
+                                      : 'hover:bg-gray-50 dark:hover:bg-gray-700'
+                                  }`}
+                                >
+                                  <div className={`w-4 h-4 border-2 rounded flex items-center justify-center ${
+                                    isSelected
+                                      ? 'border-indigo-600 dark:border-indigo-400 bg-indigo-600 dark:bg-indigo-400'
+                                      : 'border-gray-300 dark:border-gray-600'
+                                  }`}>
+                                    {isSelected && <Check className="h-3 w-3 text-white" />}
+                                  </div>
+                                  <MapPin className="h-4 w-4 text-gray-400" />
+                                  <span className="text-sm flex-1">{loc.name}</span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {selectedLocations.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {selectedLocations.map((locId) => {
+                            const loc = locations.find(l => l.id === locId)
+                            return loc ? (
+                              <span
+                                key={locId}
+                                className="inline-flex items-center gap-1 px-2 py-1 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded text-xs font-medium"
+                              >
+                                <MapPin className="h-3 w-3" />
+                                {loc.name}
+                                <button
+                                  onClick={() => setSelectedLocations(selectedLocations.filter(id => id !== locId))}
+                                  className="hover:text-indigo-900 dark:hover:text-indigo-100 transition-colors"
+                                  type="button"
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </span>
+                            ) : null
+                          })}
+                          <button
+                            onClick={() => setSelectedLocations([])}
+                            className="text-xs text-red-600 dark:text-red-400 hover:underline font-medium"
+                            type="button"
+                          >
+                            Clear All
+                          </button>
+                        </div>
+                      )}
+                    </>
                   )}
-                </>
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+      {/* Records Table */}
 
       {/* Records Table */}
       <Card>
@@ -1471,6 +1502,10 @@ export default function AttendanceReview() {
             </div>
           </div>
         </div>
+      )}
+        </>
+      ) : (
+        <MissingAttendance />
       )}
     </div>
   )

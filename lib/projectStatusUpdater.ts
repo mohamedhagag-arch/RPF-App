@@ -119,6 +119,7 @@ export async function updateProjectStatus(projectId: string): Promise<ProjectSta
     // ✅ Build update object with 'KPI Added' - if column doesn't exist, we'll retry without it
     const updateData: any = {
       project_status: statusResult.status,
+      'Project Status': statusResult.status, // ✅ تحديث عمود "Project Status" أيضاً
       status_confidence: statusResult.confidence,
       status_reason: statusResult.reason,
       status_updated_at: new Date().toISOString(),
@@ -146,6 +147,7 @@ export async function updateProjectStatus(projectId: string): Promise<ProjectSta
           .from(TABLES.PROJECTS)
           .update({
             project_status: statusResult.status,
+            'Project Status': statusResult.status, // ✅ تحديث عمود "Project Status" أيضاً
             status_confidence: statusResult.confidence,
             status_reason: statusResult.reason,
             status_updated_at: new Date().toISOString(),
