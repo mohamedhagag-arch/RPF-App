@@ -236,7 +236,7 @@ export default function CheckInOutPage() {
     }
   }
 
-  const loadTodayRecords = async (employeeId: string) => {
+  const loadTodayRecords = async (employeeId: string): Promise<AttendanceRecord[]> => {
     try {
       const today = new Date().toISOString().split('T')[0]
       const { data, error } = await supabase
@@ -249,8 +249,10 @@ export default function CheckInOutPage() {
 
       if (error) throw error
       setTodayRecords(data || [])
+      return data || []
     } catch (err: any) {
       console.error('Error loading today records:', err)
+      return []
     }
   }
 
@@ -568,8 +570,11 @@ export default function CheckInOutPage() {
       
       let result: { status: 'success' | 'error', message: string } = { status: 'success', message: '' }
       
-      // Decide action based on open session state
-      const hasOpenSession = todayRecords.filter(r => r.type === 'Check-In').length > todayRecords.filter(r => r.type === 'Check-Out').length
+      // Refresh today's records for this employee to get the latest state
+      const freshRecords = await loadTodayRecords(employee.id)
+      const ins = freshRecords.filter(r => r.type === 'Check-In')
+      const outs = freshRecords.filter(r => r.type === 'Check-Out')
+      const hasOpenSession = ins.length > outs.length
       const mode: 'Check-In' | 'Check-Out' = hasOpenSession ? 'Check-Out' : 'Check-In'
       setQrCheckType(mode)
 
