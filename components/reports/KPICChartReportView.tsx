@@ -246,16 +246,11 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
     // Exact match (case-insensitive)
     if (norm1 === norm2) return true
     
-    // Extract numbers and compare
+    // Extract numbers and compare (strict equality on number)
     const num1 = extractZoneNumber(norm1)
     const num2 = extractZoneNumber(norm2)
     
     if (num1 && num2 && num1 === num2) {
-      return true
-    }
-    
-    // Check if one contains the other (for cases like "P5066-I2 - 1" vs "1")
-    if (norm1.includes(norm2) || norm2.includes(norm1)) {
       return true
     }
     
@@ -272,28 +267,18 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
     const activityProjectCode = (activity.project_code || '').toString().trim().toUpperCase()
     const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
     
-    let projectMatch = false
-    if (activityProjectFullCode && activityProjectFullCode.includes('-')) {
-      if (kpiProjectFullCode && kpiProjectFullCode === activityProjectFullCode) {
-        projectMatch = true
-      }
-    } else {
-      projectMatch = (
-        (kpiProjectCode && activityProjectCode && kpiProjectCode === activityProjectCode) ||
-        (kpiProjectFullCode && activityProjectFullCode && kpiProjectFullCode === activityProjectFullCode)
-      )
-    }
+    // Strict project match: prefer full code, otherwise code, no startsWith
+    const projectMatch =
+      (activityProjectFullCode && kpiProjectFullCode && kpiProjectFullCode === activityProjectFullCode) ||
+      (!activityProjectFullCode && activityProjectCode && kpiProjectCode === activityProjectCode)
     
     if (!projectMatch) return false
     
-    // 2. Activity Name Matching
-    const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
-    const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
-    const activityMatch = kpiActivityName && activityName && (
-      kpiActivityName === activityName || 
-      kpiActivityName.includes(activityName) || 
-      activityName.includes(kpiActivityName)
-    )
+    // 2. Activity Name Matching (strict normalized match to avoid false positives)
+    const normalizeName = (val: string) => val.toString().trim().toLowerCase()
+    const kpiActivityName = normalizeName(kpi.activity_name || rawKPI['Activity Name'] || '')
+    const activityName = normalizeName(activity.activity_name || activity.activity || '')
+    const activityMatch = kpiActivityName && activityName && kpiActivityName === activityName
     
     if (!activityMatch) return false
     
@@ -326,18 +311,17 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
     const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
     const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
     
-    let projectMatch = false
-    if (projectFullCode && projectFullCode.includes('-')) {
-      projectMatch = kpiProjectFullCode === projectFullCode || kpiProjectFullCode.startsWith(projectFullCode.split('-')[0])
-    } else {
-      projectMatch = kpiProjectCode === projectFullCode || kpiProjectFullCode.startsWith(projectFullCode)
-    }
+    // Strict project match for combined view
+    const projectMatch =
+      (projectFullCode && kpiProjectFullCode === projectFullCode) ||
+      (!projectFullCode && kpiProjectCode === projectFullCode)
     
     if (!projectMatch) return false
     
     // 2. Activity Name Matching (case-insensitive, ignore zone)
-    const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || rawKPI['Activity'] || '').toString().trim().toLowerCase()
-    const normalizedActivityName = activityName.toLowerCase().trim()
+    const normalizeName = (val: string) => val.toString().trim().toLowerCase()
+    const kpiActivityName = normalizeName(kpi.activity_name || rawKPI['Activity Name'] || rawKPI['Activity'] || '')
+    const normalizedActivityName = normalizeName(activityName)
     
     if (!kpiActivityName || !normalizedActivityName) return false
     if (kpiActivityName !== normalizedActivityName) return false
@@ -433,18 +417,20 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
           return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
         }
         
-        // Helper function to get period key based on groupBy
+        // Helper function to get period key based on groupBy (LOCAL date, avoid UTC shift)
         const getPeriodKey = (date: Date): string => {
+          const year = date.getFullYear()
+          const month = date.getMonth() + 1
+          const day = date.getDate()
+          
           if (groupBy === 'daily') {
-            return date.toISOString().split('T')[0]
+            // Use local date components instead of toISOString
+            return `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`
           } else if (groupBy === 'weekly') {
             // Get week number and year using ISO week calculation
-            const year = date.getFullYear()
             const weekNumber = getWeekNumber(date)
             return `${year}-W${weekNumber}`
           } else { // monthly
-            const year = date.getFullYear()
-            const month = date.getMonth() + 1
             return `${year}-${month.toString().padStart(2, '0')}`
           }
         }
@@ -460,10 +446,11 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
           }
         }
         
-        // Helper function to get period start and end dates
+        // Helper function to get period start and end dates (parse as LOCAL components)
         const getPeriodDates = (periodKey: string): { start: Date; end: Date } => {
           if (groupBy === 'daily') {
-            const date = new Date(periodKey)
+            const [y, m, d] = periodKey.split('-').map(Number)
+            const date = new Date(y, (m || 1) - 1, d || 1)
             date.setHours(0, 0, 0, 0)
             return { start: date, end: date }
           } else if (groupBy === 'weekly') {
