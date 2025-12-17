@@ -1827,9 +1827,9 @@ export function EnhancedSmartActualKPIForm({
     })
 
     return (
-      <div className="w-full max-w-4xl mx-auto">
+      <div className="smart-kpi-form w-full max-w-4xl mx-auto px-2 sm:px-4">
         <ModernCard className="w-full">
-          <div className="p-6">
+          <div className="p-4 sm:p-6">
             {/* Header */}
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
@@ -1951,12 +1951,12 @@ export function EnhancedSmartActualKPIForm({
     const remainingActivities = getRemainingActivities()
     
     return (
-      <div className="w-full mx-auto px-2 sm:px-4">
+      <div className="smart-kpi-form w-full max-w-6xl mx-auto px-2 sm:px-4">
         <div className="flex flex-col lg:flex-row gap-3 lg:gap-4">
           {/* Sidebar - Activities List */}
           <div className="w-full lg:w-[38%] lg:min-w-[350px]">
             <ModernCard className="w-full h-fit">
-              <div className="p-6">
+              <div className="p-4 sm:p-6">
                 {/* Header */}
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-3">
@@ -2306,14 +2306,14 @@ export function EnhancedSmartActualKPIForm({
     console.log('🔍 Form step - currentActivity:', currentActivity?.activity_name, 'selectedActivity:', selectedActivity?.activity_name)
     
     return (
-      <div className="w-full mx-auto px-2 sm:px-4">
+      <div className="smart-kpi-form w-full max-w-6xl mx-auto px-2 sm:px-4">
         <div className="flex flex-col lg:flex-row gap-3 lg:gap-4">
           {/* Sidebar - Activities List (Always Visible) */}
           <div className="w-full lg:w-[38%] lg:min-w-[350px]">
             <ModernCard className="w-full h-fit">
-              <div className="p-6">
+              <div className="p-4 sm:p-6">
                 {/* Header */}
-                <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
                       <Activity className="w-5 h-5 text-white" />
@@ -2610,7 +2610,7 @@ export function EnhancedSmartActualKPIForm({
               // Preview Section
               <ModernCard className="w-full">
                 <div className="p-6">
-                  <div className="text-center mb-6">
+              <div className="text-center mb-6">
                     <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
                       <CheckCircle2 className="w-8 h-8 text-white" />
                     </div>
@@ -2843,11 +2843,11 @@ export function EnhancedSmartActualKPIForm({
                   </div>
 
                   {/* Action Buttons */}
-                  <div className="flex justify-between">
+                  <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
                     <Button
                       variant="outline"
                       onClick={() => setShowPreview(false)}
-                      className="text-gray-600 hover:text-gray-800"
+                      className="w-full sm:w-auto justify-center text-gray-600 hover:text-gray-800"
                     >
                       <ArrowLeft className="w-4 h-4 mr-2" />
                       Back to Activities
@@ -2855,7 +2855,7 @@ export function EnhancedSmartActualKPIForm({
                     <Button
                       onClick={handleSubmitAllActivities}
                       disabled={loading || isSubmitting || hasSubmitted}
-                      className={`text-white ${
+                      className={`w-full sm:w-auto justify-center text-white ${
                         hasSubmitted 
                           ? 'bg-gray-500 cursor-not-allowed' 
                           : isSubmitting 
@@ -3371,21 +3371,21 @@ export function EnhancedSmartActualKPIForm({
             )}
 
             {/* Action Buttons */}
-            <div className="flex justify-between mt-8">
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 mt-8">
               <Button
                 variant="outline"
                 onClick={() => setCurrentStep('activities')}
-                className="text-gray-600 hover:text-gray-800"
+                className="w-full sm:w-auto justify-center text-gray-600 hover:text-gray-800"
               >
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 Back to Activities
               </Button>
 
-              <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+              <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full sm:w-auto">
                 <Button
                   variant="outline"
                   onClick={onCancel}
-                  className="w-full sm:w-auto text-gray-600 hover:text-gray-800"
+                  className="w-full sm:w-auto justify-center text-gray-600 hover:text-gray-800"
                 >
                   Cancel
                 </Button>
@@ -3400,7 +3400,7 @@ export function EnhancedSmartActualKPIForm({
                     recorded_by: 'Engineer'
                   })}
                   disabled={loading || !quantity || !unit}
-                  className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
+                  className="w-full sm:w-auto justify-center bg-green-600 hover:bg-green-700 text-white"
                 >
                   {loading ? (
                     <>

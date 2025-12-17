@@ -465,6 +465,19 @@ body {
 /* Responsive Design */
 /* Sidebar mobile behavior is handled via component classes (translate-x utilities) */
 
+/* Smart KPI Form - mobile buttons full width */
+@media (max-width: 640px) {
+  .smart-kpi-form button {
+    width: 100%;
+    justify-content: center;
+  }
+  .smart-kpi-form .flex-row,
+  .smart-kpi-form .flex-row-actions {
+    flex-direction: column;
+    gap: 8px;
+  }
+}
+
 /* تحسينات الاستجابة للأجهزة المختلفة */
 @media (max-width: 1920px) {
   .card-modern {

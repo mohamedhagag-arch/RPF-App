@@ -147,7 +147,7 @@ export function KPINotificationsDropdown({ onClose }: KPINotificationsDropdownPr
   return (
     <div
       ref={dropdownRef}
-      className="absolute top-full right-0 mt-2 w-96 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-50 max-h-[600px] flex flex-col"
+      className="absolute top-full mt-2 w-[92vw] max-w-md sm:w-96 sm:max-w-none left-1/2 -translate-x-1/2 sm:left-auto sm:right-0 sm:translate-x-0 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-50 max-h-[70vh] sm:max-h-[600px] flex flex-col"
     >
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
