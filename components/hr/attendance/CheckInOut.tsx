@@ -37,6 +37,8 @@ export function CheckInOut() {
   const [employees, setEmployees] = useState<AttendanceEmployee[]>([])
   const [locations, setLocations] = useState<AttendanceLocation[]>([])
   const [todayAttendance, setTodayAttendance] = useState<any[]>([])
+  const [lastCheckInTime, setLastCheckInTime] = useState<string | null>(null)
+  const [openSessionStart, setOpenSessionStart] = useState<string | null>(null)
   const [nearestLocation, setNearestLocation] = useState<AttendanceLocation | null>(null)
   const [showQRScanner, setShowQRScanner] = useState(false)
   const [qrCheckType, setQrCheckType] = useState<'Check-In' | 'Check-Out'>('Check-In')
@@ -122,10 +124,22 @@ export function CheckInOut() {
         .select('*')
         .eq('employee_id', selectedEmployee)
         .eq('date', today)
-        .order('check_time', { ascending: false })
+        .order('check_time', { ascending: true })
 
       if (error) throw error
-      setTodayAttendance(data || [])
+      const rows = data || []
+      setTodayAttendance(rows)
+      const lastIn = ([...rows] as any[]).filter((r: any) => r.type === 'Check-In').pop() as any
+      setLastCheckInTime(lastIn?.check_time || null)
+
+      const ins = rows.filter((r: any) => r.type === 'Check-In')
+      const outs = rows.filter((r: any) => r.type === 'Check-Out')
+      if (ins.length > outs.length) {
+        const open: any = ins[ins.length - 1]
+        setOpenSessionStart(open?.check_time || null)
+      } else {
+        setOpenSessionStart(null)
+      }
     } catch (err: any) {
       console.error('Error fetching today attendance:', err)
     }
@@ -248,13 +262,12 @@ export function CheckInOut() {
       const today = new Date().toISOString().split('T')[0]
       const checkTime = currentTime.toTimeString().split(' ')[0]
 
-      // Check if already checked in today
-      const existingCheckIn = todayAttendance.find(
-        att => att.type === 'Check-In'
-      )
+      const ins = todayAttendance.filter(att => att.type === 'Check-In')
+      const outs = todayAttendance.filter(att => att.type === 'Check-Out')
+      const hasOpenSession = ins.length > outs.length
 
-      if (existingCheckIn) {
-        alert('Already checked in today')
+      if (hasOpenSession) {
+        alert('You already have an open check-in. Please check out first.')
         setCheckingIn(false)
         return
       }
@@ -307,36 +320,44 @@ export function CheckInOut() {
       const today = new Date().toISOString().split('T')[0]
       const checkTime = currentTime.toTimeString().split(' ')[0]
 
-      // Check if checked in today
-      const checkIn = todayAttendance.find(
-        att => att.type === 'Check-In'
-      )
+      // Get ordered lists
+      const checkInsToday = todayAttendance.filter(att => att.type === 'Check-In')
+      const checkOutsToday = todayAttendance.filter(att => att.type === 'Check-Out')
+      const hasOpenSession = checkInsToday.length > checkOutsToday.length
+      const lastCheckIn = checkInsToday[checkInsToday.length - 1]
 
-      if (!checkIn) {
-        alert('Please check in first')
+      if (!lastCheckIn || !hasOpenSession) {
+        alert('Please check in first (or you already checked out this session)')
         setCheckingOut(false)
         return
       }
 
-      // Check if already checked out
-      const existingCheckOut = todayAttendance.find(
-        att => att.type === 'Check-Out'
-      )
-
-      if (existingCheckOut) {
-        alert('Already checked out today')
-        setCheckingOut(false)
-        return
-      }
-
-      // Calculate work duration
-      const checkInTime = checkIn.check_time
-      const [inHour, inMinute] = checkInTime.split(':').map(Number)
-      const [outHour, outMinute] = checkTime.split(':').map(Number)
-      
+      // Enforce min 60 minutes since last check-in
+      const nowMinutes = currentTime.getHours() * 60 + currentTime.getMinutes()
+      const [inHour, inMinute] = lastCheckIn.check_time.split(':').map(Number)
       const inMinutes = inHour * 60 + inMinute
+      if (nowMinutes - inMinutes < 60) {
+        alert('Check-Out is allowed after at least 60 minutes from the last Check-In')
+        setCheckingOut(false)
+        return
+      }
+
+      // Prevent duplicate checkout for same last check-in (if already checked out after that check-in)
+      const lastCheckOut = checkOutsToday[checkOutsToday.length - 1]
+      if (lastCheckOut) {
+        const [outHPrev, outMPrev] = lastCheckOut.check_time.split(':').map(Number)
+        const prevOutMinutes = outHPrev * 60 + outMPrev
+        if (prevOutMinutes >= inMinutes) {
+          alert('You already checked out for the latest check-in session')
+          setCheckingOut(false)
+          return
+        }
+      }
+
+      // Calculate work duration based on this session only
+      const [outHour, outMinute] = checkTime.split(':').map(Number)
       const outMinutes = outHour * 60 + outMinute
-      const workDurationHours = (outMinutes - inMinutes) / 60
+      const workDurationHours = Math.max(0, (outMinutes - inMinutes) / 60)
 
       const workEndTime = '17:00:00'
       const [endHour, endMinute] = workEndTime.split(':').map(Number)
@@ -366,8 +387,8 @@ export function CheckInOut() {
       await supabase
         .from(TABLES.ATTENDANCE_RECORDS)
         // @ts-ignore - Attendance tables not in Supabase types yet
-        .update({ work_duration_hours: workDurationHours })
-        .eq('id', checkIn.id)
+          .update({ work_duration_hours: workDurationHours })
+          .eq('id', lastCheckIn.id)
 
       alert('Check-out successful!')
       setNotes('')
@@ -397,8 +418,16 @@ export function CheckInOut() {
     })
   }
 
-  const hasCheckedIn = todayAttendance.some(att => att.type === 'Check-In')
-  const hasCheckedOut = todayAttendance.some(att => att.type === 'Check-Out')
+  const checkInsToday = todayAttendance.filter(att => att.type === 'Check-In')
+  const checkOutsToday = todayAttendance.filter(att => att.type === 'Check-Out')
+  const openSessionCheckIn = checkInsToday.length > checkOutsToday.length
+    ? checkInsToday[checkInsToday.length - 1]
+    : null
+  const minutesSinceOpen = openSessionCheckIn
+    ? (currentTime.getHours() * 60 + currentTime.getMinutes()) -
+      (parseInt(openSessionCheckIn.check_time.split(':')[0]) * 60 + parseInt(openSessionCheckIn.check_time.split(':')[1]))
+    : 0
+  const canCheckoutNow = !!openSessionCheckIn && minutesSinceOpen >= 60
 
   return (
     <div className="space-y-6">
@@ -532,27 +561,34 @@ export function CheckInOut() {
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {hasCheckedIn && (
+              {checkInsToday.length > 0 && (
                 <div className="flex items-center text-green-600">
                   <CheckCircle className="h-5 w-5 mr-2" />
-                  <span>Checked In: {todayAttendance.find(att => att.type === 'Check-In')?.check_time}</span>
-                  {todayAttendance.find(att => att.type === 'Check-In')?.is_late && (
-                    <span className="ml-2 text-orange-600">(Late)</span>
-                  )}
+                  <span>
+                    First Check-In: {checkInsToday[0].check_time} {checkInsToday[0].is_late && <span className="text-orange-600">(Late)</span>}
+                  </span>
                 </div>
               )}
-              {hasCheckedOut && (
+              {openSessionCheckIn && (
                 <div className="flex items-center text-blue-600">
                   <CheckCircle className="h-5 w-5 mr-2" />
-                  <span>Checked Out: {todayAttendance.find(att => att.type === 'Check-Out')?.check_time}</span>
-                  {todayAttendance.find(att => att.type === 'Check-Out')?.is_early && (
-                    <span className="ml-2 text-orange-600">(Early)</span>
-                  )}
+                  <span>Open Session: started at {openSessionCheckIn.check_time}</span>
                 </div>
               )}
-              {hasCheckedIn && hasCheckedOut && (
+              {checkOutsToday.length > 0 && (
+                <div className="flex items-center text-blue-600">
+                  <CheckCircle className="h-5 w-5 mr-2" />
+                  <span>
+                    Last Check-Out: {checkOutsToday[checkOutsToday.length - 1].check_time}
+                    {checkOutsToday[checkOutsToday.length - 1].is_early && (
+                      <span className="ml-2 text-orange-600">(Early)</span>
+                    )}
+                  </span>
+                </div>
+              )}
+              {checkOutsToday.length > 0 && (
                 <div className="text-sm text-gray-600 dark:text-gray-400">
-                  Work Duration: {todayAttendance.find(att => att.type === 'Check-Out')?.work_duration_hours?.toFixed(2) || '0'} hours
+                  Last Session Duration: {checkOutsToday[checkOutsToday.length - 1].work_duration_hours?.toFixed(2) || '0'} hours
                 </div>
               )}
             </div>
@@ -580,7 +616,7 @@ export function CheckInOut() {
               <PermissionButton
                 permission="hr.attendance.check_in_out"
                 onClick={handleCheckIn}
-                disabled={!location || checkingIn || !isOnline || hasCheckedIn || !canCheckInOut}
+                disabled={!location || checkingIn || !isOnline || !canCheckInOut || !!openSessionCheckIn}
                 className="flex-1"
                 size="lg"
               >
@@ -600,7 +636,7 @@ export function CheckInOut() {
               <PermissionButton
                 permission="hr.attendance.check_in_out"
                 onClick={handleCheckOut}
-                disabled={!location || checkingOut || !isOnline || !hasCheckedIn || hasCheckedOut || !canCheckInOut}
+                disabled={!location || checkingOut || !isOnline || !canCheckInOut || !openSessionCheckIn || !canCheckoutNow}
                 variant="outline"
                 className="flex-1"
                 size="lg"
@@ -620,7 +656,7 @@ export function CheckInOut() {
 
               <Button
                 onClick={() => {
-                  setQrCheckType('Check-In')
+                  setQrCheckType(openSessionCheckIn ? 'Check-Out' : 'Check-In')
                   setShowQRScanner(true)
                 }}
                 variant="outline"
@@ -630,6 +666,12 @@ export function CheckInOut() {
                 <QrCode className="h-5 w-5" />
               </Button>
             </div>
+
+            {openSessionCheckIn && (
+              <div className="text-sm text-gray-600 dark:text-gray-300">
+                Open session since {openSessionCheckIn.check_time}. Check-Out allowed after 60 min (elapsed {Math.max(0, minutesSinceOpen)} min).
+              </div>
+            )}
 
             {!isOnline && (
               <Alert variant="error">
