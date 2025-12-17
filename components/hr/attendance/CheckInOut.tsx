@@ -465,12 +465,12 @@ export function CheckInOut() {
               variant="outline"
               size="sm"
               onClick={() => {
-                setQrCheckType('Check-In')
+                setQrCheckType(openSessionCheckIn ? 'Check-Out' : 'Check-In')
                 setShowQRScanner(true)
               }}
             >
               <QrCode className="h-4 w-4 mr-2" />
-              Scan QR Code
+              Scan QR Code ({openSessionCheckIn ? 'Check-Out' : 'Check-In'})
             </Button>
           </div>
         </CardHeader>
@@ -661,7 +661,7 @@ export function CheckInOut() {
                 }}
                 variant="outline"
                 size="lg"
-                title="Scan QR Code for Check-In"
+                title={`Scan QR Code for ${openSessionCheckIn ? 'Check-Out' : 'Check-In'}`}
               >
                 <QrCode className="h-5 w-5" />
               </Button>
@@ -690,15 +690,23 @@ export function CheckInOut() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="max-w-2xl w-full">
             <QRCodeScanner
-              checkType={qrCheckType}
+              checkType={openSessionCheckIn ? 'Check-Out' : 'Check-In'}
               onScanSuccess={(employee) => {
                 setSelectedEmployee(employee.id)
+                // Decide mode based on current open session
+                const mode: 'Check-In' | 'Check-Out' = openSessionCheckIn ? 'Check-Out' : 'Check-In'
+                setQrCheckType(mode)
                 setShowQRScanner(false)
-                // Auto-trigger check-in/out after 500ms
+                // Auto-trigger after 500ms to allow state update
                 setTimeout(() => {
-                  if (qrCheckType === 'Check-In') {
+                  if (mode === 'Check-In') {
                     handleCheckIn()
                   } else {
+                    // Respect 60-minute rule
+                    if (!canCheckoutNow) {
+                      alert('Check-Out allowed after at least 60 minutes from last Check-In')
+                      return
+                    }
                     handleCheckOut()
                   }
                 }, 500)
