@@ -1436,33 +1436,35 @@ export function EmployeesManagement() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-            <Users className="h-6 w-6 text-green-500" />
-            Employees Management
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+            <Users className="h-5 w-5 sm:h-6 sm:w-6 text-green-500" />
+            <span className="break-words">Employees Management</span>
           </h2>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">
+          <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400 mt-1">
             Manage employee records for attendance tracking
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <PermissionButton
             permission="hr.attendance.employees.create"
             variant="outline"
             onClick={handleImportFromHRManpower}
             disabled={isImportingFromHR}
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 text-xs sm:text-sm flex-1 sm:flex-initial"
           >
             {isImportingFromHR ? (
               <>
                 <RefreshCw className="h-4 w-4 animate-spin" />
-                Importing...
+                <span className="hidden sm:inline">Importing...</span>
+                <span className="sm:hidden">Importing</span>
               </>
             ) : (
               <>
                 <Briefcase className="h-4 w-4" />
-                Import from HR Manpower
+                <span className="hidden sm:inline">Import from HR Manpower</span>
+                <span className="sm:hidden">Import</span>
               </>
             )}
           </PermissionButton>
@@ -1481,9 +1483,11 @@ export function EmployeesManagement() {
               status: 'Active'
             })
             }}
+            className="flex-1 sm:flex-initial text-xs sm:text-sm"
           >
-            <Plus className="h-4 w-4 mr-2" />
-            Add Employee
+            <Plus className="h-4 w-4 sm:mr-2" />
+            <span className="hidden sm:inline">Add Employee</span>
+            <span className="sm:hidden">Add</span>
           </PermissionButton>
         </div>
       </div>
@@ -1831,8 +1835,8 @@ export function EmployeesManagement() {
           <div className="space-y-4">
             {filteredEmployees.length > 0 ? (
               filteredEmployees.map((employee) => (
-                <div key={employee.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
-                  <div className="flex items-center space-x-4">
+                <div key={employee.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-2 p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
+                  <div className="flex items-center space-x-3 sm:space-x-4 flex-1 min-w-0">
                     <button
                       onClick={() => toggleEmployeeSelection(employee.id)}
                       className="flex-shrink-0 w-5 h-5 border-2 rounded flex items-center justify-center transition-colors hover:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -1844,47 +1848,47 @@ export function EmployeesManagement() {
                         <Square className="h-4 w-4 text-gray-400" />
                       )}
                     </button>
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                    <div className={`flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center ${
                       employee.status === 'Active' ? 'bg-green-100' : 'bg-red-100'
                     }`}>
-                      <Users className={`h-6 w-6 ${
+                      <Users className={`h-5 w-5 sm:h-6 sm:w-6 ${
                         employee.status === 'Active' ? 'text-green-600' : 'text-red-600'
                       }`} />
                     </div>
-                    <div>
-                      <h3 className="font-medium">{employee.name}</h3>
-                      <p className="text-sm text-gray-500">{employee.employee_code}</p>
-                      <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-medium truncate">{employee.name}</h3>
+                      <p className="text-sm text-gray-500 truncate">{employee.employee_code}</p>
+                      <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs sm:text-sm text-gray-500 mt-1">
                         {employee.job_title && (
-                          <span className="flex items-center gap-1">
-                            <Building className="h-4 w-4" />
-                            {employee.job_title}
+                          <span className="flex items-center gap-1 truncate max-w-full">
+                            <Building className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                            <span className="truncate">{employee.job_title}</span>
                           </span>
                         )}
                         {employee.department && (
-                          <span className="flex items-center gap-1">
-                            <Building className="h-4 w-4" />
-                            {employee.department}
+                          <span className="flex items-center gap-1 truncate max-w-full">
+                            <Building className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                            <span className="truncate">{employee.department}</span>
                           </span>
                         )}
                         {employee.phone_number && (
-                          <span className="flex items-center gap-1">
-                            <Phone className="h-4 w-4" />
-                            {employee.phone_number}
+                          <span className="flex items-center gap-1 truncate max-w-full">
+                            <Phone className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                            <span className="truncate">{employee.phone_number}</span>
                           </span>
                         )}
                         {employee.email && (
-                          <span className="flex items-center gap-1">
-                            <Mail className="h-4 w-4" />
-                            {employee.email}
+                          <span className="flex items-center gap-1 truncate max-w-full">
+                            <Mail className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                            <span className="truncate">{employee.email}</span>
                           </span>
                         )}
                       </div>
                     </div>
                   </div>
                   
-                  <div className="flex items-center gap-2">
-                    <span className={`px-2 py-1 rounded-full text-xs ${
+                  <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+                    <span className={`px-2 py-1 rounded-full text-xs whitespace-nowrap ${
                       employee.status === 'Active' 
                         ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' 
                         : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
@@ -1918,8 +1922,9 @@ export function EmployeesManagement() {
                         }
                       }}
                       title="View QR Code"
+                      className="p-1.5 sm:p-2"
                     >
-                      <QrCode className="h-4 w-4" />
+                      <QrCode className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                     </Button>
                     
                     <Button
@@ -1927,8 +1932,9 @@ export function EmployeesManagement() {
                       size="sm"
                       onClick={() => setViewingIDCard(employee)}
                       title="Generate ID Card"
+                      className="p-1.5 sm:p-2"
                     >
-                      <CreditCard className="h-4 w-4" />
+                      <CreditCard className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                     </Button>
                     
                     <PermissionButton
@@ -1936,8 +1942,9 @@ export function EmployeesManagement() {
                       variant="outline"
                       size="sm"
                       onClick={() => handleEdit(employee)}
+                      className="p-1.5 sm:p-2"
                     >
-                      <Edit className="h-4 w-4" />
+                      <Edit className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                     </PermissionButton>
                     
                     <PermissionButton
@@ -1945,9 +1952,9 @@ export function EmployeesManagement() {
                       variant="outline"
                       size="sm"
                       onClick={() => handleDelete(employee.id)}
-                      className="text-red-600 hover:text-red-700"
+                      className="text-red-600 hover:text-red-700 p-1.5 sm:p-2"
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                     </PermissionButton>
                   </div>
                 </div>

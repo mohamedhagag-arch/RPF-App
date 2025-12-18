@@ -184,11 +184,11 @@ export function LocationsManagement() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
-            <MapPin className="h-6 w-6 text-green-500" />
-            Locations Management
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
+            <MapPin className="h-5 w-5 sm:h-6 sm:w-6 text-green-500" />
+            <span className="break-words">Locations Management</span>
           </h2>
-          <p className="text-gray-600 dark:text-gray-400">
+          <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400">
             Manage GPS locations for attendance tracking
           </p>
         </div>
@@ -416,33 +416,33 @@ export function LocationsManagement() {
           <div className="space-y-4">
             {filteredLocations.length > 0 ? (
               filteredLocations.map((location) => (
-                <div key={location.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
-                  <div className="flex items-center space-x-4">
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                <div key={location.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-2 p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
+                  <div className="flex items-center space-x-3 sm:space-x-4 flex-1 min-w-0">
+                    <div className={`flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center ${
                       location.is_active ? 'bg-green-100 dark:bg-green-900' : 'bg-gray-100 dark:bg-gray-800'
                     }`}>
-                      <MapPin className={`h-6 w-6 ${
+                      <MapPin className={`h-5 w-5 sm:h-6 sm:w-6 ${
                         location.is_active ? 'text-green-600' : 'text-gray-400'
                       }`} />
                     </div>
-                    <div>
-                      <h3 className="font-medium">{location.name}</h3>
-                      <p className="text-sm text-gray-500">{location.description || 'No description'}</p>
-                      <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
-                        <span className="flex items-center gap-1">
-                          <Globe className="h-4 w-4" />
-                          {location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-medium truncate">{location.name}</h3>
+                      <p className="text-xs sm:text-sm text-gray-500 truncate">{location.description || 'No description'}</p>
+                      <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs sm:text-sm text-gray-500 mt-1">
+                        <span className="flex items-center gap-1 truncate max-w-full">
+                          <Globe className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                          <span className="truncate">{location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}</span>
                         </span>
-                        <span className="flex items-center gap-1">
-                          <Radio className="h-4 w-4" />
+                        <span className="flex items-center gap-1 whitespace-nowrap">
+                          <Radio className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                           {location.radius_meters}m radius
                         </span>
                       </div>
                     </div>
                   </div>
                   
-                  <div className="flex items-center gap-2">
-                    <span className={`px-2 py-1 rounded-full text-xs ${
+                  <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+                    <span className={`px-2 py-1 rounded-full text-xs whitespace-nowrap ${
                       location.is_active 
                         ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' 
                         : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
@@ -454,17 +454,18 @@ export function LocationsManagement() {
                       variant="outline"
                       size="sm"
                       onClick={() => handleEdit(location)}
+                      className="p-1.5 sm:p-2"
                     >
-                      <Edit className="h-4 w-4" />
+                      <Edit className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                     </Button>
                     
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => handleDelete(location.id)}
-                      className="text-red-600 hover:text-red-700"
+                      className="text-red-600 hover:text-red-700 p-1.5 sm:p-2"
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                     </Button>
                   </div>
                 </div>

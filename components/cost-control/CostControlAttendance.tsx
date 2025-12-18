@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { PermissionButton } from '@/components/ui/PermissionButton'
-import { Calendar, Clock, UserCheck, TrendingUp, Users, AlertCircle, CheckCircle, MapPin, BarChart3, Settings, Plus, Search, Filter, Download } from 'lucide-react'
+import { Calendar, Clock, UserCheck, TrendingUp, Users, AlertCircle, CheckCircle, MapPin, BarChart3, Settings, Plus, Search, Filter, Download, QrCode } from 'lucide-react'
 import { PermissionPage } from '@/components/ui/PermissionPage'
 import { DynamicTitle } from '@/components/ui/DynamicTitle'
 import { supabase, TABLES, AttendanceStats, AttendanceEmployee, AttendanceRecord } from '@/lib/supabase'
@@ -271,123 +271,134 @@ export default function CostControlAttendance() {
       accessDeniedMessage="You need permission to view attendance data. Please contact your administrator."
     >
       <DynamicTitle pageTitle="Attendance" />
-      <div className="p-6">
+      <div className="p-4 sm:p-6">
         <div className="space-y-6">
           {/* Header */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2 flex items-center gap-3">
-                <Calendar className="h-8 w-8 text-green-500" />
-                Attendance Management
+              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white mb-2 flex items-center gap-2 sm:gap-3">
+                <Calendar className="h-6 w-6 sm:h-8 sm:w-8 text-green-500" />
+                <span className="break-words">Attendance Management</span>
               </h1>
-              <p className="text-gray-600 dark:text-gray-400">
+              <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400">
                 Manage and track employee attendance records
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <PermissionButton
                 permission="hr.attendance.reports.export"
                 variant="outline" 
                 onClick={() => setActiveTab('reports')}
+                className="text-xs sm:text-sm"
               >
-                <Download className="h-4 w-4 mr-2" />
-                Export
+                <Download className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Export</span>
               </PermissionButton>
               <PermissionButton
                 permission="hr.attendance.settings.manage"
                 variant="outline" 
                 onClick={() => setActiveTab('settings')}
+                className="text-xs sm:text-sm"
               >
-                <Settings className="h-4 w-4 mr-2" />
-                Settings
+                <Settings className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Settings</span>
               </PermissionButton>
             </div>
           </div>
 
           {/* Tabs */}
-          <div className="flex space-x-2 border-b">
+          <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+            <div className="inline-flex items-center gap-1 sm:gap-2 bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl rounded-2xl p-1.5 sm:p-2 border border-gray-200/50 dark:border-gray-700/50 shadow-lg min-w-max sm:min-w-0">
             <button
               onClick={() => setActiveTab('dashboard')}
-              className={`px-4 py-2 font-medium border-b-2 transition-colors ${
+              className={`px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-300 flex items-center gap-1.5 sm:gap-2 whitespace-nowrap ${
                 activeTab === 'dashboard'
-                  ? 'border-green-500 text-green-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
+                  ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg scale-105 transform'
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100'
               }`}
             >
+              <BarChart3 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               Dashboard
             </button>
             {canViewEmployees && (
               <button
                 onClick={() => setActiveTab('employees')}
-                className={`px-4 py-2 font-medium border-b-2 transition-colors ${
+                className={`px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-300 flex items-center gap-1.5 sm:gap-2 whitespace-nowrap ${
                   activeTab === 'employees'
-                    ? 'border-green-500 text-green-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                    ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg scale-105 transform'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100'
                 }`}
               >
+                <Users className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 Employees
               </button>
             )}
             {canCheckInOut && (
               <button
                 onClick={() => setActiveTab('check-in')}
-                className={`px-4 py-2 font-medium border-b-2 transition-colors ${
+                className={`px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-300 flex items-center gap-1.5 sm:gap-2 whitespace-nowrap ${
                   activeTab === 'check-in'
-                    ? 'border-green-500 text-green-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                    ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg scale-105 transform'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100'
                 }`}
               >
+                <UserCheck className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 Check-In/Out
               </button>
             )}
             {canViewReports && (
               <button
                 onClick={() => setActiveTab('reports')}
-                className={`px-4 py-2 font-medium border-b-2 transition-colors ${
+                className={`px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-300 flex items-center gap-1.5 sm:gap-2 whitespace-nowrap ${
                   activeTab === 'reports'
-                    ? 'border-green-500 text-green-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                    ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg scale-105 transform'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100'
                 }`}
               >
+                <BarChart3 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 Reports
               </button>
             )}
             {canViewLocations && (
               <button
                 onClick={() => setActiveTab('locations')}
-                className={`px-4 py-2 font-medium border-b-2 transition-colors ${
+                className={`px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-300 flex items-center gap-1.5 sm:gap-2 whitespace-nowrap ${
                   activeTab === 'locations'
-                    ? 'border-green-500 text-green-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                    ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg scale-105 transform'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100'
                 }`}
               >
+                <MapPin className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 Locations
               </button>
             )}
             {canManageSettings && (
               <button
                 onClick={() => setActiveTab('settings')}
-                className={`px-4 py-2 font-medium border-b-2 transition-colors ${
+                className={`px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-300 flex items-center gap-1.5 sm:gap-2 whitespace-nowrap ${
                   activeTab === 'settings'
-                    ? 'border-green-500 text-green-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                    ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg scale-105 transform'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100'
                 }`}
               >
+                <Settings className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 Settings
               </button>
             )}
             {canViewQRSettings && (
               <button
                 onClick={() => setActiveTab('qr-settings')}
-                className={`px-4 py-2 font-medium border-b-2 transition-colors ${
+                className={`px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-300 flex items-center gap-1.5 sm:gap-2 whitespace-nowrap ${
                   activeTab === 'qr-settings'
-                    ? 'border-green-500 text-green-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                    ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg scale-105 transform'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100'
                 }`}
               >
+                <QrCode className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 QR Settings
               </button>
             )}
+            </div>
           </div>
 
           {/* Tab Content */}

@@ -188,31 +188,42 @@ export function AttendanceSettings() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
-            <Settings className="h-6 w-6 text-green-500" />
-            Attendance Settings
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
+            <Settings className="h-5 w-5 sm:h-6 sm:w-6 text-green-500" />
+            <span className="break-words">Attendance Settings</span>
           </h2>
-          <p className="text-gray-600 dark:text-gray-400">
+          <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400">
             Configure attendance system settings and preferences
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={handleReset}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Reset to Defaults
+        <div className="flex gap-2 flex-wrap">
+          <Button 
+            variant="outline" 
+            onClick={handleReset}
+            className="flex-1 sm:flex-initial text-xs sm:text-sm"
+          >
+            <RefreshCw className="h-3.5 w-3.5 sm:h-4 sm:w-4 sm:mr-2" />
+            <span className="hidden sm:inline">Reset to Defaults</span>
+            <span className="sm:hidden">Reset</span>
           </Button>
-          <Button onClick={handleSave} disabled={saving}>
+          <Button 
+            onClick={handleSave} 
+            disabled={saving}
+            className="flex-1 sm:flex-initial text-xs sm:text-sm"
+          >
             {saving ? (
               <>
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                Saving...
+                <RefreshCw className="h-3.5 w-3.5 sm:h-4 sm:w-4 sm:mr-2 animate-spin" />
+                <span className="hidden sm:inline">Saving...</span>
+                <span className="sm:hidden">Saving</span>
               </>
             ) : (
               <>
-                <Save className="h-4 w-4 mr-2" />
-                Save Settings
+                <Save className="h-3.5 w-3.5 sm:h-4 sm:w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Save Settings</span>
+                <span className="sm:hidden">Save</span>
               </>
             )}
           </Button>

@@ -39,7 +39,7 @@ interface ProjectsTableWithCustomizationProps {
 const defaultProjectsColumns: ColumnConfig[] = [
   { id: 'select', label: 'Select', visible: true, order: 0, fixed: true, width: '60px' },
   { id: 'project_code', label: 'Project Code', visible: true, order: 1, width: '150px' },
-  { id: 'full_project_code', label: 'Full Project Code', visible: true, order: 2, fixed: true, width: '180px' },
+  { id: 'full_project_code', label: 'Full Project Code', visible: true, order: 2, fixed: true, width: '140px' },
   { id: 'project_name', label: 'Project Name', visible: true, order: 3, width: '250px' },
   { id: 'project_description', label: 'Project Description', visible: true, order: 4, width: '300px' },
   { id: 'plot_number', label: 'Plot No.', visible: true, order: 5, width: '120px' },
@@ -2827,11 +2827,11 @@ export function ProjectsTableWithCustomization({
           }
           
           return (
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-gray-900 dark:text-white">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-white truncate max-w-full" title={fullProjectCode || 'N/A'}>
                 {fullProjectCode || 'N/A'}
               </span>
-                  </div>
+            </div>
           )
         
         case 'project_name':
@@ -4680,14 +4680,14 @@ export function ProjectsTableWithCustomization({
   return (
     <div className="space-y-4">
       {/* Header with Customization Controls */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-0">
+        <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
+          <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white">
             Projects ({projects.length})
           </h3>
           {selectedIds.length > 0 && (
             <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-600 dark:text-gray-400">
+              <span className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">
                 {selectedIds.length} selected
               </span>
               {onBulkDelete && guard.hasAccess('projects.delete') && (
@@ -4695,25 +4695,27 @@ export function ProjectsTableWithCustomization({
                   variant="outline"
                   size="sm"
                   onClick={handleBulkDelete}
-                  className="text-red-600 hover:text-red-700"
+                  className="text-xs sm:text-sm text-red-600 hover:text-red-700 py-1 px-2 sm:py-1.5 sm:px-3"
                 >
-                  Delete Selected
+                  <span className="hidden sm:inline">Delete Selected</span>
+                  <span className="sm:hidden">Delete</span>
                 </Button>
               )}
             </div>
           )}
         </div>
         
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <PermissionButton
             permission="projects.view"
             variant="outline"
             size="sm"
             onClick={() => setShowCustomizer(true)}
-            className="flex items-center gap-2"
+            className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm py-1.5 px-2 sm:px-3"
           >
-            <Filter className="h-4 w-4" />
-            Customize Columns
+            <Filter className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            <span className="hidden sm:inline">Customize Columns</span>
+            <span className="sm:hidden">Columns</span>
           </PermissionButton>
           <PermissionButton
             permission="projects.view"
@@ -4723,18 +4725,18 @@ export function ProjectsTableWithCustomization({
               resetToDefault()
               setTimeout(() => window.location.reload(), 100)
             }}
-            className="flex items-center gap-2 text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
+            className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm py-1.5 px-2 sm:px-3 text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
             title="Reset to default columns"
           >
-            <RotateCcw className="h-4 w-4" />
-            Reset
+            <RotateCcw className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            <span className="hidden sm:inline">Reset</span>
           </PermissionButton>
         </div>
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto max-h-[calc(100vh-300px)] overflow-y-auto">
-        <table className="w-full border-collapse">
+      {/* Table View - Responsive for all screen sizes */}
+      <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 max-h-[calc(100vh-300px)] overflow-y-auto">
+        <table className="w-full border-collapse min-w-[800px]">
           <thead className="sticky top-0 z-10">
             <tr className="border-b border-gray-200 dark:border-gray-700">
               {visibleColumns.map((column, columnIndex) => {
@@ -4758,7 +4760,7 @@ export function ProjectsTableWithCustomization({
                 <th
                   key={column.id}
                     onClick={() => isSortable && handleSort(column.id)}
-                    className={`px-4 py-4 text-left text-sm font-semibold text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 ${
+                    className={`px-2 sm:px-3 md:px-4 py-2 sm:py-3 md:py-4 text-left text-xs sm:text-sm font-semibold text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 ${
                       isSortable ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none' : ''
                     } ${column.fixed ? 'shadow-[2px_0_4px_rgba(0,0,0,0.1)]' : ''}`}
                     style={{
@@ -4772,29 +4774,29 @@ export function ProjectsTableWithCustomization({
                     }}
                   >
                     {column.id === 'select' ? (
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1 sm:gap-2">
                         <input
                           type="checkbox"
                           checked={selectedIds.length === projects.length && projects.length > 0}
                           onChange={(e) => handleSelectAll(e.target.checked)}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer h-3.5 w-3.5 sm:h-4 sm:w-4"
                           title="Select All"
                         />
-                        <span>{column.label}</span>
+                        <span className="hidden sm:inline">{column.label}</span>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-2">
-                        <span>{column.label}</span>
+                      <div className="flex items-center gap-1 sm:gap-2">
+                        <span className="whitespace-nowrap">{column.label}</span>
                         {isSortable && (
-                          <div className="flex flex-col">
+                          <div className="flex flex-col flex-shrink-0">
                             {isSorted ? (
                               sortDirection === 'asc' ? (
-                                <ArrowUp className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                                <ArrowUp className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-blue-600 dark:text-blue-400" />
                               ) : (
-                                <ArrowDown className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                                <ArrowDown className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-blue-600 dark:text-blue-400" />
                               )
                             ) : (
-                              <ArrowUpDown className="h-3 w-3 text-gray-400 dark:text-gray-500" />
+                              <ArrowUpDown className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-gray-400 dark:text-gray-500" />
                             )}
                           </div>
                         )}
@@ -4833,7 +4835,7 @@ export function ProjectsTableWithCustomization({
                     return (
                       <td
                         key={column.id}
-                        className={`px-4 py-3 text-sm ${column.fixed ? 'shadow-[2px_0_4px_rgba(0,0,0,0.1)] bg-white dark:bg-gray-900 group-hover:bg-gray-50 dark:group-hover:bg-gray-800/50' : ''}`}
+                        className={`px-2 sm:px-3 md:px-4 py-2 sm:py-3 text-xs sm:text-sm ${column.fixed ? 'shadow-[2px_0_4px_rgba(0,0,0,0.1)] bg-white dark:bg-gray-900 group-hover:bg-gray-50 dark:group-hover:bg-gray-800/50' : ''}`}
                         style={{
                           width: column.width || 'auto',
                           minWidth: column.width || '120px',

@@ -963,43 +963,53 @@ export function LocationsManagement() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
-            <MapPin className="h-6 w-6 text-green-500" />
-            Locations Management
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
+            <MapPin className="h-5 w-5 sm:h-6 sm:w-6 text-green-500" />
+            <span className="break-words">Locations Management</span>
           </h2>
-          <p className="text-gray-600 dark:text-gray-400">
+          <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400">
             Manage GPS locations for attendance tracking
           </p>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700 overflow-x-auto pb-2">
-        <Button
-          variant={activeTab === 'locations' ? 'primary' : 'ghost'}
-          onClick={() => setActiveTab('locations')}
-          size="sm"
-          className="flex items-center gap-2"
-        >
-          <MapPin className="h-4 w-4" />
-          Locations
-        </Button>
-        <Button
-          variant={activeTab === 'notifications' ? 'primary' : 'ghost'}
-          onClick={() => setActiveTab('notifications')}
-          size="sm"
-          className="flex items-center gap-2 relative"
-        >
-          <Bell className="h-4 w-4" />
-          Notifications
-          {pendingProjects.length > 0 && (
-            <span className="absolute -top-1 -right-1 h-5 w-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
-              {pendingProjects.length}
-            </span>
-          )}
-        </Button>
+      <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+        <div className="inline-flex items-center gap-1 sm:gap-2 bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl rounded-2xl p-1.5 sm:p-2 border border-gray-200/50 dark:border-gray-700/50 shadow-lg min-w-max sm:min-w-0">
+          <button
+            onClick={() => setActiveTab('locations')}
+            className={`px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-300 flex items-center gap-1.5 sm:gap-2 whitespace-nowrap relative ${
+              activeTab === 'locations'
+                ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg scale-105 transform'
+                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100'
+            }`}
+          >
+            <MapPin className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            Locations
+          </button>
+          <button
+            onClick={() => setActiveTab('notifications')}
+            className={`px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-300 flex items-center gap-1.5 sm:gap-2 whitespace-nowrap relative ${
+              activeTab === 'notifications'
+                ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg scale-105 transform'
+                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100'
+            }`}
+          >
+            <Bell className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            Notifications
+            {pendingProjects.length > 0 && (
+              <span className={`absolute -top-1 -right-1 h-4 w-4 sm:h-5 sm:w-5 text-white text-[10px] sm:text-xs rounded-full flex items-center justify-center font-bold ${
+                activeTab === 'notifications' 
+                  ? 'bg-white/30 backdrop-blur-sm border-2 border-white/50' 
+                  : 'bg-red-500'
+              }`}>
+                {pendingProjects.length > 9 ? '9+' : pendingProjects.length}
+              </span>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Tab Content */}
@@ -1340,22 +1350,24 @@ export function LocationsManagement() {
         </div>
       ) : (
         <div className="space-y-6">
-          <div className="flex items-center gap-2">
-            <Button 
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
               variant="outline"
               onClick={handleImportFromProjects}
               disabled={isImportingFromProjects}
-              className="flex items-center gap-2"
+              className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm flex-1 sm:flex-initial"
             >
               {isImportingFromProjects ? (
                 <>
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                  Importing...
+                  <RefreshCw className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-spin" />
+                  <span className="hidden sm:inline">Importing...</span>
+                  <span className="sm:hidden">Importing</span>
                 </>
               ) : (
                 <>
-                  <FolderKanban className="h-4 w-4" />
-                  Import from Projects
+                  <FolderKanban className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                  <span className="hidden sm:inline">Import from Projects</span>
+                  <span className="sm:hidden">Import</span>
                 </>
               )}
             </Button>
@@ -1373,9 +1385,11 @@ export function LocationsManagement() {
                   is_active: true
                 })
               }}
+              className="flex-1 sm:flex-initial text-xs sm:text-sm"
             >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Location
+              <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Add Location</span>
+              <span className="sm:hidden">Add</span>
             </PermissionButton>
             <Button
               variant="outline"
@@ -1383,11 +1397,12 @@ export function LocationsManagement() {
                 setSuccess('Syncing locations with projects...')
                 await syncLocationsWithProjects()
               }}
-              className="flex items-center gap-2"
+              className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm flex-1 sm:flex-initial"
               title="Sync locations with latest project coordinates"
             >
-              <RefreshCw className="h-4 w-4" />
-              Sync with Projects
+              <RefreshCw className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+              <span className="hidden sm:inline">Sync with Projects</span>
+              <span className="sm:hidden">Sync</span>
             </Button>
           </div>
 
@@ -1709,40 +1724,40 @@ export function LocationsManagement() {
           <div className="space-y-4">
             {filteredLocations.length > 0 ? (
               filteredLocations.map((location) => (
-                <div key={location.id} className={`flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 ${
+                <div key={location.id} className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-2 p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 ${
                   location.is_favorite ? 'border-yellow-300 dark:border-yellow-700 bg-yellow-50/50 dark:bg-yellow-900/10' : ''
                 }`}>
-                  <div className="flex items-center space-x-4">
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                  <div className="flex items-center space-x-3 sm:space-x-4 flex-1 min-w-0">
+                    <div className={`flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center ${
                       location.is_active ? 'bg-green-100 dark:bg-green-900' : 'bg-gray-100 dark:bg-gray-800'
                     }`}>
-                      <MapPin className={`h-6 w-6 ${
+                      <MapPin className={`h-5 w-5 sm:h-6 sm:w-6 ${
                         location.is_active ? 'text-green-600' : 'text-gray-400'
                       }`} />
                     </div>
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <h3 className="font-medium">{location.name}</h3>
+                        <h3 className="font-medium truncate">{location.name}</h3>
                         {location.is_favorite && (
-                          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                          <Star className="h-3.5 w-3.5 sm:h-4 sm:w-4 fill-yellow-400 text-yellow-400 flex-shrink-0" />
                         )}
                       </div>
-                      <p className="text-sm text-gray-500">{location.description || 'No description'}</p>
-                      <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
-                        <span className="flex items-center gap-1">
-                          <Globe className="h-4 w-4" />
-                          {location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}
+                      <p className="text-xs sm:text-sm text-gray-500 truncate">{location.description || 'No description'}</p>
+                      <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs sm:text-sm text-gray-500 mt-1">
+                        <span className="flex items-center gap-1 truncate max-w-full">
+                          <Globe className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                          <span className="truncate">{location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}</span>
                         </span>
-                        <span className="flex items-center gap-1">
-                          <Radio className="h-4 w-4" />
+                        <span className="flex items-center gap-1 whitespace-nowrap">
+                          <Radio className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                           {location.radius_meters}m radius
                         </span>
                       </div>
                     </div>
                   </div>
                   
-                  <div className="flex items-center gap-2">
-                    <span className={`px-2 py-1 rounded-full text-xs ${
+                  <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+                    <span className={`px-2 py-1 rounded-full text-xs whitespace-nowrap ${
                       location.is_active 
                         ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' 
                         : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
@@ -1755,9 +1770,9 @@ export function LocationsManagement() {
                       size="sm"
                       onClick={() => toggleFavorite(location)}
                       title={location.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
-                      className={location.is_favorite ? 'text-yellow-600 hover:text-yellow-700' : ''}
+                      className={`p-1.5 sm:p-2 ${location.is_favorite ? 'text-yellow-600 hover:text-yellow-700' : ''}`}
                     >
-                      <Star className={`h-4 w-4 ${location.is_favorite ? 'fill-yellow-400 text-yellow-400' : ''}`} />
+                      <Star className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${location.is_favorite ? 'fill-yellow-400 text-yellow-400' : ''}`} />
                     </Button>
                     
                     <Button
@@ -1765,9 +1780,9 @@ export function LocationsManagement() {
                       size="sm"
                       onClick={() => openLocationInMaps(location)}
                       title="Open in Google Maps"
-                      className="text-blue-600 hover:text-blue-700"
+                      className="text-blue-600 hover:text-blue-700 p-1.5 sm:p-2"
                     >
-                      <ExternalLink className="h-4 w-4" />
+                      <ExternalLink className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                     </Button>
                     
                     <PermissionButton
@@ -1776,8 +1791,9 @@ export function LocationsManagement() {
                       size="sm"
                       onClick={() => handleEdit(location)}
                       title="Edit location"
+                      className="p-1.5 sm:p-2"
                     >
-                      <Edit className="h-4 w-4" />
+                      <Edit className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                     </PermissionButton>
                     
                     <PermissionButton
@@ -1786,20 +1802,10 @@ export function LocationsManagement() {
                       size="sm"
                       onClick={() => handleDelete(location.id)}
                       title="Delete location"
-                      className="text-red-600 hover:text-red-700"
+                      className="text-red-600 hover:text-red-700 p-1.5 sm:p-2"
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                     </PermissionButton>
-                    
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleDelete(location.id)}
-                      className="text-red-600 hover:text-red-700"
-                      title="Delete location"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
                   </div>
                 </div>
               ))
