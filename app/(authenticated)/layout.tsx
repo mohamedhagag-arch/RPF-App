@@ -328,6 +328,14 @@ export default function AuthenticatedLayout({
       router.push('/cost-control/designation-rates')
     } else if (tab === 'cost-control/machine-list') {
       router.push('/cost-control/machine-list')
+    } else if (tab === 'cost-control/material') {
+      router.push('/cost-control/material')
+    } else if (tab === 'cost-control/subcontractor') {
+      router.push('/cost-control/subcontractor')
+    } else if (tab === 'cost-control/diesel') {
+      router.push('/cost-control/diesel')
+    } else if (tab === 'cost-control/transportation') {
+      router.push('/cost-control/transportation')
     } else if (tab === 'hr') {
       router.push('/hr')
     } else if (tab === 'hr/manpower') {

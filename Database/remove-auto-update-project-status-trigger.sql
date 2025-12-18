@@ -60,3 +60,5 @@ AND routine_schema = 'public';
 SELECT '✅ All auto-update project status triggers and functions have been removed successfully!' AS status;
 
 
+
+

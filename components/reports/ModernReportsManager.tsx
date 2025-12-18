@@ -14,6 +14,7 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Alert } from '@/components/ui/Alert'
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 import { calculateProjectLookAhead, ProjectLookAhead } from './LookAheadHelper'
+import { formatDate } from '@/lib/dateHelpers'
 import { KPICChartReportView } from './KPICChartReportView'
 import { DelayedActivitiesReportView } from './DelayedActivitiesReportView'
 import { ActivityPeriodicalProgressReportView } from './ActivityPeriodicalProgressReportView'
@@ -1818,14 +1819,7 @@ const ActivitiesReport = memo(function ActivitiesReport({ activities, kpis = [],
     })
   }, [activities, calculateActualUnits, calculateEarnedValue])
   
-  const formatDate = (date: string | null | undefined): string => {
-    if (!date) return 'N/A'
-    try {
-      return new Date(date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
-    } catch {
-      return 'N/A'
-    }
-  }
+  // Using centralized formatDate from dateHelpers
   
   // Helper: Get activity field (same as BOQTableWithCustomization)
   const getActivityField = (activity: BOQActivity, fieldName: string): any => {

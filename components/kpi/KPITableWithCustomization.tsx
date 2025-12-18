@@ -12,6 +12,7 @@ import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { KPIHistoryModal } from '@/components/kpi/KPIHistoryModal'
 import { RecordHistoryModal } from '@/components/common/RecordHistoryModal'
+import { formatDate } from '@/lib/dateHelpers'
 
 interface KPITableWithCustomizationProps {
   kpis: KPIRecord[]
@@ -454,15 +455,7 @@ export function KPITableWithCustomization({
     return recommendations.length > 0 ? recommendations : [{ type: 'info', message: 'Everything is going well', icon: '✅' }]
   }
 
-  // Format date helper
-  const formatDate = (dateString: string) => {
-    if (!dateString) return 'N/A'
-    try {
-      return new Date(dateString).toLocaleDateString('en-US')
-    } catch {
-      return 'Invalid Date'
-    }
-  }
+  // Format date helper - using centralized formatDate from dateHelpers
 
   // Access raw KPI data from database row if available
   const getKPIField = (kpi: KPIRecord, fieldName: string): any => {

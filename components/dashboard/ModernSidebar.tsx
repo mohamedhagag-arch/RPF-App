@@ -28,6 +28,7 @@ import {
   ChevronUp,
   BookOpen,
   Activity,
+  Truck,
   FileEdit,
   FormInput,
   DollarSign,
@@ -87,6 +88,7 @@ const sidebarItems: SidebarItem[] = [
           { icon: Package, label: 'Material', tab: 'cost-control/material', badgeIcon: Package, badgeColor: 'bg-gradient-to-br from-orange-500 to-red-500' },
           { icon: HardHat, label: 'Subcontractor', tab: 'cost-control/subcontractor', badgeIcon: HardHat, badgeColor: 'bg-gradient-to-br from-purple-500 to-pink-500' },
           { icon: Fuel, label: 'Diesel', tab: 'cost-control/diesel', badgeIcon: Fuel, badgeColor: 'bg-gradient-to-br from-amber-500 to-yellow-500' },
+          { icon: Truck, label: 'Transportation', tab: 'cost-control/transportation', badgeIcon: Truck, badgeColor: 'bg-gradient-to-br from-green-500 to-teal-500' },
         ]
       },
   { 
@@ -169,6 +171,7 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
     if (tab === 'cost-control/material') return '/cost-control/material'
     if (tab === 'cost-control/subcontractor') return '/cost-control/subcontractor'
     if (tab === 'cost-control/diesel') return '/cost-control/diesel'
+    if (tab === 'cost-control/transportation') return '/cost-control/transportation'
     // HR
     if (tab === 'hr') return '/hr'
     if (tab === 'hr/manpower') return '/hr/manpower'

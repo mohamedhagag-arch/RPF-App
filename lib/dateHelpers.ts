@@ -133,16 +133,17 @@ export function getWeekNumber(date: Date): number {
 }
 
 /**
- * Format date for display (e.g., "15 Jan 2025")
+ * Format date for display (e.g., "Dec 26, 2025")
  * تنسيق التاريخ للعرض
  */
 export function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return 'N/A'
   try {
     const date = new Date(dateStr)
-    return date.toLocaleDateString('en-GB', { 
-      day: '2-digit', 
+    if (isNaN(date.getTime()) || date.getFullYear() < 1900) return 'N/A'
+    return date.toLocaleDateString('en-US', { 
       month: 'short', 
+      day: 'numeric', 
       year: 'numeric' 
     })
   } catch (err) {
@@ -151,16 +152,17 @@ export function formatDate(dateStr: string | null | undefined): string {
 }
 
 /**
- * Format date for display (short version, e.g., "15 Jan")
+ * Format date for display (short version, e.g., "Dec 26")
  * تنسيق التاريخ للعرض (نسخة قصيرة)
  */
 export function formatDateShort(dateStr: string | null | undefined): string {
   if (!dateStr) return 'N/A'
   try {
     const date = new Date(dateStr)
-    return date.toLocaleDateString('en-GB', { 
-      day: '2-digit', 
-      month: 'short'
+    if (isNaN(date.getTime()) || date.getFullYear() < 1900) return 'N/A'
+    return date.toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric'
     })
   } catch (err) {
     return 'Invalid'

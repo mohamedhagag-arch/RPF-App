@@ -5,6 +5,7 @@ import { Project, BOQActivity } from '@/lib/supabase'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Activity, BarChart3, AlertTriangle, Search, ChevronDown, Download, FileSpreadsheet, Image as ImageIcon, FileText, X, CheckSquare } from 'lucide-react'
+import { formatDate, formatDateShort } from '@/lib/dateHelpers'
 import {
   ComposedChart,
   Bar,
@@ -438,11 +439,11 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
         // Helper function to format period label
         const formatPeriodLabel = (periodKey: string, startDate: Date, endDate: Date): string => {
           if (groupBy === 'daily') {
-            return startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })
+            return formatDate(startDate.toISOString())
           } else if (groupBy === 'weekly') {
-            return `Week ${periodKey.split('-W')[1]} (${startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
+            return `Week ${periodKey.split('-W')[1]} (${formatDateShort(startDate.toISOString())} - ${formatDateShort(endDate.toISOString())})`
           } else { // monthly
-            return startDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+            return formatDate(startDate.toISOString())
           }
         }
         
@@ -654,11 +655,11 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
       // Helper function to format period label
       const formatPeriodLabel = (periodKey: string, startDate: Date, endDate: Date): string => {
         if (groupBy === 'daily') {
-          return startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })
+          return formatDate(startDate.toISOString())
         } else if (groupBy === 'weekly') {
-          return `Week ${periodKey.split('-W')[1]} (${startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
+          return `Week ${periodKey.split('-W')[1]} (${formatDateShort(startDate.toISOString())} - ${formatDateShort(endDate.toISOString())})`
         } else { // monthly
-          return startDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+          return formatDate(startDate.toISOString())
         }
       }
       
@@ -1006,7 +1007,7 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
       
       pdf.setFontSize(10)
       pdf.setFont('helvetica', 'normal')
-      const projectInfo = `${selectedProject?.project_full_code || `${selectedProject?.project_code}${selectedProject?.project_sub_code ? `-${selectedProject.project_sub_code}` : ''}`}${zoneInfo} - Cut off Date: ${new Date(cutOffDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+      const projectInfo = `${selectedProject?.project_full_code || `${selectedProject?.project_code}${selectedProject?.project_sub_code ? `-${selectedProject.project_sub_code}` : ''}`}${zoneInfo} - Cut off Date: ${formatDate(cutOffDate)}`
       pdf.text(projectInfo, margin, margin + 18)
       
       // Helper to compress image with high quality
@@ -1296,7 +1297,7 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
           
           pdf.setFontSize(10)
           pdf.setFont('helvetica', 'normal')
-          const projectInfo = `${selectedProject?.project_full_code || `${selectedProject?.project_code}${selectedProject?.project_sub_code ? `-${selectedProject.project_sub_code}` : ''}`}${zoneInfo} - Cut off Date: ${new Date(cutOffDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+          const projectInfo = `${selectedProject?.project_full_code || `${selectedProject?.project_code}${selectedProject?.project_sub_code ? `-${selectedProject.project_sub_code}` : ''}`}${zoneInfo} - Cut off Date: ${formatDate(cutOffDate)}`
           pdf.text(projectInfo, margin, margin + 18)
           
           // Process compression with high quality
@@ -1810,7 +1811,7 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
                   ) : null}
                 </CardTitle>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                  {selectedProject?.project_full_code || `${selectedProject?.project_code}${selectedProject?.project_sub_code ? `-${selectedProject.project_sub_code}` : ''}`} - Cut off Date: {new Date(cutOffDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  {selectedProject?.project_full_code || `${selectedProject?.project_code}${selectedProject?.project_sub_code ? `-${selectedProject.project_sub_code}` : ''}`} - Cut off Date: {formatDate(cutOffDate)}
                 </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1867,17 +1868,11 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
                                 if (dataPoint) {
                                   // Try periodStartDate first
                                   if (dataPoint.periodStartDate) {
-                                    const date = new Date(dataPoint.periodStartDate)
-                                    if (!isNaN(date.getTime())) {
-                                      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                                    }
+                                    return formatDateShort(dataPoint.periodStartDate)
                                   }
                                   // Fallback to date
                                   if (dataPoint.date) {
-                                    const date = new Date(dataPoint.date)
-                                    if (!isNaN(date.getTime())) {
-                                      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                                    }
+                                    return formatDateShort(dataPoint.date)
                                   }
                                 }
                                 return ''
@@ -1921,17 +1916,11 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
                                   const dataPoint = payload[0].payload
                                   // Try periodStartDate first
                                   if (dataPoint.periodStartDate) {
-                                    const date = new Date(dataPoint.periodStartDate)
-                                    if (!isNaN(date.getTime())) {
-                                      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                                    }
+                                    return formatDate(dataPoint.periodStartDate)
                                   }
                                   // Fallback to date
                                   if (dataPoint.date) {
-                                    const date = new Date(dataPoint.date)
-                                    if (!isNaN(date.getTime())) {
-                                      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                                    }
+                                    return formatDate(dataPoint.date)
                                   }
                                   // Fallback to periodLabel
                                   return dataPoint.periodLabel || 'Unknown Date'

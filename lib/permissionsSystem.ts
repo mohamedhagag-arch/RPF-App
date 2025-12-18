@@ -243,6 +243,12 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: 'cost_control.diesel.delete', name: 'Delete Diesel', category: 'cost-control', description: 'Can delete diesel records', action: 'delete' },
   { id: 'cost_control.diesel.import', name: 'Import Diesel', category: 'cost-control', description: 'Can import diesel records from files', action: 'manage' },
   { id: 'cost_control.diesel.export', name: 'Export Diesel', category: 'cost-control', description: 'Can export diesel data', action: 'export' },
+  { id: 'cost_control.transportation.view', name: 'View Transportation', category: 'cost-control', description: 'Can view transportation records', action: 'view' },
+  { id: 'cost_control.transportation.create', name: 'Create Transportation', category: 'cost-control', description: 'Can create new transportation records', action: 'create' },
+  { id: 'cost_control.transportation.edit', name: 'Edit Transportation', category: 'cost-control', description: 'Can edit transportation record information', action: 'edit' },
+  { id: 'cost_control.transportation.delete', name: 'Delete Transportation', category: 'cost-control', description: 'Can delete transportation records', action: 'delete' },
+  { id: 'cost_control.transportation.import', name: 'Import Transportation', category: 'cost-control', description: 'Can import transportation records from files', action: 'manage' },
+  { id: 'cost_control.transportation.export', name: 'Export Transportation', category: 'cost-control', description: 'Can export transportation data', action: 'export' },
   
   // HR Permissions
   { id: 'hr.view', name: 'View HR', category: 'hr', description: 'Can view HR module and overview', action: 'view' },
@@ -330,6 +336,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'cost_control.material.view', 'cost_control.material.create', 'cost_control.material.edit', 'cost_control.material.delete', 'cost_control.material.import', 'cost_control.material.export',
     'cost_control.subcontractor.view', 'cost_control.subcontractor.create', 'cost_control.subcontractor.edit', 'cost_control.subcontractor.delete', 'cost_control.subcontractor.import', 'cost_control.subcontractor.export',
     'cost_control.diesel.view', 'cost_control.diesel.create', 'cost_control.diesel.edit', 'cost_control.diesel.delete', 'cost_control.diesel.import', 'cost_control.diesel.export',
+    'cost_control.transportation.view', 'cost_control.transportation.create', 'cost_control.transportation.edit', 'cost_control.transportation.delete', 'cost_control.transportation.import', 'cost_control.transportation.export',
     // HR
     'hr.view', 'hr.manpower.view', 'hr.manpower.create', 'hr.manpower.edit', 'hr.manpower.delete',
     'hr.attendance.view', 'hr.attendance.check_in_out', 'hr.attendance.review',
@@ -386,7 +393,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly', 'reports.export', 'reports.print',
     'reports.lookahead', 'reports.critical', 'reports.performance',
     // Cost Control (view only)
-    'cost_control.view', 'cost_control.manpower.view', 'cost_control.designation_rates.view', 'cost_control.machine_list.view', 'cost_control.machinery_day_rates.view', 'cost_control.material.view', 'cost_control.subcontractor.view', 'cost_control.diesel.view',
+    'cost_control.view', 'cost_control.manpower.view', 'cost_control.designation_rates.view', 'cost_control.machine_list.view', 'cost_control.machinery_day_rates.view', 'cost_control.material.view', 'cost_control.subcontractor.view', 'cost_control.diesel.view', 'cost_control.transportation.view',
     // HR (limited - view and check-in/out)
     'hr.view', 'hr.attendance.view', 'hr.attendance.check_in_out', 'hr.attendance.reports.view',
     // Procurement (view only)
@@ -413,7 +420,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly',
     'reports.lookahead', 'reports.critical', 'reports.performance',
     // Cost Control (view only)
-    'cost_control.view', 'cost_control.manpower.view', 'cost_control.designation_rates.view', 'cost_control.machine_list.view', 'cost_control.machinery_day_rates.view', 'cost_control.material.view', 'cost_control.subcontractor.view', 'cost_control.diesel.view',
+    'cost_control.view', 'cost_control.manpower.view', 'cost_control.designation_rates.view', 'cost_control.machine_list.view', 'cost_control.machinery_day_rates.view', 'cost_control.material.view', 'cost_control.subcontractor.view', 'cost_control.diesel.view', 'cost_control.transportation.view',
     // HR (view only)
     'hr.view', 'hr.manpower.view', 'hr.attendance.view', 'hr.attendance.reports.view',
     // Procurement (view only)
@@ -441,7 +448,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly', 'reports.export', 'reports.print',
     'reports.lookahead', 'reports.critical', 'reports.performance',
     // Cost Control (view only)
-    'cost_control.view', 'cost_control.manpower.view', 'cost_control.designation_rates.view', 'cost_control.machine_list.view', 'cost_control.machinery_day_rates.view', 'cost_control.material.view', 'cost_control.subcontractor.view', 'cost_control.diesel.view',
+    'cost_control.view', 'cost_control.manpower.view', 'cost_control.designation_rates.view', 'cost_control.machine_list.view', 'cost_control.machinery_day_rates.view', 'cost_control.material.view', 'cost_control.subcontractor.view', 'cost_control.diesel.view', 'cost_control.transportation.view',
     // HR (view only)
     'hr.view', 'hr.manpower.view', 'hr.attendance.view', 'hr.attendance.reports.view',
     // Procurement (view only)

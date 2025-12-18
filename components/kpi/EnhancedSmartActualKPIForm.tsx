@@ -11,6 +11,7 @@ import { KPIDataMapper } from '@/lib/kpi-data-mapper'
 import { KPIConsistencyManager } from '@/lib/kpi-data-consistency-fix'
 import { enhancedKPIFetcher } from '@/lib/enhanced-kpi-fetcher'
 import { EnhancedQuantitySummary } from '@/components/kpi/EnhancedQuantitySummary'
+import { formatDate } from '@/lib/dateHelpers'
 import { 
   X, 
   Save, 
@@ -1516,7 +1517,7 @@ export function EnhancedSmartActualKPIForm({
           if (!isNaN(date.getTime())) {
             const weekday = date.toLocaleDateString('en-US', { weekday: 'long' })
             // For Actual KPIs, we use the date itself as Day reference
-            dayValue = `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${weekday}`
+            dayValue = `${formatDate(finalDate)} - ${weekday}`
           }
         } catch (e) {
           console.warn('⚠️ Could not calculate Day from date:', finalDate)
@@ -1872,12 +1873,7 @@ export function EnhancedSmartActualKPIForm({
                   className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 dark:bg-gray-700 dark:text-white"
                 />
                 <div className="text-sm text-gray-600 dark:text-gray-400">
-                  {globalDate ? new Date(globalDate).toLocaleDateString('en-US', { 
-                    weekday: 'long', 
-                    year: 'numeric', 
-                    month: 'long', 
-                    day: 'numeric' 
-                  }) : 'No date selected'}
+                  {globalDate ? `${formatDate(globalDate)} - ${new Date(globalDate).toLocaleDateString('en-US', { weekday: 'long' })}` : 'No date selected'}
                 </div>
               </div>
             </div>
@@ -2054,12 +2050,7 @@ export function EnhancedSmartActualKPIForm({
                             Work Date
                           </h3>
                           <p className="text-sm text-gray-600 dark:text-gray-400">
-                            {new Date(globalDate).toLocaleDateString('en-US', { 
-                              weekday: 'long', 
-                              year: 'numeric', 
-                              month: 'long', 
-                              day: 'numeric' 
-                            })}
+                            {formatDate(globalDate)} - {new Date(globalDate).toLocaleDateString('en-US', { weekday: 'long' })}
                           </p>
                         </div>
                         <Edit className="w-4 h-4 text-gray-400 ml-auto" />
@@ -2674,10 +2665,7 @@ export function EnhancedSmartActualKPIForm({
                             <Calendar className="w-8 h-8 text-blue-600 mr-3" />
                             <div>
                               <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                                {globalDate ? new Date(globalDate).toLocaleDateString('en-US', { 
-                                  month: 'short', 
-                                  day: 'numeric' 
-                                }) : 'N/A'}
+                                {globalDate ? formatDate(globalDate) : 'N/A'}
                               </div>
                               <div className="text-sm text-gray-600 dark:text-gray-400">
                                 Work Date
@@ -2769,11 +2757,7 @@ export function EnhancedSmartActualKPIForm({
                                   <td className="px-4 py-4">
                                     {hasWorked ? (
                                       <div className="text-sm text-gray-900 dark:text-white">
-                                        {data['Actual Date'] || data.actual_date ? new Date(data['Actual Date'] || data.actual_date).toLocaleDateString('en-US', {
-                                          weekday: 'short',
-                                          month: 'short',
-                                          day: 'numeric'
-                                        }) : 'N/A'}
+                                        {data['Actual Date'] || data.actual_date ? `${formatDate(data['Actual Date'] || data.actual_date)} - ${new Date(data['Actual Date'] || data.actual_date).toLocaleDateString('en-US', { weekday: 'short' })}` : 'N/A'}
                                       </div>
                                     ) : isNotWorkedOn ? (
                                       <div className="text-sm text-orange-600 dark:text-orange-400 italic">
@@ -3111,12 +3095,7 @@ export function EnhancedSmartActualKPIForm({
                         Work Date
                       </h3>
                       <p className="text-sm text-gray-600 dark:text-gray-400">
-                        {new Date(globalDate).toLocaleDateString('en-US', { 
-                          weekday: 'long', 
-                          year: 'numeric', 
-                          month: 'long', 
-                          day: 'numeric' 
-                        })}
+                        {formatDate(globalDate)} - {new Date(globalDate).toLocaleDateString('en-US', { weekday: 'long' })}
                       </p>
                     </div>
                     <Edit className="w-4 h-4 text-gray-400 ml-auto" />

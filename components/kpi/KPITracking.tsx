@@ -33,6 +33,7 @@ import { ImportButton } from '@/components/ui/ImportButton'
 import { PrintButton } from '@/components/ui/PrintButton'
 import { PermissionButton } from '@/components/ui/PermissionButton'
 import { useEntityActivityTracker } from '@/hooks/useActivityTracker'
+import { formatDate } from '@/lib/dateHelpers'
 
 interface KPITrackingProps {
   globalSearchTerm?: string
@@ -181,10 +182,10 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
   // ✅ Get supabase client early so it can be used in callbacks
   const supabase = getSupabaseClient()
   
-  // ✅ Helper function to format date as Day string (e.g., "Jan 1, 2024 - Monday")
+  // ✅ Helper function to format date as Day string (e.g., "Dec 26, 2025 - Monday")
   const formatDateAsDay = (date: Date): string => {
     const weekday = date.toLocaleDateString('en-US', { weekday: 'long' })
-    return `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${weekday}`
+    return `${formatDate(date.toISOString())} - ${weekday}`
   }
   
   // ✅ Fetch all projects with "on-going" status that don't have KPI records from Dec 12, 2025 onwards
@@ -1245,7 +1246,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           const date = new Date(activityDateValue)
           if (!isNaN(date.getTime())) {
             const weekday = date.toLocaleDateString('en-US', { weekday: 'long' })
-            dayValue = `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${weekday}`
+            dayValue = `${formatDate(activityDateValue)} - ${weekday}`
           }
         } catch (e) {
           console.warn('⚠️ Could not calculate Day from date:', activityDateValue)
@@ -1479,7 +1480,7 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
           const date = new Date(activityDateValue)
           if (!isNaN(date.getTime())) {
             const weekday = date.toLocaleDateString('en-US', { weekday: 'long' })
-            dayValue = `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} - ${weekday}`
+            dayValue = `${formatDate(activityDateValue)} - ${weekday}`
           }
         } catch (e) {
           console.warn('⚠️ Could not calculate Day from date:', activityDateValue)

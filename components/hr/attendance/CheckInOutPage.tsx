@@ -32,6 +32,7 @@ import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { QRCodeScanner } from './QRCodeScanner'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { usePermissionGuard } from '@/lib/permissionGuard'
+import { formatDate } from '@/lib/dateHelpers'
 
 interface LocationData {
   latitude: number
@@ -353,13 +354,9 @@ export default function CheckInOutPage() {
     })
   }
 
-  const formatDate = (date: Date): string => {
-    return date.toLocaleDateString('en-US', { 
-      weekday: 'long', 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
-    })
+  const formatDateWithWeekday = (date: Date): string => {
+    const weekday = date.toLocaleDateString('en-US', { weekday: 'long' })
+    return `${formatDate(date.toISOString())} - ${weekday}`
   }
 
   const handleCheckIn = async () => {
@@ -1362,7 +1359,7 @@ export default function CheckInOutPage() {
                     {formatTime(currentTime)}
                   </div>
                   <div className="text-lg text-gray-600 dark:text-gray-400 font-medium">
-                    {formatDate(currentTime)}
+                    {formatDateWithWeekday(currentTime)}
                   </div>
                 </div>
               </CardContent>

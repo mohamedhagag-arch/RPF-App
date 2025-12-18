@@ -19,6 +19,7 @@ import { buildProjectFullCode, filterActivitiesByProject, filterKPIsByProject } 
 import { calculateActivityRate } from '@/lib/rateCalculator'
 import { calculateWorkValueStatus, calculateProgressFromWorkValue } from '@/lib/workValueCalculator'
 import { TABLES } from '@/lib/supabase'
+import { formatDate } from '@/lib/dateHelpers'
 
 interface ProjectsTableWithCustomizationProps {
   projects: Project[]
@@ -527,17 +528,7 @@ export function ProjectsTableWithCustomization({
     }
   }, [])
 
-  // Helper: Format date
-  const formatDate = (dateString: string | null | undefined): string => {
-    if (!dateString) return 'N/A'
-    try {
-      const date = new Date(dateString)
-      if (isNaN(date.getTime())) return 'N/A'
-      return date.toLocaleDateString('en-US')
-    } catch {
-      return 'N/A'
-    }
-  }
+  // Helper: Format date - using centralized formatDate from dateHelpers
 
   // ✅ EXPANDED: Parse date string (handles ALL possible formats from Supabase)
   const parseDateString = (dateStr: string | null | undefined): Date | null => {

@@ -28,6 +28,7 @@ import { ImportButton } from '@/components/ui/ImportButton'
 import { useAuth } from '@/app/providers'
 import { downloadTemplate, downloadCSV, downloadExcel } from '@/lib/exportImportUtils'
 import { Pagination } from '@/components/ui/Pagination'
+import { formatDate } from '@/lib/dateHelpers'
 
 interface LPO {
   id: string
@@ -1352,7 +1353,7 @@ export default function LPOListContent() {
                         </td>
                         <td className="px-4 py-3 text-sm">
                           <div className="text-gray-600 dark:text-gray-400">
-                            {lpo.lpo_date ? new Date(lpo.lpo_date).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : <span className="text-gray-400">-</span>}
+                            {lpo.lpo_date ? formatDate(lpo.lpo_date) : <span className="text-gray-400">-</span>}
                           </div>
                         </td>
                         <td className="px-4 py-3 text-sm">

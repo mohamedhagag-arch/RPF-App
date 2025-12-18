@@ -12,6 +12,7 @@ import { CheckCircle, Clock, AlertCircle, Calendar, Building, Activity, Trending
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { RecordHistoryModal } from '@/components/common/RecordHistoryModal'
+import { formatDate } from '@/lib/dateHelpers'
 
 interface BOQTableWithCustomizationProps {
   activities: BOQActivity[]
@@ -468,15 +469,7 @@ export function BOQTableWithCustomization({
     return recommendations.length > 0 ? recommendations : [{ type: 'info', message: 'Everything is going well', icon: '✅' }]
   }
 
-  // Format date helper
-  const formatDate = (dateString: string) => {
-    if (!dateString) return 'N/A'
-    try {
-      return new Date(dateString).toLocaleDateString('en-US')
-    } catch {
-      return 'Invalid Date'
-    }
-  }
+  // Format date helper - using centralized formatDate from dateHelpers
 
   // Access raw activity data from database row if available
   const getActivityField = (activity: BOQActivity, fieldName: string): any => {

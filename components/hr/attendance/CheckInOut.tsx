@@ -15,6 +15,7 @@ import { supabase, TABLES, AttendanceEmployee, AttendanceLocation } from '@/lib/
 import { useAuth } from '@/app/providers'
 import { QRCodeScanner } from './QRCodeScanner'
 import { usePermissionGuard } from '@/lib/permissionGuard'
+import { formatDate } from '@/lib/dateHelpers'
 
 interface LocationData {
   latitude: number
@@ -409,13 +410,9 @@ export function CheckInOut() {
     })
   }
 
-  const formatDate = (date: Date) => {
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      weekday: 'long'
-    })
+  const formatDateWithWeekday = (date: Date) => {
+    const weekday = date.toLocaleDateString('en-US', { weekday: 'long' })
+    return `${formatDate(date.toISOString())} - ${weekday}`
   }
 
   const checkInsToday = todayAttendance.filter(att => att.type === 'Check-In')
@@ -450,7 +447,7 @@ export function CheckInOut() {
               {formatTime(currentTime)}
             </div>
             <div className="text-lg text-gray-600 dark:text-gray-400">
-              {formatDate(currentTime)}
+              {formatDateWithWeekday(currentTime)}
             </div>
           </div>
         </CardContent>

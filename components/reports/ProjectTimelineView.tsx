@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Calendar, Download, ZoomIn, ZoomOut, FileText, FileSpreadsheet, Search, ChevronDown } from 'lucide-react'
 import { downloadExcel, downloadCSV } from '@/lib/exportImportUtils'
+import { formatDate } from '@/lib/dateHelpers'
 
 interface ProjectTimelineViewProps {
   activities: BOQActivity[]
@@ -842,7 +843,7 @@ export function ProjectTimelineView({
                             ? (
                               <>
                                 <div className="font-semibold">Week {Math.ceil((date.getTime() - new Date(date.getFullYear(), 0, 1).getTime()) / (1000 * 60 * 60 * 24 * 7))}</div>
-                                <div className="text-xs">{date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })}</div>
+                                <div className="text-xs">{formatDate(date.toISOString())}</div>
                               </>
                             )
                             : (
