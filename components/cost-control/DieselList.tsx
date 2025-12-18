@@ -28,6 +28,7 @@ import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { ImportButton } from '@/components/ui/ImportButton'
 import { useAuth } from '@/app/providers'
 import { downloadTemplate, downloadCSV, downloadExcel } from '@/lib/exportImportUtils'
+import { formatDate } from '@/lib/dateHelpers'
 
 interface Diesel {
   id: string
@@ -383,14 +384,52 @@ export default function DieselList() {
         const cleanRow: any = {}
         
         const date = getValue(row, ['DATE', 'date', 'Date'])
-        if (date) {
+        if (date !== null && date !== undefined && date !== '') {
           try {
-            const dateObj = new Date(date)
-            if (!isNaN(dateObj.getTime())) {
+            let dateObj: Date | null = null
+            const dateStr = String(date).trim()
+            
+            // Check if it's a numeric serial number (Excel/Google Sheets date format)
+            // Excel/Google Sheets stores dates as serial numbers where 1 = Jan 1, 1900
+            const numValue = parseFloat(dateStr)
+            
+            // Check if it looks like a serial date number (typically 1-100000 range for dates 1900-2174)
+            if (!isNaN(numValue) && numValue > 0 && numValue < 1000000 && 
+                !dateStr.includes('/') && !dateStr.includes('-') && !dateStr.includes('T')) {
+              
+              // Excel/Google Sheets serial date conversion
+              // Excel epoch: January 1, 1900 = 1
+              // Excel incorrectly treats 1900 as a leap year, so we adjust for dates after Feb 28, 1900
+              let days = Math.floor(numValue)
+              const isAfterFeb28_1900 = days > 59 // After Feb 28, 1900
+              
+              if (isAfterFeb28_1900) {
+                days = days - 1 // Adjust for Excel's 1900 leap year bug
+              }
+              
+              // Create date from epoch (December 30, 1899 for Excel compatibility)
+              // This accounts for Excel's date system starting from Jan 1, 1900 = 1
+              const epoch = new Date(1899, 11, 30) // December 30, 1899 (month is 0-indexed)
+              dateObj = new Date(epoch.getTime() + (days - 1) * 24 * 60 * 60 * 1000)
+              
+              // Verify it's a valid date in reasonable range
+              if (isNaN(dateObj.getTime()) || dateObj.getFullYear() < 1900 || dateObj.getFullYear() > 2100) {
+                dateObj = null
+              }
+            } else {
+              // Try parsing as regular date string (ISO format, MM/DD/YYYY, DD/MM/YYYY, etc.)
+              dateObj = new Date(dateStr)
+              if (isNaN(dateObj.getTime()) || dateObj.getFullYear() < 1900 || dateObj.getFullYear() > 2100) {
+                dateObj = null
+              }
+            }
+            
+            if (dateObj && !isNaN(dateObj.getTime()) && dateObj.getFullYear() >= 1900 && dateObj.getFullYear() <= 2100) {
               cleanRow.date = dateObj.toISOString().split('T')[0]
             }
           } catch (e) {
             // Ignore invalid dates
+            console.warn('Invalid date value:', date, e)
           }
         }
         
@@ -857,7 +896,7 @@ export default function DieselList() {
                         )}
                       </td>
                       <td className="p-3 text-gray-600 dark:text-gray-400">
-                        {diesel.date ? new Date(diesel.date).toLocaleDateString() : '-'}
+                        {diesel.date ? formatDate(diesel.date) : '-'}
                       </td>
                       <td className="p-3 text-gray-600 dark:text-gray-400">
                         {diesel.project_code || '-'}

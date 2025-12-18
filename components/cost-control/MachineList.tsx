@@ -39,6 +39,9 @@ export default function MachineList() {
   const [searchTerm, setSearchTerm] = useState('')
   const [importProgress, setImportProgress] = useState({ current: 0, total: 0, percentage: 0 })
   const [selectedMachines, setSelectedMachines] = useState<Set<string>>(new Set())
+  const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([])
+  const [categorySearch, setCategorySearch] = useState('')
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false)
   
   // Check permissions
   const canCreate = guard.hasAccess('cost_control.machine_list.create')
@@ -69,7 +72,23 @@ export default function MachineList() {
 
   useEffect(() => {
     fetchMachines()
+    loadCategories()
   }, [])
+
+  const loadCategories = async () => {
+    try {
+      const supabaseClient = getSupabaseClient()
+      const { data } = await supabaseClient
+        .from('vendor_categories')
+        .select('id, name')
+        .eq('is_active', true)
+        .order('name', { ascending: true })
+      setCategories(data || [])
+    } catch (error) {
+      console.error('Error loading categories:', error)
+      setCategories([])
+    }
+  }
 
   const fetchMachines = async () => {
     try {
@@ -111,6 +130,8 @@ export default function MachineList() {
       rental: '',
       category: ''
     })
+    setCategorySearch('')
+    setShowCategoryDropdown(false)
     setShowModal(true)
   }
 
@@ -124,6 +145,7 @@ export default function MachineList() {
       rental: machine.rental?.toString() || '',
       category: machine.category || ''
     })
+    setCategorySearch(machine.category || '')
     setShowModal(true)
   }
 
@@ -984,13 +1006,86 @@ export default function MachineList() {
 
                 <div>
                   <label className="block text-sm font-medium mb-2">Category</label>
-                  <input
-                    type="text"
-                    value={formData.category}
-                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                    placeholder="e.g., Excavator, Loader, Crane..."
-                  />
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={formData.category}
+                      onChange={(e) => {
+                        setFormData({ ...formData, category: e.target.value })
+                        setCategorySearch(e.target.value)
+                        setShowCategoryDropdown(true)
+                      }}
+                      onFocus={() => setShowCategoryDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowCategoryDropdown(false), 200)}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      placeholder="Search or enter category..."
+                    />
+                    {showCategoryDropdown && (
+                      <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                        {categories
+                          .filter(cat => !categorySearch || cat.name.toLowerCase().includes(categorySearch.toLowerCase()))
+                          .slice(0, 20)
+                          .map((cat) => (
+                            <button
+                              key={cat.id}
+                              type="button"
+                              onClick={() => {
+                                setFormData({ ...formData, category: cat.name })
+                                setCategorySearch('')
+                                setShowCategoryDropdown(false)
+                              }}
+                              className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-white"
+                            >
+                              {cat.name}
+                            </button>
+                          ))}
+                        {categorySearch && !categories.find(cat => cat.name.toLowerCase() === categorySearch.toLowerCase()) && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!categorySearch.trim()) return
+                              try {
+                                const client = getSupabaseClient()
+                                const { data: existing } = await client
+                                  .from('vendor_categories')
+                                  .select('id, name')
+                                  .eq('name', categorySearch.trim())
+                                  .single()
+
+                                if (existing) {
+                                  setFormData({ ...formData, category: (existing as any).name })
+                                  setCategorySearch('')
+                                  setShowCategoryDropdown(false)
+                                  return
+                                }
+
+                                const { data: newCategory } = await client
+                                  .from('vendor_categories')
+                                  // @ts-ignore
+                                  .insert([{ name: categorySearch.trim(), is_active: true }])
+                                  .select('id, name')
+                                  .single()
+
+                                if (newCategory) {
+                                  await loadCategories()
+                                  setFormData({ ...formData, category: (newCategory as any).name })
+                                  setCategorySearch('')
+                                  setShowCategoryDropdown(false)
+                                }
+                              } catch (error) {
+                                setFormData({ ...formData, category: categorySearch.trim() })
+                                setCategorySearch('')
+                                setShowCategoryDropdown(false)
+                              }
+                            }}
+                            className="w-full text-left px-4 py-2 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-medium"
+                          >
+                            + Add "{categorySearch}"
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div>
@@ -1023,7 +1118,11 @@ export default function MachineList() {
                 <div className="flex justify-end gap-3 pt-4">
                   <Button
                     variant="outline"
-                    onClick={() => setShowModal(false)}
+                    onClick={() => {
+                      setShowModal(false)
+                      setCategorySearch('')
+                      setShowCategoryDropdown(false)
+                    }}
                     disabled={loading}
                   >
                     Cancel
