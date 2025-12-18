@@ -1994,42 +1994,57 @@ export default function PendingApprovalKPIPage() {
       <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-purple-50/20 dark:from-gray-900 dark:via-gray-900 dark:to-gray-900">
         {/* Header */}
         <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10">
-          <div className="w-full mx-auto px-4 sm:px-6 py-4">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <Button
-                  variant="ghost"
-                  onClick={() => router.push('/kpi')}
-                  className="flex items-center gap-2"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                  Back to KPI
-                </Button>
-                
-                <div>
-                  <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                    Need to Submit / Pending Approval
-                  </h1>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                    Review and approve Actual KPIs added by engineers
-                  </p>
+          <div className="w-full mx-auto px-4 sm:px-6 py-3 sm:py-4">
+            <div className="flex flex-col gap-3 sm:gap-4">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+                <div className="flex items-center gap-2 sm:gap-4 flex-1 min-w-0">
+                  <Button
+                    variant="ghost"
+                    onClick={() => router.push('/kpi')}
+                    className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2 flex-shrink-0"
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                    <span className="hidden sm:inline">Back to KPI</span>
+                    <span className="sm:hidden">Back</span>
+                  </Button>
+                  
+                  <div className="flex-1 min-w-0">
+                    <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-gray-900 dark:text-white truncate">
+                      Need to Submit / Pending Approval
+                    </h1>
+                    <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1 hidden sm:block">
+                      Review and approve Actual KPIs added by engineers
+                    </p>
+                  </div>
                 </div>
+
+                {/* ✅ Approve All Button - Always visible */}
+                {activeTab === 'pending' && pendingKPIs.length > 0 && guard.hasAccess('kpi.approve') && (
+                  <Button
+                    onClick={handleBulkApprove}
+                    className="bg-green-600 hover:bg-green-700 text-white text-xs sm:text-sm px-3 sm:px-4 py-1.5 sm:py-2 flex-shrink-0"
+                  >
+                    <CheckCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4 sm:mr-2" />
+                    <span className="hidden sm:inline">Approve All ({pendingKPIs.length})</span>
+                    <span className="sm:hidden">All ({pendingKPIs.length})</span>
+                  </Button>
+                )}
               </div>
 
               {/* ✅ Tab Navigation - Enhanced Design */}
-              <div className="mt-6">
-                <div className="inline-flex items-center gap-1 bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl rounded-2xl p-1.5 border border-gray-200/50 dark:border-gray-700/50 shadow-lg">
+              <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+                <div className="inline-flex items-center gap-1 sm:gap-2 bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl rounded-2xl p-1 sm:p-1.5 border border-gray-200/50 dark:border-gray-700/50 shadow-lg min-w-max sm:min-w-0">
                   <button
                     onClick={() => setActiveTab('pending')}
-                    className={`relative px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 min-w-[180px] ${
+                    className={`relative px-3 sm:px-4 md:px-6 py-2 sm:py-2.5 md:py-3 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-1 sm:gap-2 min-w-[140px] sm:min-w-[180px] ${
                       activeTab === 'pending'
                         ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg scale-105 transform'
                         : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100'
                     }`}
                   >
-                    <Clock className={`w-5 h-5 ${activeTab === 'pending' ? 'text-white' : 'text-yellow-500'}`} />
-                    <span>Pending Approval</span>
-                    <span className={`ml-1.5 px-2 py-0.5 rounded-full text-xs font-bold ${
+                    <Clock className={`w-4 h-4 sm:w-5 sm:h-5 ${activeTab === 'pending' ? 'text-white' : 'text-yellow-500'}`} />
+                    <span className="whitespace-nowrap">Pending</span>
+                    <span className={`ml-1 px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-bold ${
                       activeTab === 'pending'
                         ? 'bg-white/20 text-white'
                         : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400'
@@ -2044,15 +2059,15 @@ export default function PendingApprovalKPIPage() {
                         fetchRejectedKPIs()
                       }
                     }}
-                    className={`relative px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 min-w-[180px] ${
+                    className={`relative px-3 sm:px-4 md:px-6 py-2 sm:py-2.5 md:py-3 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-1 sm:gap-2 min-w-[140px] sm:min-w-[180px] ${
                       activeTab === 'rejected'
                         ? 'bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-lg scale-105 transform'
                         : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-gray-100'
                     }`}
                   >
-                    <X className={`w-5 h-5 ${activeTab === 'rejected' ? 'text-white' : 'text-red-500'}`} />
-                    <span>Rejected KPIs</span>
-                    <span className={`ml-1.5 px-2 py-0.5 rounded-full text-xs font-bold ${
+                    <X className={`w-4 h-4 sm:w-5 sm:h-5 ${activeTab === 'rejected' ? 'text-white' : 'text-red-500'}`} />
+                    <span className="whitespace-nowrap">Rejected</span>
+                    <span className={`ml-1 px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-bold ${
                       activeTab === 'rejected'
                         ? 'bg-white/20 text-white'
                         : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
@@ -2062,17 +2077,6 @@ export default function PendingApprovalKPIPage() {
                   </button>
                 </div>
               </div>
-
-              {/* ✅ Approve All Button - Always visible */}
-              {activeTab === 'pending' && pendingKPIs.length > 0 && guard.hasAccess('kpi.approve') && (
-                <Button
-                  onClick={handleBulkApprove}
-                  className="bg-green-600 hover:bg-green-700 text-white"
-                >
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  Approve All ({pendingKPIs.length})
-                </Button>
-              )}
             </div>
           </div>
         </div>
@@ -2099,13 +2103,13 @@ export default function PendingApprovalKPIPage() {
 
           {/* ✅ Filters Section */}
           <Card className="mb-6">
-            <div className="p-6">
-              <div className="flex items-center gap-2 mb-4">
-                <Filter className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Filters</h2>
+            <div className="p-4 sm:p-6">
+              <div className="flex items-center gap-2 mb-3 sm:mb-4">
+                <Filter className="w-4 h-4 sm:w-5 sm:h-5 text-gray-600 dark:text-gray-400" />
+                <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white">Filters</h2>
               </div>
               
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
                 {/* Projects Filter */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -2246,31 +2250,29 @@ export default function PendingApprovalKPIPage() {
 
           {/* Summary Card */}
           <Card className="mb-6">
-            <div className="p-6">
+            <div className="p-4 sm:p-6">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-6">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                      activeTab === 'pending' 
-                        ? 'bg-yellow-100 dark:bg-yellow-900/30' 
-                        : 'bg-red-100 dark:bg-red-900/30'
-                    }`}>
-                      {activeTab === 'pending' ? (
-                        <Clock className="w-6 h-6 text-yellow-600 dark:text-yellow-400" />
-                      ) : (
-                        <X className="w-6 h-6 text-red-600 dark:text-red-400" />
-                      )}
+                <div className="flex items-center gap-3 sm:gap-6">
+                  <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center flex-shrink-0 ${
+                    activeTab === 'pending' 
+                      ? 'bg-yellow-100 dark:bg-yellow-900/30' 
+                      : 'bg-red-100 dark:bg-red-900/30'
+                  }`}>
+                    {activeTab === 'pending' ? (
+                      <Clock className="w-5 h-5 sm:w-6 sm:h-6 text-yellow-600 dark:text-yellow-400" />
+                    ) : (
+                      <X className="w-5 h-5 sm:w-6 sm:h-6 text-red-600 dark:text-red-400" />
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
+                      {activeTab === 'pending' ? filteredKPIs.length : filteredRejectedKPIs.length}
                     </div>
-                    <div>
-                      <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                        {activeTab === 'pending' ? filteredKPIs.length : filteredRejectedKPIs.length}
-                      </div>
-                      <div className="text-sm text-gray-600 dark:text-gray-400">
-                        {activeTab === 'pending' 
-                          ? (filteredKPIs.length === pendingKPIs.length ? 'Pending KPIs' : `Filtered (${pendingKPIs.length} total)`)
-                          : (filteredRejectedKPIs.length === rejectedKPIs.length ? 'Rejected KPIs' : `Filtered (${rejectedKPIs.length} total)`)
-                        }
-                      </div>
+                    <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">
+                      {activeTab === 'pending' 
+                        ? (filteredKPIs.length === pendingKPIs.length ? 'Pending KPIs' : `Filtered (${pendingKPIs.length} total)`)
+                        : (filteredRejectedKPIs.length === rejectedKPIs.length ? 'Rejected KPIs' : `Filtered (${rejectedKPIs.length} total)`)
+                      }
                     </div>
                   </div>
                 </div>
@@ -2283,55 +2285,60 @@ export default function PendingApprovalKPIPage() {
             <>
               {/* ✅ Selection Header for Pending KPIs */}
               {filteredKPIs.length > 0 && (
-                <div className="mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700">
-                  <div className="flex items-center gap-3">
+                <div className="mb-4 flex flex-col gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700">
+                  <div className="flex items-center gap-2 sm:gap-3">
                     <button
                       onClick={handleSelectAllPendingKPIs}
-                      className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
+                      className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
                     >
                       {(() => {
                         const currentKPIs = filteredKPIs.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
                         const allSelected = currentKPIs.length > 0 && currentKPIs.every(kpi => selectedPendingKPIs.has(kpi.id))
                         return allSelected ? (
-                          <CheckSquare className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                          <CheckSquare className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400" />
                         ) : (
-                          <Square className="w-5 h-5 text-gray-400" />
+                          <Square className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
                         )
                       })()}
-                      <span>Select All ({selectedPendingKPIs.size} selected)</span>
+                      <span className="whitespace-nowrap">Select All ({selectedPendingKPIs.size})</span>
                     </button>
                   </div>
                   {selectedPendingKPIs.size > 0 && guard.hasAccess('kpi.approve') && (
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <div className="text-sm text-blue-700 dark:text-blue-300 font-medium mr-2">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                      <div className="text-xs sm:text-sm text-blue-700 dark:text-blue-300 font-medium sm:mr-2">
                         {selectedPendingKPIs.size} item{selectedPendingKPIs.size !== 1 ? 's' : ''} selected
                       </div>
-                      <Button
-                        onClick={handleBulkApprovePending}
-                        size="sm"
-                        className="bg-green-600 hover:bg-green-700 text-white"
-                      >
-                        <CheckCircle className="h-4 w-4 mr-2" />
-                        Approve ({selectedPendingKPIs.size})
-                      </Button>
-                      <Button
-                        onClick={handleBulkRejectPending}
-                        size="sm"
-                        variant="outline"
-                        className="border-red-300 text-red-600 hover:bg-red-50"
-                      >
-                        <X className="h-4 w-4 mr-2" />
-                        Reject ({selectedPendingKPIs.size})
-                      </Button>
-                      <Button
-                        onClick={handleBulkDeletePending}
-                        size="sm"
-                        variant="outline"
-                        className="border-gray-300 text-gray-600 hover:bg-gray-50"
-                      >
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Delete ({selectedPendingKPIs.size})
-                      </Button>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Button
+                          onClick={handleBulkApprovePending}
+                          size="sm"
+                          className="bg-green-600 hover:bg-green-700 text-white text-xs sm:text-sm px-2 sm:px-3 py-1.5 flex-1 sm:flex-initial"
+                        >
+                          <CheckCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4 sm:mr-2" />
+                          <span className="hidden sm:inline">Approve ({selectedPendingKPIs.size})</span>
+                          <span className="sm:hidden">Approve</span>
+                        </Button>
+                        <Button
+                          onClick={handleBulkRejectPending}
+                          size="sm"
+                          variant="outline"
+                          className="border-red-300 text-red-600 hover:bg-red-50 text-xs sm:text-sm px-2 sm:px-3 py-1.5 flex-1 sm:flex-initial"
+                        >
+                          <X className="h-3.5 w-3.5 sm:h-4 sm:w-4 sm:mr-2" />
+                          <span className="hidden sm:inline">Reject ({selectedPendingKPIs.size})</span>
+                          <span className="sm:hidden">Reject</span>
+                        </Button>
+                        <Button
+                          onClick={handleBulkDeletePending}
+                          size="sm"
+                          variant="outline"
+                          className="border-gray-300 text-gray-600 hover:bg-gray-50 text-xs sm:text-sm px-2 sm:px-3 py-1.5 flex-1 sm:flex-initial"
+                        >
+                          <Trash2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 sm:mr-2" />
+                          <span className="hidden sm:inline">Delete ({selectedPendingKPIs.size})</span>
+                          <span className="sm:hidden">Delete</span>
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -2339,26 +2346,47 @@ export default function PendingApprovalKPIPage() {
 
               {/* Pagination Controls - Top */}
               {filteredKPIs.length > itemsPerPage && (
-            <div className="mb-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="text-sm text-gray-600 dark:text-gray-400">
-                Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredKPIs.length)} of {filteredKPIs.length} KPIs
+            <div className="mb-6 flex flex-col gap-3 sm:gap-4">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4">
+                <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 text-center sm:text-left">
+                  Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredKPIs.length)} of {filteredKPIs.length} KPIs
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">Items per page:</span>
+                  <select
+                    value={itemsPerPage}
+                    onChange={(e) => {
+                      setItemsPerPage(Number(e.target.value))
+                      setCurrentPage(1)
+                    }}
+                    className="px-2 sm:px-3 py-1 sm:py-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-xs sm:text-sm"
+                  >
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                    <option value={200}>200</option>
+                  </select>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center justify-center gap-1 sm:gap-2 flex-wrap">
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setCurrentPage(1)}
                   disabled={currentPage === 1}
+                  className="text-xs sm:text-sm px-2 sm:px-3 py-1 sm:py-1.5"
                 >
-                  First
+                  <span className="hidden sm:inline">First</span>
+                  <span className="sm:hidden">1st</span>
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                   disabled={currentPage === 1}
+                  className="text-xs sm:text-sm px-2 sm:px-3 py-1 sm:py-1.5"
                 >
-                  Previous
+                  Prev
                 </Button>
                 <div className="flex items-center gap-1">
                   {Array.from({ length: Math.min(5, Math.ceil(filteredKPIs.length / itemsPerPage)) }, (_, i) => {
@@ -2381,7 +2409,7 @@ export default function PendingApprovalKPIPage() {
                         variant={currentPage === pageNum ? "primary" : "outline"}
                         size="sm"
                         onClick={() => setCurrentPage(pageNum)}
-                        className="min-w-[40px]"
+                        className="min-w-[32px] sm:min-w-[40px] text-xs sm:text-sm px-2 sm:px-3 py-1 sm:py-1.5"
                       >
                         {pageNum}
                       </Button>
@@ -2393,6 +2421,7 @@ export default function PendingApprovalKPIPage() {
                   size="sm"
                   onClick={() => setCurrentPage(prev => Math.min(Math.ceil(filteredKPIs.length / itemsPerPage), prev + 1))}
                   disabled={currentPage >= Math.ceil(filteredKPIs.length / itemsPerPage)}
+                  className="text-xs sm:text-sm px-2 sm:px-3 py-1 sm:py-1.5"
                 >
                   Next
                 </Button>
@@ -2401,25 +2430,11 @@ export default function PendingApprovalKPIPage() {
                   size="sm"
                   onClick={() => setCurrentPage(Math.ceil(filteredKPIs.length / itemsPerPage))}
                   disabled={currentPage >= Math.ceil(filteredKPIs.length / itemsPerPage)}
+                  className="text-xs sm:text-sm px-2 sm:px-3 py-1 sm:py-1.5"
                 >
-                  Last
+                  <span className="hidden sm:inline">Last</span>
+                  <span className="sm:hidden">Last</span>
                 </Button>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-600 dark:text-gray-400">Items per page:</span>
-                <select
-                  value={itemsPerPage}
-                  onChange={(e) => {
-                    setItemsPerPage(Number(e.target.value))
-                    setCurrentPage(1)
-                  }}
-                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm"
-                >
-                  <option value={25}>25</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                  <option value={200}>200</option>
-                </select>
               </div>
             </div>
           )}
@@ -2447,9 +2462,9 @@ export default function PendingApprovalKPIPage() {
                 
                 return paginatedKPIs.map((kpi) => (
                 <Card key={kpi.id} className={`hover:shadow-lg transition-shadow ${selectedPendingKPIs.has(kpi.id) ? 'ring-2 ring-blue-500 bg-blue-50/50 dark:bg-blue-900/10' : ''}`}>
-                  <div className="p-6">
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                      <div className="flex items-center gap-3 flex-1">
+                  <div className="p-4 sm:p-6">
+                    <div className="flex flex-col gap-4">
+                      <div className="flex items-start gap-2 sm:gap-3 flex-1">
                         {/* ✅ Checkbox for individual selection */}
                         <button
                           onClick={() => handleSelectPendingKPI(kpi.id)}
@@ -2457,21 +2472,21 @@ export default function PendingApprovalKPIPage() {
                           title={selectedPendingKPIs.has(kpi.id) ? 'Deselect' : 'Select'}
                         >
                           {selectedPendingKPIs.has(kpi.id) ? (
-                            <CheckSquare className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                            <CheckSquare className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400" />
                           ) : (
-                            <Square className="w-5 h-5 text-gray-400 hover:text-gray-600 transition-colors" />
+                            <Square className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 hover:text-gray-600 transition-colors" />
                           )}
                         </button>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-3">
-                            <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
-                              <Target className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start gap-2 sm:gap-3 mb-2 sm:mb-3">
+                            <div className="w-8 h-8 sm:w-10 sm:h-10 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center flex-shrink-0">
+                              <Target className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400" />
                             </div>
-                            <div>
-                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                            <div className="flex-1 min-w-0">
+                            <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white truncate">
                               {getField(kpi, 'Activity Name') || 'N/A'}
                             </h3>
-                            <p className="text-sm text-gray-600 dark:text-gray-400">
+                            <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
                               Project: {getProjectName(getField(kpi, 'Project Full Code') || getField(kpi, 'Project Code') || '')} ({getField(kpi, 'Project Full Code') || getField(kpi, 'Project Code') || 'N/A'})
                             </p>
                             {getField(kpi, 'Zone') && (
@@ -2555,16 +2570,16 @@ export default function PendingApprovalKPIPage() {
                           return null
                         })()}
 
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mt-3 sm:mt-4">
                           <div>
                             <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Quantity</div>
-                            <div className="text-sm font-medium text-gray-900 dark:text-white">
+                            <div className="text-xs sm:text-sm font-medium text-gray-900 dark:text-white">
                               {getField(kpi, 'Quantity') || '0'} {getField(kpi, 'Unit') || ''}
                             </div>
                           </div>
                           <div>
                             <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Target Date</div>
-                            <div className="text-sm font-medium text-gray-900 dark:text-white">
+                            <div className="text-xs sm:text-sm font-medium text-gray-900 dark:text-white">
                               {(() => {
                                 const targetDate = getField(kpi, 'Target Date')
                                 if (!targetDate || targetDate === '' || targetDate === 'N/A') return 'N/A'
@@ -2582,7 +2597,7 @@ export default function PendingApprovalKPIPage() {
                             return numValue > 0 ? (
                               <div>
                                 <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Value</div>
-                                <div className="text-sm font-medium text-gray-900 dark:text-white">
+                                <div className="text-xs sm:text-sm font-medium text-gray-900 dark:text-white">
                                   ${numValue.toLocaleString()}
                                 </div>
                               </div>
@@ -2590,7 +2605,7 @@ export default function PendingApprovalKPIPage() {
                           })()}
                           <div>
                             <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Created</div>
-                            <div className="text-sm font-medium text-gray-900 dark:text-white">
+                            <div className="text-xs sm:text-sm font-medium text-gray-900 dark:text-white">
                               {(() => {
                                 try {
                                   return kpi.created_at ? new Date(kpi.created_at).toLocaleDateString() : 'N/A'
@@ -2604,30 +2619,30 @@ export default function PendingApprovalKPIPage() {
                         </div>
                       </div>
 
-                      <div className="flex flex-col sm:flex-row gap-2">
+                      <div className="flex flex-col sm:flex-row gap-2 pt-3 border-t border-gray-200 dark:border-gray-700">
                         <PermissionButton
                           permission="kpi.approve"
                           onClick={() => handleEdit(kpi)}
                           variant="outline"
-                          className="border-blue-300 text-blue-600 hover:bg-blue-50"
+                          className="border-blue-300 text-blue-600 hover:bg-blue-50 text-xs sm:text-sm px-3 py-1.5 sm:py-2 flex-1 sm:flex-initial"
                         >
-                          <Edit className="w-4 h-4 mr-2" />
+                          <Edit className="w-3.5 h-3.5 sm:w-4 sm:h-4 sm:mr-2" />
                           Edit
                         </PermissionButton>
                         <PermissionButton
                           permission="kpi.approve"
                           onClick={() => handleApprove(kpi.id)}
                           disabled={processingIds.has(kpi.id)}
-                          className="bg-green-600 hover:bg-green-700 text-white"
+                          className="bg-green-600 hover:bg-green-700 text-white text-xs sm:text-sm px-3 py-1.5 sm:py-2 flex-1 sm:flex-initial"
                         >
                           {processingIds.has(kpi.id) ? (
                             <>
                               <LoadingSpinner size="sm" />
-                              Processing...
+                              <span className="ml-1 sm:ml-2">Processing...</span>
                             </>
                           ) : (
                             <>
-                              <CheckCircle className="w-4 h-4 mr-2" />
+                              <CheckCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 sm:mr-2" />
                               Approve
                             </>
                           )}
@@ -2637,9 +2652,9 @@ export default function PendingApprovalKPIPage() {
                           onClick={() => handleRejectClick(kpi.id)}
                           disabled={processingIds.has(kpi.id)}
                           variant="outline"
-                          className="border-red-300 text-red-600 hover:bg-red-50"
+                          className="border-red-300 text-red-600 hover:bg-red-50 text-xs sm:text-sm px-3 py-1.5 sm:py-2 flex-1 sm:flex-initial"
                         >
-                          <X className="w-4 h-4 mr-2" />
+                          <X className="w-3.5 h-3.5 sm:w-4 sm:h-4 sm:mr-2" />
                           Reject
                         </PermissionButton>
                         <PermissionButton
@@ -2647,9 +2662,9 @@ export default function PendingApprovalKPIPage() {
                           onClick={() => handleDeletePending(kpi.id)}
                           disabled={processingIds.has(kpi.id)}
                           variant="outline"
-                          className="border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-800"
+                          className="border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-800 text-xs sm:text-sm px-3 py-1.5 sm:py-2 flex-1 sm:flex-initial"
                         >
-                          <Trash2 className="w-4 h-4 mr-2" />
+                          <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 sm:mr-2" />
                           Delete
                         </PermissionButton>
                       </div>
