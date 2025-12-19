@@ -29,6 +29,7 @@ export const TABLES = {
   DESIGNATION_DAILY_RATE_HISTORY: 'designation_daily_rate_history', // ✅ Daily rate history with time periods
   MACHINE_LIST: 'machine_list',                        // ✅ Machine list table
   MACHINERY_DAY_RATES: 'machinery_day_rates',          // ✅ Machinery day rates table
+  MACHINE_DAILY_RATE_HISTORY: 'machine_daily_rate_history', // ✅ Machine daily rate history with time periods
   KPI_REJECTED: 'kpi_rejected',                        // ✅ Rejected KPIs table (temporary storage)
   KPI_IGNORED_REPORTING: 'kpi_ignored_reporting_dates' // ✅ Ignored KPI reporting dates (shared across users)
 } as const
@@ -362,6 +363,21 @@ export interface MachineryDayRate {
   description?: string | null
   rate: number
   efficiency?: number | null // Percentage (default 100)
+  created_at: string
+  updated_at: string
+  created_by?: string | null
+  updated_by?: string | null
+  machine?: Machine // Joined machine data
+}
+
+export interface MachineDailyRateHistory {
+  id: string
+  machine_id: string
+  name: string // Name/description for this rate period (e.g., "Q1 2025 Rate", "Mid-Year Update")
+  daily_rate: number // Daily rate for this period
+  start_date: string // Start date of this rate period
+  end_date?: string | null // End date of this rate period (NULL means it's the current active rate)
+  is_active: boolean // Whether this is the currently active rate
   created_at: string
   updated_at: string
   created_by?: string | null
