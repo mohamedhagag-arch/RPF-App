@@ -249,6 +249,30 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: 'cost_control.transportation.delete', name: 'Delete Transportation', category: 'cost-control', description: 'Can delete transportation records', action: 'delete' },
   { id: 'cost_control.transportation.import', name: 'Import Transportation', category: 'cost-control', description: 'Can import transportation records from files', action: 'manage' },
   { id: 'cost_control.transportation.export', name: 'Export Transportation', category: 'cost-control', description: 'Can export transportation data', action: 'export' },
+  { id: 'cost_control.hired_manpower.view', name: 'View Hired Manpower', category: 'cost-control', description: 'Can view hired manpower records', action: 'view' },
+  { id: 'cost_control.hired_manpower.create', name: 'Create Hired Manpower', category: 'cost-control', description: 'Can create new hired manpower records', action: 'create' },
+  { id: 'cost_control.hired_manpower.edit', name: 'Edit Hired Manpower', category: 'cost-control', description: 'Can edit hired manpower record information', action: 'edit' },
+  { id: 'cost_control.hired_manpower.delete', name: 'Delete Hired Manpower', category: 'cost-control', description: 'Can delete hired manpower records', action: 'delete' },
+  { id: 'cost_control.hired_manpower.import', name: 'Import Hired Manpower', category: 'cost-control', description: 'Can import hired manpower records from files', action: 'manage' },
+  { id: 'cost_control.hired_manpower.export', name: 'Export Hired Manpower', category: 'cost-control', description: 'Can export hired manpower data', action: 'export' },
+  { id: 'cost_control.rpf_equipment.view', name: 'View RPF Equipment', category: 'cost-control', description: 'Can view RPF equipment records', action: 'view' },
+  { id: 'cost_control.rpf_equipment.create', name: 'Create RPF Equipment', category: 'cost-control', description: 'Can create new RPF equipment records', action: 'create' },
+  { id: 'cost_control.rpf_equipment.edit', name: 'Edit RPF Equipment', category: 'cost-control', description: 'Can edit RPF equipment record information', action: 'edit' },
+  { id: 'cost_control.rpf_equipment.delete', name: 'Delete RPF Equipment', category: 'cost-control', description: 'Can delete RPF equipment records', action: 'delete' },
+  { id: 'cost_control.rpf_equipment.import', name: 'Import RPF Equipment', category: 'cost-control', description: 'Can import RPF equipment records from files', action: 'manage' },
+  { id: 'cost_control.rpf_equipment.export', name: 'Export RPF Equipment', category: 'cost-control', description: 'Can export RPF equipment data', action: 'export' },
+  { id: 'cost_control.rented_equipment.view', name: 'View Rented Equipment', category: 'cost-control', description: 'Can view rented equipment records', action: 'view' },
+  { id: 'cost_control.rented_equipment.create', name: 'Create Rented Equipment', category: 'cost-control', description: 'Can create new rented equipment records', action: 'create' },
+  { id: 'cost_control.rented_equipment.edit', name: 'Edit Rented Equipment', category: 'cost-control', description: 'Can edit rented equipment record information', action: 'edit' },
+  { id: 'cost_control.rented_equipment.delete', name: 'Delete Rented Equipment', category: 'cost-control', description: 'Can delete rented equipment records', action: 'delete' },
+  { id: 'cost_control.rented_equipment.import', name: 'Import Rented Equipment', category: 'cost-control', description: 'Can import rented equipment records from files', action: 'manage' },
+  { id: 'cost_control.rented_equipment.export', name: 'Export Rented Equipment', category: 'cost-control', description: 'Can export rented equipment data', action: 'export' },
+  { id: 'cost_control.other_cost.view', name: 'View Other Cost', category: 'cost-control', description: 'Can view other cost records', action: 'view' },
+  { id: 'cost_control.other_cost.create', name: 'Create Other Cost', category: 'cost-control', description: 'Can create new other cost records', action: 'create' },
+  { id: 'cost_control.other_cost.edit', name: 'Edit Other Cost', category: 'cost-control', description: 'Can edit other cost record information', action: 'edit' },
+  { id: 'cost_control.other_cost.delete', name: 'Delete Other Cost', category: 'cost-control', description: 'Can delete other cost records', action: 'delete' },
+  { id: 'cost_control.other_cost.import', name: 'Import Other Cost', category: 'cost-control', description: 'Can import other cost records from files', action: 'manage' },
+  { id: 'cost_control.other_cost.export', name: 'Export Other Cost', category: 'cost-control', description: 'Can export other cost data', action: 'export' },
   
   // HR Permissions
   { id: 'hr.view', name: 'View HR', category: 'hr', description: 'Can view HR module and overview', action: 'view' },
@@ -337,6 +361,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'cost_control.subcontractor.view', 'cost_control.subcontractor.create', 'cost_control.subcontractor.edit', 'cost_control.subcontractor.delete', 'cost_control.subcontractor.import', 'cost_control.subcontractor.export',
     'cost_control.diesel.view', 'cost_control.diesel.create', 'cost_control.diesel.edit', 'cost_control.diesel.delete', 'cost_control.diesel.import', 'cost_control.diesel.export',
     'cost_control.transportation.view', 'cost_control.transportation.create', 'cost_control.transportation.edit', 'cost_control.transportation.delete', 'cost_control.transportation.import', 'cost_control.transportation.export',
+    'cost_control.hired_manpower.view', 'cost_control.hired_manpower.create', 'cost_control.hired_manpower.edit', 'cost_control.hired_manpower.delete', 'cost_control.hired_manpower.import', 'cost_control.hired_manpower.export',
+    'cost_control.rented_equipment.view', 'cost_control.rented_equipment.create', 'cost_control.rented_equipment.edit', 'cost_control.rented_equipment.delete', 'cost_control.rented_equipment.import', 'cost_control.rented_equipment.export',
+    'cost_control.other_cost.view', 'cost_control.other_cost.create', 'cost_control.other_cost.edit', 'cost_control.other_cost.delete', 'cost_control.other_cost.import', 'cost_control.other_cost.export',
     // HR
     'hr.view', 'hr.manpower.view', 'hr.manpower.create', 'hr.manpower.edit', 'hr.manpower.delete',
     'hr.attendance.view', 'hr.attendance.check_in_out', 'hr.attendance.review',
@@ -393,7 +420,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly', 'reports.export', 'reports.print',
     'reports.lookahead', 'reports.critical', 'reports.performance',
     // Cost Control (view only)
-    'cost_control.view', 'cost_control.manpower.view', 'cost_control.designation_rates.view', 'cost_control.machine_list.view', 'cost_control.machinery_day_rates.view', 'cost_control.material.view', 'cost_control.subcontractor.view', 'cost_control.diesel.view', 'cost_control.transportation.view',
+    'cost_control.view', 'cost_control.manpower.view', 'cost_control.designation_rates.view', 'cost_control.machine_list.view', 'cost_control.machinery_day_rates.view', 'cost_control.material.view', 'cost_control.subcontractor.view', 'cost_control.diesel.view', 'cost_control.transportation.view', 'cost_control.hired_manpower.view', 'cost_control.rpf_equipment.view', 'cost_control.rented_equipment.view', 'cost_control.other_cost.view',
     // HR (limited - view and check-in/out)
     'hr.view', 'hr.attendance.view', 'hr.attendance.check_in_out', 'hr.attendance.reports.view',
     // Procurement (view only)
@@ -420,7 +447,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly',
     'reports.lookahead', 'reports.critical', 'reports.performance',
     // Cost Control (view only)
-    'cost_control.view', 'cost_control.manpower.view', 'cost_control.designation_rates.view', 'cost_control.machine_list.view', 'cost_control.machinery_day_rates.view', 'cost_control.material.view', 'cost_control.subcontractor.view', 'cost_control.diesel.view', 'cost_control.transportation.view',
+    'cost_control.view', 'cost_control.manpower.view', 'cost_control.designation_rates.view', 'cost_control.machine_list.view', 'cost_control.machinery_day_rates.view', 'cost_control.material.view', 'cost_control.subcontractor.view', 'cost_control.diesel.view', 'cost_control.transportation.view', 'cost_control.hired_manpower.view', 'cost_control.rpf_equipment.view', 'cost_control.rented_equipment.view', 'cost_control.other_cost.view',
     // HR (view only)
     'hr.view', 'hr.manpower.view', 'hr.attendance.view', 'hr.attendance.reports.view',
     // Procurement (view only)
@@ -448,7 +475,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly', 'reports.export', 'reports.print',
     'reports.lookahead', 'reports.critical', 'reports.performance',
     // Cost Control (view only)
-    'cost_control.view', 'cost_control.manpower.view', 'cost_control.designation_rates.view', 'cost_control.machine_list.view', 'cost_control.machinery_day_rates.view', 'cost_control.material.view', 'cost_control.subcontractor.view', 'cost_control.diesel.view', 'cost_control.transportation.view',
+    'cost_control.view', 'cost_control.manpower.view', 'cost_control.designation_rates.view', 'cost_control.machine_list.view', 'cost_control.machinery_day_rates.view', 'cost_control.material.view', 'cost_control.subcontractor.view', 'cost_control.diesel.view', 'cost_control.transportation.view', 'cost_control.hired_manpower.view', 'cost_control.rpf_equipment.view', 'cost_control.rented_equipment.view', 'cost_control.other_cost.view',
     // HR (view only)
     'hr.view', 'hr.manpower.view', 'hr.attendance.view', 'hr.attendance.reports.view',
     // Procurement (view only)

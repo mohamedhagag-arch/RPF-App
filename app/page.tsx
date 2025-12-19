@@ -81,7 +81,7 @@ export default function Home() {
     return null
   }
 
-  // Show loading while checking auth state
+  // Show loading while checking auth state (with shorter timeout)
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
@@ -93,7 +93,7 @@ export default function Home() {
     )
   }
 
-  // ✅ CRITICAL: If user exists, show redirecting message
+  // If user exists, show redirecting message (should be fast with new session manager)
   if (user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">

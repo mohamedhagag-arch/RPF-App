@@ -9,7 +9,7 @@ import { Alert } from '@/components/ui/Alert'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { PermissionButton } from '@/components/ui/PermissionButton'
 import {
-  Truck,
+  DollarSign,
   Search,
   Plus,
   Edit,
@@ -32,43 +32,48 @@ import { useAuth } from '@/app/providers'
 import { downloadTemplate, downloadCSV, downloadExcel } from '@/lib/exportImportUtils'
 import { formatDate } from '@/lib/dateHelpers'
 
-interface Transportation {
+interface OtherCost {
   id: string
   date?: string
-  type?: string
+  project_code?: string
   category?: string
-  nos?: number | string
-  length_m?: number | string
-  items?: string
-  project_code_from?: string
-  project_code_to?: string
+  reference?: string
+  unit?: string
+  qtty?: number | string
   rate?: number | string
-  waiting_rate?: number | string
   cost?: number | string
-  comment?: string
-  confirmed?: boolean
+  join_text?: string
+  note?: string
   created_at: string
   updated_at: string
 }
 
-export default function TransportationList() {
+export default function OtherCostList() {
   const guard = usePermissionGuard()
   const { appUser } = useAuth()
   const supabase = createClientComponentClient({} as any)
-  const { startSmartLoading, stopSmartLoading } = useSmartLoading('transportation-list')
+  const { startSmartLoading, stopSmartLoading } = useSmartLoading('other-cost-list')
   
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const [transportations, setTransportations] = useState<Transportation[]>([])
+  const [otherCosts, setOtherCosts] = useState<OtherCost[]>([])
   const [searchTerm, setSearchTerm] = useState('')
-  const [editingTransportation, setEditingTransportation] = useState<Transportation | null>(null)
+  const [editingOtherCost, setEditingOtherCost] = useState<OtherCost | null>(null)
   const [showForm, setShowForm] = useState(false)
-  const [selectedTransportations, setSelectedTransportations] = useState<Set<string>>(new Set())
+  const [selectedOtherCosts, setSelectedOtherCosts] = useState<Set<string>>(new Set())
   const [importing, setImporting] = useState(false)
   const [importProgress, setImportProgress] = useState({ current: 0, total: 0, percentage: 0 })
   const [importStatus, setImportStatus] = useState('')
-  const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([])
+  const [displayedCount, setDisplayedCount] = useState(50) // عدد السجلات المعروضة
+  const ITEMS_PER_PAGE = 50 // عدد السجلات في كل صفحة
+  
+  // Project Code and Category dropdown states for filters
+  const [projectCodes, setProjectCodes] = useState<Array<{ code: string }>>([])
+  const [projectCodeSearch, setProjectCodeSearch] = useState('')
+  const [showProjectCodeDropdown, setShowProjectCodeDropdown] = useState(false)
+  
+  const [categories, setCategories] = useState<Array<{ category: string }>>([])
   const [categorySearch, setCategorySearch] = useState('')
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false)
   
@@ -76,54 +81,45 @@ export default function TransportationList() {
   const [showFilters, setShowFilters] = useState(false)
   const [filterDateFrom, setFilterDateFrom] = useState('')
   const [filterDateTo, setFilterDateTo] = useState('')
-  const [filterType, setFilterType] = useState('')
-  const [filterCategory, setFilterCategory] = useState('')
-  const [filterProjectCodeFrom, setFilterProjectCodeFrom] = useState('')
-  const [filterProjectCodeTo, setFilterProjectCodeTo] = useState('')
-  const [filterConfirmed, setFilterConfirmed] = useState<string>('all') // 'all', 'yes', 'no'
-  const [displayedCount, setDisplayedCount] = useState(50) // عدد السجلات المعروضة
-  const ITEMS_PER_PAGE = 50 // عدد السجلات في كل صفحة
+  const [filterProjectCode, setFilterProjectCode] = useState<Set<string>>(new Set())
+  const [filterCategory, setFilterCategory] = useState<Set<string>>(new Set())
   
   const [formData, setFormData] = useState({
     date: '',
-    type: '',
+    project_code: '',
     category: '',
-    nos: '',
-    length_m: '',
-    items: '',
-    project_code_from: '',
-    project_code_to: '',
+    reference: '',
+    unit: '',
+    qtty: '',
     rate: '',
-    waiting_rate: '',
     cost: '',
-    comment: '',
-    confirmed: false
+    join_text: '',
+    note: ''
   })
 
   useEffect(() => {
-    loadTransportations()
-    loadCategories()
+    loadOtherCosts() // This will also load project codes and categories
   }, [])
 
   // إعادة تعيين عدد السجلات المعروضة عند تغيير البحث أو الفلاتر
   useEffect(() => {
     setDisplayedCount(ITEMS_PER_PAGE)
-  }, [searchTerm, filterDateFrom, filterDateTo, filterType, filterCategory, filterProjectCodeFrom, filterProjectCodeTo, filterConfirmed])
+  }, [searchTerm, filterDateFrom, filterDateTo, filterProjectCode, filterCategory])
 
-  const loadTransportations = async () => {
+  const loadOtherCosts = async () => {
     try {
       setLoading(true)
       setError('')
       
       // تحميل جميع البيانات بدون limit
-      let allData: Transportation[] = []
+      let allData: OtherCost[] = []
       let page = 0
       const pageSize = 1000 // تحميل 1000 سجل في كل مرة
       let hasMore = true
 
       while (hasMore) {
         const { data, error: fetchError } = await supabase
-          .from('transportation')
+          .from('other_cost')
           .select('*')
           .order('created_at', { ascending: false })
           .range(page * pageSize, (page + 1) * pageSize - 1)
@@ -131,13 +127,13 @@ export default function TransportationList() {
         if (fetchError) {
           console.error('Supabase Error:', fetchError)
           if (fetchError.code === 'PGRST116' || fetchError.message.includes('does not exist')) {
-            setError('Table does not exist. Please run: Database/create-transportation-table.sql')
-            setTransportations([])
+            setError('Table does not exist. Please run: Database/create-other-cost-table.sql')
+            setOtherCosts([])
             return
           }
           if (fetchError.code === '42501' || fetchError.message.includes('permission denied') || fetchError.message.includes('RLS')) {
-            setError('Permission denied. Please run: Database/create-transportation-table.sql in Supabase SQL Editor to fix permissions.')
-            setTransportations([])
+            setError('Permission denied. Please run: Database/create-other-cost-table.sql in Supabase SQL Editor to fix permissions.')
+            setOtherCosts([])
             return
           }
           throw fetchError
@@ -152,62 +148,78 @@ export default function TransportationList() {
         }
       }
 
-      setTransportations(allData)
+      setOtherCosts(allData)
+      setDisplayedCount(ITEMS_PER_PAGE) // إعادة تعيين عدد السجلات المعروضة
+      
+      // Extract unique project codes and categories from loaded data
+      const uniqueProjectCodes = Array.from(
+        new Set(
+          allData
+            .map(item => item.project_code)
+            .filter(code => code && code.trim() !== '')
+        )
+      ).map(code => ({ code: code as string }))
+        .sort((a, b) => a.code.localeCompare(b.code))
+      
+      const uniqueCategories = Array.from(
+        new Set(
+          allData
+            .map(item => item.category)
+            .filter(category => category && category.trim() !== '')
+        )
+      ).map(category => ({ category: category as string }))
+        .sort((a, b) => a.category.localeCompare(b.category))
+      
+      setProjectCodes(uniqueProjectCodes)
+      setCategories(uniqueCategories)
       setDisplayedCount(ITEMS_PER_PAGE) // إعادة تعيين عدد السجلات المعروضة
     } catch (error: any) {
-      console.error('Error loading transportations:', error)
-      setError('Failed to load transportations. Please ensure the transportation table exists in the database.')
+      console.error('Error loading Other cost:', error)
+      setError('Failed to load Other cost records. Please ensure the other_cost table exists in the database.')
     } finally {
       setLoading(false)
     }
   }
 
-  const loadCategories = async () => {
-    try {
-      const { data } = await supabase
-        .from('vendor_categories')
-        .select('id, name')
-        .eq('is_active', true)
-        .order('name', { ascending: true })
-      setCategories(data || [])
-    } catch (error) {
-      console.error('Error loading categories:', error)
-      setCategories([])
-    }
+  // Note: Project codes and categories are now extracted from loaded data in loadOtherCosts()
+
+  const handleLoadMore = () => {
+    setDisplayedCount(prev => prev + ITEMS_PER_PAGE)
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this transportation record?')) return
+    if (!confirm('Are you sure you want to delete this Other cost record?')) return
 
     try {
       startSmartLoading(setLoading)
       const { error: deleteError } = await supabase
-        .from('transportation')
+        .from('other_cost')
         .delete()
         .eq('id', id)
 
       if (deleteError) throw deleteError
 
-      await loadTransportations()
-      setSelectedTransportations(new Set())
+      await loadOtherCosts()
+      setSelectedOtherCosts(new Set())
+      setDisplayedCount(ITEMS_PER_PAGE) // إعادة تعيين عدد السجلات المعروضة
     } catch (error: any) {
-      console.error('Error deleting transportation:', error)
-      setError('Failed to delete transportation record')
+      console.error('Error deleting Other cost:', error)
+      setError('Failed to delete Other cost record')
     } finally {
       stopSmartLoading(setLoading)
     }
   }
 
   const handleBulkDelete = async () => {
-    if (selectedTransportations.size === 0) return
-    if (!confirm(`Are you sure you want to delete ${selectedTransportations.size} transportation record(s)?`)) return
+    if (selectedOtherCosts.size === 0) return
+    if (!confirm(`Are you sure you want to delete ${selectedOtherCosts.size} Other cost record(s)?`)) return
 
     try {
       startSmartLoading(setLoading)
       setError('')
       setSuccess('')
 
-      const selectedArray = Array.from(selectedTransportations)
+      const selectedArray = Array.from(selectedOtherCosts)
       const batchSize = 100
       let deletedCount = 0
       let errors = 0
@@ -215,7 +227,7 @@ export default function TransportationList() {
       for (let i = 0; i < selectedArray.length; i += batchSize) {
         const batch = selectedArray.slice(i, i + batchSize)
         const { error: deleteError } = await supabase
-          .from('transportation')
+          .from('other_cost')
           .delete()
           .in('id', batch)
 
@@ -228,19 +240,20 @@ export default function TransportationList() {
       }
 
       if (errors > 0 && deletedCount === 0) {
-        throw new Error(`Failed to delete transportation records. ${errors} failed.`)
+        throw new Error(`Failed to delete Other cost records. ${errors} failed.`)
       } else if (errors > 0) {
-        setSuccess(`Successfully deleted ${deletedCount} transportation record(s). ${errors} failed.`)
+        setSuccess(`Successfully deleted ${deletedCount} Other cost record(s). ${errors} failed.`)
       } else {
-        setSuccess(`Successfully deleted ${deletedCount} transportation record(s)`)
+        setSuccess(`Successfully deleted ${deletedCount} Other cost record(s)`)
       }
       
-      setSelectedTransportations(new Set())
-      await loadTransportations()
+      setSelectedOtherCosts(new Set())
+      await loadOtherCosts()
+      setDisplayedCount(ITEMS_PER_PAGE) // إعادة تعيين عدد السجلات المعروضة
       setTimeout(() => setSuccess(''), 5000)
     } catch (error: any) {
-      console.error('Error deleting transportation records:', error)
-      setError(error.message || 'Failed to delete transportation records')
+      console.error('Error deleting Other cost records:', error)
+      setError(error.message || 'Failed to delete Other cost records')
     } finally {
       stopSmartLoading(setLoading)
     }
@@ -248,20 +261,20 @@ export default function TransportationList() {
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      setSelectedTransportations(new Set(displayedTransportations.map(t => t.id)))
+      setSelectedOtherCosts(new Set(displayedOtherCosts.map(e => e.id)))
     } else {
-      setSelectedTransportations(new Set())
+      setSelectedOtherCosts(new Set())
     }
   }
 
-  const handleSelectTransportation = (id: string, checked: boolean) => {
-    const newSelected = new Set(selectedTransportations)
+  const handleSelectOtherCost = (id: string, checked: boolean) => {
+    const newSelected = new Set(selectedOtherCosts)
     if (checked) {
       newSelected.add(id)
     } else {
       newSelected.delete(id)
     }
-    setSelectedTransportations(newSelected)
+    setSelectedOtherCosts(newSelected)
   }
 
   const handleSave = async () => {
@@ -270,138 +283,104 @@ export default function TransportationList() {
       setError('')
       setSuccess('')
 
-      const nos = formData.nos ? parseFloat(formData.nos.toString()) : null
-      const lengthM = formData.length_m ? parseFloat(formData.length_m.toString()) : null
+      const qtty = formData.qtty ? parseFloat(formData.qtty.toString()) : null
       const rate = formData.rate ? parseFloat(formData.rate.toString()) : null
-      const waitingRate = formData.waiting_rate ? parseFloat(formData.waiting_rate.toString()) : null
       const cost = formData.cost ? parseFloat(formData.cost.toString()) : null
-      
-      // Validate and format date
-      let date = null
-      if (formData.date && formData.date.trim()) {
-        try {
-          const dateObj = new Date(formData.date)
-          if (!isNaN(dateObj.getTime()) && dateObj.getFullYear() >= 1900) {
-            date = dateObj.toISOString().split('T')[0]
-          }
-        } catch (e) {
-          // Invalid date, leave as null
-        }
-      }
+      const date = formData.date ? new Date(formData.date).toISOString().split('T')[0] : null
 
-      const transportationData: any = {
+      const otherCostData: any = {
         date: date,
-        type: formData.type || null,
+        project_code: formData.project_code || null,
         category: formData.category || null,
-        nos: nos,
-        length_m: lengthM,
-        items: formData.items || null,
-        project_code_from: formData.project_code_from || null,
-        project_code_to: formData.project_code_to || null,
+        reference: formData.reference || null,
+        unit: formData.unit || null,
+        qtty: qtty,
         rate: rate,
-        waiting_rate: waitingRate,
         cost: cost,
-        comment: formData.comment || null,
-        confirmed: formData.confirmed || false
+        join_text: formData.join_text || null,
+        note: formData.note || null
       }
 
-      if (editingTransportation) {
+      if (editingOtherCost) {
         const { error: updateError } = await supabase
-          .from('transportation')
-          .update(transportationData)
-          .eq('id', editingTransportation.id)
+          .from('other_cost')
+          .update(otherCostData)
+          .eq('id', editingOtherCost.id)
 
         if (updateError) throw updateError
-        setSuccess('Transportation record updated successfully')
+        setSuccess('Other cost record updated successfully')
       } else {
         const { error: insertError } = await supabase
-          .from('transportation')
-          .insert([transportationData])
+          .from('other_cost')
+          .insert([otherCostData])
 
         if (insertError) throw insertError
-        setSuccess('Transportation record added successfully')
+        setSuccess('Other cost record added successfully')
       }
 
-      await loadTransportations()
+      await loadOtherCosts() // This will also reload project codes and categories
       setDisplayedCount(ITEMS_PER_PAGE) // إعادة تعيين عدد السجلات المعروضة
       setShowForm(false)
-      setEditingTransportation(null)
+      setEditingOtherCost(null)
       setCategorySearch('')
-      setShowCategoryDropdown(false)
       setFormData({
         date: '',
-        type: '',
+        project_code: '',
         category: '',
-        nos: '',
-        length_m: '',
-        items: '',
-        project_code_from: '',
-        project_code_to: '',
+        reference: '',
+        unit: '',
+        qtty: '',
         rate: '',
-        waiting_rate: '',
         cost: '',
-        comment: '',
-        confirmed: false
+        join_text: '',
+        note: ''
       })
       setTimeout(() => setSuccess(''), 3000)
     } catch (error: any) {
-      console.error('Error saving transportation:', error)
-      setError(error.message || 'Failed to save transportation record')
+      console.error('Error saving Other cost:', error)
+      setError(error.message || 'Failed to save Other cost record')
     } finally {
       stopSmartLoading(setLoading)
     }
   }
 
+  // Note: Cost is entered manually for Other Cost (not auto-calculated)
+
   // Initialize form data when editing
   useEffect(() => {
-    if (editingTransportation) {
-      let dateValue = ''
-      if (editingTransportation.date) {
-        try {
-          const date = new Date(editingTransportation.date)
-          if (!isNaN(date.getTime()) && date.getFullYear() >= 1900) {
-            dateValue = date.toISOString().split('T')[0]
-          }
-        } catch (e) {
-          // Invalid date, leave empty
-        }
-      }
+    if (editingOtherCost) {
+      const dateValue = editingOtherCost.date 
+        ? new Date(editingOtherCost.date).toISOString().split('T')[0]
+        : ''
       setFormData({
         date: dateValue,
-        type: editingTransportation.type || '',
-        category: editingTransportation.category || '',
-        nos: editingTransportation.nos?.toString() || '',
-        length_m: editingTransportation.length_m?.toString() || '',
-        items: editingTransportation.items || '',
-        project_code_from: editingTransportation.project_code_from || '',
-        project_code_to: editingTransportation.project_code_to || '',
-        rate: editingTransportation.rate?.toString() || '',
-        waiting_rate: editingTransportation.waiting_rate?.toString() || '',
-        cost: editingTransportation.cost?.toString() || '',
-        comment: editingTransportation.comment || '',
-        confirmed: editingTransportation.confirmed || false
+        project_code: editingOtherCost.project_code || '',
+        category: editingOtherCost.category || '',
+        reference: editingOtherCost.reference || '',
+        unit: editingOtherCost.unit || '',
+        qtty: editingOtherCost.qtty?.toString() || '',
+        rate: editingOtherCost.rate?.toString() || '',
+        cost: editingOtherCost.cost?.toString() || '',
+        join_text: editingOtherCost.join_text || '',
+        note: editingOtherCost.note || ''
       })
-      setCategorySearch(editingTransportation.category || '')
+      setCategorySearch(editingOtherCost.category || '')
     } else if (showForm) {
       setFormData({
         date: '',
-        type: '',
+        project_code: '',
         category: '',
-        nos: '',
-        length_m: '',
-        items: '',
-        project_code_from: '',
-        project_code_to: '',
+        reference: '',
+        unit: '',
+        qtty: '',
         rate: '',
-        waiting_rate: '',
         cost: '',
-        comment: '',
-        confirmed: false
+        join_text: '',
+        note: ''
       })
       setCategorySearch('')
-      setShowCategoryDropdown(false)
     }
-  }, [editingTransportation, showForm])
+  }, [editingOtherCost, showForm])
 
   const handleImport = async (data: any[]) => {
     try {
@@ -435,35 +414,25 @@ export default function TransportationList() {
             let dateObj: Date | null = null
             const dateStr = String(date).trim()
             
-            // Check if it's a numeric serial number (Excel/Google Sheets date format)
-            // Excel/Google Sheets stores dates as serial numbers where 1 = Jan 1, 1900
             const numValue = parseFloat(dateStr)
             
-            // Check if it looks like a serial date number (typically 1-100000 range for dates 1900-2174)
             if (!isNaN(numValue) && numValue > 0 && numValue < 1000000 && 
                 !dateStr.includes('/') && !dateStr.includes('-') && !dateStr.includes('T')) {
               
-              // Excel/Google Sheets serial date conversion
-              // Excel epoch: January 1, 1900 = 1
-              // Excel incorrectly treats 1900 as a leap year, so we adjust for dates after Feb 28, 1900
               let days = Math.floor(numValue)
-              const isAfterFeb28_1900 = days > 59 // After Feb 28, 1900
+              const isAfterFeb28_1900 = days > 59
               
               if (isAfterFeb28_1900) {
-                days = days - 1 // Adjust for Excel's 1900 leap year bug
+                days = days - 1
               }
               
-              // Create date from epoch (December 30, 1899 for Excel compatibility)
-              // This accounts for Excel's date system starting from Jan 1, 1900 = 1
-              const epoch = new Date(1899, 11, 30) // December 30, 1899 (month is 0-indexed)
+              const epoch = new Date(1899, 11, 30)
               dateObj = new Date(epoch.getTime() + (days - 1) * 24 * 60 * 60 * 1000)
               
-              // Verify it's a valid date in reasonable range
               if (isNaN(dateObj.getTime()) || dateObj.getFullYear() < 1900 || dateObj.getFullYear() > 2100) {
                 dateObj = null
               }
             } else {
-              // Try parsing as regular date string (ISO format, MM/DD/YYYY, DD/MM/YYYY, etc.)
               dateObj = new Date(dateStr)
               if (isNaN(dateObj.getTime()) || dateObj.getFullYear() < 1900 || dateObj.getFullYear() > 2100) {
                 dateObj = null
@@ -474,48 +443,32 @@ export default function TransportationList() {
               cleanRow.date = dateObj.toISOString().split('T')[0]
             }
           } catch (e) {
-            // Ignore invalid dates
             console.warn('Invalid date value:', date, e)
           }
         }
         
-        const type = getValue(row, ['TYPE', 'type', 'Type'])
-        if (type) cleanRow.type = String(type).trim()
+        const projectCode = getValue(row, ['PROJECT CODE', 'project code', 'project_code', 'Project Code'])
+        if (projectCode) cleanRow.project_code = String(projectCode).trim()
         
         const category = getValue(row, ['Category', 'category', 'CATEGORY'])
         if (category) cleanRow.category = String(category).trim()
         
-        const nos = getValue(row, ['NOs', 'nos', 'Nos', 'NOS'])
-        if (nos) {
-          const num = parseFloat(String(nos).replace(/[^\d.-]/g, ''))
-          if (!isNaN(num)) cleanRow.nos = num
+        const reference = getValue(row, ['Reference ', 'Reference', 'reference', 'REFERENCE'])
+        if (reference) cleanRow.reference = String(reference).trim()
+        
+        const unit = getValue(row, ['UNIT', 'unit', 'Unit'])
+        if (unit) cleanRow.unit = String(unit).trim()
+        
+        const qtty = getValue(row, ['QTTY', 'qtty', 'Qtty', 'QTY', 'qty'])
+        if (qtty) {
+          const num = parseFloat(String(qtty).replace(/[^\d.-]/g, ''))
+          if (!isNaN(num)) cleanRow.qtty = num
         }
-        
-        const lengthM = getValue(row, ['LENGTH(M)', 'length(m)', 'length_m', 'LENGTH M', 'Length(M)', 'Length M'])
-        if (lengthM) {
-          const num = parseFloat(String(lengthM).replace(/[^\d.-]/g, ''))
-          if (!isNaN(num)) cleanRow.length_m = num
-        }
-        
-        const items = getValue(row, ['ITEMS', 'items', 'Items'])
-        if (items) cleanRow.items = String(items).trim()
-        
-        const projectCodeFrom = getValue(row, ['PROJECT CODE ( FROM )', 'PROJECT CODE (FROM)', 'project code ( from )', 'project_code_from', 'Project Code ( From )'])
-        if (projectCodeFrom) cleanRow.project_code_from = String(projectCodeFrom).trim()
-        
-        const projectCodeTo = getValue(row, ['PROJECT CODE ( TO )', 'PROJECT CODE (TO)', 'project code ( to )', 'project_code_to', 'Project Code ( To )'])
-        if (projectCodeTo) cleanRow.project_code_to = String(projectCodeTo).trim()
         
         const rate = getValue(row, ['RATE', 'rate', 'Rate'])
         if (rate) {
           const num = parseFloat(String(rate).replace(/[^\d.-]/g, ''))
           if (!isNaN(num)) cleanRow.rate = num
-        }
-        
-        const waitingRate = getValue(row, ['WAITING RATE', 'waiting rate', 'waiting_rate', 'Waiting Rate'])
-        if (waitingRate) {
-          const num = parseFloat(String(waitingRate).replace(/[^\d.-]/g, ''))
-          if (!isNaN(num)) cleanRow.waiting_rate = num
         }
         
         const cost = getValue(row, ['Cost', 'cost', 'COST'])
@@ -524,23 +477,19 @@ export default function TransportationList() {
           if (!isNaN(num)) cleanRow.cost = num
         }
         
-        const comment = getValue(row, ['COMMENT', 'comment', 'Comment'])
-        if (comment) cleanRow.comment = String(comment).trim()
+        const joinText = getValue(row, ['JOIN TEXT', 'join text', 'join_text', 'Join Text'])
+        if (joinText) cleanRow.join_text = String(joinText).trim()
         
-        const confirmed = getValue(row, ['Confirmed', 'confirmed', 'CONFIRMED', 'Confirmed '])
-        if (confirmed !== null) {
-          const confirmedStr = String(confirmed).toLowerCase().trim()
-          cleanRow.confirmed = confirmedStr === 'true' || confirmedStr === 'yes' || confirmedStr === '1' || confirmedStr === '✓' || confirmedStr === '✔'
-        }
+        const note = getValue(row, ['NOTE', 'note', 'Note'])
+        if (note) cleanRow.note = String(note).trim()
         
         return cleanRow
       }).filter(row => {
-        // Accept rows that have at least some data
-        return row.date || row.type || row.category || row.items || row.project_code_from || row.project_code_to
+        return row.date || row.project_code || row.category || row.reference
       })
 
       if (cleanData.length === 0) {
-        throw new Error('No valid data found. Please ensure the file contains transportation information.')
+        throw new Error('No valid data found. Please ensure the file contains Other cost information.')
       }
 
       const totalRecords = cleanData.length
@@ -555,7 +504,6 @@ export default function TransportationList() {
         const batch = cleanData.slice(i, i + batchSize)
         const currentProcessed = i + batch.length
         
-        // Update progress
         const percentage = Math.round((currentProcessed / totalRecords) * 100)
         setImportProgress({
           current: currentProcessed,
@@ -565,7 +513,7 @@ export default function TransportationList() {
         setImportStatus(`Importing batch ${Math.floor(i / batchSize) + 1} of ${Math.ceil(totalRecords / batchSize)}...`)
 
         const { error: insertError } = await supabase
-          .from('transportation')
+          .from('other_cost')
           .insert(batch)
 
         if (insertError) {
@@ -576,17 +524,16 @@ export default function TransportationList() {
         }
       }
 
-      // Final update
       setImportProgress({ current: totalRecords, total: totalRecords, percentage: 100 })
       setImportStatus('Import completed!')
 
-      await loadTransportations()
+      await loadOtherCosts()
       setDisplayedCount(ITEMS_PER_PAGE) // إعادة تعيين عدد السجلات المعروضة
       
       if (errors === 0) {
-        setSuccess(`Successfully imported ${imported} transportation record(s)`)
+        setSuccess(`Successfully imported ${imported} Other cost record(s)`)
       } else {
-        setSuccess(`Successfully imported ${imported} transportation record(s). ${errors} failed.`)
+        setSuccess(`Successfully imported ${imported} Other cost record(s). ${errors} failed.`)
       }
       
       setTimeout(() => {
@@ -596,8 +543,8 @@ export default function TransportationList() {
         setImportStatus('')
       }, 5000)
     } catch (error: any) {
-      console.error('Error importing transportation:', error)
-      setError(error.message || 'Failed to import transportation records')
+      console.error('Error importing Other cost:', error)
+      setError(error.message || 'Failed to import Other cost records')
       setImporting(false)
       setImportProgress({ current: 0, total: 0, percentage: 0 })
       setImportStatus('')
@@ -608,8 +555,8 @@ export default function TransportationList() {
 
   const handleExport = async (format: 'csv' | 'excel' = 'excel') => {
     try {
-      if (filteredTransportations.length === 0) {
-        setError('No transportation records to export')
+      if (otherCosts.length === 0) {
+        setError('No Other cost records to export')
         return
       }
 
@@ -617,35 +564,33 @@ export default function TransportationList() {
       setError('')
       setSuccess('')
 
-      const exportData = filteredTransportations.map(transportation => ({
-        'DATE': transportation.date || '',
-        'TYPE': transportation.type || '',
-        'Category': transportation.category || '',
-        'NOs': transportation.nos || '',
-        'LENGTH(M)': transportation.length_m || '',
-        'ITEMS': transportation.items || '',
-        'PROJECT CODE ( FROM )': transportation.project_code_from || '',
-        'PROJECT CODE ( TO )': transportation.project_code_to || '',
-        'RATE': transportation.rate || '',
-        'WAITING RATE': transportation.waiting_rate || '',
-        'Cost': transportation.cost || '',
-        'COMMENT': transportation.comment || '',
-        'Confirmed': transportation.confirmed ? 'Yes' : 'No'
+      // تصدير جميع البيانات (وليس فقط المعروضة)
+      const exportData = (searchTerm ? filteredOtherCosts : otherCosts).map(oc => ({
+        'DATE': oc.date || '',
+        'PROJECT CODE': oc.project_code || '',
+        'Category': oc.category || '',
+        'Reference ': oc.reference || '',
+        'UNIT': oc.unit || '',
+        'QTTY': oc.qtty || '',
+        'RATE': oc.rate || '',
+        'Cost': oc.cost || '',
+        'JOIN TEXT': oc.join_text || '',
+        'NOTE': oc.note || ''
       }))
 
-      const filename = `transportation_export_${new Date().toISOString().split('T')[0]}`
+      const filename = `other_cost_export_${new Date().toISOString().split('T')[0]}`
 
       if (format === 'csv') {
         downloadCSV(exportData, filename)
       } else {
-        await downloadExcel(exportData, filename, 'Transportation')
+        await downloadExcel(exportData, filename, 'Other Cost')
       }
 
-      setSuccess(`Successfully exported ${exportData.length} transportation record(s) as ${format.toUpperCase()}`)
+      setSuccess(`Successfully exported ${exportData.length} Other cost record(s) as ${format.toUpperCase()}`)
       setTimeout(() => setSuccess(''), 3000)
     } catch (error: any) {
-      console.error('Error exporting transportation:', error)
-      setError('Failed to export transportation records')
+      console.error('Error exporting Other cost:', error)
+      setError('Failed to export Other cost records')
     } finally {
       stopSmartLoading(setLoading)
     }
@@ -655,39 +600,36 @@ export default function TransportationList() {
     try {
       const templateColumns = [
         'DATE',
-        'TYPE',
+        'PROJECT CODE',
         'Category',
-        'NOs',
-        'LENGTH(M)',
-        'ITEMS',
-        'PROJECT CODE ( FROM )',
-        'PROJECT CODE ( TO )',
+        'Reference ',
+        'UNIT',
+        'QTTY',
         'RATE',
-        'WAITING RATE',
         'Cost',
-        'COMMENT',
-        'Confirmed'
+        'JOIN TEXT',
+        'NOTE'
       ]
-      await downloadTemplate('transportation_template', templateColumns, 'excel')
+      await downloadTemplate('other_cost_template', templateColumns, 'excel')
     } catch (error) {
       console.error('Error downloading template:', error)
       setError('Failed to download template')
     }
   }
 
-  const getFilteredTransportations = () => {
-    let filtered = transportations
+  const getFilteredOtherCosts = () => {
+    let filtered = otherCosts
 
     // Apply search term filter
     if (searchTerm) {
       const term = searchTerm.toLowerCase()
-      filtered = filtered.filter(transportation =>
-        transportation.type?.toLowerCase().includes(term) ||
-        transportation.category?.toLowerCase().includes(term) ||
-        transportation.items?.toLowerCase().includes(term) ||
-        transportation.project_code_from?.toLowerCase().includes(term) ||
-        transportation.project_code_to?.toLowerCase().includes(term) ||
-        transportation.comment?.toLowerCase().includes(term)
+      filtered = filtered.filter(oc =>
+        oc.project_code?.toLowerCase().includes(term) ||
+        oc.category?.toLowerCase().includes(term) ||
+        oc.reference?.toLowerCase().includes(term) ||
+        oc.unit?.toLowerCase().includes(term) ||
+        oc.join_text?.toLowerCase().includes(term) ||
+        oc.note?.toLowerCase().includes(term)
       )
     }
 
@@ -695,98 +637,91 @@ export default function TransportationList() {
     if (filterDateFrom) {
       const fromDate = new Date(filterDateFrom)
       fromDate.setHours(0, 0, 0, 0)
-      filtered = filtered.filter(transportation => {
-        if (!transportation.date) return false
-        const transDate = new Date(transportation.date)
-        transDate.setHours(0, 0, 0, 0)
-        return transDate >= fromDate
+      filtered = filtered.filter(eq => {
+        if (!eq.date) return false
+        const eqDate = new Date(eq.date)
+        eqDate.setHours(0, 0, 0, 0)
+        return eqDate >= fromDate
       })
     }
 
     if (filterDateTo) {
       const toDate = new Date(filterDateTo)
       toDate.setHours(23, 59, 59, 999)
-      filtered = filtered.filter(transportation => {
-        if (!transportation.date) return false
-        const transDate = new Date(transportation.date)
-        transDate.setHours(0, 0, 0, 0)
-        return transDate <= toDate
+      filtered = filtered.filter(eq => {
+        if (!eq.date) return false
+        const eqDate = new Date(eq.date)
+        eqDate.setHours(0, 0, 0, 0)
+        return eqDate <= toDate
       })
     }
 
-    // Apply type filter
-    if (filterType) {
-      filtered = filtered.filter(transportation =>
-        transportation.type?.toLowerCase().includes(filterType.toLowerCase())
-      )
+    // Apply project code filter (multiple selection)
+    if (filterProjectCode.size > 0) {
+      filtered = filtered.filter(oc => {
+        if (!oc.project_code) return false
+        return filterProjectCode.has(oc.project_code)
+      })
     }
 
-    // Apply category filter
-    if (filterCategory) {
-      filtered = filtered.filter(transportation =>
-        transportation.category?.toLowerCase().includes(filterCategory.toLowerCase())
-      )
-    }
-
-    // Apply project code from filter
-    if (filterProjectCodeFrom) {
-      filtered = filtered.filter(transportation =>
-        transportation.project_code_from?.toLowerCase().includes(filterProjectCodeFrom.toLowerCase())
-      )
-    }
-
-    // Apply project code to filter
-    if (filterProjectCodeTo) {
-      filtered = filtered.filter(transportation =>
-        transportation.project_code_to?.toLowerCase().includes(filterProjectCodeTo.toLowerCase())
-      )
-    }
-
-    // Apply confirmed filter
-    if (filterConfirmed !== 'all') {
-      filtered = filtered.filter(transportation => {
-        if (filterConfirmed === 'yes') return transportation.confirmed === true
-        if (filterConfirmed === 'no') return transportation.confirmed !== true
-        return true
+    // Apply category filter (multiple selection)
+    if (filterCategory.size > 0) {
+      filtered = filtered.filter(oc => {
+        if (!oc.category) return false
+        return filterCategory.has(oc.category)
       })
     }
 
     return filtered
   }
 
-  const filteredTransportations = getFilteredTransportations()
-  const displayedTransportations = filteredTransportations.slice(0, displayedCount)
-  const hasMore = displayedCount < filteredTransportations.length
-
-  const handleLoadMore = () => {
-    setDisplayedCount(prev => prev + ITEMS_PER_PAGE)
-  }
-
   const clearFilters = () => {
     setFilterDateFrom('')
     setFilterDateTo('')
-    setFilterType('')
-    setFilterCategory('')
-    setFilterProjectCodeFrom('')
-    setFilterProjectCodeTo('')
-    setFilterConfirmed('all')
+    setFilterProjectCode(new Set())
+    setFilterCategory(new Set())
+    setProjectCodeSearch('')
+    setCategorySearch('')
   }
 
-  const hasActiveFilters = filterDateFrom || filterDateTo || filterType || filterCategory || 
-    filterProjectCodeFrom || filterProjectCodeTo || filterConfirmed !== 'all'
+  const hasActiveFilters = filterDateFrom || filterDateTo || filterProjectCode.size > 0 || filterCategory.size > 0
+
+  const handleProjectCodeToggle = (code: string) => {
+    const newSet = new Set(filterProjectCode)
+    if (newSet.has(code)) {
+      newSet.delete(code)
+    } else {
+      newSet.add(code)
+    }
+    setFilterProjectCode(newSet)
+  }
+
+  const handleCategoryToggle = (category: string) => {
+    const newSet = new Set(filterCategory)
+    if (newSet.has(category)) {
+      newSet.delete(category)
+    } else {
+      newSet.add(category)
+    }
+    setFilterCategory(newSet)
+  }
+
+  const filteredOtherCosts = getFilteredOtherCosts()
+  const displayedOtherCosts = filteredOtherCosts.slice(0, displayedCount)
+  const hasMore = displayedCount < filteredOtherCosts.length
 
   return (
     <div className="space-y-6">
       {/* Header Actions */}
       <div className="flex items-center justify-end">
         <PermissionButton
-          permission="cost_control.transportation.create"
+          permission="cost_control.other_cost.create"
           onClick={() => setShowForm(true)}
           variant="primary"
           className="flex items-center gap-2"
         >
           <Plus className="h-4 w-4" />
-          Add Transportation Record
+          Add Other Cost Record
         </PermissionButton>
       </div>
 
@@ -799,7 +734,7 @@ export default function TransportationList() {
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
                 <Input
                   type="text"
-                  placeholder="Search transportation records by type, category, items, project codes, or comment..."
+                  placeholder="Search Other cost records by project code, category, reference, unit, join text, or note..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10"
@@ -818,11 +753,8 @@ export default function TransportationList() {
                   <span className="ml-1 px-1.5 py-0.5 text-xs font-semibold bg-blue-600 text-white rounded-full">
                     {[
                       filterDateFrom || filterDateTo ? 1 : 0,
-                      filterType ? 1 : 0,
-                      filterCategory ? 1 : 0,
-                      filterProjectCodeFrom ? 1 : 0,
-                      filterProjectCodeTo ? 1 : 0,
-                      filterConfirmed !== 'all' ? 1 : 0
+                      filterProjectCode.size > 0 ? 1 : 0,
+                      filterCategory.size > 0 ? 1 : 0
                     ].reduce((a, b) => a + b, 0)}
                   </span>
                 )}
@@ -830,7 +762,7 @@ export default function TransportationList() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={loadTransportations}
+                onClick={loadOtherCosts}
                 disabled={loading}
                 title="Refresh"
               >
@@ -866,72 +798,128 @@ export default function TransportationList() {
                     </div>
                   </div>
 
-                  {/* Type Filter */}
+                  {/* Project Code Filter - Multi-select */}
                   <div>
                     <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-                      Type
+                      Project Code {filterProjectCode.size > 0 && `(${filterProjectCode.size} selected)`}
                     </label>
-                    <Input
-                      type="text"
-                      placeholder="Filter by type..."
-                      value={filterType}
-                      onChange={(e) => setFilterType(e.target.value)}
-                    />
+                    <div className="relative">
+                      <Input
+                        type="text"
+                        placeholder="Search project codes..."
+                        value={projectCodeSearch}
+                        onChange={(e) => {
+                          setProjectCodeSearch(e.target.value)
+                          setShowProjectCodeDropdown(true)
+                        }}
+                        onFocus={() => setShowProjectCodeDropdown(true)}
+                        onBlur={() => setTimeout(() => setShowProjectCodeDropdown(false), 200)}
+                        className="w-full"
+                      />
+                      {showProjectCodeDropdown && (
+                        <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                          {projectCodes
+                            .filter(pc => !projectCodeSearch || pc.code.toLowerCase().includes(projectCodeSearch.toLowerCase()))
+                            .map((pc, idx) => (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => handleProjectCodeToggle(pc.code)}
+                                className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-white flex items-center gap-2"
+                              >
+                                {filterProjectCode.has(pc.code) ? (
+                                  <CheckSquare className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                                ) : (
+                                  <Square className="h-4 w-4 text-gray-400" />
+                                )}
+                                <span>{pc.code}</span>
+                              </button>
+                            ))}
+                        </div>
+                      )}
+                      {/* Display selected project codes */}
+                      {filterProjectCode.size > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {Array.from(filterProjectCode).map((code) => (
+                            <span
+                              key={code}
+                              className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded-md text-sm"
+                            >
+                              {code}
+                              <button
+                                type="button"
+                                onClick={() => handleProjectCodeToggle(code)}
+                                className="hover:text-blue-600 dark:hover:text-blue-400"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
-                  {/* Category Filter */}
+                  {/* Category Filter - Multi-select */}
                   <div>
                     <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-                      Category
+                      Category {filterCategory.size > 0 && `(${filterCategory.size} selected)`}
                     </label>
-                    <Input
-                      type="text"
-                      placeholder="Filter by category..."
-                      value={filterCategory}
-                      onChange={(e) => setFilterCategory(e.target.value)}
-                    />
-                  </div>
-
-                  {/* Project Code From Filter */}
-                  <div>
-                    <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-                      Project Code (From)
-                    </label>
-                    <Input
-                      type="text"
-                      placeholder="Filter by project code from..."
-                      value={filterProjectCodeFrom}
-                      onChange={(e) => setFilterProjectCodeFrom(e.target.value)}
-                    />
-                  </div>
-
-                  {/* Project Code To Filter */}
-                  <div>
-                    <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-                      Project Code (To)
-                    </label>
-                    <Input
-                      type="text"
-                      placeholder="Filter by project code to..."
-                      value={filterProjectCodeTo}
-                      onChange={(e) => setFilterProjectCodeTo(e.target.value)}
-                    />
-                  </div>
-
-                  {/* Confirmed Filter */}
-                  <div>
-                    <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-                      Confirmed Status
-                    </label>
-                    <select
-                      value={filterConfirmed}
-                      onChange={(e) => setFilterConfirmed(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="all">All</option>
-                      <option value="yes">Confirmed</option>
-                      <option value="no">Not Confirmed</option>
-                    </select>
+                    <div className="relative">
+                      <Input
+                        type="text"
+                        placeholder="Search categories..."
+                        value={categorySearch}
+                        onChange={(e) => {
+                          setCategorySearch(e.target.value)
+                          setShowCategoryDropdown(true)
+                        }}
+                        onFocus={() => setShowCategoryDropdown(true)}
+                        onBlur={() => setTimeout(() => setShowCategoryDropdown(false), 200)}
+                        className="w-full"
+                      />
+                      {showCategoryDropdown && (
+                        <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                          {categories
+                            .filter(c => !categorySearch || c.category.toLowerCase().includes(categorySearch.toLowerCase()))
+                            .map((c, idx) => (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => handleCategoryToggle(c.category)}
+                                className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-white flex items-center gap-2"
+                              >
+                                {filterCategory.has(c.category) ? (
+                                  <CheckSquare className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                                ) : (
+                                  <Square className="h-4 w-4 text-gray-400" />
+                                )}
+                                <span>{c.category}</span>
+                              </button>
+                            ))}
+                        </div>
+                      )}
+                      {/* Display selected categories */}
+                      {filterCategory.size > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {Array.from(filterCategory).map((category) => (
+                            <span
+                              key={category}
+                              className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded-md text-sm"
+                            >
+                              {category}
+                              <button
+                                type="button"
+                                onClick={() => handleCategoryToggle(category)}
+                                className="hover:text-blue-600 dark:hover:text-blue-400"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -986,7 +974,7 @@ export default function TransportationList() {
               <div className="flex items-center justify-between text-sm">
                 <span className="font-medium text-blue-900 dark:text-blue-100 flex items-center gap-2">
                   <Upload className="h-4 w-4 animate-pulse" />
-                  {importStatus || 'Importing transportation records...'}
+                  {importStatus || 'Importing Other cost records...'}
                 </span>
                 <span className="font-semibold text-blue-700 dark:text-blue-300">
                   {Math.round(importProgress.percentage)}%
@@ -1004,7 +992,7 @@ export default function TransportationList() {
               </div>
               <div className="flex items-center justify-between text-xs text-blue-700 dark:text-blue-300">
                 <span>
-                  {importProgress.current} of {importProgress.total} transportation records processed
+                  {importProgress.current} of {importProgress.total} Other cost records processed
                 </span>
                 {importProgress.percentage === 100 && (
                   <span className="flex items-center gap-1 text-green-600 dark:text-green-400 font-medium">
@@ -1019,24 +1007,24 @@ export default function TransportationList() {
       )}
 
       {/* Bulk Actions Toolbar */}
-      {selectedTransportations.size > 0 && (
+      {selectedOtherCosts.size > 0 && (
         <Card className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <span className="text-sm font-medium text-blue-900 dark:text-blue-100">
-                  {selectedTransportations.size} transportation record(s) selected
+                  {selectedOtherCosts.size} Other cost record(s) selected
                 </span>
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setSelectedTransportations(new Set())}
+                  onClick={() => setSelectedOtherCosts(new Set())}
                   className="text-gray-600 dark:text-gray-300"
                 >
                   Clear Selection
                 </Button>
               </div>
-              {guard.hasAccess('cost_control.transportation.delete') && (
+              {guard.hasAccess('cost_control.other_cost.delete') && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -1052,13 +1040,13 @@ export default function TransportationList() {
         </Card>
       )}
 
-      {/* Transportation Table */}
+      {/* Other Cost Table */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
-            <span>Transportation Records ({filteredTransportations.length} {displayedCount < filteredTransportations.length ? `- Showing ${displayedCount}` : ''})</span>
+            <span>Other Cost Records ({filteredOtherCosts.length} {displayedCount < filteredOtherCosts.length ? `- Showing ${displayedCount}` : ''})</span>
             <div className="flex items-center gap-2">
-              {guard.hasAccess('cost_control.transportation.import') && (
+              {guard.hasAccess('cost_control.other_cost.import') && (
                 <Button
                   onClick={handleDownloadTemplate}
                   variant="ghost"
@@ -1069,7 +1057,7 @@ export default function TransportationList() {
                 </Button>
               )}
               <PermissionButton
-                permission="cost_control.transportation.export"
+                permission="cost_control.other_cost.export"
                 onClick={() => handleExport('excel')}
                 variant="ghost"
                 size="sm"
@@ -1077,12 +1065,12 @@ export default function TransportationList() {
               >
                 <Download className="h-4 w-4" />
               </PermissionButton>
-              {guard.hasAccess('cost_control.transportation.import') && (
+              {guard.hasAccess('cost_control.other_cost.import') && (
                 <ImportButton
                   onImport={handleImport}
                   requiredColumns={[]}
-                  templateName="transportation_template"
-                  templateColumns={['DATE', 'TYPE', 'Category', 'NOs', 'LENGTH(M)', 'ITEMS', 'PROJECT CODE ( FROM )', 'PROJECT CODE ( TO )', 'RATE', 'WAITING RATE', 'Cost', 'COMMENT', 'Confirmed']}
+                  templateName="other_cost_template"
+                  templateColumns={['DATE', 'PROJECT CODE', 'Category', 'Reference ', 'UNIT', 'QTTY', 'RATE', 'Cost', 'JOIN TEXT', 'NOTE']}
                   label=""
                   variant="outline"
                   className="p-2 border-0"
@@ -1097,25 +1085,25 @@ export default function TransportationList() {
             <div className="flex items-center justify-center py-12">
               <LoadingSpinner size="lg" />
             </div>
-          ) : filteredTransportations.length === 0 ? (
+          ) : filteredOtherCosts.length === 0 ? (
             <div className="text-center py-12">
-              <Truck className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+              <DollarSign className="h-16 w-16 text-gray-400 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                {transportations.length === 0 ? 'No Transportation Records Found' : 'No Transportation Records Match Your Search'}
+                {otherCosts.length === 0 ? 'No Other Cost Records Found' : 'No Other Cost Records Match Your Search'}
               </h3>
               <p className="text-gray-600 dark:text-gray-400 mb-4">
-                {transportations.length === 0 
-                  ? 'Get started by adding your first transportation record. You may need to create the transportation table in your database first.'
+                {otherCosts.length === 0 
+                  ? 'Get started by adding your first Other cost record. You may need to create the other_cost table in your database first.'
                   : 'Try adjusting your search terms.'}
               </p>
-              {transportations.length === 0 && (
+              {otherCosts.length === 0 && (
                 <PermissionButton
-                  permission="cost_control.transportation.create"
+                  permission="cost_control.other_cost.create"
                   onClick={() => setShowForm(true)}
                   variant="primary"
                 >
                   <Plus className="h-4 w-4 mr-2" />
-                  Add First Transportation Record
+                  Add First Other Cost Record
                 </PermissionButton>
               )}
             </div>
@@ -1125,13 +1113,13 @@ export default function TransportationList() {
                 <thead>
                   <tr className="border-b border-gray-200 dark:border-gray-700">
                     <th className="text-left p-3 font-semibold text-gray-700 dark:text-gray-300 w-12">
-                      {guard.hasAccess('cost_control.transportation.delete') && (
+                      {guard.hasAccess('cost_control.other_cost.delete') && (
                         <button
-                          onClick={() => handleSelectAll(selectedTransportations.size !== filteredTransportations.length)}
+                          onClick={() => handleSelectAll(selectedOtherCosts.size !== filteredOtherCosts.length)}
                           className="flex items-center justify-center"
-                          title={selectedTransportations.size === filteredTransportations.length ? 'Deselect all' : 'Select all'}
+                          title={selectedOtherCosts.size === filteredOtherCosts.length ? 'Deselect all' : 'Select all'}
                         >
-                          {selectedTransportations.size === filteredTransportations.length && filteredTransportations.length > 0 ? (
+                          {selectedOtherCosts.size === filteredOtherCosts.length && filteredOtherCosts.length > 0 ? (
                             <CheckSquare className="h-5 w-5 text-blue-600" />
                           ) : (
                             <Square className="h-5 w-5 text-gray-400" />
@@ -1140,33 +1128,31 @@ export default function TransportationList() {
                       )}
                     </th>
                     <th className="text-left p-3 font-semibold text-gray-700 dark:text-gray-300">Date</th>
-                    <th className="text-left p-3 font-semibold text-gray-700 dark:text-gray-300">Type</th>
+                    <th className="text-left p-3 font-semibold text-gray-700 dark:text-gray-300">Project Code</th>
                     <th className="text-left p-3 font-semibold text-gray-700 dark:text-gray-300">Category</th>
-                    <th className="text-left p-3 font-semibold text-gray-700 dark:text-gray-300">NOs</th>
-                    <th className="text-left p-3 font-semibold text-gray-700 dark:text-gray-300">Length (M)</th>
-                    <th className="text-left p-3 font-semibold text-gray-700 dark:text-gray-300">Items</th>
-                    <th className="text-left p-3 font-semibold text-gray-700 dark:text-gray-300">From</th>
-                    <th className="text-left p-3 font-semibold text-gray-700 dark:text-gray-300">To</th>
+                    <th className="text-left p-3 font-semibold text-gray-700 dark:text-gray-300">Reference</th>
+                    <th className="text-left p-3 font-semibold text-gray-700 dark:text-gray-300">UNIT</th>
+                    <th className="text-left p-3 font-semibold text-gray-700 dark:text-gray-300">QTTY</th>
                     <th className="text-left p-3 font-semibold text-gray-700 dark:text-gray-300">Rate</th>
-                    <th className="text-left p-3 font-semibold text-gray-700 dark:text-gray-300">Waiting Rate</th>
                     <th className="text-left p-3 font-semibold text-gray-700 dark:text-gray-300">Cost</th>
-                    <th className="text-left p-3 font-semibold text-gray-700 dark:text-gray-300">Confirmed</th>
+                    <th className="text-left p-3 font-semibold text-gray-700 dark:text-gray-300">JOIN TEXT</th>
+                    <th className="text-left p-3 font-semibold text-gray-700 dark:text-gray-300">Note</th>
                     <th className="text-right p-3 font-semibold text-gray-700 dark:text-gray-300">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {displayedTransportations.map((transportation) => (
+                  {displayedOtherCosts.map((oc) => (
                     <tr
-                      key={transportation.id}
+                      key={oc.id}
                       className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
                     >
                       <td className="p-3 w-12">
-                        {guard.hasAccess('cost_control.transportation.delete') && (
+                        {guard.hasAccess('cost_control.other_cost.delete') && (
                           <button
-                            onClick={() => handleSelectTransportation(transportation.id, !selectedTransportations.has(transportation.id))}
+                            onClick={() => handleSelectOtherCost(oc.id, !selectedOtherCosts.has(oc.id))}
                             className="flex items-center justify-center"
                           >
-                            {selectedTransportations.has(transportation.id) ? (
+                            {selectedOtherCosts.has(oc.id) ? (
                               <CheckSquare className="h-5 w-5 text-blue-600" />
                             ) : (
                               <Square className="h-5 w-5 text-gray-400" />
@@ -1175,57 +1161,41 @@ export default function TransportationList() {
                         )}
                       </td>
                       <td className="p-3 text-gray-600 dark:text-gray-400">
-                        {transportation.date ? formatDate(transportation.date) : '-'}
+                        {oc.date ? formatDate(oc.date) : '-'}
                       </td>
                       <td className="p-3 text-gray-600 dark:text-gray-400">
-                        {transportation.type || '-'}
+                        {oc.project_code || '-'}
                       </td>
                       <td className="p-3 text-gray-600 dark:text-gray-400">
-                        {transportation.category || '-'}
+                        {oc.category || '-'}
                       </td>
                       <td className="p-3 text-gray-600 dark:text-gray-400">
-                        {transportation.nos || '-'}
+                        {oc.reference || '-'}
                       </td>
                       <td className="p-3 text-gray-600 dark:text-gray-400">
-                        {transportation.length_m || '-'}
-                      </td>
-                      <td className="p-3">
-                        <div className="font-medium text-gray-900 dark:text-white">
-                          {transportation.items || '-'}
-                        </div>
+                        {oc.unit || '-'}
                       </td>
                       <td className="p-3 text-gray-600 dark:text-gray-400">
-                        {transportation.project_code_from || '-'}
+                        {oc.qtty || '-'}
                       </td>
                       <td className="p-3 text-gray-600 dark:text-gray-400">
-                        {transportation.project_code_to || '-'}
-                      </td>
-                      <td className="p-3 text-gray-600 dark:text-gray-400">
-                        {transportation.rate || '-'}
-                      </td>
-                      <td className="p-3 text-gray-600 dark:text-gray-400">
-                        {transportation.waiting_rate || '-'}
+                        {oc.rate || '-'}
                       </td>
                       <td className="p-3 font-medium text-gray-900 dark:text-white">
-                        {transportation.cost || '-'}
+                        {oc.cost || '-'}
                       </td>
-                      <td className="p-3">
-                        {transportation.confirmed ? (
-                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                            Yes
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200">
-                            No
-                          </span>
-                        )}
+                      <td className="p-3 text-gray-600 dark:text-gray-400">
+                        {oc.join_text || '-'}
+                      </td>
+                      <td className="p-3 text-gray-600 dark:text-gray-400 max-w-xs truncate" title={oc.note || ''}>
+                        {oc.note || '-'}
                       </td>
                       <td className="p-3">
                         <div className="flex items-center justify-end gap-2">
                           <PermissionButton
-                            permission="cost_control.transportation.edit"
+                            permission="cost_control.other_cost.edit"
                             onClick={() => {
-                              setEditingTransportation(transportation)
+                              setEditingOtherCost(oc)
                               setShowForm(true)
                             }}
                             variant="ghost"
@@ -1234,8 +1204,8 @@ export default function TransportationList() {
                             <Edit className="h-4 w-4" />
                           </PermissionButton>
                           <PermissionButton
-                            permission="cost_control.transportation.delete"
-                            onClick={() => handleDelete(transportation.id)}
+                            permission="cost_control.other_cost.delete"
+                            onClick={() => handleDelete(oc.id)}
                             variant="ghost"
                             size="sm"
                           >
@@ -1251,7 +1221,7 @@ export default function TransportationList() {
           )}
 
           {/* Load More Button */}
-          {!loading && filteredTransportations.length > 0 && hasMore && (
+          {!loading && filteredOtherCosts.length > 0 && hasMore && (
             <div className="flex justify-center mt-6 pb-4">
               <Button
                 onClick={handleLoadMore}
@@ -1259,29 +1229,29 @@ export default function TransportationList() {
                 className="flex items-center gap-2"
               >
                 <RefreshCw className="h-4 w-4" />
-                Load More ({Math.min(ITEMS_PER_PAGE, filteredTransportations.length - displayedCount)} more records)
+                Load More ({Math.min(ITEMS_PER_PAGE, filteredOtherCosts.length - displayedCount)} more records)
               </Button>
             </div>
           )}
 
           {/* Show All Loaded Message */}
-          {!loading && filteredTransportations.length > 0 && !hasMore && displayedCount > ITEMS_PER_PAGE && (
+          {!loading && filteredOtherCosts.length > 0 && !hasMore && displayedCount > ITEMS_PER_PAGE && (
             <div className="flex justify-center mt-4 pb-4">
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                All {filteredTransportations.length} records are displayed
+                All {filteredOtherCosts.length} records are displayed
               </p>
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Transportation Form Modal */}
+      {/* Other Cost Form Modal */}
       {showForm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <Card className="w-full max-w-5xl max-h-[90vh] overflow-y-auto m-4">
+          <Card className="w-full max-w-6xl max-h-[90vh] overflow-y-auto m-4">
             <CardHeader>
               <CardTitle>
-                {editingTransportation ? 'Edit Transportation Record' : 'Add New Transportation Record'}
+                {editingOtherCost ? 'Edit Other Cost Record' : 'Add New Other Cost Record'}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -1300,12 +1270,12 @@ export default function TransportationList() {
 
                   <div>
                     <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-                      Type
+                      Project Code
                     </label>
                     <Input
-                      value={formData.type}
-                      onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value }))}
-                      placeholder="Type"
+                      value={formData.project_code}
+                      onChange={(e) => setFormData(prev => ({ ...prev, project_code: e.target.value }))}
+                      placeholder="Project code"
                     />
                   </div>
 
@@ -1315,7 +1285,6 @@ export default function TransportationList() {
                     </label>
                     <div className="relative">
                       <Input
-                        type="text"
                         value={formData.category}
                         onChange={(e) => {
                           setFormData(prev => ({ ...prev, category: e.target.value }))
@@ -1330,58 +1299,28 @@ export default function TransportationList() {
                       {showCategoryDropdown && (
                         <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
                           {categories
-                            .filter(cat => !categorySearch || cat.name.toLowerCase().includes(categorySearch.toLowerCase()))
-                            .slice(0, 20)
-                            .map((cat) => (
+                            .filter(c => !categorySearch || c.category.toLowerCase().includes(categorySearch.toLowerCase()))
+                            .map((c, idx) => (
                               <button
-                                key={cat.id}
+                                key={idx}
                                 type="button"
                                 onClick={() => {
-                                  setFormData(prev => ({ ...prev, category: cat.name }))
+                                  setFormData(prev => ({ ...prev, category: c.category }))
                                   setCategorySearch('')
                                   setShowCategoryDropdown(false)
                                 }}
                                 className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-white"
                               >
-                                {cat.name}
+                                {c.category}
                               </button>
                             ))}
-                          {categorySearch && !categories.find(cat => cat.name.toLowerCase() === categorySearch.toLowerCase()) && (
+                          {categorySearch && !categories.find(c => c.category.toLowerCase() === categorySearch.toLowerCase()) && (
                             <button
                               type="button"
-                              onClick={async () => {
-                                if (!categorySearch.trim()) return
-                                try {
-                                  const { data: existing } = await supabase
-                                    .from('vendor_categories')
-                                    .select('id, name')
-                                    .eq('name', categorySearch.trim())
-                                    .single()
-
-                                  if (existing) {
-                                    setFormData(prev => ({ ...prev, category: existing.name }))
-                                    setCategorySearch('')
-                                    setShowCategoryDropdown(false)
-                                    return
-                                  }
-
-                                  const { data: newCategory } = await supabase
-                                    .from('vendor_categories')
-                                    .insert([{ name: categorySearch.trim(), is_active: true }])
-                                    .select('id, name')
-                                    .single()
-
-                                  if (newCategory) {
-                                    await loadCategories()
-                                    setFormData(prev => ({ ...prev, category: newCategory.name }))
-                                    setCategorySearch('')
-                                    setShowCategoryDropdown(false)
-                                  }
-                                } catch (error) {
-                                  setFormData(prev => ({ ...prev, category: categorySearch.trim() }))
-                                  setCategorySearch('')
-                                  setShowCategoryDropdown(false)
-                                }
+                              onClick={() => {
+                                setFormData(prev => ({ ...prev, category: categorySearch }))
+                                setCategorySearch('')
+                                setShowCategoryDropdown(false)
                               }}
                               className="w-full text-left px-4 py-2 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-medium"
                             >
@@ -1395,60 +1334,36 @@ export default function TransportationList() {
 
                   <div>
                     <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-                      NOs
+                      Reference
+                    </label>
+                    <Input
+                      value={formData.reference}
+                      onChange={(e) => setFormData(prev => ({ ...prev, reference: e.target.value }))}
+                      placeholder="Reference"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
+                      UNIT
+                    </label>
+                    <Input
+                      value={formData.unit}
+                      onChange={(e) => setFormData(prev => ({ ...prev, unit: e.target.value }))}
+                      placeholder="Unit"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
+                      QTTY
                     </label>
                     <Input
                       type="number"
                       step="0.01"
-                      value={formData.nos}
-                      onChange={(e) => setFormData(prev => ({ ...prev, nos: e.target.value }))}
-                      placeholder="Number of items"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-                      Length (M)
-                    </label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={formData.length_m}
-                      onChange={(e) => setFormData(prev => ({ ...prev, length_m: e.target.value }))}
-                      placeholder="Length in meters"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-                      Items
-                    </label>
-                    <Input
-                      value={formData.items}
-                      onChange={(e) => setFormData(prev => ({ ...prev, items: e.target.value }))}
-                      placeholder="Items description"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-                      Project Code (From)
-                    </label>
-                    <Input
-                      value={formData.project_code_from}
-                      onChange={(e) => setFormData(prev => ({ ...prev, project_code_from: e.target.value }))}
-                      placeholder="Project code from"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-                      Project Code (To)
-                    </label>
-                    <Input
-                      value={formData.project_code_to}
-                      onChange={(e) => setFormData(prev => ({ ...prev, project_code_to: e.target.value }))}
-                      placeholder="Project code to"
+                      value={formData.qtty}
+                      onChange={(e) => setFormData(prev => ({ ...prev, qtty: e.target.value }))}
+                      placeholder="Quantity"
                     />
                   </div>
 
@@ -1467,19 +1382,6 @@ export default function TransportationList() {
 
                   <div>
                     <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-                      Waiting Rate
-                    </label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={formData.waiting_rate}
-                      onChange={(e) => setFormData(prev => ({ ...prev, waiting_rate: e.target.value }))}
-                      placeholder="Waiting rate"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
                       Cost
                     </label>
                     <Input
@@ -1493,27 +1395,24 @@ export default function TransportationList() {
 
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-                      Comment
+                      JOIN TEXT
                     </label>
                     <Input
-                      value={formData.comment}
-                      onChange={(e) => setFormData(prev => ({ ...prev, comment: e.target.value }))}
-                      placeholder="Comment"
+                      value={formData.join_text}
+                      onChange={(e) => setFormData(prev => ({ ...prev, join_text: e.target.value }))}
+                      placeholder="Join text"
                     />
                   </div>
 
-                  <div>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={formData.confirmed}
-                        onChange={(e) => setFormData(prev => ({ ...prev, confirmed: e.target.checked }))}
-                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                        Confirmed
-                      </span>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
+                      Note
                     </label>
+                    <Input
+                      value={formData.note}
+                      onChange={(e) => setFormData(prev => ({ ...prev, note: e.target.value }))}
+                      placeholder="Note"
+                    />
                   </div>
                 </div>
 
@@ -1523,9 +1422,7 @@ export default function TransportationList() {
                     variant="ghost"
                     onClick={() => {
                       setShowForm(false)
-                      setEditingTransportation(null)
-                      setCategorySearch('')
-                      setShowCategoryDropdown(false)
+                      setEditingOtherCost(null)
                     }}
                   >
                     Cancel
@@ -1535,7 +1432,7 @@ export default function TransportationList() {
                     variant="primary"
                     disabled={loading}
                   >
-                    {loading ? 'Saving...' : editingTransportation ? 'Update' : 'Add'} Transportation Record
+                    {loading ? 'Saving...' : editingOtherCost ? 'Update' : 'Add'} Other Cost Record
                   </Button>
                 </div>
               </form>
@@ -1546,3 +1443,4 @@ export default function TransportationList() {
     </div>
   )
 }
+

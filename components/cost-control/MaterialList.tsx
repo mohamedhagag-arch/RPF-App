@@ -22,7 +22,9 @@ import {
   FileSpreadsheet,
   X,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  Filter,
+  Calendar
 } from 'lucide-react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
@@ -70,6 +72,16 @@ export default function MaterialList() {
   const [vendors, setVendors] = useState<Array<{ name: string }>>([])
   const [vendorSearch, setVendorSearch] = useState('')
   const [showVendorDropdown, setShowVendorDropdown] = useState(false)
+  const [displayedCount, setDisplayedCount] = useState(50) // عدد السجلات المعروضة
+  const ITEMS_PER_PAGE = 50 // عدد السجلات في كل صفحة
+  
+  // Filter states
+  const [showFilters, setShowFilters] = useState(false)
+  const [filterDateFrom, setFilterDateFrom] = useState('')
+  const [filterDateTo, setFilterDateTo] = useState('')
+  const [filterProjectCode, setFilterProjectCode] = useState('')
+  const [filterCategory, setFilterCategory] = useState('')
+  const [filterVendor, setFilterVendor] = useState('')
   
   const [formData, setFormData] = useState({
     applicant: '',
@@ -91,32 +103,55 @@ export default function MaterialList() {
     loadVendors()
   }, [])
 
+  // إعادة تعيين عدد السجلات المعروضة عند تغيير البحث أو الفلاتر
+  useEffect(() => {
+    setDisplayedCount(ITEMS_PER_PAGE)
+  }, [searchTerm, categorySearch, vendorSearch, filterDateFrom, filterDateTo, filterProjectCode, filterCategory, filterVendor])
+
   const loadMaterials = async () => {
     try {
       setLoading(true)
       setError('')
       
-      const { data, error: fetchError } = await supabase
-        .from('material')
-        .select('*')
-        .order('created_at', { ascending: false })
+      // تحميل جميع البيانات بدون limit
+      let allData: Material[] = []
+      let page = 0
+      const pageSize = 1000 // تحميل 1000 سجل في كل مرة
+      let hasMore = true
 
-      if (fetchError) {
-        console.error('Supabase Error:', fetchError)
-        if (fetchError.code === 'PGRST116' || fetchError.message.includes('does not exist')) {
-          setError('Table does not exist. Please run: Database/create-material-table.sql')
-          setMaterials([])
-          return
+      while (hasMore) {
+        const { data, error: fetchError } = await supabase
+          .from('material')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .range(page * pageSize, (page + 1) * pageSize - 1)
+
+        if (fetchError) {
+          console.error('Supabase Error:', fetchError)
+          if (fetchError.code === 'PGRST116' || fetchError.message.includes('does not exist')) {
+            setError('Table does not exist. Please run: Database/create-material-table.sql')
+            setMaterials([])
+            return
+          }
+          if (fetchError.code === '42501' || fetchError.message.includes('permission denied') || fetchError.message.includes('RLS')) {
+            setError('Permission denied. Please run: Database/create-material-table.sql in Supabase SQL Editor to fix permissions.')
+            setMaterials([])
+            return
+          }
+          throw fetchError
         }
-        if (fetchError.code === '42501' || fetchError.message.includes('permission denied') || fetchError.message.includes('RLS')) {
-          setError('Permission denied. Please run: Database/create-material-table.sql in Supabase SQL Editor to fix permissions.')
-          setMaterials([])
-          return
+
+        if (data && data.length > 0) {
+          allData = [...allData, ...data]
+          page++
+          hasMore = data.length === pageSize
+        } else {
+          hasMore = false
         }
-        throw fetchError
       }
 
-      setMaterials(data || [])
+      setMaterials(allData)
+      setDisplayedCount(ITEMS_PER_PAGE) // إعادة تعيين عدد السجلات المعروضة
     } catch (error: any) {
       console.error('Error loading materials:', error)
       setError('Failed to load materials. Please ensure the material table exists in the database.')
@@ -166,6 +201,7 @@ export default function MaterialList() {
 
       await loadMaterials()
       setSelectedMaterials(new Set())
+      setDisplayedCount(ITEMS_PER_PAGE) // إعادة تعيين عدد السجلات المعروضة
     } catch (error: any) {
       console.error('Error deleting material:', error)
       setError('Failed to delete material')
@@ -240,7 +276,7 @@ export default function MaterialList() {
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      setSelectedMaterials(new Set(filteredMaterials.map(m => m.id)))
+      setSelectedMaterials(new Set(displayedMaterials.map(m => m.id)))
     } else {
       setSelectedMaterials(new Set())
     }
@@ -303,6 +339,7 @@ export default function MaterialList() {
       }
 
       await loadMaterials()
+      setDisplayedCount(ITEMS_PER_PAGE) // إعادة تعيين عدد السجلات المعروضة
       setShowForm(false)
       setEditingMaterial(null)
       setCategorySearch('')
@@ -496,6 +533,7 @@ export default function MaterialList() {
       setImportStatus('Import completed!')
 
       await loadMaterials()
+      setDisplayedCount(ITEMS_PER_PAGE) // إعادة تعيين عدد السجلات المعروضة
       
       if (errors === 0) {
         setSuccess(`Successfully imported ${imported} material(s)`)
@@ -586,19 +624,64 @@ export default function MaterialList() {
   }
 
   const getFilteredMaterials = () => {
-    if (!searchTerm) return materials
+    let filtered = materials
 
-    const term = searchTerm.toLowerCase()
-    return materials.filter(material =>
-      material.material?.toLowerCase().includes(term) ||
-      material.project_code?.toLowerCase().includes(term) ||
-      material.category?.toLowerCase().includes(term) ||
-      material.vendor?.toLowerCase().includes(term) ||
-      material.applicant?.toLowerCase().includes(term)
-    )
+    // Apply search term filter
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase()
+      filtered = filtered.filter(material =>
+        material.material?.toLowerCase().includes(term) ||
+        material.project_code?.toLowerCase().includes(term) ||
+        material.category?.toLowerCase().includes(term) ||
+        material.vendor?.toLowerCase().includes(term) ||
+        material.applicant?.toLowerCase().includes(term)
+      )
+    }
+
+    // Apply date range filter (if material has date field)
+    // Note: Material might not have date, so we'll skip if not available
+
+    // Apply project code filter
+    if (filterProjectCode) {
+      filtered = filtered.filter(material =>
+        material.project_code?.toLowerCase().includes(filterProjectCode.toLowerCase())
+      )
+    }
+
+    // Apply category filter
+    if (filterCategory) {
+      filtered = filtered.filter(material =>
+        material.category?.toLowerCase().includes(filterCategory.toLowerCase())
+      )
+    }
+
+    // Apply vendor filter
+    if (filterVendor) {
+      filtered = filtered.filter(material =>
+        material.vendor?.toLowerCase().includes(filterVendor.toLowerCase())
+      )
+    }
+
+    return filtered
   }
 
+  const clearFilters = () => {
+    setFilterDateFrom('')
+    setFilterDateTo('')
+    setFilterProjectCode('')
+    setFilterCategory('')
+    setFilterVendor('')
+  }
+
+  const hasActiveFilters = filterDateFrom || filterDateTo || filterProjectCode || filterCategory || filterVendor
+
   const filteredMaterials = getFilteredMaterials()
+  const displayedMaterials = filteredMaterials.slice(0, displayedCount)
+  const hasMore = displayedCount < filteredMaterials.length
+
+  const handleLoadMore = () => {
+    setDisplayedCount(prev => prev + ITEMS_PER_PAGE)
+  }
 
   return (
     <div className="space-y-6">
@@ -743,7 +826,7 @@ export default function MaterialList() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
-            <span>Materials ({filteredMaterials.length})</span>
+            <span>Materials ({filteredMaterials.length} {displayedCount < filteredMaterials.length ? `- Showing ${displayedCount}` : ''})</span>
             <div className="flex items-center gap-2">
               {guard.hasAccess('cost_control.material.import') && (
                 <Button
@@ -838,7 +921,7 @@ export default function MaterialList() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredMaterials.map((material) => (
+                  {displayedMaterials.map((material) => (
                     <tr
                       key={material.id}
                       className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
@@ -910,6 +993,29 @@ export default function MaterialList() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {/* Load More Button */}
+          {!loading && filteredMaterials.length > 0 && hasMore && (
+            <div className="flex justify-center mt-6 pb-4">
+              <Button
+                onClick={handleLoadMore}
+                variant="outline"
+                className="flex items-center gap-2"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Load More ({Math.min(ITEMS_PER_PAGE, filteredMaterials.length - displayedCount)} more records)
+              </Button>
+            </div>
+          )}
+
+          {/* Show All Loaded Message */}
+          {!loading && filteredMaterials.length > 0 && !hasMore && displayedCount > ITEMS_PER_PAGE && (
+            <div className="flex justify-center mt-4 pb-4">
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                All {filteredMaterials.length} records are displayed
+              </p>
             </div>
           )}
         </CardContent>

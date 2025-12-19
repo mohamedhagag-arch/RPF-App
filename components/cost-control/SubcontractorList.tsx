@@ -21,7 +21,9 @@ import {
   Square,
   FileSpreadsheet,
   X,
-  CheckCircle
+  CheckCircle,
+  Filter,
+  Calendar
 } from 'lucide-react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { useSmartLoading } from '@/lib/smartLoadingManager'
@@ -65,6 +67,16 @@ export default function SubcontractorList() {
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([])
   const [categorySearch, setCategorySearch] = useState('')
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false)
+  const [displayedCount, setDisplayedCount] = useState(50) // عدد السجلات المعروضة
+  const ITEMS_PER_PAGE = 50 // عدد السجلات في كل صفحة
+  
+  // Filter states
+  const [showFilters, setShowFilters] = useState(false)
+  const [filterDateFrom, setFilterDateFrom] = useState('')
+  const [filterDateTo, setFilterDateTo] = useState('')
+  const [filterProjectCode, setFilterProjectCode] = useState('')
+  const [filterCategory, setFilterCategory] = useState('')
+  const [filterActivity, setFilterActivity] = useState('')
   
   const [formData, setFormData] = useState({
     date: '',
@@ -83,32 +95,55 @@ export default function SubcontractorList() {
     loadCategories()
   }, [])
 
+  // إعادة تعيين عدد السجلات المعروضة عند تغيير البحث أو الفلاتر
+  useEffect(() => {
+    setDisplayedCount(ITEMS_PER_PAGE)
+  }, [searchTerm, categorySearch, filterDateFrom, filterDateTo, filterProjectCode, filterCategory, filterActivity])
+
   const loadSubcontractors = async () => {
     try {
       setLoading(true)
       setError('')
       
-      const { data, error: fetchError } = await supabase
-        .from('subcontractor')
-        .select('*')
-        .order('created_at', { ascending: false })
+      // تحميل جميع البيانات بدون limit
+      let allData: Subcontractor[] = []
+      let page = 0
+      const pageSize = 1000 // تحميل 1000 سجل في كل مرة
+      let hasMore = true
 
-      if (fetchError) {
-        console.error('Supabase Error:', fetchError)
-        if (fetchError.code === 'PGRST116' || fetchError.message.includes('does not exist')) {
-          setError('Table does not exist. Please run: Database/create-subcontractor-table.sql')
-          setSubcontractors([])
-          return
+      while (hasMore) {
+        const { data, error: fetchError } = await supabase
+          .from('subcontractor')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .range(page * pageSize, (page + 1) * pageSize - 1)
+
+        if (fetchError) {
+          console.error('Supabase Error:', fetchError)
+          if (fetchError.code === 'PGRST116' || fetchError.message.includes('does not exist')) {
+            setError('Table does not exist. Please run: Database/create-subcontractor-table.sql')
+            setSubcontractors([])
+            return
+          }
+          if (fetchError.code === '42501' || fetchError.message.includes('permission denied') || fetchError.message.includes('RLS')) {
+            setError('Permission denied. Please run: Database/create-subcontractor-table.sql in Supabase SQL Editor to fix permissions.')
+            setSubcontractors([])
+            return
+          }
+          throw fetchError
         }
-        if (fetchError.code === '42501' || fetchError.message.includes('permission denied') || fetchError.message.includes('RLS')) {
-          setError('Permission denied. Please run: Database/create-subcontractor-table.sql in Supabase SQL Editor to fix permissions.')
-          setSubcontractors([])
-          return
+
+        if (data && data.length > 0) {
+          allData = [...allData, ...data]
+          page++
+          hasMore = data.length === pageSize
+        } else {
+          hasMore = false
         }
-        throw fetchError
       }
 
-      setSubcontractors(data || [])
+      setSubcontractors(allData)
+      setDisplayedCount(ITEMS_PER_PAGE) // إعادة تعيين عدد السجلات المعروضة
     } catch (error: any) {
       console.error('Error loading subcontractors:', error)
       setError('Failed to load subcontractors. Please ensure the subcontractor table exists in the database.')
@@ -145,6 +180,7 @@ export default function SubcontractorList() {
 
       await loadSubcontractors()
       setSelectedSubcontractors(new Set())
+      setDisplayedCount(ITEMS_PER_PAGE) // إعادة تعيين عدد السجلات المعروضة
     } catch (error: any) {
       console.error('Error deleting subcontractor:', error)
       setError('Failed to delete subcontractor')
@@ -219,7 +255,7 @@ export default function SubcontractorList() {
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      setSelectedSubcontractors(new Set(filteredSubcontractors.map(s => s.id)))
+      setSelectedSubcontractors(new Set(displayedSubcontractors.map(s => s.id)))
     } else {
       setSelectedSubcontractors(new Set())
     }
@@ -281,6 +317,7 @@ export default function SubcontractorList() {
       }
 
       await loadSubcontractors()
+      setDisplayedCount(ITEMS_PER_PAGE) // إعادة تعيين عدد السجلات المعروضة
       setShowForm(false)
       setEditingSubcontractor(null)
       setCategorySearch('')
@@ -569,6 +606,7 @@ export default function SubcontractorList() {
       setImportStatus('Import completed!')
 
       await loadSubcontractors()
+      setDisplayedCount(ITEMS_PER_PAGE) // إعادة تعيين عدد السجلات المعروضة
       
       if (errors === 0) {
         setSuccess(`Successfully imported ${imported} subcontractor(s)`)
@@ -655,18 +693,83 @@ export default function SubcontractorList() {
   }
 
   const getFilteredSubcontractors = () => {
-    if (!searchTerm) return subcontractors
+    let filtered = subcontractors
 
-    const term = searchTerm.toLowerCase()
-    return subcontractors.filter(subcontractor =>
-      subcontractor.subcon_name?.toLowerCase().includes(term) ||
-      subcontractor.project_code?.toLowerCase().includes(term) ||
-      subcontractor.category?.toLowerCase().includes(term) ||
-      subcontractor.activity?.toLowerCase().includes(term)
-    )
+    // Apply search term filter
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase()
+      filtered = filtered.filter(subcontractor =>
+        subcontractor.subcon_name?.toLowerCase().includes(term) ||
+        subcontractor.project_code?.toLowerCase().includes(term) ||
+        subcontractor.category?.toLowerCase().includes(term) ||
+        subcontractor.activity?.toLowerCase().includes(term)
+      )
+    }
+
+    // Apply date range filter
+    if (filterDateFrom) {
+      const fromDate = new Date(filterDateFrom)
+      fromDate.setHours(0, 0, 0, 0)
+      filtered = filtered.filter(subcontractor => {
+        if (!subcontractor.date) return false
+        const subDate = new Date(subcontractor.date)
+        subDate.setHours(0, 0, 0, 0)
+        return subDate >= fromDate
+      })
+    }
+
+    if (filterDateTo) {
+      const toDate = new Date(filterDateTo)
+      toDate.setHours(23, 59, 59, 999)
+      filtered = filtered.filter(subcontractor => {
+        if (!subcontractor.date) return false
+        const subDate = new Date(subcontractor.date)
+        subDate.setHours(0, 0, 0, 0)
+        return subDate <= toDate
+      })
+    }
+
+    // Apply project code filter
+    if (filterProjectCode) {
+      filtered = filtered.filter(subcontractor =>
+        subcontractor.project_code?.toLowerCase().includes(filterProjectCode.toLowerCase())
+      )
+    }
+
+    // Apply category filter
+    if (filterCategory) {
+      filtered = filtered.filter(subcontractor =>
+        subcontractor.category?.toLowerCase().includes(filterCategory.toLowerCase())
+      )
+    }
+
+    // Apply activity filter
+    if (filterActivity) {
+      filtered = filtered.filter(subcontractor =>
+        subcontractor.activity?.toLowerCase().includes(filterActivity.toLowerCase())
+      )
+    }
+
+    return filtered
   }
 
+  const clearFilters = () => {
+    setFilterDateFrom('')
+    setFilterDateTo('')
+    setFilterProjectCode('')
+    setFilterCategory('')
+    setFilterActivity('')
+  }
+
+  const hasActiveFilters = filterDateFrom || filterDateTo || filterProjectCode || filterCategory || filterActivity
+
   const filteredSubcontractors = getFilteredSubcontractors()
+  const displayedSubcontractors = filteredSubcontractors.slice(0, displayedCount)
+  const hasMore = displayedCount < filteredSubcontractors.length
+
+  const handleLoadMore = () => {
+    setDisplayedCount(prev => prev + ITEMS_PER_PAGE)
+  }
 
   return (
     <div className="space-y-6">
@@ -811,7 +914,7 @@ export default function SubcontractorList() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
-            <span>Subcontractors ({filteredSubcontractors.length})</span>
+            <span>Subcontractors ({filteredSubcontractors.length} {displayedCount < filteredSubcontractors.length ? `- Showing ${displayedCount}` : ''})</span>
             <div className="flex items-center gap-2">
               {guard.hasAccess('cost_control.subcontractor.import') && (
                 <Button
@@ -907,7 +1010,7 @@ export default function SubcontractorList() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredSubcontractors.map((subcontractor) => (
+                  {displayedSubcontractors.map((subcontractor) => (
                     <tr
                       key={subcontractor.id}
                       className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
@@ -982,6 +1085,29 @@ export default function SubcontractorList() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {/* Load More Button */}
+          {!loading && filteredSubcontractors.length > 0 && hasMore && (
+            <div className="flex justify-center mt-6 pb-4">
+              <Button
+                onClick={handleLoadMore}
+                variant="outline"
+                className="flex items-center gap-2"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Load More ({Math.min(ITEMS_PER_PAGE, filteredSubcontractors.length - displayedCount)} more records)
+              </Button>
+            </div>
+          )}
+
+          {/* Show All Loaded Message */}
+          {!loading && filteredSubcontractors.length > 0 && !hasMore && displayedCount > ITEMS_PER_PAGE && (
+            <div className="flex justify-center mt-4 pb-4">
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                All {filteredSubcontractors.length} records are displayed
+              </p>
             </div>
           )}
         </CardContent>

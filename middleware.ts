@@ -5,11 +5,11 @@ import type { NextRequest } from 'next/server'
 /**
  * Middleware for handling authentication and route protection
  * 
- * Logic:
+ * Improved logic:
  * 1. Check session from Supabase
  * 2. If authenticated user on home page (/) → redirect to dashboard
- * 3. If unauthenticated user on protected route → redirect to login
- * 4. Otherwise → allow access
+ * 3. If unauthenticated user on protected route → check for refresh token before redirecting
+ * 4. Otherwise → allow access (client-side will handle session recovery)
  */
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next()
@@ -22,8 +22,20 @@ export async function middleware(req: NextRequest) {
       res
     })
     
-    // Get session
-    const { data: { session }, error } = await supabase.auth.getSession()
+    // Get session with timeout
+    let session = null
+    try {
+      const sessionPromise = supabase.auth.getSession()
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Session check timeout')), 2000)
+      )
+      
+      const result = await Promise.race([sessionPromise, timeoutPromise]) as any
+      session = result.data?.session || null
+    } catch (error) {
+      // Timeout or error - continue without session (client will handle)
+      console.log('⚠️ Middleware: Session check timeout/error, allowing client-side recovery')
+    }
     
     // Helper function to check if session is valid
     const isSessionValid = (session: any): boolean => {
@@ -60,7 +72,6 @@ export async function middleware(req: NextRequest) {
     const isProtectedRoute = protectedRoutes.some(route => pathname.startsWith(route))
     
     // Case 1: Authenticated user on home page → redirect to dashboard
-    // BUT: Only redirect if user explicitly navigated to home page (not from a redirect)
     if (pathname === '/' && session?.user && isSessionValid(session)) {
       // Check referer to see if user came from another page
       const referer = req.headers.get('referer')
@@ -70,18 +81,13 @@ export async function middleware(req: NextRequest) {
                                      !referer.endsWith('/')
       
       // Only redirect if user directly accessed home page (not from internal redirect)
-      // This prevents redirecting users who were on other pages and got redirected to login
       if (!isFromInternalRedirect) {
         console.log('✅ Middleware: Authenticated user on home page, redirecting to dashboard')
         return NextResponse.redirect(new URL('/dashboard', req.url))
-      } else {
-        // User came from internal redirect - don't redirect to dashboard
-        // Let them stay on login page or go back to their original page
-        console.log('🔄 Middleware: User on home page from internal redirect, not redirecting to dashboard')
       }
     }
     
-    // Case 2: Unauthenticated user on protected route → redirect to login
+    // Case 2: Unauthenticated user on protected route
     if (isProtectedRoute && pathname !== '/') {
       const hasValidSession = session && isSessionValid(session)
       
@@ -94,12 +100,15 @@ export async function middleware(req: NextRequest) {
         
         if (!hasRefreshToken) {
           // No session and no refresh token → redirect to login
+          // But add a header to indicate this was a middleware redirect
           console.log('⚠️ Middleware: No valid session on protected route, redirecting to login', {
             pathname,
             hasSession: !!session,
             hasRefreshToken: false
           })
-          return NextResponse.redirect(new URL('/', req.url))
+          const redirectResponse = NextResponse.redirect(new URL('/', req.url))
+          redirectResponse.headers.set('X-Middleware-Redirect', 'true')
+          return redirectResponse
         } else {
           // Has refresh token → allow access (client-side will handle recovery)
           console.log('🔄 Middleware: Has refresh token, allowing access for client-side recovery')

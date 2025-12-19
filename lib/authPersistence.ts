@@ -1,5 +1,10 @@
 'use client'
 
+/**
+ * @deprecated This manager is deprecated. Use professionalSessionManager from '@/lib/professionalSessionManager' instead.
+ * This file is kept for backward compatibility but will be removed in a future version.
+ */
+
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 
 export class AuthPersistenceManager {

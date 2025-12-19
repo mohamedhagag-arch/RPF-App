@@ -244,25 +244,76 @@ export default function AuthenticatedLayout({
   }, [user])
 
   // Handle redirect if no user after loading completes
-  // Only redirect if we're on a protected route and session recovery failed
+  // Improved: Check for refresh token before redirecting
   useEffect(() => {
     if (mounted && !loading && !user) {
-      // Give more time for session recovery (providers.tsx has retries)
+      // Check if we have a refresh token (session might be recovering)
+      const checkRefreshToken = () => {
+        if (typeof window === 'undefined') return false
+        
+        // Check cookies
+        const cookies = document.cookie.split(';')
+        const hasRefreshTokenInCookies = cookies.some(cookie => 
+          cookie.trim().includes('sb-') && cookie.trim().includes('refresh-token')
+        )
+        
+        // Check localStorage
+        try {
+          const keys = Object.keys(localStorage)
+          const hasRefreshTokenInStorage = keys.some(key => 
+            key.includes('sb-') && key.includes('refresh-token')
+          )
+          return hasRefreshTokenInCookies || hasRefreshTokenInStorage
+        } catch {
+          return hasRefreshTokenInCookies
+        }
+      }
+
+      const hasRefreshToken = checkRefreshToken()
+      
+      // If we have refresh token, give more time for recovery (3 seconds)
+      // Otherwise, redirect faster (2 seconds)
+      const timeout = hasRefreshToken ? 3000 : 2000
+      
       const redirectTimer = setTimeout(() => {
+        // Double-check user state and refresh token before redirecting
         if (typeof window !== 'undefined' && !user) {
-          const currentPath = window.location.pathname
-          const protectedRoutes = ['/dashboard', '/projects', '/boq', '/kpi', '/reports', '/settings', '/profile', '/directory', '/hr', '/cost-control', '/procurement']
-          const isOnProtectedRoute = protectedRoutes.some(route => currentPath.startsWith(route))
+          const stillHasRefreshToken = checkRefreshToken()
           
-          // Only redirect if we're on a protected route and still no user
-          if (isOnProtectedRoute) {
-            console.log('⚠️ Layout: No user found after recovery attempts, redirecting to login')
-            // Store the current path to return to after login
-            sessionStorage.setItem('redirectAfterLogin', currentPath)
-            window.location.href = '/'
+          // Only redirect if we still don't have user AND no refresh token
+          if (!stillHasRefreshToken) {
+            const currentPath = window.location.pathname
+            const protectedRoutes = ['/dashboard', '/projects', '/boq', '/kpi', '/reports', '/settings', '/profile', '/directory', '/hr', '/cost-control', '/procurement']
+            const isOnProtectedRoute = protectedRoutes.some(route => currentPath.startsWith(route))
+            
+            if (isOnProtectedRoute) {
+              console.log('⚠️ Layout: No user and no refresh token, redirecting to login')
+              // Store the current path to return to after login
+              sessionStorage.setItem('redirectAfterLogin', currentPath)
+              window.location.href = '/'
+            }
+          } else {
+            console.log('🔄 Layout: Still has refresh token, waiting for session recovery...')
+            // Give one more chance - check again after 1 second
+            setTimeout(() => {
+              if (!user && typeof window !== 'undefined') {
+                const finalCheck = checkRefreshToken()
+                if (!finalCheck) {
+                  const currentPath = window.location.pathname
+                  const protectedRoutes = ['/dashboard', '/projects', '/boq', '/kpi', '/reports', '/settings', '/profile', '/directory', '/hr', '/cost-control', '/procurement']
+                  const isOnProtectedRoute = protectedRoutes.some(route => currentPath.startsWith(route))
+                  
+                  if (isOnProtectedRoute) {
+                    console.log('⚠️ Layout: Final check - no user, redirecting to login')
+                    sessionStorage.setItem('redirectAfterLogin', currentPath)
+                    window.location.href = '/'
+                  }
+                }
+              }
+            }, 1000)
           }
         }
-      }, 3000) // Give 3 seconds for session recovery (providers has retries at 0.5s, 1.5s, 3s)
+      }, timeout)
       
       return () => clearTimeout(redirectTimer)
     }
@@ -281,6 +332,11 @@ export default function AuthenticatedLayout({
     if (pathname === '/cost-control/manpower') return 'cost-control/manpower'
     if (pathname === '/cost-control/designation-rates') return 'cost-control/designation-rates'
     if (pathname === '/cost-control/machine-list') return 'cost-control/machine-list'
+    if (pathname === '/cost-control/transportation') return 'cost-control/transportation'
+    if (pathname === '/cost-control/hired-manpower') return 'cost-control/hired-manpower'
+    if (pathname === '/cost-control/rpf-equipment') return 'cost-control/rpf-equipment'
+    if (pathname === '/cost-control/rented-equipment') return 'cost-control/rented-equipment'
+    if (pathname === '/cost-control/other-cost') return 'cost-control/other-cost'
     if (pathname === '/settings') {
       // Check if it's user form tab
       if (typeof window !== 'undefined') {
@@ -336,6 +392,14 @@ export default function AuthenticatedLayout({
       router.push('/cost-control/diesel')
     } else if (tab === 'cost-control/transportation') {
       router.push('/cost-control/transportation')
+    } else if (tab === 'cost-control/hired-manpower') {
+      router.push('/cost-control/hired-manpower')
+    } else if (tab === 'cost-control/rpf-equipment') {
+      router.push('/cost-control/rpf-equipment')
+    } else if (tab === 'cost-control/rented-equipment') {
+      router.push('/cost-control/rented-equipment')
+    } else if (tab === 'cost-control/other-cost') {
+      router.push('/cost-control/other-cost')
     } else if (tab === 'hr') {
       router.push('/hr')
     } else if (tab === 'hr/manpower') {
@@ -372,22 +436,28 @@ export default function AuthenticatedLayout({
     router.push('/directory')
   }
 
-  // Loading state: Show spinner while mounting or loading
+  // Loading state: Show spinner while mounting or loading/recovering
   if (!mounted || loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <LoadingSpinner size="lg" />
-      </div>
-    )
-  }
-
-  // No user state: Show "Restoring session" message
-  if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <div className="text-center">
           <LoadingSpinner size="lg" />
-          <p className="mt-4 text-gray-600 dark:text-gray-400">Restoring session...</p>
+          <p className="mt-4 text-gray-600 dark:text-gray-400">
+            {loading && !user ? 'Restoring session...' : 'Loading...'}
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  // No user state after loading: Only show redirect message if we're actually redirecting
+  // (The redirect logic in useEffect will handle the actual redirect)
+  if (!user && !loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="text-center">
+          <LoadingSpinner size="lg" />
+          <p className="mt-4 text-gray-600 dark:text-gray-400">Checking session...</p>
         </div>
       </div>
     )
