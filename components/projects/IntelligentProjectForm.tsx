@@ -168,6 +168,7 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
   // Smart Features
   const [codeValidation, setCodeValidation] = useState<{ valid: boolean; message?: string }>({ valid: true })
   const [autoSubCode, setAutoSubCode] = useState(true)
+  const [useSubCode, setUseSubCode] = useState(false) // ✅ Checkbox to enable/disable sub-code
   
   // Additional Details Visibility
   const [showAdditionalDetails, setShowAdditionalDetails] = useState(false)
@@ -350,20 +351,53 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
   // Load project data if editing
   useEffect(() => {
     if (project) {
+      // ✅ DEBUG: Log all project data to see what's available
+      console.log('🔍 IntelligentProjectForm: Loading project data:', {
+        project_code: project.project_code,
+        project_duration: project.project_duration,
+        project_duration_type: typeof project.project_duration,
+        allKeys: Object.keys(project),
+        projectData: JSON.stringify(project, null, 2)
+      })
+      
       setProjectCode(project.project_code)
       setProjectSubCode(project.project_sub_code || '')
-      // Extract sub-code part from full sub-code if it exists
-      if (project.project_sub_code) {
+      
+      // ✅ CRITICAL FIX: Check if project_sub_code is the same as project_code
+      // If they are the same (e.g., both are "P480"), treat it as NO sub-code
+      const projectCodeTrimmed = (project.project_code || '').trim().toUpperCase()
+      const projectSubCodeTrimmed = (project.project_sub_code || '').trim().toUpperCase()
+      const isSubCodeSameAsCode = projectSubCodeTrimmed === projectCodeTrimmed
+      
+      // ✅ Check if project has valid sub-code (not empty AND different from project_code)
+      const hasSubCode = project.project_sub_code && 
+                        project.project_sub_code.trim() && 
+                        !isSubCodeSameAsCode
+      
+      setUseSubCode(!!hasSubCode)
+      
+      // Extract sub-code part from full sub-code if it exists and is valid
+      if (hasSubCode) {
         const parts = project.project_sub_code.split('-')
         if (parts.length > 1) {
           // Get everything after the first '-' (in case sub-code contains '-')
           const subPart = parts.slice(1).join('-') // Join in case sub-code has multiple '-'
-          setSubCodeNumber(subPart || '01')
+          setSubCodeNumber(subPart || '')
         } else {
-          setSubCodeNumber('01')
+          // If sub-code exists but doesn't have '-', it might be just the sub part
+          // But only if it's different from project_code
+          if (!isSubCodeSameAsCode) {
+            setSubCodeNumber(project.project_sub_code.trim() || '')
+          } else {
+            setSubCodeNumber('')
+          }
         }
       } else {
-        setSubCodeNumber('01')
+        // ✅ CRITICAL FIX: If project has NO sub-code (or sub-code equals project_code), 
+        // keep subCodeNumber empty and disable checkbox
+        setSubCodeNumber('')
+        setUseSubCode(false) // ✅ Disable sub-code checkbox
+        setProjectSubCode('') // ✅ Clear projectSubCode to ensure it's empty
       }
       setProjectName(project.project_name)
       setProjectDescription(project.project_description || '')
@@ -474,19 +508,63 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
         }
       }
       // ✅ Load project duration - handle all cases (number, string, null, undefined)
+      // ✅ CRITICAL: Check multiple sources for project_duration (database column names)
+      // Try multiple ways to get the duration value
+      let finalDuration: number | undefined = undefined
+      
+      // Try 1: Direct property (project.project_duration)
       if (project.project_duration !== undefined && project.project_duration !== null) {
-        const durationValue = typeof project.project_duration === 'number' 
+        const val = typeof project.project_duration === 'number' 
           ? project.project_duration 
-          : parseInt(String(project.project_duration)) || undefined
-        if (durationValue !== undefined && durationValue !== null && durationValue > 0) {
-          setProjectDuration(durationValue)
-          console.log('📖 IntelligentProjectForm: Loaded project_duration =', durationValue, 'from project:', project.project_code)
-        } else {
-          console.warn('⚠️ IntelligentProjectForm: project_duration is invalid:', project.project_duration, 'for project:', project.project_code)
-          setProjectDuration(undefined)
+          : parseInt(String(project.project_duration), 10)
+        if (!isNaN(val) && val > 0) {
+          finalDuration = val
+          console.log('✅ IntelligentProjectForm: Found duration from project.project_duration =', finalDuration)
         }
+      }
+      
+      // Try 2: Database column name with spaces (project['Project Duration'])
+      if (finalDuration === undefined && (project as any)?.['Project Duration'] !== undefined && (project as any)?.['Project Duration'] !== null) {
+        const val = typeof (project as any)?.['Project Duration'] === 'number'
+          ? (project as any)?.['Project Duration']
+          : parseInt(String((project as any)?.['Project Duration']), 10)
+        if (!isNaN(val) && val > 0) {
+          finalDuration = val
+          console.log('✅ IntelligentProjectForm: Found duration from project["Project Duration"] =', finalDuration)
+        }
+      }
+      
+      // Try 3: Snake case (project['project_duration'])
+      if (finalDuration === undefined && (project as any)?.['project_duration'] !== undefined && (project as any)?.['project_duration'] !== null) {
+        const val = typeof (project as any)?.['project_duration'] === 'number'
+          ? (project as any)?.['project_duration']
+          : parseInt(String((project as any)?.['project_duration']), 10)
+        if (!isNaN(val) && val > 0) {
+          finalDuration = val
+          console.log('✅ IntelligentProjectForm: Found duration from project["project_duration"] =', finalDuration)
+        }
+      }
+      
+      // ✅ DEBUG: Always log to help diagnose the issue
+      console.log('🔍 IntelligentProjectForm: Checking project_duration for', project.project_code, {
+        project_duration: project.project_duration,
+        'Project Duration': (project as any)?.['Project Duration'],
+        'project_duration (snake)': (project as any)?.['project_duration'],
+        finalDuration,
+        projectKeys: Object.keys(project),
+        hasProjectDuration: 'project_duration' in project,
+        hasProjectDurationDB: 'Project Duration' in (project as any)
+      })
+      
+      if (finalDuration !== undefined && finalDuration > 0) {
+        setProjectDuration(finalDuration)
+        console.log('✅ IntelligentProjectForm: Successfully loaded project_duration =', finalDuration, 'from project:', project.project_code)
       } else {
-        console.warn('⚠️ IntelligentProjectForm: project_duration is undefined or null for project:', project.project_code)
+        console.warn('⚠️ IntelligentProjectForm: project_duration is undefined, null, or invalid for project:', project.project_code, {
+          project_duration: project.project_duration,
+          'Project Duration': (project as any)?.['Project Duration'],
+          finalDuration
+        })
         setProjectDuration(undefined)
       }
       
@@ -573,22 +651,45 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
   
   // ✅ Update full sub-code when project code or sub-code part changes
   // Format: {Project Code}-{Sub-Code} (e.g., P8889-01 or P8889-ABC)
+  // ✅ CRITICAL: Only generate sub-code if useSubCode is enabled AND subCodeNumber is not empty
+  // This prevents auto-generation for projects without sub-code
   useEffect(() => {
     if (projectCode && codeValidation.valid) {
-      const trimmedCode = projectCode.trim().toUpperCase()
-      const subPart = subCodeNumber.trim() || '01' // Allow any text, default to '01' if empty
-      const newSubCode = `${trimmedCode}-${subPart}`
-      
-      // Only update if different to avoid unnecessary re-renders
-      if (newSubCode !== projectSubCode) {
-        setProjectSubCode(newSubCode)
+      // ✅ Only generate sub-code if useSubCode checkbox is enabled
+      if (useSubCode) {
+        const trimmedCode = projectCode.trim().toUpperCase()
+        const trimmedSubCode = subCodeNumber.trim()
+        
+        // ✅ Only generate sub-code if subCodeNumber is provided (not empty)
+        if (trimmedSubCode) {
+          const newSubCode = `${trimmedCode}-${trimmedSubCode}`
+          
+          // Only update if different to avoid unnecessary re-renders
+          if (newSubCode !== projectSubCode) {
+            setProjectSubCode(newSubCode)
+          }
+        } else {
+          // ✅ If subCodeNumber is empty but useSubCode is enabled, clear projectSubCode
+          if (projectSubCode) {
+            setProjectSubCode('')
+          }
+        }
+      } else {
+        // ✅ If useSubCode is disabled, always clear projectSubCode
+        if (projectSubCode) {
+          setProjectSubCode('')
+        }
+        // Also clear subCodeNumber when checkbox is unchecked
+        if (subCodeNumber) {
+          setSubCodeNumber('')
+        }
       }
     } else if (projectCode && !codeValidation.valid) {
       // If code is invalid, clear sub-code
       setProjectSubCode('')
-      setSubCodeNumber('01')
+      setSubCodeNumber('')
     }
-  }, [projectCode, codeValidation.valid, subCodeNumber]) // Update when any of these change
+  }, [projectCode, codeValidation.valid, subCodeNumber, useSubCode]) // Update when any of these change
   
   // Validate project code
   useEffect(() => {
@@ -937,7 +1038,8 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
       
       const projectData: Partial<Project> & { project_status?: string } = {
         project_code: projectCode.trim().toUpperCase(),
-        project_sub_code: projectSubCode.trim() || undefined,
+        // ✅ Only save sub-code if useSubCode checkbox is enabled AND sub-code is not empty
+        project_sub_code: (useSubCode && projectSubCode.trim()) ? projectSubCode.trim() : undefined,
         project_name: projectName.trim(),
         project_description: projectDescription.trim() || undefined,
         project_type: projectTypes.join(', ') || undefined,
@@ -1316,58 +1418,99 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
             
             {/* Project Sub-Code */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                <Hash className="inline h-4 w-4 mr-1" />
-                Project Sub-Code
-              </label>
-              <div className="flex gap-2 items-center">
-                {/* ✅ Project Code Part (Read-only) */}
-                <div className="flex items-center gap-0">
-                  <Input
-                    value={projectCode && codeValidation.valid ? `${projectCode.trim().toUpperCase()}-` : ''}
-                    readOnly
-                    disabled={loading || !projectCode || !codeValidation.valid}
-                    className="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 cursor-not-allowed font-mono min-w-[120px] border-r-0 rounded-r-none"
-                    placeholder="Code-"
-                  />
-                  {/* ✅ Sub-Code Part (Editable) - Can be numbers or text */}
-                  <Input
-                    type="text"
-                    value={subCodeNumber}
+              <div className="flex items-center gap-3 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  <Hash className="inline h-4 w-4 mr-1" />
+                  Project Sub-Code
+                </label>
+                {/* ✅ Checkbox to enable/disable sub-code */}
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={useSubCode}
                     onChange={(e) => {
-                      const inputValue = e.target.value.trim()
-                      // Allow any text (numbers, letters, etc.) - no restrictions
-                      setSubCodeNumber(inputValue)
-                      setAutoSubCode(false)
-                    }}
-                    onBlur={(e) => {
-                      // On blur, if empty, set default to '01'
-                      const value = e.target.value.trim()
-                      if (value === '') {
-                        setSubCodeNumber('01')
+                      const checked = e.target.checked
+                      setUseSubCode(checked)
+                      if (!checked) {
+                        // ✅ When unchecked, clear sub-code
+                        setSubCodeNumber('')
+                        setProjectSubCode('')
+                        setAutoSubCode(false)
+                      } else {
+                        // ✅ When checked, set default to '01' if empty
+                        if (!subCodeNumber.trim()) {
+                          setSubCodeNumber('01')
+                        }
                       }
                     }}
-                    placeholder="01 or text"
-                    disabled={loading || !projectCode || !codeValidation.valid}
-                    className={`font-mono min-w-[80px] text-center border-l-0 rounded-l-none ${
-                      duplicateCheck.isDuplicate ? 'border-red-500' : ''
-                    }`}
+                    className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
                   />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAutoSubCode(true)
-                    setSubCodeNumber('01')
-                  }}
-                  className="px-3 py-2 text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-600 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
-                  title="Reset to 01"
-                  disabled={loading || !projectCode || !codeValidation.valid}
-                >
-                  🔄 Reset
-                </button>
+                  <span className="text-sm text-gray-600 dark:text-gray-400">
+                    Use Sub-Code
+                  </span>
+                </label>
               </div>
-              {autoSubCode && (
+              
+              {/* ✅ Only show sub-code input when checkbox is enabled */}
+              {useSubCode && (
+                <div className="flex gap-2 items-center">
+                  {/* ✅ Project Code Part (Read-only) */}
+                  <div className="flex items-center gap-0">
+                    <Input
+                      value={projectCode && codeValidation.valid ? `${projectCode.trim().toUpperCase()}-` : ''}
+                      readOnly
+                      disabled={loading || !projectCode || !codeValidation.valid}
+                      className="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 cursor-not-allowed font-mono min-w-[120px] border-r-0 rounded-r-none"
+                      placeholder="Code-"
+                    />
+                    {/* ✅ Sub-Code Part (Editable) - Can be numbers or text */}
+                    <Input
+                      type="text"
+                      value={subCodeNumber}
+                      onChange={(e) => {
+                        const inputValue = e.target.value.trim()
+                        // Allow any text (numbers, letters, etc.) - no restrictions
+                        setSubCodeNumber(inputValue)
+                        setAutoSubCode(false)
+                      }}
+                      onBlur={(e) => {
+                        // ✅ CRITICAL FIX: Don't auto-set '01' on blur
+                        // This allows projects without sub-code to remain without sub-code
+                        // Only validate that the value is trimmed, but don't force a default
+                        const value = e.target.value.trim()
+                        if (value !== subCodeNumber) {
+                          setSubCodeNumber(value)
+                        }
+                      }}
+                      placeholder="01 or text"
+                      disabled={loading || !projectCode || !codeValidation.valid}
+                      className={`font-mono min-w-[80px] text-center border-l-0 rounded-l-none ${
+                        duplicateCheck.isDuplicate ? 'border-red-500' : ''
+                      }`}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAutoSubCode(true)
+                      setSubCodeNumber('01')
+                    }}
+                    className="px-3 py-2 text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-600 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+                    title="Reset to 01"
+                    disabled={loading || !projectCode || !codeValidation.valid}
+                  >
+                    🔄 Reset
+                  </button>
+                </div>
+              )}
+              
+              {!useSubCode && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  ℹ️ This project does not use a sub-code
+                </p>
+              )}
+              
+              {useSubCode && autoSubCode && (
                 <p className="text-xs text-blue-600 mt-1">💡 Auto-generated from project code</p>
               )}
               {/* ✅ Show duplicate check messages for Sub-Code as well */}

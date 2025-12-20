@@ -120,26 +120,26 @@ export default function MaterialList() {
       let hasMore = true
 
       while (hasMore) {
-        const { data, error: fetchError } = await supabase
-          .from('material')
-          .select('*')
-          .order('created_at', { ascending: false })
+      const { data, error: fetchError } = await supabase
+        .from('material')
+        .select('*')
+        .order('created_at', { ascending: false })
           .range(page * pageSize, (page + 1) * pageSize - 1)
 
-        if (fetchError) {
-          console.error('Supabase Error:', fetchError)
-          if (fetchError.code === 'PGRST116' || fetchError.message.includes('does not exist')) {
-            setError('Table does not exist. Please run: Database/create-material-table.sql')
-            setMaterials([])
-            return
-          }
-          if (fetchError.code === '42501' || fetchError.message.includes('permission denied') || fetchError.message.includes('RLS')) {
-            setError('Permission denied. Please run: Database/create-material-table.sql in Supabase SQL Editor to fix permissions.')
-            setMaterials([])
-            return
-          }
-          throw fetchError
+      if (fetchError) {
+        console.error('Supabase Error:', fetchError)
+        if (fetchError.code === 'PGRST116' || fetchError.message.includes('does not exist')) {
+          setError('Table does not exist. Please run: Database/create-material-table.sql')
+          setMaterials([])
+          return
         }
+        if (fetchError.code === '42501' || fetchError.message.includes('permission denied') || fetchError.message.includes('RLS')) {
+          setError('Permission denied. Please run: Database/create-material-table.sql in Supabase SQL Editor to fix permissions.')
+          setMaterials([])
+          return
+        }
+        throw fetchError
+      }
 
         if (data && data.length > 0) {
           allData = [...allData, ...data]
@@ -628,15 +628,15 @@ export default function MaterialList() {
 
     // Apply search term filter
     if (searchTerm) {
-      const term = searchTerm.toLowerCase()
+    const term = searchTerm.toLowerCase()
       filtered = filtered.filter(material =>
-        material.material?.toLowerCase().includes(term) ||
-        material.project_code?.toLowerCase().includes(term) ||
-        material.category?.toLowerCase().includes(term) ||
-        material.vendor?.toLowerCase().includes(term) ||
-        material.applicant?.toLowerCase().includes(term)
-      )
-    }
+      material.material?.toLowerCase().includes(term) ||
+      material.project_code?.toLowerCase().includes(term) ||
+      material.category?.toLowerCase().includes(term) ||
+      material.vendor?.toLowerCase().includes(term) ||
+      material.applicant?.toLowerCase().includes(term)
+    )
+  }
 
     // Apply date range filter (if material has date field)
     // Note: Material might not have date, so we'll skip if not available

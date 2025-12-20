@@ -30,6 +30,27 @@ export function LoginForm() {
   const [rateLimitCooldown, setRateLimitCooldown] = useState(0) // ✅ Cooldown timer
   const [lastAttemptTime, setLastAttemptTime] = useState(0) // ✅ Track last attempt time
   
+  // ✅ Load rate limit cooldown from localStorage on mount
+  useEffect(() => {
+    try {
+      const savedCooldown = localStorage.getItem('login_rate_limit_cooldown')
+      const savedCooldownTime = localStorage.getItem('login_rate_limit_time')
+      if (savedCooldown && savedCooldownTime) {
+        const elapsed = Math.floor((Date.now() - parseInt(savedCooldownTime)) / 1000)
+        const remaining = Math.max(0, parseInt(savedCooldown) - elapsed)
+        if (remaining > 0) {
+          setRateLimitCooldown(remaining)
+        } else {
+          // Clear expired cooldown
+          localStorage.removeItem('login_rate_limit_cooldown')
+          localStorage.removeItem('login_rate_limit_time')
+        }
+      }
+    } catch (e) {
+      console.warn('⚠️ Failed to load rate limit from localStorage:', e)
+    }
+  }, [])
+  
   // ✅ OTP States
   const [useOTP, setUseOTP] = useState(false)
   const [otpSent, setOtpSent] = useState(false)
@@ -86,16 +107,45 @@ export function LoginForm() {
   // ✅ Rate limiting cooldown timer
   useEffect(() => {
     if (rateLimitCooldown > 0) {
+      // Save to localStorage
+      try {
+        localStorage.setItem('login_rate_limit_cooldown', rateLimitCooldown.toString())
+        localStorage.setItem('login_rate_limit_time', Date.now().toString())
+      } catch (e) {
+        console.warn('⚠️ Failed to save rate limit to localStorage:', e)
+      }
+      
       const timer = setInterval(() => {
         setRateLimitCooldown(prev => {
           if (prev <= 1) {
             clearInterval(timer)
+            // Clear from localStorage
+            try {
+              localStorage.removeItem('login_rate_limit_cooldown')
+              localStorage.removeItem('login_rate_limit_time')
+            } catch (e) {
+              console.warn('⚠️ Failed to clear rate limit from localStorage:', e)
+            }
             return 0
+          }
+          // Update localStorage
+          try {
+            localStorage.setItem('login_rate_limit_cooldown', (prev - 1).toString())
+          } catch (e) {
+            // Ignore
           }
           return prev - 1
         })
       }, 1000)
       return () => clearInterval(timer)
+    } else {
+      // Clear from localStorage when cooldown is 0
+      try {
+        localStorage.removeItem('login_rate_limit_cooldown')
+        localStorage.removeItem('login_rate_limit_time')
+      } catch (e) {
+        // Ignore
+      }
     }
   }, [rateLimitCooldown])
 
@@ -210,8 +260,8 @@ export function LoginForm() {
                 retries++
                 continue
               } else {
-                // Max retries reached, set cooldown
-                setRateLimitCooldown(300) // 5 minutes cooldown
+                // Max retries reached, set cooldown (reduced from 5 to 2 minutes)
+                setRateLimitCooldown(120) // 2 minutes cooldown
                 throw err
               }
             } else {
@@ -227,14 +277,13 @@ export function LoginForm() {
     } catch (error: any) {
       // ✅ معالجة خاصة لخطأ 429 (Too Many Requests)
       if (error.status === 429 || error.message?.includes('429') || error.message?.includes('Too Many Requests') || error.message?.includes('rate limit')) {
+        // Only set cooldown if not already set (to prevent resetting when Supabase still blocks)
+        if (rateLimitCooldown === 0) {
+          setRateLimitCooldown(120) // 2 minutes
+        }
         const cooldownMinutes = Math.ceil(rateLimitCooldown / 60)
         setError(`Too many login attempts. Please wait ${cooldownMinutes} minute${cooldownMinutes > 1 ? 's' : ''} before trying again.`)
         console.error('❌ Rate limit exceeded:', error)
-        
-        // Set cooldown if not already set
-        if (rateLimitCooldown === 0) {
-          setRateLimitCooldown(300) // 5 minutes
-        }
       } else if (error.message?.includes('Invalid login credentials')) {
         setError('Invalid email or password. Please check your credentials and try again.')
       } else {
@@ -541,8 +590,31 @@ export function LoginForm() {
                 <div className="flex-1">
                   <span>{error}</span>
                   {rateLimitCooldown > 0 && (
-                    <div className="mt-2 text-xs text-red-300/80">
-                      Cooldown: {Math.floor(rateLimitCooldown / 60)}:{(rateLimitCooldown % 60).toString().padStart(2, '0')}
+                    <div className="mt-2 flex items-center justify-between">
+                      <span className="text-xs text-red-300/80">
+                        Cooldown: {Math.floor(rateLimitCooldown / 60)}:{(rateLimitCooldown % 60).toString().padStart(2, '0')}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // Clear local state
+                          setRateLimitCooldown(0)
+                          setError('')
+                          // Clear from localStorage
+                          try {
+                            localStorage.removeItem('login_rate_limit_cooldown')
+                            localStorage.removeItem('login_rate_limit_time')
+                          } catch (e) {
+                            console.warn('⚠️ Failed to clear rate limit from localStorage:', e)
+                          }
+                          // Note: Supabase server-side rate limit may still be active
+                          // User may need to wait or use a different IP/device
+                        }}
+                        className="ml-2 px-2 py-1 text-xs bg-red-600/50 hover:bg-red-600/70 text-white rounded transition-colors"
+                        title="Clear local cooldown (Note: Server may still block requests)"
+                      >
+                        Clear
+                      </button>
                     </div>
                   )}
                 </div>
