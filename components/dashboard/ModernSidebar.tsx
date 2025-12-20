@@ -45,6 +45,8 @@ import {
   Fuel,
   Cog,
   Wrench,
+  Coins,
+  Receipt,
   type LucideIcon
 } from 'lucide-react'
 
@@ -76,6 +78,17 @@ const sidebarItems: SidebarItem[] = [
       { icon: ClipboardList, label: 'BOQ', tab: 'boq', badgeIcon: Zap, badgeColor: 'bg-gradient-to-br from-green-500 to-emerald-500' },
       { icon: Target, label: 'KPI', tab: 'kpi', badgeIcon: TrendingUp, badgeColor: 'bg-gradient-to-br from-purple-500 to-pink-500' },
       { icon: BarChart3, label: 'Reports', tab: 'reports' },
+    ]
+  },
+  { 
+    icon: Coins, 
+    label: 'Commercial', 
+    tab: 'commercial',
+    badgeIcon: Coins, 
+    badgeColor: 'bg-gradient-to-br from-indigo-500 to-blue-500',
+    subItems: [
+      { icon: ClipboardList, label: 'BOQ Items', tab: 'commercial/boq-items', badgeIcon: ClipboardList, badgeColor: 'bg-gradient-to-br from-green-500 to-emerald-500' },
+      { icon: Receipt, label: 'Payments & Invoicing', tab: 'commercial/payments-invoicing', badgeIcon: Receipt, badgeColor: 'bg-gradient-to-br from-blue-500 to-indigo-500' },
     ]
   },
       { 
@@ -161,8 +174,12 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
     if (tab === 'directory') return '/directory'
     if (tab === 'search') return '/dashboard?search=true'
     if (tab === 'planning') return '/boq' // Default to BOQ when clicking Planning
+    if (tab === 'commercial') return '/commercial/boq-items' // Default to BOQ Items when clicking Commercial
     if (tab === 'forms') return '/boq' // Default to BOQ Form when clicking Forms
     if (tab === 'activity-log') return '/activity-log'
+    // Commercial sub-items
+    if (tab === 'commercial/boq-items') return '/commercial/boq-items'
+    if (tab === 'commercial/payments-invoicing') return '/commercial/payments-invoicing'
     // Forms sub-items - map to actual pages
     if (tab === 'forms/boq') return '/boq'
     if (tab === 'forms/kpi-standard') return '/kpi/add'
@@ -221,6 +238,10 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
   useEffect(() => {
     if (activeTab === 'boq' || activeTab === 'kpi' || activeTab === 'reports') {
       setExpandedItems(prev => new Set(prev).add('planning'))
+    }
+    // Auto-expand commercial if any sub-item is active
+    if (activeTab === 'commercial/boq-items' || activeTab === 'commercial/payments-invoicing') {
+      setExpandedItems(prev => new Set(prev).add('commercial'))
     }
     // Auto-expand forms if any form sub-item is active
     if (activeTab === 'forms/boq' || activeTab === 'forms/kpi-standard' || activeTab === 'forms/kpi-smart' || activeTab === 'forms/project' || activeTab === 'forms/user') {
@@ -296,6 +317,10 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
 
   // Auto-expand parent items based on active tab
   useEffect(() => {
+    if (pathname === '/commercial/boq-items' || 
+        pathname === '/commercial/payments-invoicing') {
+      setExpandedItems(prev => new Set([...Array.from(prev), 'commercial']))
+    }
     if (pathname === '/cost-control/manpower' || 
         pathname === '/cost-control/designation-rates' || 
         pathname === '/cost-control/machine-list' ||
@@ -391,6 +416,26 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
           })
         }
         return true
+      case 'commercial':
+        // ✅ Admin always has access
+        if (guard.isAdmin()) {
+          return true
+        }
+        // Show commercial if user has access to any sub-item
+        if (item.subItems) {
+          return item.subItems.some(subItem => {
+            switch (subItem.tab) {
+              case 'commercial/boq-items':
+                return guard.hasAccess('commercial.boq_items.view')
+              case 'commercial/payments-invoicing':
+                return guard.hasAccess('commercial.payments_invoicing.view')
+              default:
+                return false
+            }
+          })
+        }
+        // Fallback: show if user has general commercial access, otherwise show by default
+        return guard.hasAccess('commercial.view') || true
       case 'forms':
         // ✅ Show forms only if user has access to at least one form sub-item
         // ✅ Admin always has access
@@ -449,6 +494,12 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
               return guard.hasAccess('kpi.view')
             case 'reports':
               return guard.hasAccess('reports.view')
+            case 'commercial/boq-items':
+              // ✅ Admin always has access, others need permission
+              return guard.isAdmin() || guard.hasAccess('commercial.boq_items.view')
+            case 'commercial/payments-invoicing':
+              // ✅ Admin always has access, others need permission
+              return guard.isAdmin() || guard.hasAccess('commercial.payments_invoicing.view')
             case 'cost-control/manpower':
               return guard.hasAccess('cost_control.manpower.view')
             case 'cost-control/designation-rates':
