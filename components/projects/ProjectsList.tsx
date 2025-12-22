@@ -658,6 +658,9 @@ export function ProjectsList({
    */
   // ✅ Track last request to prevent duplicate calls
   const lastRequestRef = useRef<string>('')
+  const lastSearchRef = useRef<string>('') // ✅ Track last search term to prevent unnecessary reloads
+  const lastPageRef = useRef<number>(1) // ✅ Track last page to prevent unnecessary reloads
+  const lastFiltersRef = useRef<string>('') // ✅ Track last filter state to detect filter-only changes
   
   const fetchProjectsPage = useCallback(async (page: number = 1, search: string = '', filters: any = {}) => {
     // ✅ Prevent multiple simultaneous loads - but allow if it's a different page/search/filter/sort
@@ -687,22 +690,18 @@ export function ProjectsList({
         .from(TABLES.PROJECTS)
         .select('*', { count: 'exact' })
       
+      // ✅ FIX: Apply search filter FIRST - search has priority over Smart Filters
       // Apply search filter - use correct column names from database
       if (search && search.trim()) {
         query = query.or(`"Project Name".ilike.%${search.trim()}%,"Project Code".ilike.%${search.trim()}%`)
-          }
-          
-      // Apply status filter (only if single status selected - multi-select handled client-side)
-      // Use correct column name from database
-      if (filters.status && filters.status.trim()) {
-        query = query.eq('"Project Status"', filters.status.trim())
-      }
-      
-      // ✅ ENHANCED: Apply Smart Filter filters at database level for better performance
-      // Multi-Project filter (Smart Filter) - apply at database level
-      // ✅ FIX: Don't use "Project Full Code" column (doesn't exist in DB)
-      // Match only by Project Code and Project Sub-Code
-      if (selectedProjects.length > 0) {
+        // ✅ FIX: When searching, skip Smart Filter project selection to avoid conflicts
+        // Search should return all matching projects, not just selected ones
+      } else {
+        // ✅ ENHANCED: Apply Smart Filter filters at database level for better performance
+        // Multi-Project filter (Smart Filter) - apply at database level ONLY when NOT searching
+        // ✅ FIX: Don't use "Project Full Code" column (doesn't exist in DB)
+        // Match only by Project Code and Project Sub-Code
+        if (selectedProjects.length > 0) {
         // Build OR condition for multiple projects
         // Match by Project Code and Project Sub-Code only (Project Full Code doesn't exist)
         const projectConditions: string[] = []
@@ -733,9 +732,10 @@ export function ProjectsList({
         if (projectConditions.length > 0) {
           query = query.or(projectConditions.join(','))
         }
+        }
       }
       
-      // Multi-Division filter (Smart Filter) - apply at database level
+      // Multi-Division filter (Smart Filter) - apply at database level (only when not searching)
       if (selectedDivisions.length > 0) {
         // Build OR condition for multiple divisions
         const divisionConditions = selectedDivisions.map(div => `"Responsible Division".ilike.%${div.trim()}%`).join(',')
@@ -1273,15 +1273,40 @@ export function ProjectsList({
           loadAllProjectsForFilter()
         }
         
-        // ✅ FIX: Don't reload if user is currently searching (preserve search results)
-        // Use searchTerm (current input) or debouncedSearchTerm (last confirmed search)
-        const currentSearch = searchTerm || debouncedSearchTerm
+        // ✅ FIX: CRITICAL - Don't reload if user is currently searching (preserve search results)
+        // Check BOTH searchTerm (current input) AND debouncedSearchTerm (confirmed search)
+        // Also check lastSearchRef to catch cases where search was just performed
+        // This prevents the second reload that clears search results
+        const currentSearch = searchTerm || debouncedSearchTerm || lastSearchRef.current
         if (currentSearch && currentSearch.trim()) {
-          // User is searching - skip automatic reload to preserve search results
-          if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
-            console.log(`⏸️ Projects: Skipping reload during search: "${currentSearch}"`)
+          // User is searching - COMPLETELY skip automatic reload to preserve search results
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`⏸️ Projects: COMPLETELY skipping database reload during search: "${currentSearch}"`)
           }
-          return
+          return // Exit immediately - don't even set up the debounce timer
+        }
+        
+        // ✅ FIX: Don't reload if user is on a different page (preserve pagination state)
+        // Only reload if user is on page 1, otherwise skip to preserve user's position
+        if (currentPage !== 1) {
+          if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
+            console.log(`⏸️ Projects: Skipping reload - user is on page ${currentPage}, not page 1`)
+          }
+          return // User is on a different page, skip reload to preserve position
+        }
+        
+        // ✅ FIX: Don't reload if user has active filters (preserve filter state)
+        const hasActiveFilters = selectedProjects.length > 0 || 
+                                 selectedDivisions.length > 0 || 
+                                 selectedStatuses.length > 0 || 
+                                 selectedTypes.length > 0 ||
+                                 (dateRange.from || dateRange.to) ||
+                                 (valueRange.min !== undefined || valueRange.max !== undefined)
+        if (hasActiveFilters) {
+          if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
+            console.log(`⏸️ Projects: Skipping reload - user has active filters`)
+          }
+          return // User has active filters, skip reload to preserve filter state
         }
         
         // ✅ FIX: Clear existing debounce timer
@@ -1290,13 +1315,34 @@ export function ProjectsList({
         }
         
         // ✅ FIX: Debounce reload by 500ms to batch multiple updates
-        // ✅ FIX: Only reload if user is NOT searching
+        // ✅ FIX: Only reload if user is on page 1, not searching, and has no active filters
         reloadDebounceTimerRef.current = setTimeout(() => {
           if (isMountedRef.current && !isLoadingRef.current) {
-            // ✅ FIX: Double-check that user is still not searching
-            const stillSearching = searchTerm || debouncedSearchTerm
+            // ✅ FIX: CRITICAL - Double-check search state before reloading
+            // This is the final check to prevent clearing search results
+            // Check all possible search states including lastSearchRef
+            const stillSearching = searchTerm || debouncedSearchTerm || lastSearchRef.current
             if (stillSearching && stillSearching.trim()) {
-              return // User started searching, skip reload
+              if (process.env.NODE_ENV === 'development') {
+                console.log(`⏸️ Projects: Final check - still searching, skipping reload: "${stillSearching}"`)
+              }
+              return // User is still searching, skip reload completely
+            }
+            
+            // ✅ FIX: Double-check page number
+            if (currentPage !== 1) {
+              return // User navigated to different page, skip reload
+            }
+            
+            // ✅ FIX: Double-check filters
+            const stillHasFilters = selectedProjects.length > 0 || 
+                                   selectedDivisions.length > 0 || 
+                                   selectedStatuses.length > 0 || 
+                                   selectedTypes.length > 0 ||
+                                   (dateRange.from || dateRange.to) ||
+                                   (valueRange.min !== undefined || valueRange.max !== undefined)
+            if (stillHasFilters) {
+              return // User has active filters, skip reload
             }
             
             lastReloadTimeRef.current = Date.now()
@@ -1305,8 +1351,9 @@ export function ProjectsList({
               division: selectedDivisions.length > 0 ? selectedDivisions[0] : '',
               dateRange: dateRange
             }
-            // ✅ FIX: Use current search (empty if not searching)
-            fetchProjectsPage(currentPage, debouncedSearchTerm || '', currentFilters)
+            // ✅ FIX: IMPORTANT - Use empty string for search when reloading from database update
+            // This ensures we don't accidentally use an old search term
+            fetchProjectsPage(currentPage, '', currentFilters)
           }
         }, 500) // 500ms debounce
       }
@@ -1361,44 +1408,105 @@ export function ProjectsList({
   }, [searchTerm]) // ✅ FIX: Only depend on searchTerm to prevent infinite loops
 
   /**
-   * ✅ PERFORMANCE: Reload projects when page, search, filters, or sorting change
+   * ✅ PERFORMANCE: Reload projects when page or search changes
+   * This effect handles search and pagination - it has priority over filters
    */
   useEffect(() => {
+    // ✅ FIX: Don't fetch if user is typing (wait for debounce to complete)
+    if (searchTerm !== debouncedSearchTerm && searchTerm.trim()) {
+      return
+    }
+    
+    const isSearching = debouncedSearchTerm && debouncedSearchTerm.trim()
+    
+    // Check if search term or page actually changed
+    const searchChanged = lastSearchRef.current !== debouncedSearchTerm
+    const pageChanged = lastPageRef.current !== currentPage
+    
+    if (!searchChanged && !pageChanged) {
+      // Neither search nor page changed - skip this effect
+      return
+    }
+    
+    // Update refs - keep lastSearchRef even if debouncedSearchTerm is empty
+    // This helps detect if user was just searching
+    if (debouncedSearchTerm && debouncedSearchTerm.trim()) {
+      lastSearchRef.current = debouncedSearchTerm
+    }
+    lastPageRef.current = currentPage
+    
     const currentFilters = {
       status: selectedStatuses.length > 0 ? selectedStatuses[0] : '',
       division: selectedDivisions.length > 0 ? selectedDivisions[0] : '',
       dateRange: dateRange
     }
     
-    // ✅ ENHANCED: Include Smart Filter values in request key to trigger re-fetch when they change
     const requestKey = `${currentPage}_${debouncedSearchTerm}_${JSON.stringify(currentFilters)}_${selectedProjects.join(',')}_${selectedDivisions.join(',')}_${selectedTypes.join(',')}_${valueRange.min}_${valueRange.max}_${sortBy}_${sortDirection}`
     
-    // ✅ FIX: Skip only if initial fetch hasn't happened AND it's the initial mount (not a user action)
-    // This allows the mount effect to handle the first fetch
     if (!hasFetchedRef.current) {
-      // Only skip if it's truly the initial state (page 1, no search, no filters)
       if (currentPage === 1 && !debouncedSearchTerm && selectedStatuses.length === 0 && selectedDivisions.length === 0 && !dateRange?.from && !dateRange?.to) {
-        return // Wait for initial mount effect to trigger first fetch
+        return
       }
-      // Otherwise, mark as fetched and proceed (user changed something before initial fetch completed)
       hasFetchedRef.current = true
     }
     
-    // ✅ Skip only if the exact same request is already loading
     if (isLoadingRef.current && lastRequestRef.current === requestKey) {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('⏸️ Skipping duplicate request:', requestKey)
+      return
+    }
+    
+    if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
+      console.log('🔄 Triggering fetch for search/page change:', { currentPage, debouncedSearchTerm, isSearching })
+    }
+    fetchProjectsPage(currentPage, debouncedSearchTerm, currentFilters)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, debouncedSearchTerm])
+  
+  /**
+   * ✅ PERFORMANCE: Reload projects when filters or sorting change
+   * This effect ONLY runs when NOT searching - search has priority
+   */
+  useEffect(() => {
+    // ✅ FIX: Skip completely if user is searching - search has priority
+    // Check both current search state AND lastSearchRef to catch recent searches
+    const isSearching = (debouncedSearchTerm && debouncedSearchTerm.trim()) || (lastSearchRef.current && lastSearchRef.current.trim())
+    if (isSearching) {
+      // User is searching or just searched - ignore filter changes completely
+      if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
+        console.log('⏸️ Skipping filter reload - user is searching or just searched')
       }
       return
     }
     
-    // ✅ Always fetch if it's a different request (user changed page/search/filter/sort)
+    // Build current filter state string for comparison
+    const currentFilterState = `${selectedProjects.join(',')}_${selectedStatuses.join(',')}_${selectedDivisions.join(',')}_${selectedTypes.join(',')}_${valueRange.min}_${valueRange.max}_${dateRange?.from}_${dateRange?.to}_${sortBy}_${sortDirection}`
+    
+    // Check if filters actually changed
+    if (lastFiltersRef.current === currentFilterState) {
+      // Filters didn't change - skip
+      return
+    }
+    
+    // Update filter ref
+    lastFiltersRef.current = currentFilterState
+    
+    const currentFilters = {
+      status: selectedStatuses.length > 0 ? selectedStatuses[0] : '',
+      division: selectedDivisions.length > 0 ? selectedDivisions[0] : '',
+      dateRange: dateRange
+    }
+    
+    const requestKey = `${currentPage}_${debouncedSearchTerm}_${JSON.stringify(currentFilters)}_${selectedProjects.join(',')}_${selectedDivisions.join(',')}_${selectedTypes.join(',')}_${valueRange.min}_${valueRange.max}_${sortBy}_${sortDirection}`
+    
+    if (isLoadingRef.current && lastRequestRef.current === requestKey) {
+      return
+    }
+    
     if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
-      console.log('🔄 Triggering fetch for:', { currentPage, debouncedSearchTerm, currentFilters, sortBy, sortDirection })
+      console.log('🔄 Triggering fetch for filter/sort change:', { currentFilters, sortBy, sortDirection })
     }
     fetchProjectsPage(currentPage, debouncedSearchTerm, currentFilters)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, debouncedSearchTerm, selectedProjects.join(','), selectedStatuses.join(','), selectedDivisions.join(','), selectedTypes.join(','), valueRange?.min, valueRange?.max, dateRange?.from, dateRange?.to, sortBy, sortDirection])
+  }, [selectedProjects.join(','), selectedStatuses.join(','), selectedDivisions.join(','), selectedTypes.join(','), valueRange?.min, valueRange?.max, dateRange?.from, dateRange?.to, sortBy, sortDirection])
   
   /**
    * ✅ Handle sorting from table - triggers database-level sort
