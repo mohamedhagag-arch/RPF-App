@@ -31,6 +31,7 @@ import { ImportButton } from '@/components/ui/ImportButton'
 import { useAuth } from '@/app/providers'
 import { downloadTemplate, downloadCSV, downloadExcel } from '@/lib/exportImportUtils'
 import { formatDate } from '@/lib/dateHelpers'
+import { ProjectCodeSelect } from './ProjectCodeSelect'
 
 interface Transportation {
   id: string
@@ -1434,9 +1435,9 @@ export default function TransportationList() {
                     <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
                       Project Code (From)
                     </label>
-                    <Input
-                      value={formData.project_code_from}
-                      onChange={(e) => setFormData(prev => ({ ...prev, project_code_from: e.target.value }))}
+                    <ProjectCodeSelect
+                      value={formData.project_code_from || ''}
+                      onChange={(value) => setFormData(prev => ({ ...prev, project_code_from: value }))}
                       placeholder="Project code from"
                     />
                   </div>
@@ -1445,9 +1446,9 @@ export default function TransportationList() {
                     <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
                       Project Code (To)
                     </label>
-                    <Input
-                      value={formData.project_code_to}
-                      onChange={(e) => setFormData(prev => ({ ...prev, project_code_to: e.target.value }))}
+                    <ProjectCodeSelect
+                      value={formData.project_code_to || ''}
+                      onChange={(value) => setFormData(prev => ({ ...prev, project_code_to: value }))}
                       placeholder="Project code to"
                     />
                   </div>

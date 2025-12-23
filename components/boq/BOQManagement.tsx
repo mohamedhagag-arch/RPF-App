@@ -45,6 +45,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   const guard = usePermissionGuard()
   const { user: authUser, appUser } = useAuth()
   const [activities, setActivities] = useState<BOQActivity[]>([])
+  const [allActivitiesForFilter, setAllActivitiesForFilter] = useState<BOQActivity[]>([]) // ✅ All activities for filter dropdowns (without filters)
   const [totalCount, setTotalCount] = useState(0)
   const [projects, setProjects] = useState<Project[]>([])
   const [allKPIs, setAllKPIs] = useState<any[]>([]) // Store all KPIs to pass to sub-components
@@ -273,6 +274,34 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       throw error
     }
   }
+  
+  // ✅ Load ALL activities (without filters) for filter dropdowns on mount
+  useEffect(() => {
+    const loadAllActivitiesForFilters = async () => {
+      if (allActivitiesForFilter.length > 0) return // Already loaded
+      
+      try {
+        console.log('📊 Loading all activities for filter dropdowns...')
+        const { data: allActivitiesData, error: allActivitiesError } = await supabase
+          .from(TABLES.BOQ_ACTIVITIES)
+          .select('*')
+          .limit(10000) // Limit to prevent huge queries
+          .order('created_at', { ascending: false })
+        
+        if (!allActivitiesError && allActivitiesData) {
+          const allMappedActivities = (allActivitiesData || []).map(mapBOQFromDB)
+          setAllActivitiesForFilter(allMappedActivities)
+          console.log(`✅ Loaded ${allMappedActivities.length} activities for filter dropdowns`)
+        } else if (allActivitiesError) {
+          console.warn('⚠️ Error loading all activities for filters:', allActivitiesError)
+        }
+      } catch (error) {
+        console.warn('⚠️ Error loading all activities for filters:', error)
+      }
+    }
+    
+    loadAllActivitiesForFilters()
+  }, []) // Run once on mount
   
   // ✅ Close project dropdown when clicking outside
   useEffect(() => {
@@ -559,8 +588,40 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       }
       
       // Zone filter (Smart Filter)
+      // ✅ FIX: Use same normalization logic as BOQFilter and BOQTableWithCustomization
       if (selectedZones.length > 0) {
-        const activityZone = (activity.zone_ref || activity.zone_number || '').toLowerCase().trim()
+        const rawActivity = (activity as any).raw || {}
+        
+        // ✅ Use EXACT same priority and normalization as BOQFilter
+        let zoneValue = activity.zone_number || 
+                       activity.zone_ref || 
+                       rawActivity['Zone Number'] ||
+                       rawActivity['Zone Ref'] ||
+                       rawActivity['Zone #'] ||
+                       ''
+        
+        if (zoneValue && zoneValue.toString().trim()) {
+          let zoneStr = zoneValue.toString().trim()
+          
+          // ✅ Apply same normalization as BOQFilter (remove project code prefix)
+          const projectCode = activity.project_full_code || activity.project_code || ''
+          if (projectCode) {
+            const projectCodeUpper = projectCode.toString().toUpperCase().trim()
+            const baseProjectCode = projectCodeUpper.split('-')[0].split(' ')[0]
+            zoneStr = zoneStr
+              .replace(new RegExp(`^${baseProjectCode}\\s*-\\s*`, 'i'), '')
+              .replace(new RegExp(`^${baseProjectCode}\\s+`, 'i'), '')
+              .replace(new RegExp(`^${baseProjectCode}-`, 'i'), '')
+              .trim()
+          }
+          
+          // ✅ Apply same cleanup as BOQFilter
+          zoneStr = zoneStr.replace(/^\s*-\s*/, '').replace(/-\s*$/, '').trim()
+          zoneStr = zoneStr.replace(/\s+/g, ' ').trim()
+          zoneValue = zoneStr || ''
+        }
+        
+        const activityZone = (zoneValue || '').toString().toLowerCase().trim()
         const matchesZone = selectedZones.some(zone =>
           activityZone === zone.toLowerCase().trim() ||
           activityZone.includes(zone.toLowerCase().trim()) ||
@@ -3340,20 +3401,29 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
           }
         })}
         activities={(() => {
-          // Combine activities and filteredActivities, then remove duplicates by activity_name
-          const allActivities = [...activities, ...filteredActivities]
-          const uniqueActivities = Array.from(
-            new Map(
-              allActivities.map(activity => [activity.activity_name, activity])
-            ).values()
-          )
-          return uniqueActivities.map(a => ({
-          activity_name: a.activity_name,
-          project_full_code: a.project_full_code || a.project_code,
-          zone: a.zone_ref || a.zone_number || '',
-          unit: a.unit || '',
-          activity_division: a.activity_division || ''
-          }))
+          // ✅ Use only filtered activities (the ones shown in the table)
+          // This ensures zones dropdown shows only zones from visible activities
+          const activitiesToUse = filteredActivities.length > 0 ? filteredActivities : activities
+          // ✅ Don't deduplicate by activity_name - we need all activities to get all zones
+          const mapped = activitiesToUse.map(a => {
+            // ✅ Get raw data if available (for accessing original database fields)
+            const rawActivity = (a as any).raw || {}
+            
+            return {
+              activity_name: a.activity_name,
+              project_full_code: a.project_full_code || a.project_code,
+              project_code: a.project_code || '',
+              zone: a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || rawActivity['Zone #'] || rawActivity['Zone'] || (a as any).zone || '',
+              zone_ref: a.zone_ref || rawActivity['Zone Ref'] || '',
+              zone_number: a.zone_number || rawActivity['Zone Number'] || rawActivity['Zone #'] || '',
+              unit: a.unit || '',
+              activity_division: a.activity_division || '',
+              // ✅ CRITICAL: Include raw data for accessing original database fields (Zone Ref, Zone Number)
+              raw: rawActivity
+            }
+          })
+          
+          return mapped
         })()}
         selectedProjects={selectedProjects}
         selectedActivities={selectedActivities}

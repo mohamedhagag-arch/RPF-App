@@ -19,6 +19,8 @@ interface BOQFilterProps {
     activity_name: string
     project_full_code?: string
     zone?: string
+    zone_ref?: string
+    zone_number?: string
     unit?: string
     activity_division?: string 
   }>
@@ -212,18 +214,61 @@ export function BOQFilter({
     )
   })() : []
   
-  // Get unique zones, units, divisions from filtered activities
+  // Get unique zones from "Zone Ref" and "Zone Number" columns from database
+  // ✅ FIX: Extract zones ONLY from Zone Ref and Zone Number columns, matching selected projects
+  // Use same logic as BOQTableWithCustomization.getActivityZone
   const uniqueZones = Array.from(new Set(
     activities
       .filter(a => {
-        const activityFullCode = ((a as any).project_full_code || '').toString().trim()
-        return selectedProjects.length === 0 || selectedProjects.some(selectedFullCode => 
-          activityFullCode.toUpperCase() === selectedFullCode.toUpperCase()
-        )
+        // ✅ Filter by selected projects - only include activities matching selected projects
+        if (selectedProjects.length > 0) {
+          const activityFullCode = ((a as any).project_full_code || '').toString().trim()
+          return selectedProjects.some(selectedFullCode => 
+            activityFullCode.toUpperCase() === selectedFullCode.toUpperCase()
+          )
+        }
+        return true // If no projects selected, include all
       })
-      .map(a => a.zone)
+      .flatMap(a => {
+        // ✅ Extract zones using EXACT same logic as BOQTableWithCustomization.getActivityZone
+        // This ensures filter shows same zones as table (no duplicates)
+        const rawActivity = (a as any).raw || {}
+        
+        // ✅ Use EXACT same priority as table: zone_number -> zone_ref -> raw['Zone Number'] -> raw['Zone Ref']
+        let zoneValue = (a as any).zone_number || 
+                       (a as any).zone_ref || 
+                       rawActivity['Zone Number'] ||
+                       rawActivity['Zone Ref'] ||
+                       rawActivity['Zone #'] ||
+                       ''
+        
+        if (!zoneValue || !zoneValue.toString().trim()) {
+          return []
+        }
+        
+        // ✅ Use EXACT same normalization as table
+        let zoneStr = zoneValue.toString().trim()
+        const projectCode = (a as any).project_full_code || (a as any).project_code || ''
+        
+        if (projectCode) {
+          const projectCodeUpper = projectCode.toString().toUpperCase().trim()
+          const baseProjectCode = projectCodeUpper.split('-')[0].split(' ')[0]
+          zoneStr = zoneStr
+            .replace(new RegExp(`^${baseProjectCode}\\s*-\\s*`, 'i'), '')
+            .replace(new RegExp(`^${baseProjectCode}\\s+`, 'i'), '')
+            .replace(new RegExp(`^${baseProjectCode}-`, 'i'), '')
+            .trim()
+        }
+        
+        // ✅ Use EXACT same cleanup as table
+        zoneStr = zoneStr.replace(/^\s*-\s*/, '').replace(/-\s*$/, '').trim()
+        zoneStr = zoneStr.replace(/\s+/g, ' ').trim()
+        
+        // ✅ Return single zone (not array) - Set will handle deduplication
+        return zoneStr ? [zoneStr] : []
+      })
       .filter(Boolean) as string[]
-  )).filter(zone => zone && zone.trim() !== '')
+  )).filter(zone => zone && zone.trim() !== '').sort()
   
   const uniqueUnits = Array.from(new Set(
     activities
@@ -547,20 +592,25 @@ export function BOQFilter({
               </div>
               <div className="max-h-64 overflow-y-auto">
                 {filteredZones.length > 0 ? (
-                  filteredZones.map((zone, idx) => (
-                    <label
-                      key={`zone-${zone}-${idx}`}
-                      className="flex items-center space-x-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedZones.includes(zone)}
-                        onChange={() => toggleZone(zone)}
-                        className="w-4 h-4 text-purple-600 rounded"
-                      />
-                      <span className="text-sm text-gray-900 dark:text-gray-100">{zone}</span>
-                    </label>
-                  ))
+                  <>
+                    {filteredZones.map((zone, idx) => (
+                      <label
+                        key={`zone-${zone}-${idx}`}
+                        className="flex items-center space-x-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedZones.includes(zone)}
+                          onChange={() => toggleZone(zone)}
+                          className="w-4 h-4 text-purple-600 rounded"
+                        />
+                        <span className="text-sm text-gray-900 dark:text-gray-100">{zone}</span>
+                      </label>
+                    ))}
+                    <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-200 dark:border-gray-700">
+                      {filteredZones.length} {filteredZones.length === 1 ? 'zone' : 'zones'} total
+                    </div>
+                  </>
                 ) : (
                   <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400 text-center">
                     No zones found

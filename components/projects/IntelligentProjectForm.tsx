@@ -68,6 +68,7 @@ import {
   ChevronUp,
   Loader2
 } from 'lucide-react'
+import { UserEmailSelect } from './UserEmailSelect'
 
 interface IntelligentProjectFormProps {
   project?: Project | null
@@ -2721,13 +2722,11 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                     Project Manager Email
                     <X className="inline h-4 w-4 ml-1 text-red-500" />
                   </label>
-                  <Input
-                    type="email"
+                  <UserEmailSelect
                     value={projectManagerEmail}
-                    onChange={(e) => setProjectManagerEmail(e.target.value)}
-                    placeholder="project.manager@company.com"
+                    onChange={(email) => setProjectManagerEmail(email)}
+                    placeholder="Select Project Manager or enter email"
                     disabled={loading}
-                    className="focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 
@@ -2738,13 +2737,11 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                     Area Manager Email
                     <X className="inline h-4 w-4 ml-1 text-red-500" />
                   </label>
-                  <Input
-                    type="email"
+                  <UserEmailSelect
                     value={areaManagerEmail}
-                    onChange={(e) => setAreaManagerEmail(e.target.value)}
-                    placeholder="area.manager@company.com"
+                    onChange={(email) => setAreaManagerEmail(email)}
+                    placeholder="Select Area Manager or enter email"
                     disabled={loading}
-                    className="focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 
@@ -2755,13 +2752,11 @@ export function IntelligentProjectForm({ project, onSubmit, onCancel }: Intellig
                     Division Head Email
                     <X className="inline h-4 w-4 ml-1 text-red-500" />
                   </label>
-                  <Input
-                    type="email"
+                  <UserEmailSelect
                     value={divisionHeadEmail}
-                    onChange={(e) => setDivisionHeadEmail(e.target.value)}
-                    placeholder="division.head@company.com"
+                    onChange={(email) => setDivisionHeadEmail(email)}
+                    placeholder="Select Division Head or enter email"
                     disabled={loading}
-                    className="focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
               </div>

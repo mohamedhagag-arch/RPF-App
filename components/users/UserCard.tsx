@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -60,7 +61,15 @@ export function UserCard({
   const router = useRouter()
   const [showMore, setShowMore] = useState(false)
   const [dropdownPosition, setDropdownPosition] = useState<'bottom' | 'top'>('bottom')
+  const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({})
+  const [mounted, setMounted] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  
+  // Ensure component is mounted before using portal
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -107,29 +116,55 @@ export function UserCard({
   }
 
   const handleMoreClick = () => {
-    setShowMore(!showMore)
-    
-    // Check if dropdown should appear above or below
     if (showMore) {
-      // Closing dropdown
       setShowMore(false)
     } else {
-      // Opening dropdown - check position
-      const rect = document.getElementById(`more-button-${user.id}`)?.getBoundingClientRect()
-      if (rect) {
-        const spaceBelow = window.innerHeight - rect.bottom
-        const spaceAbove = rect.top
-        const dropdownHeight = 200 // Approximate dropdown height
-        
-        if (spaceBelow < dropdownHeight && spaceAbove > dropdownHeight) {
-          setDropdownPosition('top')
-        } else {
-          setDropdownPosition('bottom')
-        }
-      }
       setShowMore(true)
     }
   }
+  
+  // Calculate dropdown position when it opens
+  useEffect(() => {
+    if (showMore && buttonRef.current && mounted) {
+      const updatePosition = () => {
+        const rect = buttonRef.current?.getBoundingClientRect()
+        if (!rect) return
+        
+        const spaceBelow = window.innerHeight - rect.bottom
+        const spaceAbove = rect.top
+        const dropdownHeight = 280 // Approximate dropdown height
+        
+        if (spaceBelow < dropdownHeight && spaceAbove > dropdownHeight) {
+          setDropdownPosition('top')
+          setDropdownStyle({
+            bottom: `${window.innerHeight - rect.top + 8}px`,
+            right: `${window.innerWidth - rect.right}px`,
+            position: 'fixed',
+            zIndex: 10000
+          })
+        } else {
+          setDropdownPosition('bottom')
+          setDropdownStyle({
+            top: `${rect.bottom + 8}px`,
+            right: `${window.innerWidth - rect.right}px`,
+            position: 'fixed',
+            zIndex: 10000
+          })
+        }
+      }
+      
+      updatePosition()
+      
+      // Update position on scroll or resize
+      window.addEventListener('scroll', updatePosition, true)
+      window.addEventListener('resize', updatePosition)
+      
+      return () => {
+        window.removeEventListener('scroll', updatePosition, true)
+        window.removeEventListener('resize', updatePosition)
+      }
+    }
+  }, [showMore, mounted])
 
   const getInitials = () => {
     return `${user.first_name?.[0] || ''}${user.last_name?.[0] || ''}`.toUpperCase()
@@ -315,8 +350,8 @@ export function UserCard({
 
   // Default variant
   return (
-    <Card className="hover:shadow-xl hover:shadow-blue-500/10 dark:hover:shadow-blue-400/10 transition-all duration-300 border-gray-200/50 dark:border-gray-700/50 bg-white/80 backdrop-blur-sm dark:bg-gray-800/80 group relative overflow-visible">
-      <CardContent className="p-6 overflow-visible">
+    <Card className="hover:shadow-xl hover:shadow-blue-500/10 dark:hover:shadow-blue-400/10 transition-all duration-300 border-gray-200/50 dark:border-gray-700/50 bg-white/80 backdrop-blur-sm dark:bg-gray-800/80 group relative" style={{ overflow: 'visible', zIndex: showMore ? 50 : 'auto' }}>
+      <CardContent className="p-6" style={{ overflow: 'visible' }}>
         <div className="flex items-center gap-4">
           <div className="relative">
             <div className="w-14 h-14 bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 rounded-2xl flex items-center justify-center text-white font-bold text-lg shadow-lg group-hover:shadow-xl group-hover:scale-105 transition-all duration-300 overflow-hidden">
@@ -381,29 +416,31 @@ export function UserCard({
               
               <div className="relative">
                 <Button
+                  ref={buttonRef}
                   id={`more-button-${user.id}`}
                   size="sm"
                   variant="outline"
                   onClick={handleMoreClick}
-                  className="h-9 w-9 p-0 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200"
+                  className="h-9 w-9 p-0 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 relative z-10"
                 >
                   <MoreHorizontal className="h-4 w-4" />
                 </Button>
-                
-                {showMore && (
-                  <div ref={dropdownRef}>
-                    {/* Backdrop to close dropdown when clicking outside */}
-                    <div 
-                      className="fixed inset-0 z-[9998] bg-transparent" 
-                      onClick={() => setShowMore(false)}
-                    />
-                    <div 
-                      className={`absolute right-0 w-52 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm rounded-xl shadow-xl border border-gray-200/50 dark:border-gray-700/50 z-[9999] overflow-visible ${
-                        dropdownPosition === 'top' 
-                          ? 'bottom-full mb-2' 
-                          : 'top-full mt-2'
-                      }`}
-                    >
+              </div>
+              
+              {/* Dropdown - rendered using portal to avoid overflow issues */}
+              {showMore && mounted && typeof window !== 'undefined' && createPortal(
+                <>
+                  {/* Backdrop to close dropdown when clicking outside */}
+                  <div 
+                    className="fixed inset-0 bg-transparent" 
+                    onClick={() => setShowMore(false)}
+                    style={{ zIndex: 10000 }}
+                  />
+                  <div 
+                    ref={dropdownRef}
+                    className="fixed w-52 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700"
+                    style={{ ...dropdownStyle, zIndex: 10001 }}
+                  >
                       <div className="py-2">
                       <button
                         onClick={() => {
@@ -465,9 +502,9 @@ export function UserCard({
                       </button>
                       </div>
                     </div>
-                  </div>
-                )}
-              </div>
+                  </>,
+                  document.body
+              )}
             </div>
           )}
         </div>

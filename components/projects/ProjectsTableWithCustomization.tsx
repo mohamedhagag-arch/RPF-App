@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button'
 import { PermissionButton } from '@/components/ui/PermissionButton'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { PermissionGuard } from '@/components/common/PermissionGuard'
-import { CheckCircle, Clock, AlertCircle, Calendar, Building, Activity, TrendingUp, Target, Info, Filter, X, RotateCcw, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { CheckCircle, Clock, AlertCircle, Calendar, Building, Activity, TrendingUp, Target, Info, Filter, X, RotateCcw, ArrowUpDown, ArrowUp, ArrowDown, Mail, User, ExternalLink, Phone, MessageCircle } from 'lucide-react'
 import { RecordHistoryModal } from '@/components/common/RecordHistoryModal'
 import { calculateProjectAnalytics, ProjectAnalytics } from '@/lib/projectAnalytics'
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
@@ -20,6 +20,7 @@ import { calculateActivityRate } from '@/lib/rateCalculator'
 import { calculateWorkValueStatus, calculateProgressFromWorkValue } from '@/lib/workValueCalculator'
 import { TABLES } from '@/lib/supabase'
 import { formatDate } from '@/lib/dateHelpers'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 
 interface ProjectsTableWithCustomizationProps {
   projects: Project[]
@@ -98,6 +99,8 @@ export function ProjectsTableWithCustomization({
   const [historyRecordId, setHistoryRecordId] = useState<string>('')
   const [historyRecordType, setHistoryRecordType] = useState<'kpi' | 'boq' | 'project'>('project')
   const [historyRecordData, setHistoryRecordData] = useState<any>(null)
+  const [showContactModal, setShowContactModal] = useState(false)
+  const [selectedContactUser, setSelectedContactUser] = useState<{ id: string; email: string; full_name: string; phone_1?: string; phone_2?: string; department_name_en?: string; job_title_en?: string } | null>(null)
   const [expandedScopes, setExpandedScopes] = useState<Set<string>>(new Set()) // Track expanded scopes per project
   const [expandedDivisions, setExpandedDivisions] = useState<Set<string>>(new Set()) // Track expanded divisions per project
   const [copiedPlotNumber, setCopiedPlotNumber] = useState<string | null>(null) // Track copied plot number for feedback
@@ -137,6 +140,74 @@ export function ProjectsTableWithCustomization({
     storageKey: 'projects' 
   })
 
+  // ✅ Load users for email linking
+  const [usersMap, setUsersMap] = useState<Map<string, { id: string; email: string; full_name: string; phone_1?: string; phone_2?: string; department_name_en?: string; job_title_en?: string }>>(new Map())
+  
+  useEffect(() => {
+    const loadUsers = async () => {
+      try {
+        const supabase = getSupabaseClient()
+        const { data: users, error } = await supabase
+          .from('user_profiles_complete')
+          .select('id, email, full_name, phone_1, phone_2, department_name_en, job_title_en')
+          .eq('is_active', true)
+        
+        if (error) {
+          console.error('Error loading users:', error)
+          return
+        }
+        
+        if (users) {
+          const map = new Map<string, { id: string; email: string; full_name: string; phone_1?: string; phone_2?: string; department_name_en?: string; job_title_en?: string }>()
+          users.forEach((user: any) => {
+            if (user.email) {
+              map.set(user.email.toLowerCase(), {
+                id: user.id,
+                email: user.email,
+                full_name: user.full_name || user.email,
+                phone_1: user.phone_1,
+                phone_2: user.phone_2,
+                department_name_en: user.department_name_en,
+                job_title_en: user.job_title_en
+              })
+            }
+          })
+          setUsersMap(map)
+        }
+      } catch (error) {
+        console.error('Error loading users:', error)
+      }
+    }
+    
+    loadUsers()
+  }, [])
+  
+  // ✅ Handle contact actions
+  const handleContactAction = useCallback((type: 'email' | 'phone' | 'whatsapp' | 'directory', value?: string) => {
+    if (!selectedContactUser) return
+    
+    switch (type) {
+      case 'email':
+        window.location.href = `mailto:${selectedContactUser.email}`
+        break
+      case 'phone':
+        if (value) {
+          window.location.href = `tel:${value}`
+        }
+        break
+      case 'whatsapp':
+        if (value) {
+          const cleanPhone = value.replace(/\D/g, '')
+          window.open(`https://wa.me/${cleanPhone}`, '_blank')
+        }
+        break
+      case 'directory':
+        window.open(`/directory?user=${selectedContactUser.id}`, '_blank')
+        break
+    }
+    setShowContactModal(false)
+  }, [selectedContactUser])
+  
   // ✅ FIX: Load project types and project_type_activities on mount
   useEffect(() => {
     const loadData = async () => {
@@ -4214,15 +4285,67 @@ export function ProjectsTableWithCustomization({
           )
         
         case 'project_staff':
-          const areaManager = project.area_manager_email || getProjectField(project, 'Area Manager') || 'N/A'
-          const projectManager = project.project_manager_email || getProjectField(project, 'Project Manager') || 'N/A'
-          const divisionHead = getProjectField(project, 'Division Head') || 'N/A'
+          const staffAreaManagerEmail = project.area_manager_email || getProjectField(project, 'Area Manager Email') || ''
+          const staffProjectManagerEmail = project.project_manager_email || getProjectField(project, 'Project Manager Email') || ''
+          const staffDivisionHeadEmail = project.division_head_email || getProjectField(project, 'Division Head Email') || ''
+          
+          // Find users by email
+          const areaManagerUser = staffAreaManagerEmail ? usersMap.get(staffAreaManagerEmail.toLowerCase()) : null
+          const projectManagerUser = staffProjectManagerEmail ? usersMap.get(staffProjectManagerEmail.toLowerCase()) : null
+          const divisionHeadUser = staffDivisionHeadEmail ? usersMap.get(staffDivisionHeadEmail.toLowerCase()) : null
+          
+          const handleContactClick = (e: React.MouseEvent, user: typeof areaManagerUser | null, email: string) => {
+            e.stopPropagation()
+            if (user) {
+              setSelectedContactUser(user)
+              setShowContactModal(true)
+            } else {
+              // If user not found, just open email
+              window.location.href = `mailto:${email}`
+            }
+          }
+          
+          const renderStaffMember = (label: string, email: string, user: typeof areaManagerUser | null) => {
+            if (!email || email === 'N/A') {
+              return (
+                <div className="text-xs text-gray-600 dark:text-gray-400">
+                  {label}: <span className="text-gray-400 dark:text-gray-500">N/A</span>
+                </div>
+              )
+            }
+            
+            return (
+              <div className="text-xs text-gray-600 dark:text-gray-400 flex items-center gap-1 group">
+                <span>{label}:</span>
+                {user ? (
+                  <button
+                    onClick={(e) => handleContactClick(e, user, email)}
+                    className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline flex items-center gap-1 cursor-pointer"
+                    title={`Click to view contact information for ${user.full_name}`}
+                  >
+                    <User className="h-3 w-3" />
+                    <span>{user.full_name}</span>
+                  </button>
+                ) : (
+                  <a
+                    href={`mailto:${email}`}
+                    className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline flex items-center gap-1"
+                    title={`Send email to ${email}`}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Mail className="h-3 w-3" />
+                    <span>{email}</span>
+                  </a>
+                )}
+              </div>
+            )
+          }
           
           return (
             <div className="space-y-1">
-              <div className="text-xs text-gray-600 dark:text-gray-400">Area Manager: {areaManager}</div>
-              <div className="text-xs text-gray-600 dark:text-gray-400">Project Manager: {projectManager}</div>
-              <div className="text-xs text-gray-600 dark:text-gray-400">Division Head: {divisionHead}</div>
+              {renderStaffMember('Area Manager', staffAreaManagerEmail, areaManagerUser)}
+              {renderStaffMember('Project Manager', staffProjectManagerEmail, projectManagerUser)}
+              {renderStaffMember('Division Head', staffDivisionHeadEmail, divisionHeadUser)}
             </div>
           )
         
@@ -4868,6 +4991,120 @@ export function ProjectsTableWithCustomization({
         />
       )}
       </PermissionGuard>
+
+      {/* Contact Information Modal */}
+      {showContactModal && selectedContactUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setShowContactModal(false)}>
+          <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex items-center justify-between border-b">
+              <CardTitle className="flex items-center gap-2">
+                <User className="h-5 w-5 text-blue-500" />
+                Contact Information
+              </CardTitle>
+              <button
+                onClick={() => setShowContactModal(false)}
+                className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </CardHeader>
+            <CardContent className="p-6">
+              <div className="space-y-4">
+                {/* User Name */}
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
+                    {selectedContactUser.full_name}
+                  </h3>
+                  {selectedContactUser.department_name_en && (
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      {selectedContactUser.department_name_en}
+                      {selectedContactUser.job_title_en && ` • ${selectedContactUser.job_title_en}`}
+                    </p>
+                  )}
+                </div>
+
+                {/* Contact Actions */}
+                <div className="space-y-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+                  {/* Email */}
+                  <button
+                    onClick={() => handleContactAction('email')}
+                    className="w-full flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-300 dark:hover:border-blue-700 transition-colors"
+                  >
+                    <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                      <Mail className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">Email</p>
+                      <p className="text-xs text-gray-600 dark:text-gray-400">{selectedContactUser.email}</p>
+                    </div>
+                  </button>
+
+                  {/* Phone 1 */}
+                  {selectedContactUser.phone_1 && (
+                    <>
+                      <button
+                        onClick={() => handleContactAction('phone', selectedContactUser.phone_1)}
+                        className="w-full flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-green-50 dark:hover:bg-green-900/20 hover:border-green-300 dark:hover:border-green-700 transition-colors"
+                      >
+                        <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
+                          <Phone className="h-5 w-5 text-green-600 dark:text-green-400" />
+                        </div>
+                        <div className="flex-1 text-left">
+                          <p className="text-sm font-medium text-gray-900 dark:text-white">Call</p>
+                          <p className="text-xs text-gray-600 dark:text-gray-400">{selectedContactUser.phone_1}</p>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => handleContactAction('whatsapp', selectedContactUser.phone_1)}
+                        className="w-full flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-green-50 dark:hover:bg-green-900/20 hover:border-green-300 dark:hover:border-green-700 transition-colors bg-green-50/50 dark:bg-green-900/10"
+                      >
+                        <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
+                          <MessageCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
+                        </div>
+                        <div className="flex-1 text-left">
+                          <p className="text-sm font-medium text-gray-900 dark:text-white">WhatsApp</p>
+                          <p className="text-xs text-gray-600 dark:text-gray-400">{selectedContactUser.phone_1}</p>
+                        </div>
+                      </button>
+                    </>
+                  )}
+
+                  {/* Phone 2 */}
+                  {selectedContactUser.phone_2 && (
+                    <button
+                      onClick={() => handleContactAction('phone', selectedContactUser.phone_2)}
+                      className="w-full flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-green-50 dark:hover:bg-green-900/20 hover:border-green-300 dark:hover:border-green-700 transition-colors"
+                    >
+                      <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
+                        <Phone className="h-5 w-5 text-green-600 dark:text-green-400" />
+                      </div>
+                      <div className="flex-1 text-left">
+                        <p className="text-sm font-medium text-gray-900 dark:text-white">Secondary Phone</p>
+                        <p className="text-xs text-gray-600 dark:text-gray-400">{selectedContactUser.phone_2}</p>
+                      </div>
+                    </button>
+                  )}
+
+                  {/* View in Directory */}
+                  <button
+                    onClick={() => handleContactAction('directory')}
+                    className="w-full flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-purple-50 dark:hover:bg-purple-900/20 hover:border-purple-300 dark:hover:border-purple-700 transition-colors"
+                  >
+                    <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+                      <ExternalLink className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">View Full Profile</p>
+                      <p className="text-xs text-gray-600 dark:text-gray-400">Open in User Directory</p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* History Modal */}
       <RecordHistoryModal

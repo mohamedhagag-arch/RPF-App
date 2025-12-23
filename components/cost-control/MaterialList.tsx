@@ -31,6 +31,7 @@ import { useSmartLoading } from '@/lib/smartLoadingManager'
 import { ImportButton } from '@/components/ui/ImportButton'
 import { useAuth } from '@/app/providers'
 import { downloadTemplate, downloadCSV, downloadExcel } from '@/lib/exportImportUtils'
+import { ProjectCodeSelect } from './ProjectCodeSelect'
 
 interface Material {
   id: string
@@ -1049,9 +1050,9 @@ export default function MaterialList() {
                     <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
                       Project Code
                     </label>
-                    <Input
-                      value={formData.project_code}
-                      onChange={(e) => setFormData(prev => ({ ...prev, project_code: e.target.value }))}
+                    <ProjectCodeSelect
+                      value={formData.project_code || ''}
+                      onChange={(value) => setFormData(prev => ({ ...prev, project_code: value }))}
                       placeholder="Project code"
                     />
                   </div>

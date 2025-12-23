@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, useRef } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { PermissionPage } from '@/components/ui/PermissionPage'
@@ -65,8 +65,10 @@ interface JobTitle {
 
 export default function DirectoryPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const guard = usePermissionGuard()
   const supabase = getSupabaseClient()
+  const userCardRefs = useRef<Map<string, HTMLDivElement>>(new Map())
   
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -88,6 +90,32 @@ export default function DirectoryPage() {
     loadDepartments()
     loadJobTitles()
   }, [])
+  
+  // ✅ Scroll to user when user query parameter is present
+  useEffect(() => {
+    const userId = searchParams?.get('user')
+    if (userId && users.length > 0) {
+      // Wait a bit for rendering
+      setTimeout(() => {
+        const userCard = userCardRefs.current.get(userId)
+        if (userCard) {
+          userCard.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          // Highlight the card temporarily
+          userCard.classList.add('ring-2', 'ring-blue-500', 'ring-offset-2')
+          setTimeout(() => {
+            userCard.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-2')
+          }, 3000)
+          
+          // Remove query parameter from URL
+          if (typeof window !== 'undefined') {
+            const url = new URL(window.location.href)
+            url.searchParams.delete('user')
+            window.history.replaceState({}, '', url.toString())
+          }
+        }
+      }, 500)
+    }
+  }, [searchParams, users])
 
   const loadUsers = async () => {
     try {
@@ -531,16 +559,22 @@ export default function DirectoryPage() {
         {filteredUsers.length > 0 ? (
           <div className={
             viewMode === 'grid' 
-              ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 overflow-visible relative'
-              : 'space-y-4 overflow-visible relative'
-          }>
+              ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 relative'
+              : 'space-y-4 relative'
+          } style={{ overflow: 'visible' }}>
             {filteredUsers.map((user) => (
-              <UserCard
+              <div
                 key={user.id}
-                user={user}
-                variant={viewMode === 'list' ? 'detailed' : 'default'}
-                showActions={true}
-              />
+                ref={(el) => {
+                  if (el) userCardRefs.current.set(user.id, el)
+                }}
+              >
+                <UserCard
+                  user={user}
+                  variant={viewMode === 'list' ? 'detailed' : 'default'}
+                  showActions={true}
+                />
+              </div>
             ))}
           </div>
         ) : (
