@@ -243,7 +243,7 @@ export function PrayerTimesWidget() {
       if (next && next.time && !isNaN(next.time.getTime())) {
         setNextPrayer(next)
         
-        // Calculate time remaining
+        // Calculate time remaining (hours, minutes, seconds)
         const diff = next.time.getTime() - now.getTime()
         if (diff > 0) {
           const hours = Math.floor(diff / (1000 * 60 * 60))
@@ -251,36 +251,36 @@ export function PrayerTimesWidget() {
           const seconds = Math.floor((diff % (1000 * 60)) / 1000)
           
           if (hours > 0) {
-            setTimeRemaining(`${hours}h ${minutes}m`)
+            setTimeRemaining(`${hours}h ${minutes}m ${seconds}s`)
           } else if (minutes > 0) {
             setTimeRemaining(`${minutes}m ${seconds}s`)
           } else {
             setTimeRemaining(`${seconds}s`)
           }
+        }
 
-          // Show notification 5 minutes before prayer time (between 5:00 and 4:59 minutes)
-          if (diff <= 5 * 60 * 1000 && diff > 4 * 60 * 1000 && !notificationShownRef.current) {
-            console.log(`[Prayer Notification] 5 minutes before ${next.name}:`, new Date())
-            showNotification(next, false)
-            showInAppNotificationFunc(next, false)
-            notificationShownRef.current = true
-            setHasNotified(true)
-          }
+        // Show notification 5 minutes before prayer time (between 5:00 and 4:59 minutes)
+        if (diff <= 5 * 60 * 1000 && diff > 4 * 60 * 1000 && !notificationShownRef.current) {
+          console.log(`[Prayer Notification] 5 minutes before ${next.name}:`, new Date())
+          showNotification(next, false)
+          showInAppNotificationFunc(next, false)
+          notificationShownRef.current = true
+          setHasNotified(true)
+        }
 
-          // Show notification exactly at prayer time (within 1 minute)
-          if (diff <= 60 * 1000 && diff > 0 && !notificationShownRef.current) {
-            console.log(`[Prayer Notification] Prayer time for ${next.name}:`, new Date())
-            showNotification(next, true)
-            showInAppNotificationFunc(next, true)
-            notificationShownRef.current = true
-            setHasNotified(true)
-          }
+        // Show notification exactly at prayer time (within 1 minute)
+        if (diff <= 60 * 1000 && diff > 0 && !notificationShownRef.current) {
+          console.log(`[Prayer Notification] Prayer time for ${next.name}:`, new Date())
+          showNotification(next, true)
+          showInAppNotificationFunc(next, true)
+          notificationShownRef.current = true
+          setHasNotified(true)
+        }
 
-          // Reset notification flag when prayer time passes (1 minute after)
-          if (diff <= -60 * 1000) {
-            notificationShownRef.current = false
-            setHasNotified(false)
-          }
+        // Reset notification flag when prayer time passes (1 minute after)
+        if (diff <= -60 * 1000) {
+          notificationShownRef.current = false
+          setHasNotified(false)
         }
       }
     }, 1000)
@@ -442,65 +442,31 @@ export function PrayerTimesWidget() {
         </div>
       )}
 
-      <div className="hidden lg:flex items-center gap-3 px-5 py-2.5 bg-gradient-to-r from-violet-50 via-purple-50 to-indigo-50 dark:from-violet-900/25 dark:via-purple-900/25 dark:to-indigo-900/25 rounded-xl border border-violet-200/60 dark:border-violet-700/60 shadow-md hover:shadow-lg transition-all duration-300">
-      {/* Current Prayer Time */}
-      <div className="flex items-center gap-3">
-        <div className="p-2.5 bg-gradient-to-br from-violet-500 via-purple-500 to-indigo-600 rounded-xl shadow-lg">
-          <Clock className="h-5 w-5 text-white" />
-        </div>
-        <div className="flex flex-col">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-violet-700 dark:text-violet-300">
-              {nextPrayer.name}
-            </span>
-            <span className="text-xs font-bold text-gray-600 dark:text-gray-400">
-              {nextPrayer.arabicName}
-            </span>
-          </div>
-          <span className="text-base font-bold text-gray-900 dark:text-white">
-            {formatTime(nextPrayer.time)}
+      {/* Simplified Prayer Times Widget */}
+      <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm rounded-lg border border-gray-200/50 dark:border-gray-700/50 shadow-sm">
+        {/* Prayer Icon & Name - Bilingual */}
+        <div className="flex items-center gap-1.5">
+          <Clock className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
+          <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+            {nextPrayer.arabicName} / {nextPrayer.name}
           </span>
         </div>
-      </div>
 
-      {/* Divider */}
-      <div className="h-8 w-px bg-violet-200 dark:bg-violet-700/50" />
+        {/* Time */}
+        <span className="text-sm font-bold text-gray-900 dark:text-white">
+          {formatTime(nextPrayer.time)}
+        </span>
 
-      {/* Time Remaining */}
-      <div className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-violet-100 to-purple-100 dark:from-violet-900/40 dark:to-purple-900/40 rounded-lg border border-violet-200/50 dark:border-violet-700/50">
-        <BellRing className={`h-4 w-4 ${hasNotified ? 'text-violet-600 dark:text-violet-400 animate-pulse' : 'text-violet-500 dark:text-violet-400'}`} />
-        <div className="flex flex-col">
-          <span className="text-[10px] text-gray-500 dark:text-gray-400 font-medium">
-            Time Remaining / الوقت المتبقي
-          </span>
-          <span className="text-sm font-bold text-violet-700 dark:text-violet-300">
-            {timeRemaining}
+        {/* Divider */}
+        <div className="h-4 w-px bg-gray-300 dark:bg-gray-600 mx-1" />
+
+        {/* Countdown - Bilingual */}
+        <div className="flex items-center gap-1.5">
+          <BellRing className={`h-3.5 w-3.5 ${hasNotified ? 'text-violet-600 dark:text-violet-400 animate-pulse' : 'text-gray-500 dark:text-gray-400'}`} />
+          <span className="text-xs font-semibold text-violet-600 dark:text-violet-400">
+            <span className="text-gray-500 dark:text-gray-400">الوقت المتبقي / Time Remaining:</span> {timeRemaining}
           </span>
         </div>
-      </div>
-
-      {/* Next Prayer Indicator */}
-      {nextAfterCurrent && (
-        <>
-          <div className="h-8 w-px bg-violet-200 dark:bg-violet-700/50" />
-          <div className="flex items-center gap-2">
-            <div className="flex flex-col">
-              <span className="text-[10px] text-gray-500 dark:text-gray-400 font-medium">
-                Next / التالي
-              </span>
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-                  {nextAfterCurrent.name}
-                </span>
-                <span className="text-xs font-bold text-gray-600 dark:text-gray-400">
-                  {nextAfterCurrent.arabicName}
-                </span>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
-
       </div>
     </>
   )
