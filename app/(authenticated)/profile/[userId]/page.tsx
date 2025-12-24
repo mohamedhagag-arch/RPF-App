@@ -38,7 +38,21 @@ import {
   Share2,
   Download,
   MoreHorizontal,
-  QrCode
+  QrCode,
+  Zap,
+  CheckCircle,
+  X,
+  ArrowRight,
+  Clock3,
+  FileText,
+  BarChart3,
+  Trophy,
+  Sparkles,
+  Heart,
+  ThumbsUp,
+  Download as DownloadIcon,
+  Copy,
+  Link as LinkIcon
 } from 'lucide-react'
 
 interface UserProfile {
@@ -92,12 +106,15 @@ export default function UserProfilePage() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [currentProjects, setCurrentProjects] = useState<Project[]>([])
   const [currentActivities, setCurrentActivities] = useState<Activity[]>([])
+  const [recentActivities, setRecentActivities] = useState<any[]>([])
   const [stats, setStats] = useState({
     totalProjects: 0,
     activeProjects: 0,
     completedProjects: 0,
-    totalActivities: 0
+    totalActivities: 0,
+    kpisRecorded: 0
   })
+  const [copied, setCopied] = useState(false)
 
   const userId = params.userId as string
 
@@ -106,6 +123,8 @@ export default function UserProfilePage() {
       loadUserProfile()
       loadUserProjects()
       loadUserActivities()
+      loadRecentActivities()
+      loadUserStats()
     }
   }, [userId])
 
@@ -132,29 +151,60 @@ export default function UserProfilePage() {
 
   const loadUserProjects = async () => {
     try {
-      // Get projects where user is involved
-      const { data: projects, error: projectsError } = await supabase
-        .from('projects')
-        .select(`
-          id,
-          project_name,
-          project_code,
-          project_status,
-          project_progress,
-          start_date,
-          end_date,
-          project_manager
-        `)
-        .or(`project_manager.eq.${userId},assigned_users.cs.{${userId}}`)
-        .order('created_at', { ascending: false })
+      const userEmail = userProfile?.email
+      if (!userEmail) return
 
-      if (projectsError) throw projectsError
-      setCurrentProjects(projects || [])
+      // Try to get projects from Planning Database
+      const { data: projects, error: projectsError } = await supabase
+        .from('Planning Database - ProjectsList')
+        .select('*')
+        .eq('Created By User', userEmail)
+        .order('created_at', { ascending: false })
+        .limit(10)
+
+      if (projectsError) {
+        console.warn('Error loading projects from Planning Database:', projectsError)
+        // Fallback to projects table
+        const { data: fallbackProjects } = await supabase
+          .from('projects')
+          .select('*')
+          .or(`project_manager.eq.${userId},assigned_users.cs.{${userId}}`)
+          .order('created_at', { ascending: false })
+          .limit(10)
+        
+        if (fallbackProjects) {
+          setCurrentProjects(fallbackProjects.map((p: any) => ({
+            id: p.id,
+            project_name: p.project_name || p.name,
+            project_code: p.project_code || p.code,
+            project_status: p.project_status || p.status,
+            project_progress: p.project_progress || p.progress || 0,
+            start_date: p.start_date || p.created_at,
+            end_date: p.end_date,
+            project_manager: p.project_manager
+          })))
+        }
+      } else if (projects) {
+        setCurrentProjects(projects.map((p: any) => ({
+          id: p.id || p['Project ID'],
+          project_name: p['Project Name'] || p.project_name,
+          project_code: p['Project Code'] || p.project_code,
+          project_status: p['Project Status'] || p.project_status || 'active',
+          project_progress: p['Project Progress'] || p.project_progress || 0,
+          start_date: p['Start Date'] || p.start_date || p.created_at,
+          end_date: p['End Date'] || p.end_date,
+          project_manager: p['Project Manager'] || p.project_manager
+        })))
+      }
       
       // Calculate stats
-      const total = projects?.length || 0
-      const active = projects?.filter(p => (p as any).project_status === 'active').length || 0
-      const completed = projects?.filter(p => (p as any).project_status === 'completed').length || 0
+      const total = projects?.length || currentProjects.length
+      const active = (projects || currentProjects)?.filter((p: any) => 
+        (p.project_status || p['Project Status'] || '').toLowerCase() === 'active'
+      ).length || 0
+      const completed = (projects || currentProjects)?.filter((p: any) => 
+        (p.project_status || p['Project Status'] || '').toLowerCase() === 'completed'
+      ).length || 0
       
       setStats(prev => ({
         ...prev,
@@ -170,31 +220,94 @@ export default function UserProfilePage() {
 
   const loadUserActivities = async () => {
     try {
-      // Get activities where user is involved
+      const userEmail = userProfile?.email
+      if (!userEmail) return
+
+      // Try to get activities from Planning Database
       const { data: activities, error: activitiesError } = await supabase
-        .from('boq_activities')
-        .select(`
-          id,
-          activity_name,
-          project_name,
-          activity_actual_status,
-          activity_progress_percentage,
-          deadline
-        `)
-        .or(`assigned_to.eq.${userId},created_by.eq.${userId}`)
+        .from('Planning Database - BOQ Rates')
+        .select('*')
+        .eq('Created By User', userEmail)
         .order('created_at', { ascending: false })
         .limit(10)
 
-      if (activitiesError) throw activitiesError
-      setCurrentActivities(activities || [])
+      if (activitiesError) {
+        console.warn('Error loading activities from Planning Database:', activitiesError)
+        // Fallback to boq_activities table
+        const { data: fallbackActivities } = await supabase
+          .from('boq_activities')
+          .select('*')
+          .or(`assigned_to.eq.${userId},created_by.eq.${userId}`)
+          .order('created_at', { ascending: false })
+          .limit(10)
+        
+        if (fallbackActivities) {
+          setCurrentActivities(fallbackActivities.map((a: any) => ({
+            id: a.id,
+            activity_name: a.activity_name || a.activity,
+            project_name: a.project_full_name || a.project_name,
+            activity_status: a.activity_actual_status || a.activity_status || 'in_progress',
+            progress: a.activity_progress_percentage || a.progress || 0,
+            deadline: a.deadline || a.activity_planned_completion_date
+          })))
+        }
+      } else if (activities) {
+        setCurrentActivities(activities.map((a: any) => ({
+          id: a.id || a['Activity ID'],
+          activity_name: a['Activity Name'] || a.activity_name || a.activity,
+          project_name: a['Project Name'] || a.project_full_name || a.project_name,
+          activity_status: a['Activity Status'] || a.activity_actual_status || 'in_progress',
+          progress: a['Progress Percentage'] || a.activity_progress_percentage || 0,
+          deadline: a['Deadline'] || a.deadline
+        })))
+      }
       
       setStats(prev => ({
         ...prev,
-        totalActivities: activities?.length || 0
+        totalActivities: activities?.length || currentActivities.length
       }))
       
     } catch (error: any) {
       console.error('Error loading user activities:', error)
+    }
+  }
+
+  const loadRecentActivities = async () => {
+    try {
+      const userEmail = userProfile?.email
+      if (!userEmail) return
+
+      const { data, error } = await (supabase as any)
+        .from('user_activities')
+        .select('*')
+        .eq('user_email', userEmail)
+        .order('created_at', { ascending: false })
+        .limit(5)
+
+      if (error) throw error
+      setRecentActivities(data || [])
+    } catch (error) {
+      console.error('Error loading recent activities:', error)
+    }
+  }
+
+  const loadUserStats = async () => {
+    try {
+      const userEmail = userProfile?.email
+      if (!userEmail) return
+
+      // Get KPI count
+      const { count: kpisCount } = await supabase
+        .from('Planning Database - KPI')
+        .select('*', { count: 'exact', head: true })
+        .eq('Recorded By', userEmail)
+
+      setStats(prev => ({
+        ...prev,
+        kpisRecorded: kpisCount || 0
+      }))
+    } catch (error) {
+      console.error('Error loading user stats:', error)
     }
   }
 
@@ -209,36 +322,86 @@ export default function UserProfilePage() {
         window.open(`tel:${userProfile.phone_1}`, '_blank')
         break
       case 'whatsapp':
-        // Remove any non-digit characters from phone number
         const cleanPhone = userProfile.phone_1?.replace(/\D/g, '')
         if (cleanPhone) {
-          // Open WhatsApp with the phone number
           window.open(`https://wa.me/${cleanPhone}`, '_blank')
         }
         break
       case 'message':
-        // TODO: Implement messaging system
         alert('Messaging system will be implemented soon!')
         break
     }
   }
 
-  const handleShareProfile = () => {
+  const handleShareProfile = async () => {
+    const url = window.location.href
+    
     if (navigator.share) {
-      navigator.share({
-        title: `${userProfile?.full_name} - Profile`,
-        text: `Check out ${userProfile?.full_name}'s profile`,
-        url: window.location.href
-      })
+      try {
+        await navigator.share({
+          title: `${userProfile?.full_name} - Profile`,
+          text: `Check out ${userProfile?.full_name}'s profile`,
+          url: url
+        })
+      } catch (err) {
+        // User cancelled or error occurred
+      }
     } else {
-      navigator.clipboard.writeText(window.location.href)
-      alert('Profile link copied to clipboard!')
+      try {
+        await navigator.clipboard.writeText(url)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      } catch (err) {
+        alert('Failed to copy link')
+      }
+    }
+  }
+
+  const getInitials = () => {
+    if (userProfile?.first_name && userProfile?.last_name) {
+      return `${userProfile.first_name[0]}${userProfile.last_name[0]}`.toUpperCase()
+    }
+    if (userProfile?.full_name) {
+      const parts = userProfile.full_name.split(' ')
+      if (parts.length >= 2) {
+        return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
+      }
+      return userProfile.full_name.substring(0, 2).toUpperCase()
+    }
+    return 'U'
+  }
+
+  const getRoleColor = (role: string) => {
+    switch (role?.toLowerCase()) {
+      case 'admin':
+        return 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 border-red-200 dark:border-red-700'
+      case 'manager':
+        return 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 border-blue-200 dark:border-blue-700'
+      case 'engineer':
+        return 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 border-green-200 dark:border-green-700'
+      default:
+        return 'bg-gray-100 text-gray-800 dark:bg-gray-900/40 dark:text-gray-300 border-gray-200 dark:border-gray-700'
+    }
+  }
+
+  const getActivityIcon = (actionType: string) => {
+    switch (actionType?.toLowerCase()) {
+      case 'create':
+        return <FileText className="h-4 w-4 text-green-600" />
+      case 'update':
+        return <Edit className="h-4 w-4 text-blue-600" />
+      case 'delete':
+        return <X className="h-4 w-4 text-red-600" />
+      case 'view':
+        return <Eye className="h-4 w-4 text-gray-600" />
+      default:
+        return <Activity className="h-4 w-4 text-purple-600" />
     }
   }
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
         <LoadingSpinner size="lg" />
       </div>
     )
@@ -246,7 +409,7 @@ export default function UserProfilePage() {
 
   if (error || !userProfile) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
         <div className="text-center">
           <Alert variant="error">
             <User className="h-4 w-4" />
@@ -266,176 +429,332 @@ export default function UserProfilePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-purple-50/30 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <Button 
-            variant="outline" 
-            onClick={() => router.back()}
-            className="mb-4"
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back
-          </Button>
+        {/* Back Button */}
+        <Button 
+          variant="outline" 
+          onClick={() => router.back()}
+          className="mb-6 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm hover:bg-white dark:hover:bg-gray-800 border-2"
+        >
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Back
+        </Button>
+
+        {/* Profile Header - Modern & Professional */}
+        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-blue-600 via-purple-600 to-indigo-700 shadow-2xl mb-8">
+          <div className="absolute inset-0 bg-grid-white/[0.05] bg-[size:20px_20px]"></div>
+          <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent"></div>
           
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-                {userProfile.full_name}
-              </h1>
-              <p className="text-gray-600 dark:text-gray-400 mt-1">
-                {userProfile.job_title_en} / {userProfile.job_title_ar}
-              </p>
-            </div>
-            
-            <div className="flex items-center gap-3">
-              {guard.hasAccess('profile.share') && (
-                <Button
-                  variant="outline"
-                  onClick={handleShareProfile}
-                >
-                  <Share2 className="h-4 w-4 mr-2" />
-                  Share Profile
-                </Button>
-              )}
-              
-              {authUser?.id === userId && guard.hasAccess('profile.edit') && (
-                <Button
-                  onClick={() => router.push('/profile')}
-                >
-                  <Edit className="h-4 w-4 mr-2" />
-                  Edit Profile
-                </Button>
-              )}
+          <div className="relative px-8 py-12">
+            <div className="flex flex-col md:flex-row items-start md:items-center gap-8">
+              {/* Avatar Section */}
+              <div className="relative group">
+                <div className="relative w-36 h-36 bg-gradient-to-br from-white/20 to-white/5 rounded-3xl flex items-center justify-center text-white text-5xl font-bold shadow-2xl ring-4 ring-white/20 backdrop-blur-sm overflow-hidden transition-transform duration-300 group-hover:scale-105">
+                  {userProfile.profile_picture_url ? (
+                    <img
+                      src={userProfile.profile_picture_url}
+                      alt="Profile Picture"
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement
+                        target.style.display = 'none'
+                        const parent = target.parentElement
+                        if (parent) {
+                          parent.innerHTML = getInitials()
+                          parent.className = 'relative w-36 h-36 bg-gradient-to-br from-white/20 to-white/5 rounded-3xl flex items-center justify-center text-white text-5xl font-bold shadow-2xl ring-4 ring-white/20 backdrop-blur-sm overflow-hidden transition-transform duration-300 group-hover:scale-105'
+                        }
+                      }}
+                    />
+                  ) : (
+                    getInitials()
+                  )}
+                </div>
+                {/* Online Status */}
+                <div className="absolute -bottom-1 -right-1 w-10 h-10 bg-green-500 rounded-full border-4 border-white dark:border-gray-900 shadow-xl flex items-center justify-center">
+                  <div className="w-4 h-4 bg-white rounded-full animate-pulse"></div>
+                </div>
+                {/* Role Badge on Avatar */}
+                <div className={`absolute -top-2 -right-2 px-3 py-1.5 rounded-full text-xs font-bold shadow-xl border-2 border-white ${getRoleColor(userProfile.role)}`}>
+                  {userProfile.role?.charAt(0).toUpperCase()}
+                </div>
+              </div>
+
+              {/* User Info */}
+              <div className="flex-1 text-white">
+                <div className="flex flex-wrap items-center gap-3 mb-3">
+                  <h1 className="text-5xl font-bold drop-shadow-lg">
+                    {userProfile.full_name}
+                  </h1>
+                  <span className={`px-4 py-2 rounded-full text-sm font-semibold shadow-xl border-2 border-white/30 ${getRoleColor(userProfile.role)}`}>
+                    <Shield className="h-4 w-4 inline mr-1.5" />
+                    {userProfile.role?.charAt(0).toUpperCase() + userProfile.role?.slice(1) || 'User'}
+                  </span>
+                </div>
+                
+                <div className="flex flex-wrap items-center gap-4 text-white/90 mb-6">
+                  {userProfile.job_title_en && (
+                    <div className="flex items-center gap-2">
+                      <Briefcase className="h-5 w-5" />
+                      <span className="font-semibold text-lg">{userProfile.job_title_en}</span>
+                    </div>
+                  )}
+                  {userProfile.department_name_en && (
+                    <div className="flex items-center gap-2">
+                      <Building className="h-5 w-5" />
+                      <span className="text-lg">{userProfile.department_name_en}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex flex-wrap gap-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleShareProfile}
+                    className="bg-white/10 hover:bg-white/20 border-white/30 text-white backdrop-blur-sm"
+                  >
+                    {copied ? (
+                      <>
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        Copied!
+                      </>
+                    ) : (
+                      <>
+                        <Share2 className="h-4 w-4 mr-2" />
+                        Share Profile
+                      </>
+                    )}
+                  </Button>
+                  {authUser?.id === userId && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => router.push('/profile')}
+                      className="bg-white/10 hover:bg-white/20 border-white/30 text-white backdrop-blur-sm"
+                    >
+                      <Edit className="h-4 w-4 mr-2" />
+                      Edit Profile
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => router.push(`/qr/${userId}`)}
+                    className="bg-white/10 hover:bg-white/20 border-white/30 text-white backdrop-blur-sm"
+                  >
+                    <QrCode className="h-4 w-4 mr-2" />
+                    QR Code
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
+        </div>
+
+        {/* Statistics Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
+          {/* Total Projects */}
+          <Card className="relative overflow-hidden border-2 border-blue-200 dark:border-blue-800 bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-900/20 dark:to-blue-800/10 hover:shadow-xl transition-all duration-300 group">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-blue-400/20 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-500"></div>
+            <CardContent className="p-6 relative z-10">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 bg-blue-500/20 rounded-xl">
+                  <FolderOpen className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+                </div>
+                <TrendingUp className="h-5 w-5 text-blue-600 dark:text-blue-400 opacity-50" />
+              </div>
+              <h3 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
+                {stats.totalProjects}
+              </h3>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Projects</p>
+            </CardContent>
+          </Card>
+
+          {/* Active Projects */}
+          <Card className="relative overflow-hidden border-2 border-green-200 dark:border-green-800 bg-gradient-to-br from-green-50 to-green-100/50 dark:from-green-900/20 dark:to-green-800/10 hover:shadow-xl transition-all duration-300 group">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-green-400/20 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-500"></div>
+            <CardContent className="p-6 relative z-10">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 bg-green-500/20 rounded-xl">
+                  <Zap className="h-6 w-6 text-green-600 dark:text-green-400" />
+                </div>
+                <TrendingUp className="h-5 w-5 text-green-600 dark:text-green-400 opacity-50" />
+              </div>
+              <h3 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
+                {stats.activeProjects}
+              </h3>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Active Projects</p>
+            </CardContent>
+          </Card>
+
+          {/* Completed Projects */}
+          <Card className="relative overflow-hidden border-2 border-purple-200 dark:border-purple-800 bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-900/20 dark:to-purple-800/10 hover:shadow-xl transition-all duration-300 group">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-purple-400/20 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-500"></div>
+            <CardContent className="p-6 relative z-10">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 bg-purple-500/20 rounded-xl">
+                  <CheckCircle className="h-6 w-6 text-purple-600 dark:text-purple-400" />
+                </div>
+                <Trophy className="h-5 w-5 text-purple-600 dark:text-purple-400 opacity-50" />
+              </div>
+              <h3 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
+                {stats.completedProjects}
+              </h3>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Completed</p>
+            </CardContent>
+          </Card>
+
+          {/* Total Activities */}
+          <Card className="relative overflow-hidden border-2 border-orange-200 dark:border-orange-800 bg-gradient-to-br from-orange-50 to-orange-100/50 dark:from-orange-900/20 dark:to-orange-800/10 hover:shadow-xl transition-all duration-300 group">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-orange-400/20 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-500"></div>
+            <CardContent className="p-6 relative z-10">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 bg-orange-500/20 rounded-xl">
+                  <Activity className="h-6 w-6 text-orange-600 dark:text-orange-400" />
+                </div>
+                <TrendingUp className="h-5 w-5 text-orange-600 dark:text-orange-400 opacity-50" />
+              </div>
+              <h3 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
+                {stats.totalActivities}
+              </h3>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Activities</p>
+            </CardContent>
+          </Card>
+
+          {/* KPI Records */}
+          <Card className="relative overflow-hidden border-2 border-indigo-200 dark:border-indigo-800 bg-gradient-to-br from-indigo-50 to-indigo-100/50 dark:from-indigo-900/20 dark:to-indigo-800/10 hover:shadow-xl transition-all duration-300 group">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-400/20 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-500"></div>
+            <CardContent className="p-6 relative z-10">
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 bg-indigo-500/20 rounded-xl">
+                  <Target className="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
+                </div>
+                <Award className="h-5 w-5 text-indigo-600 dark:text-indigo-400 opacity-50" />
+              </div>
+              <h3 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
+                {stats.kpisRecorded}
+              </h3>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">KPI Records</p>
+            </CardContent>
+          </Card>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Left Column - Profile Info */}
           <div className="lg:col-span-1 space-y-6">
             {/* Profile Card */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <User className="h-5 w-5" />
+            <Card className="border-2 hover:shadow-xl transition-shadow duration-300">
+              <CardHeader className="bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 border-b">
+                <CardTitle className="flex items-center gap-2 text-xl">
+                  <User className="h-6 w-6 text-blue-600 dark:text-blue-400" />
                   Profile Information
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Profile Picture */}
-                <div className="text-center">
-                  <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white text-2xl font-bold mx-auto mb-4 overflow-hidden relative">
-                    {userProfile.profile_picture_url ? (
-                      <img
-                        src={userProfile.profile_picture_url}
-                        alt="Profile Picture"
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          // Fallback to initials if image fails to load
-                          const target = e.target as HTMLImageElement
-                          target.style.display = 'none'
-                          const parent = target.parentElement
-                          if (parent) {
-                            parent.innerHTML = `${userProfile.first_name?.[0] || 'U'}${userProfile.last_name?.[0] || ''}`
-                            parent.className = 'w-24 h-24 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white text-2xl font-bold mx-auto mb-4'
-                          }
-                        }}
-                      />
-                    ) : (
-                      `${userProfile.first_name?.[0] || 'U'}${userProfile.last_name?.[0] || ''}`
-                    )}
-                  </div>
-                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
-                    {userProfile.full_name}
-                  </h3>
-                  <p className="text-gray-600 dark:text-gray-400">
-                    {userProfile.job_title_en}
-                  </p>
-                </div>
-
+              <CardContent className="p-6 space-y-5">
                 {/* Contact Information */}
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <Mail className="h-4 w-4 text-gray-400" />
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Email</p>
-                      <p className="text-gray-900 dark:text-white">{userProfile.email}</p>
+                <div className="space-y-4">
+                  <div className="flex items-start gap-4 p-4 bg-gradient-to-r from-blue-50 to-blue-100/50 dark:from-blue-900/20 dark:to-blue-800/10 rounded-xl border border-blue-200 dark:border-blue-700">
+                    <div className="p-2 bg-blue-500/20 rounded-lg">
+                      <Mail className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 mb-1 uppercase tracking-wide">Email</p>
+                      <p className="text-sm font-medium text-gray-900 dark:text-white break-all">{userProfile.email}</p>
                     </div>
                   </div>
                   
                   {userProfile.phone_1 && (
-                    <div className="flex items-center gap-3">
-                      <Phone className="h-4 w-4 text-gray-400" />
-                      <div>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">Primary Phone</p>
-                        <p className="text-gray-900 dark:text-white">{userProfile.phone_1}</p>
+                    <div className="flex items-start gap-4 p-4 bg-gradient-to-r from-green-50 to-green-100/50 dark:from-green-900/20 dark:to-green-800/10 rounded-xl border border-green-200 dark:border-green-700">
+                      <div className="p-2 bg-green-500/20 rounded-lg">
+                        <Phone className="h-5 w-5 text-green-600 dark:text-green-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-green-600 dark:text-green-400 mb-1 uppercase tracking-wide">Primary Phone</p>
+                        <p className="text-sm font-medium text-gray-900 dark:text-white">{userProfile.phone_1}</p>
                       </div>
                     </div>
                   )}
                   
                   {userProfile.phone_2 && (
-                    <div className="flex items-center gap-3">
-                      <Phone className="h-4 w-4 text-gray-400" />
-                      <div>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">Secondary Phone</p>
-                        <p className="text-gray-900 dark:text-white">{userProfile.phone_2}</p>
+                    <div className="flex items-start gap-4 p-4 bg-gradient-to-r from-purple-50 to-purple-100/50 dark:from-purple-900/20 dark:to-purple-800/10 rounded-xl border border-purple-200 dark:border-purple-700">
+                      <div className="p-2 bg-purple-500/20 rounded-lg">
+                        <Phone className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-purple-600 dark:text-purple-400 mb-1 uppercase tracking-wide">Secondary Phone</p>
+                        <p className="text-sm font-medium text-gray-900 dark:text-white">{userProfile.phone_2}</p>
                       </div>
                     </div>
                   )}
                 </div>
 
                 {/* Department & Role */}
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <Building className="h-4 w-4 text-gray-400" />
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Department</p>
-                      <p className="text-gray-900 dark:text-white">
-                        {userProfile.department_name_en}
+                <div className="space-y-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                  <div className="flex items-start gap-4 p-4 bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-700 rounded-xl border border-gray-200 dark:border-gray-700">
+                    <div className="p-2 bg-gray-500/20 rounded-lg">
+                      <Building className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1 uppercase tracking-wide">Department</p>
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">
+                        {userProfile.department_name_en || 'Not specified'}
+                        {userProfile.department_name_ar && (
+                          <span className="text-gray-500"> / {userProfile.department_name_ar}</span>
+                        )}
                       </p>
                     </div>
                   </div>
                   
-                  <div className="flex items-center gap-3">
-                    <Briefcase className="h-4 w-4 text-gray-400" />
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Job Title</p>
-                      <p className="text-gray-900 dark:text-white">
-                        {userProfile.job_title_en}
+                  <div className="flex items-start gap-4 p-4 bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-700 rounded-xl border border-gray-200 dark:border-gray-700">
+                    <div className="p-2 bg-gray-500/20 rounded-lg">
+                      <Briefcase className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1 uppercase tracking-wide">Job Title</p>
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">
+                        {userProfile.job_title_en || 'Not specified'}
+                        {userProfile.job_title_ar && (
+                          <span className="text-gray-500"> / {userProfile.job_title_ar}</span>
+                        )}
                       </p>
                     </div>
                   </div>
                   
-                  <div className="flex items-center gap-3">
-                    <Shield className="h-4 w-4 text-gray-400" />
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Role</p>
-                      <p className="text-gray-900 dark:text-white capitalize">
-                        {userProfile.role}
-                      </p>
+                  <div className="flex items-start gap-4 p-4 bg-gradient-to-r from-indigo-50 to-indigo-100/50 dark:from-indigo-900/20 dark:to-indigo-800/10 rounded-xl border border-indigo-200 dark:border-indigo-700">
+                    <div className="p-2 bg-indigo-500/20 rounded-lg">
+                      <Shield className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 mb-1 uppercase tracking-wide">Role</p>
+                      <span className={`inline-block px-3 py-1.5 rounded-full text-sm font-semibold ${getRoleColor(userProfile.role)}`}>
+                        {userProfile.role?.charAt(0).toUpperCase() + userProfile.role?.slice(1) || 'User'}
+                      </span>
                     </div>
                   </div>
                 </div>
 
                 {/* About */}
                 {userProfile.about && (
-                  <div>
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">About</p>
-                    <p className="text-gray-900 dark:text-white text-sm">
-                      {userProfile.about}
-                    </p>
+                  <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-3 uppercase tracking-wide">About</p>
+                    <div className="p-4 bg-gradient-to-br from-gray-50 to-white dark:from-gray-800 dark:to-gray-900 rounded-xl border border-gray-200 dark:border-gray-700">
+                      <p className="text-sm text-gray-900 dark:text-white leading-relaxed whitespace-pre-wrap">
+                        {userProfile.about}
+                      </p>
+                    </div>
                   </div>
                 )}
 
                 {/* Contact Actions */}
                 <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+                  <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-3 uppercase tracking-wide">Contact</p>
                   <div className="grid grid-cols-1 gap-2">
                     <Button
                       variant="outline"
                       onClick={() => handleContact('email')}
-                      className="w-full"
+                      className="w-full justify-start bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 dark:hover:bg-blue-900/30 border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300"
                     >
                       <MailIcon className="h-4 w-4 mr-2" />
                       Send Email
@@ -446,7 +765,7 @@ export default function UserProfilePage() {
                         <Button
                           variant="outline"
                           onClick={() => handleContact('phone')}
-                          className="w-full"
+                          className="w-full justify-start bg-green-50 hover:bg-green-100 dark:bg-green-900/20 dark:hover:bg-green-900/30 border-green-200 dark:border-green-700 text-green-700 dark:text-green-300"
                         >
                           <PhoneCall className="h-4 w-4 mr-2" />
                           Call
@@ -455,7 +774,7 @@ export default function UserProfilePage() {
                         <Button
                           variant="outline"
                           onClick={() => handleContact('whatsapp')}
-                          className="w-full bg-green-50 hover:bg-green-100 dark:bg-green-900/20 dark:hover:bg-green-900/30 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800"
+                          className="w-full justify-start bg-green-50 hover:bg-green-100 dark:bg-green-900/20 dark:hover:bg-green-900/30 border-green-200 dark:border-green-700 text-green-700 dark:text-green-300"
                         >
                           <MessageCircle className="h-4 w-4 mr-2" />
                           WhatsApp
@@ -466,7 +785,7 @@ export default function UserProfilePage() {
                     <Button
                       variant="outline"
                       onClick={() => handleContact('message')}
-                      className="w-full"
+                      className="w-full justify-start bg-purple-50 hover:bg-purple-100 dark:bg-purple-900/20 dark:hover:bg-purple-900/30 border-purple-200 dark:border-purple-700 text-purple-700 dark:text-purple-300"
                     >
                       <MessageCircle className="h-4 w-4 mr-2" />
                       Message
@@ -476,73 +795,39 @@ export default function UserProfilePage() {
               </CardContent>
             </Card>
 
-            {/* Stats Card */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <TrendingUp className="h-5 w-5" />
-                  Statistics
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                      {stats.totalProjects}
-                    </div>
-                    <div className="text-sm text-gray-600 dark:text-gray-400">Total Projects</div>
-                  </div>
-                  
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-green-600 dark:text-green-400">
-                      {stats.activeProjects}
-                    </div>
-                    <div className="text-sm text-gray-600 dark:text-gray-400">Active Projects</div>
-                  </div>
-                  
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
-                      {stats.completedProjects}
-                    </div>
-                    <div className="text-sm text-gray-600 dark:text-gray-400">Completed</div>
-                  </div>
-                  
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
-                      {stats.totalActivities}
-                    </div>
-                    <div className="text-sm text-gray-600 dark:text-gray-400">Activities</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
             {/* QR Code */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <QrCode className="h-5 w-5" />
+            <Card className="border-2 hover:shadow-xl transition-shadow duration-300">
+              <CardHeader className="bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 border-b">
+                <CardTitle className="flex items-center gap-2 text-xl">
+                  <QrCode className="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
                   Contact QR Code
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <QRCodeGenerator
-                  userData={{
-                    id: userProfile.id,
-                    first_name: userProfile.first_name,
-                    last_name: userProfile.last_name,
-                    email: userProfile.email,
-                    phone_1: userProfile.phone_1,
-                    phone_2: userProfile.phone_2,
-                    department_name_en: userProfile.department_name_en,
-                    job_title_en: userProfile.job_title_en,
-                    about: userProfile.about,
-                    profile_picture_url: userProfile.profile_picture_url
-                  }}
-                  size={150}
-                  showControls={true}
-                  showVCardInfo={false}
-                />
+              <CardContent className="p-6">
+                <div className="flex justify-center">
+                  <div className="p-4 bg-white dark:bg-gray-800 rounded-2xl border-2 border-gray-200 dark:border-gray-700 shadow-lg">
+                    <QRCodeGenerator
+                      userData={{
+                        id: userProfile.id,
+                        first_name: userProfile.first_name,
+                        last_name: userProfile.last_name,
+                        email: userProfile.email,
+                        phone_1: userProfile.phone_1,
+                        phone_2: userProfile.phone_2,
+                        department_name_en: userProfile.department_name_en,
+                        job_title_en: userProfile.job_title_en,
+                        about: userProfile.about,
+                        profile_picture_url: userProfile.profile_picture_url
+                      }}
+                      size={200}
+                      showControls={true}
+                      showVCardInfo={false}
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-center text-gray-500 dark:text-gray-400 mt-4">
+                  Scan to save contact information
+                </p>
               </CardContent>
             </Card>
           </div>
@@ -550,50 +835,63 @@ export default function UserProfilePage() {
           {/* Right Column - Projects & Activities */}
           <div className="lg:col-span-2 space-y-6">
             {/* Current Projects */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <FolderOpen className="h-5 w-5" />
-                  Current Projects
-                </CardTitle>
+            <Card className="border-2 hover:shadow-xl transition-shadow duration-300">
+              <CardHeader className="bg-gradient-to-r from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20 border-b">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2 text-xl">
+                    <FolderOpen className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+                    Current Projects
+                  </CardTitle>
+                  {currentProjects.length > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => router.push('/projects')}
+                    >
+                      View All
+                      <ArrowRight className="h-4 w-4 ml-2" />
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-6">
                 {currentProjects.length > 0 ? (
                   <div className="space-y-4">
                     {currentProjects.map((project) => (
-                      <div key={project.id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <h4 className="font-semibold text-gray-900 dark:text-white">
-                            {project.project_name}
-                          </h4>
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            project.project_status === 'active' ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' :
-                            project.project_status === 'completed' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300' :
-                            'bg-gray-100 text-gray-800 dark:bg-gray-900/40 dark:text-gray-300'
+                      <div key={project.id} className="group border-2 border-gray-200 dark:border-gray-700 rounded-xl p-5 bg-gradient-to-br from-white to-gray-50 dark:from-gray-800 dark:to-gray-900 hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-700 transition-all duration-300">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-bold text-lg text-gray-900 dark:text-white mb-1 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                              {project.project_name}
+                            </h4>
+                            <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-400">
+                              <span className="flex items-center gap-1">
+                                <Target className="h-4 w-4" />
+                                {project.project_code}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Calendar className="h-4 w-4" />
+                                {new Date(project.start_date).toLocaleDateString()}
+                              </span>
+                            </div>
+                          </div>
+                          <span className={`px-3 py-1.5 rounded-full text-xs font-semibold shadow-sm ${
+                            project.project_status === 'active' ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 border-2 border-green-200 dark:border-green-700' :
+                            project.project_status === 'completed' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 border-2 border-blue-200 dark:border-blue-700' :
+                            'bg-gray-100 text-gray-800 dark:bg-gray-900/40 dark:text-gray-300 border-2 border-gray-200 dark:border-gray-700'
                           }`}>
                             {project.project_status}
                           </span>
                         </div>
                         
-                        <div className="flex items-center gap-4 text-sm text-gray-600 dark:text-gray-400 mb-3">
-                          <span className="flex items-center gap-1">
-                            <Target className="h-4 w-4" />
-                            {project.project_code}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Calendar className="h-4 w-4" />
-                            {new Date(project.start_date).toLocaleDateString()}
-                          </span>
-                        </div>
-                        
-                        <div className="space-y-2">
-                          <div className="flex justify-between text-sm">
-                            <span>Progress</span>
-                            <span>{project.project_progress}%</span>
+                        <div className="space-y-2 mt-4">
+                          <div className="flex justify-between items-center text-sm">
+                            <span className="font-medium text-gray-700 dark:text-gray-300">Progress</span>
+                            <span className="font-bold text-gray-900 dark:text-white">{project.project_progress}%</span>
                           </div>
-                          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
                             <div 
-                              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                              className="bg-gradient-to-r from-blue-500 to-blue-600 h-3 rounded-full transition-all duration-500 shadow-sm"
                               style={{ width: `${project.project_progress}%` }}
                             />
                           </div>
@@ -602,60 +900,76 @@ export default function UserProfilePage() {
                     ))}
                   </div>
                 ) : (
-                  <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                    <FolderOpen className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>No current projects</p>
+                  <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+                    <FolderOpen className="h-16 w-16 mx-auto mb-4 opacity-50" />
+                    <p className="text-lg font-medium">No current projects</p>
+                    <p className="text-sm mt-2">This user hasn't been assigned to any projects yet.</p>
                   </div>
                 )}
               </CardContent>
             </Card>
 
             {/* Recent Activities */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Activity className="h-5 w-5" />
-                  Recent Activities
-                </CardTitle>
+            <Card className="border-2 hover:shadow-xl transition-shadow duration-300">
+              <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 border-b">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2 text-xl">
+                    <Activity className="h-6 w-6 text-purple-600 dark:text-purple-400" />
+                    Recent Activities
+                  </CardTitle>
+                  {currentActivities.length > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => router.push('/activity-log')}
+                    >
+                      View All
+                      <ArrowRight className="h-4 w-4 ml-2" />
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-6">
                 {currentActivities.length > 0 ? (
                   <div className="space-y-4">
                     {currentActivities.map((activity) => (
-                      <div key={activity.id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <h4 className="font-semibold text-gray-900 dark:text-white">
-                            {activity.activity_name}
-                          </h4>
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            activity.activity_status === 'completed' ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' :
-                            activity.activity_status === 'in_progress' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300' :
-                            'bg-gray-100 text-gray-800 dark:bg-gray-900/40 dark:text-gray-300'
+                      <div key={activity.id} className="group border-2 border-gray-200 dark:border-gray-700 rounded-xl p-5 bg-gradient-to-br from-white to-gray-50 dark:from-gray-800 dark:to-gray-900 hover:shadow-lg hover:border-purple-300 dark:hover:border-purple-700 transition-all duration-300">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-bold text-lg text-gray-900 dark:text-white mb-1 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">
+                              {activity.activity_name}
+                            </h4>
+                            <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-400">
+                              <span className="flex items-center gap-1">
+                                <FolderOpen className="h-4 w-4" />
+                                {activity.project_name}
+                              </span>
+                              {activity.deadline && (
+                                <span className="flex items-center gap-1">
+                                  <Calendar className="h-4 w-4" />
+                                  {new Date(activity.deadline).toLocaleDateString()}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <span className={`px-3 py-1.5 rounded-full text-xs font-semibold shadow-sm ${
+                            activity.activity_status === 'completed' ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 border-2 border-green-200 dark:border-green-700' :
+                            activity.activity_status === 'in_progress' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 border-2 border-blue-200 dark:border-blue-700' :
+                            'bg-gray-100 text-gray-800 dark:bg-gray-900/40 dark:text-gray-300 border-2 border-gray-200 dark:border-gray-700'
                           }`}>
                             {activity.activity_status}
                           </span>
                         </div>
                         
-                        <div className="flex items-center gap-4 text-sm text-gray-600 dark:text-gray-400 mb-3">
-                          <span className="flex items-center gap-1">
-                            <FolderOpen className="h-4 w-4" />
-                            {activity.project_name}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Calendar className="h-4 w-4" />
-                            {new Date(activity.deadline).toLocaleDateString()}
-                          </span>
-                        </div>
-                        
-                        <div className="space-y-2">
-                          <div className="flex justify-between text-sm">
-                            <span>Progress</span>
-                            <span>{(activity as any).activity_progress_percentage}%</span>
+                        <div className="space-y-2 mt-4">
+                          <div className="flex justify-between items-center text-sm">
+                            <span className="font-medium text-gray-700 dark:text-gray-300">Progress</span>
+                            <span className="font-bold text-gray-900 dark:text-white">{activity.progress}%</span>
                           </div>
-                          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
                             <div 
-                              className="bg-green-600 h-2 rounded-full transition-all duration-300"
-                              style={{ width: `${(activity as any).activity_progress_percentage}%` }}
+                              className="bg-gradient-to-r from-green-500 to-green-600 h-3 rounded-full transition-all duration-500 shadow-sm"
+                              style={{ width: `${activity.progress}%` }}
                             />
                           </div>
                         </div>
@@ -663,13 +977,72 @@ export default function UserProfilePage() {
                     ))}
                   </div>
                 ) : (
-                  <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                    <Activity className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>No recent activities</p>
+                  <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+                    <Activity className="h-16 w-16 mx-auto mb-4 opacity-50" />
+                    <p className="text-lg font-medium">No recent activities</p>
+                    <p className="text-sm mt-2">This user hasn't been assigned to any activities yet.</p>
                   </div>
                 )}
               </CardContent>
             </Card>
+
+            {/* Activity Timeline */}
+            {recentActivities.length > 0 && (
+              <Card className="border-2 hover:shadow-xl transition-shadow duration-300">
+                <CardHeader className="bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-indigo-900/20 dark:to-blue-900/20 border-b">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2 text-xl">
+                      <Clock3 className="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
+                      Activity Timeline
+                    </CardTitle>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => router.push('/activity-log')}
+                    >
+                      View All
+                      <ArrowRight className="h-4 w-4 ml-2" />
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-6">
+                  <div className="space-y-4">
+                    {recentActivities.map((activity, index) => (
+                      <div key={activity.id || index} className="flex gap-4 pb-4 border-b border-gray-200 dark:border-gray-700 last:border-0 last:pb-0">
+                        <div className="flex-shrink-0 mt-1">
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-100 to-blue-100 dark:from-indigo-900/40 dark:to-blue-900/40 flex items-center justify-center border-2 border-indigo-200 dark:border-indigo-700">
+                            {getActivityIcon(activity.action_type)}
+                          </div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2 mb-1">
+                            <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                              {activity.description || activity.page_title || 'Activity'}
+                            </p>
+                            <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                              {new Date(activity.created_at).toLocaleTimeString('en-US', {
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+                            <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded capitalize">
+                              {activity.action_type}
+                            </span>
+                            {activity.entity_type && (
+                              <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded capitalize">
+                                {activity.entity_type}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
         </div>
       </div>

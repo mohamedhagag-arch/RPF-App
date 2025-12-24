@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { useAuth } from '@/app/providers'
@@ -35,12 +35,41 @@ import {
   FileText,
   Settings,
   Briefcase,
-  Phone
+  Phone,
+  TrendingUp,
+  Award,
+  Target,
+  Zap,
+  Star,
+  Globe,
+  Download,
+  Share2,
+  QrCode,
+  MessageCircle,
+  PhoneCall,
+  MapPin,
+  ExternalLink,
+  ArrowRight,
+  Clock3,
+  Users,
+  FolderOpen,
+  Bell,
+  BellOff,
+  Camera,
+  Upload,
+  Link as LinkIcon,
+  Github,
+  Linkedin,
+  Twitter,
+  Facebook,
+  Instagram
 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 
 export function UserProfile() {
   const guard = usePermissionGuard()
   const { user: authUser, appUser, refreshUserProfile } = useAuth()
+  const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -48,6 +77,8 @@ export function UserProfile() {
   const [editMode, setEditMode] = useState(false)
   const [userData, setUserData] = useState<any>(null)
   const [activityStats, setActivityStats] = useState<any>(null)
+  const [recentActivities, setRecentActivities] = useState<any[]>([])
+  const [loadingActivities, setLoadingActivities] = useState(false)
   
   // Departments and Job Titles
   const [departments, setDepartments] = useState<any[]>([])
@@ -85,7 +116,6 @@ export function UserProfile() {
   // Add refresh capability
   useEffect(() => {
     const handleFocus = () => {
-      // Reload profile when window gains focus (user comes back to tab)
       loadUserProfile()
     }
 
@@ -95,7 +125,6 @@ export function UserProfile() {
 
   const loadDepartmentsAndJobTitles = async () => {
     try {
-      // Load departments
       const { data: deptData, error: deptError } = await (supabase as any)
         .from('departments')
         .select('*')
@@ -105,7 +134,6 @@ export function UserProfile() {
       if (deptError) throw deptError
       setDepartments(deptData || [])
 
-      // Load job titles
       const { data: jobData, error: jobError } = await (supabase as any)
         .from('job_titles')
         .select('*')
@@ -122,14 +150,12 @@ export function UserProfile() {
   const loadUserProfile = async () => {
     try {
       setLoading(true)
-      console.log('🔄 UserProfile: Loading user profile...')
       
       if (!authUser?.id) {
         setError('No authenticated user')
         return
       }
 
-      // Load user data with department and job title info
       const { data: user, error: userError } = await supabase
         .from('user_profiles_complete')
         .select('*')
@@ -137,12 +163,6 @@ export function UserProfile() {
         .single()
 
       if (userError) throw userError
-
-      console.log('📥 UserProfile: Loaded user data:', user)
-      console.log('🔍 UserProfile: User permissions:', (user as any).permissions)
-      console.log('📊 UserProfile: User permissions length:', (user as any).permissions?.length)
-      console.log('🔍 UserProfile: User custom_enabled:', (user as any).custom_permissions_enabled)
-      console.log('🔍 UserProfile: User updated_at:', (user as any).updated_at)
 
       setUserData(user)
       setFormData({
@@ -157,10 +177,8 @@ export function UserProfile() {
         profile_picture_url: (user as any).profile_picture_url || ''
       })
 
-      // Load activity statistics
       await loadActivityStats(authUser.id)
-
-      // Refresh global user profile to ensure consistency
+      await loadRecentActivities(authUser.id)
       await refreshUserProfile()
       
     } catch (error: any) {
@@ -173,31 +191,54 @@ export function UserProfile() {
 
   const loadActivityStats = async (userId: string) => {
     try {
+      const userEmail = userData?.email || appUser?.email
+      
       // Get user's created projects
-      const { data: projects } = await supabase
+      const { count: projectsCount } = await supabase
         .from('Planning Database - ProjectsList')
         .select('*', { count: 'exact', head: true })
-        .eq('Created By User', userData?.email || appUser?.email)
+        .eq('Created By User', userEmail)
 
       // Get user's created activities
-      const { data: activities } = await supabase
+      const { count: activitiesCount } = await supabase
         .from('Planning Database - BOQ Rates')
         .select('*', { count: 'exact', head: true })
 
       // Get user's KPI entries
-      const { data: kpis } = await supabase
+      const { count: kpisCount } = await supabase
         .from('Planning Database - KPI')
         .select('*', { count: 'exact', head: true })
-        .eq('Recorded By', userData?.email || appUser?.email)
+        .eq('Recorded By', userEmail)
 
       setActivityStats({
-        projectsCreated: projects?.length || 0,
-        activitiesCreated: activities?.length || 0,
-        kpisRecorded: kpis?.length || 0,
+        projectsCreated: projectsCount || 0,
+        activitiesCreated: activitiesCount || 0,
+        kpisRecorded: kpisCount || 0,
         lastActivity: new Date().toISOString()
       })
     } catch (error) {
       console.error('Error loading activity stats:', error)
+    }
+  }
+
+  const loadRecentActivities = async (userId: string) => {
+    try {
+      setLoadingActivities(true)
+      const userEmail = userData?.email || appUser?.email
+      
+      const { data, error } = await (supabase as any)
+        .from('user_activities')
+        .select('*')
+        .eq('user_email', userEmail)
+        .order('created_at', { ascending: false })
+        .limit(10)
+
+      if (error) throw error
+      setRecentActivities(data || [])
+    } catch (error) {
+      console.error('Error loading recent activities:', error)
+    } finally {
+      setLoadingActivities(false)
     }
   }
 
@@ -207,7 +248,6 @@ export function UserProfile() {
       setError('')
       setSuccess('')
 
-      // Use the RPC function for updating profile
       const { error: updateError } = await (supabase as any)
         .rpc('update_user_profile', {
           user_id: authUser?.id,
@@ -266,6 +306,48 @@ export function UserProfile() {
     }
   }
 
+  const getInitials = () => {
+    if (userData?.first_name && userData?.last_name) {
+      return `${userData.first_name[0]}${userData.last_name[0]}`.toUpperCase()
+    }
+    if (userData?.full_name) {
+      const parts = userData.full_name.split(' ')
+      if (parts.length >= 2) {
+        return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
+      }
+      return userData.full_name.substring(0, 2).toUpperCase()
+    }
+    return 'U'
+  }
+
+  const getRoleColor = (role: string) => {
+    switch (role?.toLowerCase()) {
+      case 'admin':
+        return 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 border-red-200 dark:border-red-700'
+      case 'manager':
+        return 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 border-blue-200 dark:border-blue-700'
+      case 'engineer':
+        return 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 border-green-200 dark:border-green-700'
+      default:
+        return 'bg-gray-100 text-gray-800 dark:bg-gray-900/40 dark:text-gray-300 border-gray-200 dark:border-gray-700'
+    }
+  }
+
+  const getActivityIcon = (actionType: string) => {
+    switch (actionType?.toLowerCase()) {
+      case 'create':
+        return <FileText className="h-4 w-4 text-green-600" />
+      case 'update':
+        return <Edit className="h-4 w-4 text-blue-600" />
+      case 'delete':
+        return <X className="h-4 w-4 text-red-600" />
+      case 'view':
+        return <Eye className="h-4 w-4 text-gray-600" />
+      default:
+        return <Activity className="h-4 w-4 text-purple-600" />
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -287,27 +369,195 @@ export function UserProfile() {
   const permissionsReport = generatePermissionsReport(userWithPerms)
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">My Profile</h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">Manage your personal information and preferences</p>
+    <div className="max-w-7xl mx-auto space-y-6 pb-8">
+      {/* Profile Header - Modern & Professional */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-600 via-purple-600 to-indigo-700 shadow-2xl">
+        <div className="absolute inset-0 bg-grid-white/[0.05] bg-[size:20px_20px]"></div>
+        <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent"></div>
+        
+        <div className="relative px-8 py-12">
+          <div className="flex flex-col md:flex-row items-start md:items-center gap-6">
+            {/* Avatar Section */}
+            <div className="relative group">
+              <div className="relative w-32 h-32 bg-gradient-to-br from-white/20 to-white/5 rounded-2xl flex items-center justify-center text-white text-4xl font-bold shadow-2xl ring-4 ring-white/20 backdrop-blur-sm overflow-hidden transition-transform duration-300 group-hover:scale-105">
+                {userData.profile_picture_url ? (
+                  <img
+                    src={userData.profile_picture_url}
+                    alt="Profile Picture"
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement
+                      target.style.display = 'none'
+                      const parent = target.parentElement
+                      if (parent) {
+                        parent.innerHTML = getInitials()
+                        parent.className = 'relative w-32 h-32 bg-gradient-to-br from-white/20 to-white/5 rounded-2xl flex items-center justify-center text-white text-4xl font-bold shadow-2xl ring-4 ring-white/20 backdrop-blur-sm overflow-hidden transition-transform duration-300 group-hover:scale-105'
+                      }
+                    }}
+                  />
+                ) : (
+                  getInitials()
+                )}
+              </div>
+              {/* Online Status */}
+              <div className="absolute -bottom-1 -right-1 w-8 h-8 bg-green-500 rounded-full border-4 border-white dark:border-gray-900 shadow-lg flex items-center justify-center">
+                <div className="w-3 h-3 bg-white rounded-full animate-pulse"></div>
+              </div>
+              {/* Role Badge on Avatar */}
+              <div className={`absolute -top-2 -right-2 px-3 py-1 rounded-full text-xs font-bold shadow-lg border-2 border-white ${getRoleColor(userData.role)}`}>
+                {userData.role?.charAt(0).toUpperCase()}
+              </div>
+            </div>
+
+            {/* User Info */}
+            <div className="flex-1 text-white">
+              <div className="flex items-center gap-3 mb-2">
+                <h1 className="text-4xl font-bold drop-shadow-lg">
+                  {userData.full_name || `${userData.first_name || ''} ${userData.last_name || ''}`.trim() || 'User'}
+                </h1>
+                <span className={`px-4 py-1.5 rounded-full text-sm font-semibold shadow-lg border-2 border-white/30 ${getRoleColor(userData.role)}`}>
+                  <Shield className="h-4 w-4 inline mr-1.5" />
+                  {userData.role?.charAt(0).toUpperCase() + userData.role?.slice(1) || 'User'}
+                </span>
+              </div>
+              
+              <div className="flex flex-wrap items-center gap-4 text-white/90 mb-4">
+                {userData.job_title_en && (
+                  <div className="flex items-center gap-2">
+                    <Briefcase className="h-4 w-4" />
+                    <span className="font-medium">{userData.job_title_en}</span>
+                  </div>
+                )}
+                {userData.department_name_en && (
+                  <div className="flex items-center gap-2">
+                    <Building className="h-4 w-4" />
+                    <span>{userData.department_name_en}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <Mail className="h-4 w-4" />
+                  <span>{userData.email}</span>
+                </div>
+              </div>
+
+              {/* Quick Actions */}
+              <div className="flex flex-wrap gap-3 mt-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => router.push(`/qr/${authUser?.id}`)}
+                  className="bg-white/10 hover:bg-white/20 border-white/30 text-white backdrop-blur-sm"
+                >
+                  <QrCode className="h-4 w-4 mr-2" />
+                  QR Code
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setEditMode(true)}
+                  className="bg-white/10 hover:bg-white/20 border-white/30 text-white backdrop-blur-sm"
+                >
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit Profile
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => router.push(`/profile/${authUser?.id}`)}
+                  className="bg-white/10 hover:bg-white/20 border-white/30 text-white backdrop-blur-sm"
+                >
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  View Public Profile
+                </Button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
       {error && <Alert variant="error">{error}</Alert>}
       {success && <Alert variant="success">{success}</Alert>}
 
+      {/* Statistics Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* Projects Card */}
+        <Card className="relative overflow-hidden border-2 border-blue-200 dark:border-blue-800 bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-900/20 dark:to-blue-800/10 hover:shadow-xl transition-all duration-300 group">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-blue-400/20 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-500"></div>
+          <CardContent className="p-6 relative z-10">
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-3 bg-blue-500/20 rounded-xl">
+                <FolderOpen className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+              </div>
+              <TrendingUp className="h-5 w-5 text-blue-600 dark:text-blue-400 opacity-50" />
+            </div>
+            <h3 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
+              {activityStats?.projectsCreated || 0}
+            </h3>
+            <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Projects Created</p>
+          </CardContent>
+        </Card>
+
+        {/* Activities Card */}
+        <Card className="relative overflow-hidden border-2 border-green-200 dark:border-green-800 bg-gradient-to-br from-green-50 to-green-100/50 dark:from-green-900/20 dark:to-green-800/10 hover:shadow-xl transition-all duration-300 group">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-green-400/20 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-500"></div>
+          <CardContent className="p-6 relative z-10">
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-3 bg-green-500/20 rounded-xl">
+                <BarChart3 className="h-6 w-6 text-green-600 dark:text-green-400" />
+              </div>
+              <TrendingUp className="h-5 w-5 text-green-600 dark:text-green-400 opacity-50" />
+            </div>
+            <h3 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
+              {activityStats?.activitiesCreated || 0}
+            </h3>
+            <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Activities Created</p>
+          </CardContent>
+        </Card>
+
+        {/* KPI Records Card */}
+        <Card className="relative overflow-hidden border-2 border-purple-200 dark:border-purple-800 bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-900/20 dark:to-purple-800/10 hover:shadow-xl transition-all duration-300 group">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-purple-400/20 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-500"></div>
+          <CardContent className="p-6 relative z-10">
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-3 bg-purple-500/20 rounded-xl">
+                <Target className="h-6 w-6 text-purple-600 dark:text-purple-400" />
+              </div>
+              <TrendingUp className="h-5 w-5 text-purple-600 dark:text-purple-400 opacity-50" />
+            </div>
+            <h3 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
+              {activityStats?.kpisRecorded || 0}
+            </h3>
+            <p className="text-sm font-medium text-gray-600 dark:text-gray-400">KPI Records</p>
+          </CardContent>
+        </Card>
+
+        {/* Permissions Card */}
+        <Card className="relative overflow-hidden border-2 border-orange-200 dark:border-orange-800 bg-gradient-to-br from-orange-50 to-orange-100/50 dark:from-orange-900/20 dark:to-orange-800/10 hover:shadow-xl transition-all duration-300 group">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-orange-400/20 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-500"></div>
+          <CardContent className="p-6 relative z-10">
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-3 bg-orange-500/20 rounded-xl">
+                <Shield className="h-6 w-6 text-orange-600 dark:text-orange-400" />
+              </div>
+              <Award className="h-5 w-5 text-orange-600 dark:text-orange-400 opacity-50" />
+            </div>
+            <h3 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
+              {permissionsReport.totalPermissions}
+            </h3>
+            <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Permissions</p>
+          </CardContent>
+        </Card>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column - Profile Info */}
+        {/* Left Column - Profile Info & Activity */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Basic Information */}
-          <Card>
-            <CardHeader>
+          {/* Personal Information */}
+          <Card className="border-2 hover:shadow-xl transition-shadow duration-300">
+            <CardHeader className="bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 border-b">
               <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <User className="h-5 w-5" />
+                <CardTitle className="flex items-center gap-2 text-xl">
+                  <User className="h-6 w-6 text-blue-600 dark:text-blue-400" />
                   Personal Information
                 </CardTitle>
                 {!editMode ? (
@@ -342,11 +592,11 @@ export function UserProfile() {
                 )}
               </div>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
+            <CardContent className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* First Name */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                     First Name
                   </label>
                   {editMode ? (
@@ -358,15 +608,18 @@ export function UserProfile() {
                         full_name: `${e.target.value} ${formData.last_name}`.trim()
                       }))}
                       placeholder="Enter your first name"
+                      className="w-full"
                     />
                   ) : (
-                    <p className="text-gray-900 dark:text-white font-medium">{userData.first_name || userData.full_name?.split(' ')[0]}</p>
+                    <p className="text-gray-900 dark:text-white font-medium text-base py-2">
+                      {userData.first_name || userData.full_name?.split(' ')[0] || 'Not specified'}
+                    </p>
                   )}
                 </div>
 
                 {/* Last Name */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                     Last Name
                   </label>
                   {editMode ? (
@@ -378,27 +631,30 @@ export function UserProfile() {
                         full_name: `${formData.first_name} ${e.target.value}`.trim()
                       }))}
                       placeholder="Enter your last name"
+                      className="w-full"
                     />
                   ) : (
-                    <p className="text-gray-900 dark:text-white font-medium">{userData.last_name || userData.full_name?.split(' ').slice(1).join(' ')}</p>
+                    <p className="text-gray-900 dark:text-white font-medium text-base py-2">
+                      {userData.last_name || userData.full_name?.split(' ').slice(1).join(' ') || 'Not specified'}
+                    </p>
                   )}
                 </div>
 
                 {/* Email (Read-only) */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                     Email Address
                   </label>
-                  <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
-                    <Mail className="h-4 w-4" />
-                    <span>{userData.email}</span>
-                    <span className="text-xs text-gray-500">(cannot be changed)</span>
+                  <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <Mail className="h-5 w-5 text-gray-400" />
+                    <span className="text-gray-900 dark:text-white font-medium">{userData.email}</span>
+                    <span className="text-xs text-gray-500 bg-gray-200 dark:bg-gray-700 px-2 py-1 rounded">Read-only</span>
                   </div>
                 </div>
 
                 {/* Department */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                     Department
                   </label>
                   {editMode ? (
@@ -415,9 +671,9 @@ export function UserProfile() {
                       ))}
                     </select>
                   ) : (
-                    <div className="flex items-center gap-2">
-                      <Building className="h-4 w-4 text-gray-400" />
-                      <span className="text-gray-900 dark:text-white">
+                    <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                      <Building className="h-5 w-5 text-gray-400" />
+                      <span className="text-gray-900 dark:text-white font-medium">
                         {userData.department_name_en || 'Not specified'}
                         {userData.department_name_ar && (
                           <span className="text-gray-500"> / {userData.department_name_ar}</span>
@@ -429,7 +685,7 @@ export function UserProfile() {
 
                 {/* Job Title */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                     Job Title
                   </label>
                   {editMode ? (
@@ -446,9 +702,9 @@ export function UserProfile() {
                       ))}
                     </select>
                   ) : (
-                    <div className="flex items-center gap-2">
-                      <Briefcase className="h-4 w-4 text-gray-400" />
-                      <span className="text-gray-900 dark:text-white">
+                    <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                      <Briefcase className="h-5 w-5 text-gray-400" />
+                      <span className="text-gray-900 dark:text-white font-medium">
                         {userData.job_title_en || 'Not specified'}
                         {userData.job_title_ar && (
                           <span className="text-gray-500"> / {userData.job_title_ar}</span>
@@ -460,7 +716,7 @@ export function UserProfile() {
 
                 {/* Primary Phone */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                     Primary Phone
                   </label>
                   {editMode ? (
@@ -468,18 +724,19 @@ export function UserProfile() {
                       value={formData.phone_1}
                       onChange={(e) => setFormData(prev => ({ ...prev, phone_1: e.target.value }))}
                       placeholder="+966 XXX XXX XXXX"
+                      className="w-full"
                     />
                   ) : (
-                    <div className="flex items-center gap-2">
-                      <Phone className="h-4 w-4 text-gray-400" />
-                      <span className="text-gray-900 dark:text-white">{userData.phone_1 || 'Not specified'}</span>
+                    <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                      <Phone className="h-5 w-5 text-gray-400" />
+                      <span className="text-gray-900 dark:text-white font-medium">{userData.phone_1 || 'Not specified'}</span>
                     </div>
                   )}
                 </div>
 
                 {/* Secondary Phone */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                     Secondary Phone (Optional)
                   </label>
                   {editMode ? (
@@ -487,48 +744,44 @@ export function UserProfile() {
                       value={formData.phone_2}
                       onChange={(e) => setFormData(prev => ({ ...prev, phone_2: e.target.value }))}
                       placeholder="+966 XXX XXX XXXX"
+                      className="w-full"
                     />
                   ) : (
-                    <div className="flex items-center gap-2">
-                      <Phone className="h-4 w-4 text-gray-400" />
-                      <span className="text-gray-900 dark:text-white">{userData.phone_2 || 'Not specified'}</span>
+                    <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                      <Phone className="h-5 w-5 text-gray-400" />
+                      <span className="text-gray-900 dark:text-white font-medium">{userData.phone_2 || 'Not specified'}</span>
                     </div>
                   )}
                 </div>
 
                 {/* Role (Read-only) */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                     Role & Permissions
                   </label>
-                  <div className="flex items-center gap-3">
-                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-                      userData.role === 'admin' ? 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300' :
-                      userData.role === 'manager' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300' :
-                      userData.role === 'engineer' ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' :
-                      'bg-gray-100 text-gray-800 dark:bg-gray-900/40 dark:text-gray-300'
-                    }`}>
-                      <Shield className="h-4 w-4 mr-1" />
-                      {userData.role.charAt(0).toUpperCase() + userData.role.slice(1)}
+                  <div className="flex flex-wrap items-center gap-3 p-4 bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-700 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <span className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold shadow-sm ${getRoleColor(userData.role)}`}>
+                      <Shield className="h-4 w-4 mr-2" />
+                      {userData.role?.charAt(0).toUpperCase() + userData.role?.slice(1) || 'User'}
                     </span>
-                    <span className="text-sm text-gray-600 dark:text-gray-400">
+                    <span className="text-sm text-gray-600 dark:text-gray-400 font-medium">
                       {permissions.length} permissions
                     </span>
                     {userWithPerms.custom_permissions_enabled && (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300">
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300 border border-orange-200 dark:border-orange-700">
                         <Key className="h-3 w-3 mr-1" />
-                        Custom
+                        Custom Permissions
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 ml-1">
                     {getRoleDescription(userData.role)}
                   </p>
                 </div>
 
                 {/* About */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                     About Me
                   </label>
                   {editMode ? (
@@ -540,28 +793,97 @@ export function UserProfile() {
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white resize-none"
                     />
                   ) : (
-                    <p className="text-gray-900 dark:text-white whitespace-pre-wrap">
-                      {userData.about || 'Not specified'}
-                    </p>
+                    <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                      <p className="text-gray-900 dark:text-white whitespace-pre-wrap leading-relaxed">
+                        {userData.about || 'No information provided yet.'}
+                      </p>
+                    </div>
                   )}
                 </div>
               </div>
             </CardContent>
           </Card>
 
+          {/* Recent Activity Timeline */}
+          <Card className="border-2 hover:shadow-xl transition-shadow duration-300">
+            <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 border-b">
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2 text-xl">
+                  <Activity className="h-6 w-6 text-purple-600 dark:text-purple-400" />
+                  Recent Activity
+                </CardTitle>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => router.push('/activity-log')}
+                >
+                  View All
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="p-6">
+              {loadingActivities ? (
+                <div className="flex items-center justify-center py-8">
+                  <LoadingSpinner size="md" />
+                </div>
+              ) : recentActivities.length > 0 ? (
+                <div className="space-y-4">
+                  {recentActivities.map((activity, index) => (
+                    <div key={activity.id || index} className="flex gap-4 pb-4 border-b border-gray-200 dark:border-gray-700 last:border-0 last:pb-0">
+                      <div className="flex-shrink-0 mt-1">
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-100 to-pink-100 dark:from-purple-900/40 dark:to-pink-900/40 flex items-center justify-center border-2 border-purple-200 dark:border-purple-700">
+                          {getActivityIcon(activity.action_type)}
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2 mb-1">
+                          <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                            {activity.description || activity.page_title || 'Activity'}
+                          </p>
+                          <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                            {new Date(activity.created_at).toLocaleTimeString('en-US', {
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+                          <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded capitalize">
+                            {activity.action_type}
+                          </span>
+                          {activity.entity_type && (
+                            <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded capitalize">
+                              {activity.entity_type}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                  <Activity className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                  <p>No recent activities found</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Security Settings */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Lock className="h-5 w-5" />
+          <Card className="border-2 hover:shadow-xl transition-shadow duration-300">
+            <CardHeader className="bg-gradient-to-r from-red-50 to-orange-50 dark:from-red-900/20 dark:to-orange-900/20 border-b">
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <Lock className="h-6 w-6 text-red-600 dark:text-red-400" />
                 Security Settings
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-6">
               {!showPasswordChange ? (
                 <div>
                   <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                    Keep your account secure by using a strong password
+                    Keep your account secure by using a strong password. We recommend using a combination of letters, numbers, and special characters.
                   </p>
                   <Button variant="outline" onClick={() => setShowPasswordChange(true)}>
                     <Key className="h-4 w-4 mr-2" />
@@ -571,7 +893,7 @@ export function UserProfile() {
               ) : (
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                       New Password
                     </label>
                     <div className="relative">
@@ -580,11 +902,12 @@ export function UserProfile() {
                         value={passwordData.newPassword}
                         onChange={(e) => setPasswordData(prev => ({ ...prev, newPassword: e.target.value }))}
                         placeholder="Enter new password (min 6 characters)"
+                        className="w-full pr-10"
                       />
                       <button
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                       >
                         {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </button>
@@ -592,7 +915,7 @@ export function UserProfile() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                       Confirm New Password
                     </label>
                     <Input
@@ -600,6 +923,7 @@ export function UserProfile() {
                       value={passwordData.confirmPassword}
                       onChange={(e) => setPasswordData(prev => ({ ...prev, confirmPassword: e.target.value }))}
                       placeholder="Confirm new password"
+                      className="w-full"
                     />
                   </div>
 
@@ -622,35 +946,34 @@ export function UserProfile() {
           </Card>
 
           {/* My Permissions */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Shield className="h-5 w-5" />
+          <Card className="border-2 hover:shadow-xl transition-shadow duration-300">
+            <CardHeader className="bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-indigo-900/20 dark:to-blue-900/20 border-b">
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <Shield className="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
                 My Permissions
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-6">
               <div className="space-y-4">
-                {/* Permissions by Category */}
                 {Object.entries(permissionsReport.permissionsByCategory).map(([category, perms]) => (
-                  <div key={category} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                    <h4 className="font-semibold text-gray-900 dark:text-white capitalize mb-3 flex items-center gap-2">
-                      {category === 'projects' && <FileText className="h-4 w-4 text-blue-600" />}
-                      {category === 'boq' && <BarChart3 className="h-4 w-4 text-green-600" />}
-                      {category === 'kpi' && <Activity className="h-4 w-4 text-purple-600" />}
-                      {category === 'reports' && <FileText className="h-4 w-4 text-orange-600" />}
-                      {category === 'users' && <User className="h-4 w-4 text-red-600" />}
-                      {category === 'settings' && <Settings className="h-4 w-4 text-indigo-600" />}
-                      {category === 'system' && <Lock className="h-4 w-4 text-gray-600" />}
-                      {category} ({perms.length})
+                  <div key={category} className="border-2 border-gray-200 dark:border-gray-700 rounded-xl p-5 bg-gradient-to-br from-gray-50 to-white dark:from-gray-800 dark:to-gray-900 hover:shadow-md transition-shadow">
+                    <h4 className="font-bold text-gray-900 dark:text-white capitalize mb-4 flex items-center gap-2 text-lg">
+                      {category === 'projects' && <FileText className="h-5 w-5 text-blue-600" />}
+                      {category === 'boq' && <BarChart3 className="h-5 w-5 text-green-600" />}
+                      {category === 'kpi' && <Activity className="h-5 w-5 text-purple-600" />}
+                      {category === 'reports' && <FileText className="h-5 w-5 text-orange-600" />}
+                      {category === 'users' && <User className="h-5 w-5 text-red-600" />}
+                      {category === 'settings' && <Settings className="h-5 w-5 text-indigo-600" />}
+                      {category === 'system' && <Lock className="h-5 w-5 text-gray-600" />}
+                      {category} <span className="text-sm font-normal text-gray-500">({perms.length})</span>
                     </h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       {perms.map(perm => (
-                        <div key={perm.id} className="flex items-start gap-2 text-sm">
-                          <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
-                          <div>
-                            <p className="font-medium text-gray-900 dark:text-white">{perm.name}</p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">{perm.description}</p>
+                        <div key={perm.id} className="flex items-start gap-3 p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:shadow-sm transition-shadow">
+                          <CheckCircle className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-gray-900 dark:text-white text-sm">{perm.name}</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{perm.description}</p>
                           </div>
                         </div>
                       ))}
@@ -660,13 +983,13 @@ export function UserProfile() {
               </div>
 
               {userWithPerms.custom_permissions_enabled && (
-                <div className="mt-4 p-4 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-700 rounded-lg">
-                  <div className="flex items-center gap-2 text-orange-800 dark:text-orange-300">
-                    <Key className="h-4 w-4" />
-                    <span className="font-semibold">Custom Permissions Active</span>
+                <div className="mt-6 p-5 bg-gradient-to-r from-orange-50 to-yellow-50 dark:from-orange-900/20 dark:to-yellow-900/20 border-2 border-orange-200 dark:border-orange-700 rounded-xl">
+                  <div className="flex items-center gap-3 text-orange-800 dark:text-orange-300 mb-2">
+                    <Key className="h-5 w-5" />
+                    <span className="font-bold text-lg">Custom Permissions Active</span>
                   </div>
-                  <p className="text-sm text-orange-700 dark:text-orange-400 mt-1">
-                    Your permissions have been customized by an administrator
+                  <p className="text-sm text-orange-700 dark:text-orange-400">
+                    Your permissions have been customized by an administrator. Some permissions may differ from the default role permissions.
                   </p>
                 </div>
               )}
@@ -676,53 +999,18 @@ export function UserProfile() {
 
         {/* Right Column - Stats & Info */}
         <div className="space-y-6">
-          {/* Quick Stats */}
-          <Card>
-            <CardHeader>
+          {/* Account Information */}
+          <Card className="border-2 hover:shadow-xl transition-shadow duration-300">
+            <CardHeader className="bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-700 border-b">
               <CardTitle className="flex items-center gap-2 text-lg">
-                <BarChart3 className="h-5 w-5" />
-                Quick Stats
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center justify-between p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                <div className="flex items-center gap-2">
-                  <FileText className="h-5 w-5 text-blue-600" />
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Projects</span>
-                </div>
-                <span className="text-xl font-bold text-blue-600">{activityStats?.projectsCreated || 0}</span>
-              </div>
-
-              <div className="flex items-center justify-between p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                <div className="flex items-center gap-2">
-                  <BarChart3 className="h-5 w-5 text-green-600" />
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Activities</span>
-                </div>
-                <span className="text-xl font-bold text-green-600">{activityStats?.activitiesCreated || 0}</span>
-              </div>
-
-              <div className="flex items-center justify-between p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
-                <div className="flex items-center gap-2">
-                  <Activity className="h-5 w-5 text-purple-600" />
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">KPI Records</span>
-                </div>
-                <span className="text-xl font-bold text-purple-600">{activityStats?.kpisRecorded || 0}</span>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Account Info */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <Calendar className="h-5 w-5" />
+                <Calendar className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                 Account Information
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Account Created</p>
-                <p className="text-sm font-medium text-gray-900 dark:text-white">
+            <CardContent className="p-6 space-y-4">
+              <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700">
+                <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 mb-1 uppercase tracking-wide">Account Created</p>
+                <p className="text-sm font-bold text-gray-900 dark:text-white">
                   {new Date(userData.created_at).toLocaleDateString('en-US', {
                     year: 'numeric',
                     month: 'long',
@@ -731,9 +1019,9 @@ export function UserProfile() {
                 </p>
               </div>
 
-              <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Last Updated</p>
-                <p className="text-sm font-medium text-gray-900 dark:text-white">
+              <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-700">
+                <p className="text-xs font-semibold text-green-600 dark:text-green-400 mb-1 uppercase tracking-wide">Last Updated</p>
+                <p className="text-sm font-bold text-gray-900 dark:text-white">
                   {new Date(userData.updated_at).toLocaleDateString('en-US', {
                     year: 'numeric',
                     month: 'long',
@@ -743,9 +1031,9 @@ export function UserProfile() {
               </div>
 
               {(userData as any).last_login && (
-                <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Last Login</p>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">
+                <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-700">
+                  <p className="text-xs font-semibold text-purple-600 dark:text-purple-400 mb-1 uppercase tracking-wide">Last Login</p>
+                  <p className="text-sm font-bold text-gray-900 dark:text-white">
                     {new Date((userData as any).last_login).toLocaleDateString('en-US', {
                       year: 'numeric',
                       month: 'long',
@@ -757,14 +1045,14 @@ export function UserProfile() {
                 </div>
               )}
 
-              <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Account Status</p>
-                <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+              <div className="p-4 bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-700 rounded-lg border-2 border-gray-200 dark:border-gray-700">
+                <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Account Status</p>
+                <span className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-bold shadow-sm ${
                   (userData as any).is_active !== false
-                    ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300'
-                    : 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'
+                    ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 border-2 border-green-200 dark:border-green-700'
+                    : 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 border-2 border-red-200 dark:border-red-700'
                 }`}>
-                  <CheckCircle className="h-4 w-4 mr-1" />
+                  <CheckCircle className="h-4 w-4 mr-2" />
                   {(userData as any).is_active !== false ? 'Active' : 'Inactive'}
                 </span>
               </div>
@@ -772,28 +1060,28 @@ export function UserProfile() {
           </Card>
 
           {/* Permissions Summary */}
-          <Card>
-            <CardHeader>
+          <Card className="border-2 hover:shadow-xl transition-shadow duration-300">
+            <CardHeader className="bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 border-b">
               <CardTitle className="flex items-center gap-2 text-lg">
-                <Shield className="h-5 w-5" />
+                <Shield className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
                 Permissions Summary
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-800 rounded">
-                  <span className="text-sm text-gray-600 dark:text-gray-400">Total Permissions</span>
-                  <span className="text-lg font-bold text-gray-900 dark:text-white">
+            <CardContent className="p-6">
+              <div className="space-y-4">
+                <div className="p-5 bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 rounded-xl border-2 border-indigo-200 dark:border-indigo-700 text-center">
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Total Permissions</p>
+                  <p className="text-4xl font-bold text-indigo-600 dark:text-indigo-400">
                     {permissionsReport.totalPermissions}
-                  </span>
+                  </p>
                 </div>
 
-                <div className="space-y-2">
-                  <p className="text-xs font-medium text-gray-700 dark:text-gray-300">By Category:</p>
+                <div className="space-y-3">
+                  <p className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide">By Category:</p>
                   {Object.entries(permissionsReport.permissionsByCategory).map(([category, perms]) => (
-                    <div key={category} className="flex justify-between items-center text-sm">
-                      <span className="text-gray-600 dark:text-gray-400 capitalize">{category}</span>
-                      <span className="font-semibold text-gray-900 dark:text-white">{perms.length}</span>
+                    <div key={category} className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:shadow-sm transition-shadow">
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300 capitalize">{category}</span>
+                      <span className="font-bold text-gray-900 dark:text-white text-lg">{perms.length}</span>
                     </div>
                   ))}
                 </div>
@@ -801,21 +1089,21 @@ export function UserProfile() {
                 {permissionsReport.customPermissionsEnabled && (
                   <>
                     {permissionsReport.extraFromRole.length > 0 && (
-                      <div className="mt-3 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded">
-                        <p className="text-xs font-semibold text-green-800 dark:text-green-300">
+                      <div className="mt-4 p-4 bg-green-50 dark:bg-green-900/20 border-2 border-green-200 dark:border-green-700 rounded-xl">
+                        <p className="text-xs font-bold text-green-800 dark:text-green-300 mb-1">
                           +{permissionsReport.extraFromRole.length} Extra Permissions
                         </p>
-                        <p className="text-xs text-green-700 dark:text-green-400 mt-1">
+                        <p className="text-xs text-green-700 dark:text-green-400">
                           Beyond your role defaults
                         </p>
                       </div>
                     )}
                     {permissionsReport.missingFromRole.length > 0 && (
-                      <div className="mt-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded">
-                        <p className="text-xs font-semibold text-red-800 dark:text-red-300">
+                      <div className="mt-3 p-4 bg-red-50 dark:bg-red-900/20 border-2 border-red-200 dark:border-red-700 rounded-xl">
+                        <p className="text-xs font-bold text-red-800 dark:text-red-300 mb-1">
                           -{permissionsReport.missingFromRole.length} Restricted Permissions
                         </p>
-                        <p className="text-xs text-red-700 dark:text-red-400 mt-1">
+                        <p className="text-xs text-red-700 dark:text-red-400">
                           Removed from your role defaults
                         </p>
                       </div>
@@ -823,6 +1111,50 @@ export function UserProfile() {
                   </>
                 )}
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Quick Links */}
+          <Card className="border-2 hover:shadow-xl transition-shadow duration-300">
+            <CardHeader className="bg-gradient-to-r from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20 border-b">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Zap className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                Quick Actions
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-6 space-y-2">
+              <Button
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => router.push('/dashboard')}
+              >
+                <BarChart3 className="h-4 w-4 mr-2" />
+                Dashboard
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => router.push('/activity-log')}
+              >
+                <Activity className="h-4 w-4 mr-2" />
+                Activity Log
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => router.push('/settings')}
+              >
+                <Settings className="h-4 w-4 mr-2" />
+                Settings
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => router.push(`/qr/${authUser?.id}`)}
+              >
+                <QrCode className="h-4 w-4 mr-2" />
+                My QR Code
+              </Button>
             </CardContent>
           </Card>
         </div>
