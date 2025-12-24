@@ -10,6 +10,7 @@ import { UserDropdown } from '@/components/ui/UserDropdown'
 import { ActiveUsersIndicator } from '@/components/ui/ActiveUsersIndicator'
 import { KPINotificationsDropdown } from '@/components/ui/KPINotificationsDropdown'
 import { PrayerTimesWidget } from '@/components/ui/PrayerTimesWidget'
+import { UrgentMessageFloatingButton } from '@/components/ui/UrgentMessageFloatingButton'
 import { kpiNotificationService } from '@/lib/kpiNotificationService'
 import { Users, Bell, Home, ChevronRight } from 'lucide-react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
@@ -598,6 +599,9 @@ export default function AuthenticatedLayout({
       
       {/* Connection Monitor */}
       <ConnectionMonitor />
+      
+      {/* Urgent Message Floating Button */}
+      <UrgentMessageFloatingButton />
     </div>
   )
 }
