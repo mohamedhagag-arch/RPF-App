@@ -2354,19 +2354,84 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
                             <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold bg-gray-200 dark:bg-gray-700 sticky left-0 z-20 min-w-[120px]">
                               Values
                             </th>
-                            {activityData.tableData.map((row: any, index: number) => (
-                              <th 
-                                key={index}
-                                className="border border-gray-300 dark:border-gray-600 px-2 py-3 text-center font-semibold bg-gray-600 dark:bg-gray-800 text-white min-w-[80px]"
-                                style={{ 
-                                  writingMode: 'vertical-rl',
-                                  textOrientation: 'mixed',
-                                  height: '120px'
-                                }}
-                              >
-                                {row.dateStr}
-                              </th>
-                            ))}
+                            {activityData.tableData.map((row: any, index: number) => {
+                              // Format the header text for clean vertical display
+                              const formatHeaderText = (dateStr: string) => {
+                                if (groupBy === 'weekly') {
+                                  // Parse "Week 43 (Oct 26 - Nov 3)" format
+                                  const weekMatch = dateStr.match(/Week\s+(\d+)\s+\(([^)]+)\)/)
+                                  if (weekMatch) {
+                                    const weekNum = weekMatch[1]
+                                    const dateRange = weekMatch[2]
+                                    const [startDate, endDate] = dateRange.split(' - ')
+                                    return (
+                                      <div className="text-white" style={{ 
+                                        display: 'flex', 
+                                        flexDirection: 'column', 
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: '4px',
+                                        height: '100%',
+                                        padding: '8px 4px',
+                                        color: 'white'
+                                      }}>
+                                        <div className="text-white" style={{ fontSize: '0.75em', fontWeight: '600', whiteSpace: 'nowrap', color: 'white' }}>Week</div>
+                                        <div className="text-white" style={{ fontSize: '1.1em', fontWeight: 'bold', whiteSpace: 'nowrap', color: 'white' }}>{weekNum}</div>
+                                        <div className="text-white" style={{ fontSize: '0.7em', whiteSpace: 'nowrap', marginTop: '2px', color: 'white' }}>{startDate}</div>
+                                        <div className="text-white" style={{ fontSize: '0.65em', whiteSpace: 'nowrap', color: 'white' }}>-</div>
+                                        <div className="text-white" style={{ fontSize: '0.7em', whiteSpace: 'nowrap', color: 'white' }}>{endDate}</div>
+                                      </div>
+                                    )
+                                  }
+                                } else if (groupBy === 'daily') {
+                                  // For daily, show date in a simple format
+                                  return (
+                                    <div className="text-white" style={{ 
+                                      display: 'flex', 
+                                      flexDirection: 'column', 
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      height: '100%',
+                                      padding: '8px 4px',
+                                      lineHeight: '1.4',
+                                      color: 'white'
+                                    }}>
+                                      <div className="text-white" style={{ fontSize: '0.85em', whiteSpace: 'normal', wordBreak: 'break-word', textAlign: 'center', color: 'white' }}>{dateStr}</div>
+                                    </div>
+                                  )
+                                } else {
+                                  // Monthly format
+                                  return (
+                                    <div className="text-white" style={{ 
+                                      display: 'flex', 
+                                      flexDirection: 'column', 
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      height: '100%',
+                                      padding: '8px 4px',
+                                      lineHeight: '1.4',
+                                      color: 'white'
+                                    }}>
+                                      <div className="text-white" style={{ fontSize: '0.85em', whiteSpace: 'normal', wordBreak: 'break-word', textAlign: 'center', color: 'white' }}>{dateStr}</div>
+                                    </div>
+                                  )
+                                }
+                              }
+                              
+                              return (
+                                <th 
+                                  key={index}
+                                  className="border border-gray-300 dark:border-gray-600 px-2 py-3 text-center font-semibold bg-gray-600 dark:bg-gray-800 text-white min-w-[80px]"
+                                  style={{ 
+                                    height: '120px',
+                                    verticalAlign: 'middle',
+                                    padding: '0'
+                                  }}
+                                >
+                                  {formatHeaderText(row.dateStr)}
+                                </th>
+                              )
+                            })}
                           </tr>
                         </thead>
                         <tbody>
