@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { getCachedCompanySettings } from '@/lib/companySettings'
+import { loginSecuritySettingsManager, LoginSecuritySettings, DEFAULT_LOGIN_SECURITY_SETTINGS } from '@/lib/loginSecuritySettings'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card } from '@/components/ui/Card'
@@ -62,6 +63,9 @@ export function LoginForm() {
   const [companySlogan, setCompanySlogan] = useState('Masters of Foundation Construction')
   const [logoUrl, setLogoUrl] = useState('')
   
+  // ✅ Login Security Settings
+  const [securitySettings, setSecuritySettings] = useState<LoginSecuritySettings>(DEFAULT_LOGIN_SECURITY_SETTINGS)
+  
   const supabase = getSupabaseClient()
   const router = useRouter()
   
@@ -101,6 +105,34 @@ export function LoginForm() {
       window.removeEventListener('storage', handleStorageChange)
       window.removeEventListener('companySettingsUpdated', handleStorageChange)
       window.removeEventListener('companySettingsCacheCleared', handleStorageChange)
+    }
+  }, [])
+
+  // ✅ Load login security settings
+  useEffect(() => {
+    const loadSecuritySettings = async () => {
+      try {
+        console.log('🔄 Loading login security settings...')
+        const settings = await loginSecuritySettingsManager.getSettings()
+        setSecuritySettings(settings)
+        console.log('✅ Login security settings loaded:', settings)
+      } catch (error) {
+        console.error('❌ Error loading login security settings:', error)
+        // Use defaults on error
+        setSecuritySettings(DEFAULT_LOGIN_SECURITY_SETTINGS)
+      }
+    }
+    
+    loadSecuritySettings()
+    
+    // Listen for settings updates
+    const handleSecuritySettingsUpdate = () => {
+      loadSecuritySettings()
+    }
+    window.addEventListener('loginSecuritySettingsUpdated', handleSecuritySettingsUpdate)
+    
+    return () => {
+      window.removeEventListener('loginSecuritySettingsUpdated', handleSecuritySettingsUpdate)
     }
   }, [])
 
@@ -165,26 +197,44 @@ export function LoginForm() {
     }
   }, [otpTimer])
 
+  // ✅ Initialize default security settings in database if needed
+  useEffect(() => {
+    loginSecuritySettingsManager.initializeDefaults().catch(err => {
+      console.warn('⚠️ Failed to initialize default security settings:', err)
+    })
+  }, [])
+
+  // ✅ Update rate limit cooldown when settings change
+  useEffect(() => {
+    if (securitySettings.enableRateLimiting && rateLimitCooldown > securitySettings.rateLimitCooldownSeconds) {
+      // If cooldown is longer than new setting, adjust it
+      setRateLimitCooldown(securitySettings.rateLimitCooldownSeconds)
+    }
+  }, [securitySettings.rateLimitCooldownSeconds, securitySettings.enableRateLimiting])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    // ✅ منع الطلبات المتعددة
-    if (isSubmitting || loading) {
+    // ✅ منع الطلبات المتعددة (if enabled)
+    if (securitySettings.enableMultipleSubmissionProtection && (isSubmitting || loading)) {
       console.log('⚠️ Login request already in progress, ignoring duplicate submission')
       return
     }
 
-    // ✅ Check rate limit cooldown
-    if (rateLimitCooldown > 0) {
+    // ✅ Check rate limit cooldown (if enabled)
+    if (securitySettings.enableRateLimiting && rateLimitCooldown > 0) {
       setError(`Too many login attempts. Please wait ${rateLimitCooldown} seconds before trying again.`)
       return
     }
 
-    // ✅ Local rate limiting: Prevent requests faster than 2 seconds
+    // ✅ Local rate limiting: Prevent requests faster than configured time (if enabled)
     const now = Date.now()
-    if (lastAttemptTime > 0 && (now - lastAttemptTime) < 2000) {
-      setError('Please wait a moment before trying again.')
-      return
+    if (securitySettings.enableLocalRateLimiting) {
+      const minTime = securitySettings.localRateLimitSeconds * 1000
+      if (lastAttemptTime > 0 && (now - lastAttemptTime) < minTime) {
+        setError(`Please wait ${securitySettings.localRateLimitSeconds} seconds before trying again.`)
+        return
+      }
     }
     
     setIsSubmitting(true)
@@ -204,8 +254,16 @@ export function LoginForm() {
         setSuccess('Password reset email sent! Check your inbox.')
         setForgotPassword(false)
       } else if (isSignUp) {
-        // ✅ Validate company email for sign up
-        if (!validateCompanyEmail(email)) {
+        // ✅ Check if sign up is enabled
+        if (!securitySettings.enableSignUp) {
+          setError('Sign up is currently disabled. Please contact administrator.')
+          setIsSubmitting(false)
+          setLoading(false)
+          return
+        }
+        
+        // ✅ Validate company email for sign up (if enabled)
+        if (securitySettings.enableCompanyEmailValidation && !validateCompanyEmail(email)) {
           setError('Company email required / يلزم إيميل الشركة')
           setIsSubmitting(false)
           setLoading(false)
@@ -229,57 +287,81 @@ export function LoginForm() {
         setIsSignUp(false)
       } else {
         // ✅ LOGIN: Allow any email (including old emails) to login
-        // Only new registrations require @rabatpfc.com email
-        // ✅ Retry logic with exponential backoff for rate limit errors
+        // Only new registrations require @rabatpfc.com email (if enabled)
+        // ✅ Retry logic with exponential backoff for rate limit errors (if enabled)
         let retries = 0
-        const maxRetries = 2
+        const maxRetries = securitySettings.enableRetryLogic ? securitySettings.maxRetries : 0
         let lastError: any = null
 
-        while (retries <= maxRetries) {
-          try {
-            const { error } = await supabase.auth.signInWithPassword({
-              email,
-              password,
-            })
-            
-            if (error) throw error
-            
-            // Success - redirect
-            router.push('/dashboard')
-            return
-          } catch (err: any) {
-            lastError = err
-            
-            // ✅ Check if it's a rate limit error
-            if (err.status === 429 || err.message?.includes('429') || err.message?.includes('Too Many Requests') || err.message?.includes('rate limit')) {
-              if (retries < maxRetries) {
-                // Exponential backoff: wait 2^retries seconds
-                const waitTime = Math.pow(2, retries) * 1000
-                console.log(`⚠️ Rate limit hit, retrying after ${waitTime}ms (attempt ${retries + 1}/${maxRetries + 1})`)
-                await new Promise(resolve => setTimeout(resolve, waitTime))
-                retries++
-                continue
+        if (maxRetries > 0) {
+          while (retries <= maxRetries) {
+            try {
+              const { error } = await supabase.auth.signInWithPassword({
+                email,
+                password,
+              })
+              
+              if (error) throw error
+              
+              // Success - redirect
+              router.push('/dashboard')
+              return
+            } catch (err: any) {
+              lastError = err
+              
+              // ✅ Check if it's a rate limit error
+              if (err.status === 429 || err.message?.includes('429') || err.message?.includes('Too Many Requests') || err.message?.includes('rate limit')) {
+                if (retries < maxRetries) {
+                  // Exponential backoff: wait 2^retries seconds (if enabled)
+                  const waitTime = securitySettings.enableExponentialBackoff 
+                    ? Math.pow(2, retries) * 1000 
+                    : 1000
+                  console.log(`⚠️ Rate limit hit, retrying after ${waitTime}ms (attempt ${retries + 1}/${maxRetries + 1})`)
+                  await new Promise(resolve => setTimeout(resolve, waitTime))
+                  retries++
+                  continue
               } else {
-                // Max retries reached, set cooldown (reduced from 5 to 2 minutes)
-                setRateLimitCooldown(120) // 2 minutes cooldown
+                // Max retries reached, set cooldown
+                if (securitySettings.enableRateLimiting) {
+                  setRateLimitCooldown(securitySettings.rateLimitCooldownSeconds)
+                  try {
+                    localStorage.setItem('login_rate_limit_cooldown', securitySettings.rateLimitCooldownSeconds.toString())
+                    localStorage.setItem('login_rate_limit_time', Date.now().toString())
+                  } catch (e) {
+                    console.warn('⚠️ Failed to save rate limit to localStorage:', e)
+                  }
+                }
                 throw err
               }
-            } else {
-              // Not a rate limit error, throw immediately
-              throw err
+              } else {
+                // Not a rate limit error, throw immediately
+                throw err
+              }
             }
           }
+          
+          // If we get here, all retries failed
+          throw lastError
+        } else {
+          // No retry logic, direct attempt
+          const { error } = await supabase.auth.signInWithPassword({
+            email,
+            password,
+          })
+          
+          if (error) throw error
+          
+          // Success - redirect
+          router.push('/dashboard')
+          return
         }
-        
-        // If we get here, all retries failed
-        throw lastError
       }
     } catch (error: any) {
       // ✅ معالجة خاصة لخطأ 429 (Too Many Requests)
       if (error.status === 429 || error.message?.includes('429') || error.message?.includes('Too Many Requests') || error.message?.includes('rate limit')) {
-        // Only set cooldown if not already set (to prevent resetting when Supabase still blocks)
-        if (rateLimitCooldown === 0) {
-          setRateLimitCooldown(120) // 2 minutes
+        // Only set cooldown if enabled and not already set
+        if (securitySettings.enableRateLimiting && rateLimitCooldown === 0) {
+          setRateLimitCooldown(securitySettings.rateLimitCooldownSeconds)
         }
         const cooldownMinutes = Math.ceil(rateLimitCooldown / 60)
         setError(`Too many login attempts. Please wait ${cooldownMinutes} minute${cooldownMinutes > 1 ? 's' : ''} before trying again.`)
@@ -306,17 +388,51 @@ export function LoginForm() {
 
   // ✅ Validate company email domain
   const validateCompanyEmail = (email: string) => {
+    if (!securitySettings.enableCompanyEmailValidation) {
+      return true // Skip validation if disabled
+    }
+    
     const emailLower = email.toLowerCase().trim()
-    // Only allow emails ending with @rabatpfc.com
-    return emailLower.endsWith('@rabatpfc.com')
+    // Check against allowed domains
+    return securitySettings.allowedEmailDomains.some(domain => 
+      emailLower.endsWith(domain.toLowerCase())
+    )
   }
 
   const validatePassword = (password: string) => {
-    return password.length >= 6
+    if (!securitySettings.enablePasswordValidation) {
+      return password.length > 0 // Just check it's not empty
+    }
+    
+    // Check minimum length
+    if (password.length < securitySettings.passwordMinLength) {
+      return false
+    }
+    
+    // Check requirements
+    if (securitySettings.passwordRequireUppercase && !/[A-Z]/.test(password)) {
+      return false
+    }
+    if (securitySettings.passwordRequireLowercase && !/[a-z]/.test(password)) {
+      return false
+    }
+    if (securitySettings.passwordRequireNumbers && !/[0-9]/.test(password)) {
+      return false
+    }
+    if (securitySettings.passwordRequireSpecialChars && !/[^A-Za-z0-9]/.test(password)) {
+      return false
+    }
+    
+    return true
   }
 
   // ✅ Handle OTP Send
   const handleSendOTP = async () => {
+    if (!securitySettings.enableOTPLogin) {
+      setError('OTP login is currently disabled.')
+      return
+    }
+    
     if (!validateEmail(email)) {
       setError('Please enter a valid email address')
       return
@@ -337,7 +453,7 @@ export function LoginForm() {
       if (error) throw error
 
       setOtpSent(true)
-      setOtpTimer(60) // 60 seconds cooldown
+      setOtpTimer(securitySettings.otpCooldownSeconds)
       setSuccess('Verification code sent! Please check your email.')
     } catch (error: any) {
       console.error('OTP send error:', error)
@@ -395,6 +511,11 @@ export function LoginForm() {
 
   // Handle Google Sign In
   const handleGoogleSignIn = async () => {
+    if (!securitySettings.enableGoogleOAuth) {
+      setError('Google OAuth login is currently disabled.')
+      return
+    }
+    
     try {
       setLoading(true)
       setError('')
@@ -732,7 +853,7 @@ export function LoginForm() {
                   <Lock className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-blue-400" />
                   <Input
                     id="password"
-                    type={showPassword ? "text" : "password"}
+                    type={securitySettings.enableShowPasswordToggle && showPassword ? "text" : "password"}
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -741,28 +862,57 @@ export function LoginForm() {
                     className={`pl-12 pr-12 bg-white/10 dark:bg-gray-800/50 border-white/20 dark:border-gray-700/50 text-white placeholder:text-white/50 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/50 backdrop-blur-sm transition-all ${password && !validatePassword(password) ? 'border-red-400 ring-2 ring-red-500/50' : ''}`}
                     placeholder="Enter your password"
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 transform -translate-y-1/2 text-blue-400 hover:text-blue-300 transition-colors"
-                  >
-                    {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                  </button>
+                  {securitySettings.enableShowPasswordToggle && (
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-4 top-1/2 transform -translate-y-1/2 text-blue-400 hover:text-blue-300 transition-colors"
+                    >
+                      {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                    </button>
+                  )}
                   {password && validatePassword(password) && (
-                    <CheckCircle className="absolute right-12 top-1/2 transform -translate-y-1/2 h-5 w-5 text-green-400" />
+                    <CheckCircle className={`absolute ${securitySettings.enableShowPasswordToggle ? 'right-12' : 'right-4'} top-1/2 transform -translate-y-1/2 h-5 w-5 text-green-400`} />
                   )}
                 </div>
-                {password && !validatePassword(password) && (
-                  <p className="mt-2 text-xs text-red-400 flex items-center gap-1">
-                    <AlertCircle className="h-3 w-3" />
-                    Password must be at least 6 characters
-                  </p>
+                {password && !validatePassword(password) && securitySettings.enablePasswordValidation && (
+                  <div className="mt-2 text-xs text-red-400">
+                    <p className="flex items-center gap-1 mb-1">
+                      <AlertCircle className="h-3 w-3" />
+                      Password requirements:
+                    </p>
+                    <ul className="list-disc list-inside ml-4 space-y-0.5">
+                      <li className={password.length >= securitySettings.passwordMinLength ? 'text-green-400' : ''}>
+                        At least {securitySettings.passwordMinLength} characters
+                      </li>
+                      {securitySettings.passwordRequireUppercase && (
+                        <li className={/[A-Z]/.test(password) ? 'text-green-400' : ''}>
+                          One uppercase letter
+                        </li>
+                      )}
+                      {securitySettings.passwordRequireLowercase && (
+                        <li className={/[a-z]/.test(password) ? 'text-green-400' : ''}>
+                          One lowercase letter
+                        </li>
+                      )}
+                      {securitySettings.passwordRequireNumbers && (
+                        <li className={/[0-9]/.test(password) ? 'text-green-400' : ''}>
+                          One number
+                        </li>
+                      )}
+                      {securitySettings.passwordRequireSpecialChars && (
+                        <li className={/[^A-Za-z0-9]/.test(password) ? 'text-green-400' : ''}>
+                          One special character
+                        </li>
+                      )}
+                    </ul>
+                  </div>
                 )}
               </div>
             )}
 
             {/* OTP Section */}
-            {!forgotPassword && useOTP && (
+            {!forgotPassword && useOTP && securitySettings.enableOTPLogin && (
               <div>
                 {!otpSent ? (
                   <div>
@@ -866,29 +1016,33 @@ export function LoginForm() {
 
             {!isSignUp && !forgotPassword && (
               <div className="flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={() => setForgotPassword(true)}
-                  className="text-sm text-blue-300 hover:text-blue-200 font-medium transition-colors flex items-center gap-2"
-                >
-                  <Shield className="h-3.5 w-3.5" />
-                  Forgot your password?
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUseOTP(!useOTP)
-                    setOtpSent(false)
-                    setOtpCode('')
-                    setOtpTimer(0)
-                    setError('')
-                    setSuccess('')
-                  }}
-                  className="text-sm text-blue-300 hover:text-blue-200 font-medium transition-colors flex items-center gap-2"
-                >
-                  <KeyRound className="h-3.5 w-3.5" />
-                  {useOTP ? 'Use Password' : 'Use OTP'}
-                </button>
+                {securitySettings.enableForgotPassword && (
+                  <button
+                    type="button"
+                    onClick={() => setForgotPassword(true)}
+                    className="text-sm text-blue-300 hover:text-blue-200 font-medium transition-colors flex items-center gap-2"
+                  >
+                    <Shield className="h-3.5 w-3.5" />
+                    Forgot your password?
+                  </button>
+                )}
+                {securitySettings.enableOTPLogin && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUseOTP(!useOTP)
+                      setOtpSent(false)
+                      setOtpCode('')
+                      setOtpTimer(0)
+                      setError('')
+                      setSuccess('')
+                    }}
+                    className="text-sm text-blue-300 hover:text-blue-200 font-medium transition-colors flex items-center gap-2"
+                  >
+                    <KeyRound className="h-3.5 w-3.5" />
+                    {useOTP ? 'Use Password' : 'Use OTP'}
+                  </button>
+                )}
               </div>
             )}
 
@@ -913,7 +1067,7 @@ export function LoginForm() {
             )}
 
             {/* Google Sign In Button */}
-            {!forgotPassword && (
+            {!forgotPassword && securitySettings.enableGoogleOAuth && (
               <div className="mt-4">
                 <div className="relative">
                   <div className="absolute inset-0 flex items-center">
@@ -967,7 +1121,7 @@ export function LoginForm() {
 
         {/* Footer Links */}
         <div className="text-center space-y-4">
-          {!forgotPassword && (
+          {!forgotPassword && securitySettings.enableSignUp && (
             <div className="flex items-center justify-center">
               <button
                 type="button"

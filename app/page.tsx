@@ -7,10 +7,11 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState, useRef } from 'react'
 
 /**
- * ✅ CRITICAL FIX: Home page component with absolute path protection
+ * Home page component
  * 
- * This component MUST only render on '/' route
- * Uses multiple layers of protection to prevent interference with other routes
+ * ✅ إصلاح: منع redirects متعددة وحلقة لا نهائية
+ * - يعيد التوجيه مرة واحدة فقط
+ * - ينتظر loading قبل أي redirect
  */
 export default function Home() {
   const { user, loading } = useAuth()
@@ -18,8 +19,10 @@ export default function Home() {
   const router = useRouter()
   const [shouldRender, setShouldRender] = useState(false)
   const hasChecked = useRef(false)
+  const hasRedirected = useRef(false)
+  const redirectTimerRef = useRef<NodeJS.Timeout | null>(null)
   
-  // ✅ ULTIMATE PROTECTION: Early exit check before any hooks logic
+  // Check if we're on home route
   useEffect(() => {
     if (hasChecked.current) return
     hasChecked.current = true
@@ -28,60 +31,78 @@ export default function Home() {
     
     const currentPath = window.location.pathname
     
-    // Absolute check: Only allow '/' exactly
+    // Only allow '/' exactly
     if (currentPath !== '/') {
-      console.log('🚫 Home component: Immediate exit - not on home route:', currentPath)
       setShouldRender(false)
       return
     }
     
-    // Double check with pathname hook
     if (pathname && pathname !== '/') {
-      console.log('🚫 Home component: Pathname mismatch:', pathname)
       setShouldRender(false)
       return
     }
     
-    // Only set to render if we're absolutely sure we're on '/'
     setShouldRender(true)
-    console.log('✅ Home component: Confirmed on home route')
   }, [pathname])
   
-  // ✅ Handle redirect if user exists (must be before any conditional returns)
+  // ✅ Handle redirect ONLY if user exists AND we're on home page AND loading is complete
   useEffect(() => {
-    if (user && shouldRender) {
-      // Check if we have a saved redirect path
-      const savedRedirect = sessionStorage.getItem('redirectAfterLogin')
-      sessionStorage.removeItem('redirectAfterLogin')
-      
-      // Redirect to saved path or dashboard
-      const redirectPath = savedRedirect && savedRedirect !== '/' ? savedRedirect : '/dashboard'
-      console.log('✅ Home: User authenticated, redirecting to:', redirectPath)
-      router.push(redirectPath)
+    // Clear any existing redirect timer
+    if (redirectTimerRef.current) {
+      clearTimeout(redirectTimerRef.current)
+      redirectTimerRef.current = null
     }
-  }, [user, router, shouldRender])
+    
+    // Only redirect if:
+    // 1. User exists
+    // 2. We're on home page (/)
+    // 3. Loading is complete
+    // 4. Haven't redirected yet
+    if (user && shouldRender && pathname === '/' && !loading && !hasRedirected.current) {
+      // Small delay to ensure everything is ready
+      redirectTimerRef.current = setTimeout(() => {
+        if (hasRedirected.current) return // Double check
+        
+        hasRedirected.current = true
+        
+        // Check if we have a saved redirect path
+        const savedRedirect = sessionStorage.getItem('redirectAfterLogin')
+        sessionStorage.removeItem('redirectAfterLogin')
+        
+        // Redirect to saved path or dashboard
+        const redirectPath = savedRedirect && savedRedirect !== '/' ? savedRedirect : '/dashboard'
+        console.log('✅ Home: User authenticated, redirecting to:', redirectPath)
+        router.push(redirectPath)
+      }, 100) // Small delay
+    }
+    
+    return () => {
+      if (redirectTimerRef.current) {
+        clearTimeout(redirectTimerRef.current)
+        redirectTimerRef.current = null
+      }
+    }
+  }, [user, router, shouldRender, pathname, loading])
   
-  // ✅ CRITICAL: Don't render anything on server
+  // Don't render on server
   if (typeof window === 'undefined') {
     return null
   }
   
-  // ✅ CRITICAL: Immediate exit if pathname doesn't match
+  // Exit if not on home route
   if (pathname && pathname !== '/') {
     return null
   }
   
-  // ✅ CRITICAL: Check window.location.pathname synchronously
   if (typeof window !== 'undefined' && window.location.pathname !== '/') {
     return null
   }
   
-  // ✅ CRITICAL: Don't render until confirmed
   if (!shouldRender) {
     return null
   }
 
-  // Show loading while checking auth state (with shorter timeout)
+  // Show loading while checking auth state
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
@@ -93,7 +114,7 @@ export default function Home() {
     )
   }
 
-  // If user exists, show redirecting message (should be fast with new session manager)
+  // If user exists, show redirecting message
   if (user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">

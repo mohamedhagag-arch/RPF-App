@@ -17,6 +17,8 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { ConnectionMonitor } from '@/components/common/ConnectionMonitor'
 import { ProfileCompletionWrapper } from '@/components/auth/ProfileCompletionWrapper'
 import { useActivityTracker } from '@/hooks/useActivityTracker'
+import { sessionTimeoutManager } from '@/lib/sessionTimeoutManager'
+import { professionalSessionManager } from '@/lib/professionalSessionManager'
 import '@/lib/simpleConnectionTest'
 
 /**
@@ -53,6 +55,20 @@ export default function AuthenticatedLayout({
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  // Initialize session timeout manager when user is authenticated
+  useEffect(() => {
+    if (user && appUser) {
+      sessionTimeoutManager.initialize().catch(err => {
+        console.warn('⚠️ Failed to initialize session timeout manager:', err)
+      })
+    }
+    
+    return () => {
+      // Cleanup on unmount
+      sessionTimeoutManager.cleanup()
+    }
+  }, [user, appUser])
 
   // Load notification count and check for pending KPIs
   useEffect(() => {
@@ -245,79 +261,64 @@ export default function AuthenticatedLayout({
     }
   }, [user])
 
-  // Handle redirect if no user after loading completes
-  // Improved: Check for refresh token before redirecting
+  // ✅ Handle redirect ONLY if no user after loading completes AND session recovery failed
+  // لا يعيد التوجيه إذا كان المستخدم موجود أو في حالة استعادة الجلسة
+  const redirectAttempted = useRef(false)
+  
   useEffect(() => {
-    if (mounted && !loading && !user) {
-      // Check if we have a refresh token (session might be recovering)
-      const checkRefreshToken = () => {
-        if (typeof window === 'undefined') return false
-        
-        // Check cookies
-        const cookies = document.cookie.split(';')
-        const hasRefreshTokenInCookies = cookies.some(cookie => 
-          cookie.trim().includes('sb-') && cookie.trim().includes('refresh-token')
-        )
-        
-        // Check localStorage
-        try {
-          const keys = Object.keys(localStorage)
-          const hasRefreshTokenInStorage = keys.some(key => 
-            key.includes('sb-') && key.includes('refresh-token')
-          )
-          return hasRefreshTokenInCookies || hasRefreshTokenInStorage
-        } catch {
-          return hasRefreshTokenInCookies
-        }
-      }
-
-      const hasRefreshToken = checkRefreshToken()
+    if (!mounted || loading) return
+    
+    // ✅ إذا كان المستخدم موجود → لا redirect (يبقى على نفس الصفحة)
+    if (user) {
+      redirectAttempted.current = false
+      return
+    }
+    
+    // ✅ إذا كان في حالة loading أو recovering → لا redirect (ينتظر)
+    const state = professionalSessionManager.getState()
+    if (state.isLoading || state.isRecovering) {
+      return
+    }
+    
+    // ✅ فقط إذا لم يكن هناك user ولا loading ولا recovering
+    if (!user && typeof window !== 'undefined' && !redirectAttempted.current) {
+      const hasRefreshToken = professionalSessionManager.hasRefreshToken()
+      const hasCachedSession = state.session !== null
       
-      // If we have refresh token, give more time for recovery (3 seconds)
-      // Otherwise, redirect faster (2 seconds)
-      const timeout = hasRefreshToken ? 3000 : 2000
-      
-      const redirectTimer = setTimeout(() => {
-        // Double-check user state and refresh token before redirecting
-        if (typeof window !== 'undefined' && !user) {
-          const stillHasRefreshToken = checkRefreshToken()
-          
-          // Only redirect if we still don't have user AND no refresh token
-          if (!stillHasRefreshToken) {
+      // ✅ إذا كان له refresh token أو cached session → ينتظر الاستعادة (لا redirect)
+      if (hasRefreshToken || hasCachedSession) {
+        // Give session recovery more time (3 seconds)
+        const recoveryTimer = setTimeout(() => {
+          if (!user && !state.isLoading && !state.isRecovering && !redirectAttempted.current) {
             const currentPath = window.location.pathname
             const protectedRoutes = ['/dashboard', '/projects', '/boq', '/kpi', '/reports', '/settings', '/profile', '/directory', '/hr', '/cost-control', '/procurement']
             const isOnProtectedRoute = protectedRoutes.some(route => currentPath.startsWith(route))
             
             if (isOnProtectedRoute) {
-              console.log('⚠️ Layout: No user and no refresh token, redirecting to login')
-              // Store the current path to return to after login
+              redirectAttempted.current = true
+              console.log('⚠️ Layout: Session recovery timeout - redirecting to login')
               sessionStorage.setItem('redirectAfterLogin', currentPath)
               window.location.href = '/'
             }
-          } else {
-            console.log('🔄 Layout: Still has refresh token, waiting for session recovery...')
-            // Give one more chance - check again after 1 second
-            setTimeout(() => {
-              if (!user && typeof window !== 'undefined') {
-                const finalCheck = checkRefreshToken()
-                if (!finalCheck) {
-                  const currentPath = window.location.pathname
-                  const protectedRoutes = ['/dashboard', '/projects', '/boq', '/kpi', '/reports', '/settings', '/profile', '/directory', '/hr', '/cost-control', '/procurement']
-                  const isOnProtectedRoute = protectedRoutes.some(route => currentPath.startsWith(route))
-                  
-                  if (isOnProtectedRoute) {
-                    console.log('⚠️ Layout: Final check - no user, redirecting to login')
-                    sessionStorage.setItem('redirectAfterLogin', currentPath)
-                    window.location.href = '/'
-                  }
-                }
-              }
-            }, 1000)
           }
-        }
-      }, timeout)
+        }, 3000) // 3 seconds for recovery
+        
+        return () => clearTimeout(recoveryTimer)
+      }
       
-      return () => clearTimeout(redirectTimer)
+      // ✅ إذا لم يكن له refresh token ولا cached session → redirect فوري
+      if (!hasRefreshToken && !hasCachedSession) {
+        const currentPath = window.location.pathname
+        const protectedRoutes = ['/dashboard', '/projects', '/boq', '/kpi', '/reports', '/settings', '/profile', '/directory', '/hr', '/cost-control', '/procurement']
+        const isOnProtectedRoute = protectedRoutes.some(route => currentPath.startsWith(route))
+        
+        if (isOnProtectedRoute && !redirectAttempted.current) {
+          redirectAttempted.current = true
+          console.log('⚠️ Layout: No user, no refresh token, and no cached session - redirecting to login')
+          sessionStorage.setItem('redirectAfterLogin', currentPath)
+          window.location.href = '/'
+        }
+      }
     }
   }, [mounted, loading, user])
 
@@ -438,7 +439,8 @@ export default function AuthenticatedLayout({
     router.push('/directory')
   }
 
-  // Loading state: Show spinner while mounting or loading/recovering
+  // ✅ Loading state: Show spinner only while mounting or loading
+  // محسّن: بدون حلول لا نهائية
   if (!mounted || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
@@ -452,14 +454,15 @@ export default function AuthenticatedLayout({
     )
   }
 
-  // No user state after loading: Only show redirect message if we're actually redirecting
-  // (The redirect logic in useEffect will handle the actual redirect)
+  // ✅ No user state after loading: Redirect immediately (no "Checking session..." loop)
+  // The redirect logic in useEffect will handle the actual redirect
   if (!user && !loading) {
+    // Show minimal loading while redirect happens
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <div className="text-center">
           <LoadingSpinner size="lg" />
-          <p className="mt-4 text-gray-600 dark:text-gray-400">Checking session...</p>
+          <p className="mt-4 text-gray-600 dark:text-gray-400">Redirecting...</p>
         </div>
       </div>
     )

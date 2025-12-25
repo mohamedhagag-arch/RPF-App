@@ -249,7 +249,28 @@ class UrgentMessagesService {
       const { data: { user } } = await this.supabase.auth.getUser()
       if (!user) throw new Error('User not authenticated')
 
-      await this.supabase
+      // Get user role
+      const { data: appUser } = await this.supabase
+        .from('users')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+
+      console.log('Marking messages as read for conversation:', conversationId, 'user:', user.id, 'role:', appUser?.role)
+      
+      // First, get the conversation to check ownership
+      const { data: conversation } = await this.supabase
+        .from('urgent_conversations')
+        .select('user_id, admin_id')
+        .eq('id', conversationId)
+        .single()
+
+      if (!conversation) {
+        throw new Error('Conversation not found')
+      }
+
+      // Build the update query
+      let updateQuery = this.supabase
         .from('urgent_messages')
         .update({
           is_read: true,
@@ -258,6 +279,35 @@ class UrgentMessagesService {
         .eq('conversation_id', conversationId)
         .neq('sender_id', user.id)
         .eq('is_read', false)
+
+      // For users, only update messages in their own conversations
+      if (appUser?.role !== 'admin') {
+        if (conversation.user_id !== user.id) {
+          console.log('User does not own this conversation, cannot mark as read')
+          return
+        }
+      }
+
+      const { data, error } = await updateQuery.select()
+
+      if (error) {
+        console.error('Error updating messages directly:', error)
+        // Try using RPC function as fallback
+        console.log('Trying RPC function as fallback...')
+        const { data: rpcResult, error: rpcError } = await this.supabase.rpc('mark_messages_as_read', {
+          p_conversation_id: conversationId,
+          p_user_id: user.id
+        })
+        if (rpcError) {
+          console.error('RPC fallback also failed:', rpcError)
+          // Last resort: try to update without RLS check (may fail but worth trying)
+          throw error
+        } else {
+          console.log('Marked messages as read via RPC:', rpcResult, 'messages')
+        }
+      } else {
+        console.log('Marked messages as read:', data?.length || 0, 'messages')
+      }
     } catch (error) {
       console.error('Error marking messages as read:', error)
       throw error
@@ -271,16 +321,184 @@ class UrgentMessagesService {
   async getUnreadCount(): Promise<number> {
     try {
       const { data: { user } } = await this.supabase.auth.getUser()
-      if (!user) return 0
+      if (!user) {
+        console.log('No user found for getUnreadCount')
+        return 0
+      }
 
+      // Get user role first
+      const { data: appUser } = await this.supabase
+        .from('users')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+
+      if (!appUser) {
+        console.log('App user not found for getUnreadCount')
+        return 0
+      }
+
+      // Use RPC function
       const { data, error } = await this.supabase
         .rpc('get_unread_messages_count', { user_uuid: user.id })
 
-      if (error) throw error
+      if (error) {
+        console.error('Error calling get_unread_messages_count RPC:', error)
+        // Fallback: manual count
+        if (appUser.role === 'admin') {
+          const { count } = await this.supabase
+            .from('urgent_messages')
+            .select('*', { count: 'exact', head: true })
+            .eq('is_read', false)
+            .neq('sender_id', user.id)
+          return count || 0
+        } else {
+          const { count } = await this.supabase
+            .from('urgent_messages')
+            .select('*, conversation:urgent_conversations!inner(user_id)', { count: 'exact', head: true })
+            .eq('is_read', false)
+            .neq('sender_id', user.id)
+            .eq('conversation.user_id', user.id)
+          return count || 0
+        }
+      }
+
+      console.log('Unread count from RPC:', { count: data, role: appUser.role, userId: user.id })
       return data || 0
     } catch (error) {
       console.error('Error getting unread count:', error)
       return 0
+    }
+  }
+
+  /**
+   * Get unread messages with sender information
+   * الحصول على الرسائل غير المقروءة مع معلومات المرسل
+   */
+  async getUnreadMessagesInfo(): Promise<Array<{
+    sender_name: string
+    sender_id: string
+    conversation_id: string
+    conversation_subject: string
+    message_count: number
+    last_message_at: string
+  }>> {
+    try {
+      const { data: { user } } = await this.supabase.auth.getUser()
+      if (!user) return []
+
+      const { data: appUser } = await this.supabase
+        .from('users')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+
+      if (!appUser) return []
+
+      let query = this.supabase
+        .from('urgent_messages')
+        .select(`
+          id,
+          sender_id,
+          conversation_id,
+          created_at,
+          sender:users!urgent_messages_sender_id_fkey(id, full_name, email),
+          conversation:urgent_conversations!urgent_messages_conversation_id_fkey(id, subject, user_id)
+        `)
+        .eq('is_read', false)
+        .neq('sender_id', user.id)
+        .order('created_at', { ascending: false })
+
+      if (appUser.role === 'admin') {
+        // Admins see all unread messages
+        const { data, error } = await query
+        if (error) {
+          console.error('Error fetching unread messages for admin:', error)
+          throw error
+        }
+
+        console.log('Admin unread messages raw data:', { count: data?.length, data })
+
+        // Group by sender and conversation
+        const grouped = new Map<string, {
+          sender_name: string
+          sender_id: string
+          conversation_id: string
+          conversation_subject: string
+          message_count: number
+          last_message_at: string
+        }>()
+
+        data?.forEach((msg: any) => {
+          const key = `${msg.sender_id}-${msg.conversation_id}`
+          const existing = grouped.get(key)
+          
+          if (existing) {
+            existing.message_count++
+            if (new Date(msg.created_at) > new Date(existing.last_message_at)) {
+              existing.last_message_at = msg.created_at
+            }
+          } else {
+            grouped.set(key, {
+              sender_name: msg.sender?.full_name || 'Unknown / غير معروف',
+              sender_id: msg.sender_id,
+              conversation_id: msg.conversation_id,
+              conversation_subject: msg.conversation?.subject || 'No Subject / بدون موضوع',
+              message_count: 1,
+              last_message_at: msg.created_at
+            })
+          }
+        })
+
+        const result = Array.from(grouped.values())
+        console.log('Admin unread messages grouped:', { count: result.length, result })
+        return result
+      } else {
+        // Users see only unread messages in their conversations
+        const { data, error } = await query
+        if (error) throw error
+
+        // Filter to only user's conversations
+        const userMessages = data?.filter((msg: any) => 
+          msg.conversation?.user_id === user.id
+        ) || []
+
+        // Group by sender and conversation
+        const grouped = new Map<string, {
+          sender_name: string
+          sender_id: string
+          conversation_id: string
+          conversation_subject: string
+          message_count: number
+          last_message_at: string
+        }>()
+
+        userMessages.forEach((msg: any) => {
+          const key = `${msg.sender_id}-${msg.conversation_id}`
+          const existing = grouped.get(key)
+          
+          if (existing) {
+            existing.message_count++
+            if (new Date(msg.created_at) > new Date(existing.last_message_at)) {
+              existing.last_message_at = msg.created_at
+            }
+          } else {
+            grouped.set(key, {
+              sender_name: msg.sender?.full_name || 'Unknown / غير معروف',
+              sender_id: msg.sender_id,
+              conversation_id: msg.conversation_id,
+              conversation_subject: msg.conversation?.subject || 'No Subject / بدون موضوع',
+              message_count: 1,
+              last_message_at: msg.created_at
+            })
+          }
+        })
+
+        return Array.from(grouped.values())
+      }
+    } catch (error) {
+      console.error('Error getting unread messages info:', error)
+      return []
     }
   }
 
@@ -340,6 +558,94 @@ class UrgentMessagesService {
   }
 
   /**
+   * Update conversation priority
+   * تحديث أولوية المحادثة
+   */
+  async updateConversationPriority(
+    conversationId: string,
+    priority: 'low' | 'normal' | 'high' | 'urgent'
+  ): Promise<void> {
+    try {
+      const { data: { user } } = await this.supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+
+      const { data: appUser } = await this.supabase
+        .from('users')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+
+      if (appUser?.role !== 'admin') {
+        throw new Error('Only admins can update conversation priority')
+      }
+
+      const { error } = await this.supabase
+        .from('urgent_conversations')
+        .update({ priority, updated_at: new Date().toISOString() })
+        .eq('id', conversationId)
+
+      if (error) throw error
+    } catch (error) {
+      console.error('Error updating conversation priority:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Get conversation statistics for admin
+   * الحصول على إحصائيات المحادثات للأدمن
+   */
+  async getConversationStats(): Promise<{
+    total: number
+    open: number
+    in_progress: number
+    resolved: number
+    closed: number
+    urgent: number
+    high: number
+    normal: number
+    low: number
+  }> {
+    try {
+      const { data: { user } } = await this.supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+
+      const { data: appUser } = await this.supabase
+        .from('users')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+
+      if (appUser?.role !== 'admin') {
+        throw new Error('Only admins can view statistics')
+      }
+
+      const { data, error } = await this.supabase
+        .from('urgent_conversations')
+        .select('status, priority')
+
+      if (error) throw error
+
+      const stats = {
+        total: data?.length || 0,
+        open: data?.filter(c => c.status === 'open').length || 0,
+        in_progress: data?.filter(c => c.status === 'in_progress').length || 0,
+        resolved: data?.filter(c => c.status === 'resolved').length || 0,
+        closed: data?.filter(c => c.status === 'closed').length || 0,
+        urgent: data?.filter(c => c.priority === 'urgent').length || 0,
+        high: data?.filter(c => c.priority === 'high').length || 0,
+        normal: data?.filter(c => c.priority === 'normal').length || 0,
+        low: data?.filter(c => c.priority === 'low').length || 0,
+      }
+
+      return stats
+    } catch (error) {
+      console.error('Error getting conversation stats:', error)
+      throw error
+    }
+  }
+
+  /**
    * Subscribe to new messages in a conversation
    * الاشتراك في الرسائل الجديدة في محادثة
    */
@@ -377,7 +683,7 @@ class UrgentMessagesService {
    * الاشتراك في تغييرات عدد الرسائل غير المقروءة
    */
   subscribeToUnreadCount(callback: (count: number) => void) {
-    return this.supabase
+    const channel = this.supabase
       .channel('urgent_messages_unread_count')
       .on(
         'postgres_changes',
@@ -386,9 +692,87 @@ class UrgentMessagesService {
           schema: 'public',
           table: 'urgent_messages'
         },
-        async () => {
+        async (payload) => {
+          console.log('Unread messages table changed:', payload)
           const count = await this.getUnreadCount()
+          console.log('Updated unread count:', count)
           callback(count)
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'urgent_conversations'
+        },
+        async (payload) => {
+          console.log('Conversations table changed:', payload)
+          const count = await this.getUnreadCount()
+          console.log('Updated unread count after conversation change:', count)
+          callback(count)
+        }
+      )
+      .subscribe((status) => {
+        console.log('Subscription status:', status)
+      })
+    
+    return channel
+  }
+
+  /**
+   * Subscribe to all unread messages for real-time updates
+   * الاشتراك في جميع الرسائل غير المقروءة للتحديثات الفورية
+   */
+  subscribeToAllUnreadMessages(callback: (message: UrgentMessage) => void) {
+    return this.supabase
+      .channel('urgent_messages_all_unread')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'urgent_messages',
+          filter: 'is_read=eq.false'
+        },
+        async (payload) => {
+          const { data: { user } } = await this.supabase.auth.getUser()
+          if (!user) return
+
+          // Get the message with sender info
+          const { data: message } = await this.supabase
+            .from('urgent_messages')
+            .select(`
+              *,
+              sender:users!urgent_messages_sender_id_fkey(id, full_name, email, role)
+            `)
+            .eq('id', payload.new.id)
+            .single()
+
+          if (message && message.sender_id !== user.id) {
+            // Check if user should see this message
+            const { data: appUser } = await this.supabase
+              .from('users')
+              .select('role')
+              .eq('id', user.id)
+              .single()
+
+            if (appUser?.role === 'admin') {
+              // Admin sees all messages
+              callback(message as UrgentMessage)
+            } else {
+              // Users see only messages in their conversations
+              const { data: conversation } = await this.supabase
+                .from('urgent_conversations')
+                .select('user_id')
+                .eq('id', message.conversation_id)
+                .single()
+
+              if (conversation?.user_id === user.id) {
+                callback(message as UrgentMessage)
+              }
+            }
+          }
         }
       )
       .subscribe()

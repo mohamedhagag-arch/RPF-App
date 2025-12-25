@@ -39,6 +39,7 @@ import { DepartmentsJobTitlesManager } from './DepartmentsJobTitlesManager'
 import { ProjectTypeActivitiesManager } from './ProjectTypeActivitiesManager'
 import { UnifiedProjectTypesManager } from './UnifiedProjectTypesManager'
 import { ActiveUsersManager } from './ActiveUsersManager'
+import { LoginSecuritySettingsManager } from './LoginSecuritySettingsManager'
 
 interface SettingsPageProps {
   userRole?: string
@@ -168,7 +169,7 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
     { id: 'divisions', label: 'Divisions', icon: Building2, roles: ['admin', 'manager'], permission: 'settings.divisions' },
     { id: 'unified-project-types', label: 'Project Scope & Activities', icon: Briefcase, roles: ['admin', 'manager'], permission: 'settings.project_types' },
     { id: 'currencies', label: 'Currencies', icon: DollarSign, roles: ['admin', 'manager'], permission: 'settings.currencies' },
-    { id: 'security', label: 'Security', icon: Shield, roles: ['admin', 'manager'], permission: 'users.manage' }
+    { id: 'security', label: 'Login Security', icon: Shield, roles: ['admin', 'manager'], permission: 'settings.login_security' }
   ]
 
   // تصفية علامات التبويب بناءً على الصلاحيات الفعلية
@@ -182,6 +183,13 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
     if (tab.id === 'kpi-notifications') {
       return guard.hasAccess('settings.manage') || 
              ['admin', 'manager', 'planner'].includes(userRole || '')
+    }
+    // Security tab يحتاج settings.login_security أو settings.manage أو admin
+    if (tab.id === 'security') {
+      return guard.hasAccess('settings.login_security') || 
+             guard.hasAccess('settings.manage') || 
+             guard.isAdmin() ||
+             ['admin', 'manager'].includes(userRole || '')
     }
     return guard.hasAccess(tab.permission)
   })
@@ -336,45 +344,16 @@ export function SettingsPage({ userRole = 'viewer' }: SettingsPageProps) {
         return <CurrenciesManager />
 
       case 'security':
-        if (!guard.hasAccess('users.manage')) {
+        if (!guard.hasAccess('settings.login_security') && !guard.hasAccess('settings.manage') && !guard.isAdmin()) {
           return (
             <div className="text-center py-12">
               <Shield className="h-12 w-12 text-gray-400 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Access Denied</h3>
-              <p className="text-gray-600 dark:text-gray-400">You don't have permission to access security settings.</p>
+              <p className="text-gray-600 dark:text-gray-400">You don't have permission to access login security settings.</p>
             </div>
           )
         }
-        return (
-          <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Shield className="h-5 w-5" />
-                  <span>Account Security</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="font-medium">Change Password</h4>
-                    <p className="text-sm text-gray-600 mb-2">Update your account password</p>
-                    <Button variant="outline">
-                      Change Password
-                    </Button>
-                  </div>
-                  <div>
-                    <h4 className="font-medium">Two-Factor Authentication</h4>
-                    <p className="text-sm text-gray-600 mb-2">Add an extra layer of security</p>
-                    <Button variant="outline">
-                      Enable 2FA
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )
+        return <LoginSecuritySettingsManager />
 
       default:
         return null
