@@ -14,6 +14,7 @@ import { User } from '@/lib/supabase'
 import { EnhancedPermissionsManager } from './EnhancedPermissionsManager'
 import { IntegratedUserManager } from './IntegratedUserManager'
 import { RolesManagement } from './RolesManagement'
+import { getProfileUrl } from '@/lib/userUtils'
 import { 
   UserWithPermissions,
   getUserPermissions,
@@ -1178,7 +1179,7 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => window.open(`/profile/${user.id}`, '_blank')}
+                              onClick={() => window.open(getProfileUrl(user), '_blank')}
                               title="View Profile"
                             >
                               <Eye className="h-4 w-4" />

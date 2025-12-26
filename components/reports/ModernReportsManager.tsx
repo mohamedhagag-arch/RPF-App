@@ -18,7 +18,6 @@ import { formatDate } from '@/lib/dateHelpers'
 import { KPICChartReportView } from './KPICChartReportView'
 import { DelayedActivitiesReportView } from './DelayedActivitiesReportView'
 import { ActivityPeriodicalProgressReportView } from './ActivityPeriodicalProgressReportView'
-import { ProjectTimelineView } from './ProjectTimelineView'
 import { PrintButton } from '@/components/ui/PrintButton'
 import {
   FileText,
@@ -41,7 +40,6 @@ import {
   Eye,
   CalendarDays,
   CalendarRange,
-  CalendarClock,
   FastForward,
   TrendingDown,
   Users,
@@ -69,7 +67,7 @@ import {
   ResponsiveContainer
 } from 'recharts'
 
-type ReportType = 'overview' | 'projects' | 'activities' | 'kpis' | 'financial' | 'performance' | 'lookahead' | 'monthly-revenue' | 'kpi-chart' | 'delayed-activities' | 'activity-periodical-progress' | 'project-timeline'
+type ReportType = 'overview' | 'projects' | 'activities' | 'kpis' | 'financial' | 'performance' | 'lookahead' | 'monthly-revenue' | 'kpi-chart' | 'delayed-activities' | 'activity-periodical-progress'
 
 interface ReportStats {
   totalProjects: number
@@ -1235,7 +1233,6 @@ export function ModernReportsManager() {
             { id: 'monthly-revenue', label: 'Monthly Revenue', icon: CalendarDays },
             { id: 'delayed-activities', label: 'Delayed Activities', icon: AlertTriangle },
             { id: 'activity-periodical-progress', label: 'Activity Periodical Progress', icon: CalendarRange },
-            { id: 'project-timeline', label: 'Project Timeline', icon: CalendarClock }
         ].map((tab) => {
           const Icon = tab.icon
           return (
@@ -1271,7 +1268,6 @@ export function ModernReportsManager() {
               'monthly-revenue': 'Monthly Revenue Report',
               'delayed-activities': 'Delayed Activities Report',
               'activity-periodical-progress': 'Activity Periodical Progress Report',
-              'project-timeline': 'Project Timeline Report'
             }
             return tabLabels[activeReport] || 'Report'
           })()}
@@ -1339,14 +1335,6 @@ export function ModernReportsManager() {
               formatCurrency={formatCurrency} 
             />
           )}
-        {!isPending && activeReport === 'project-timeline' && (
-          <ProjectTimelineView 
-            activities={activities} 
-            projects={projects} 
-            kpis={kpis}
-            formatCurrency={formatCurrency} 
-          />
-        )}
       </div>
     </div>
   )

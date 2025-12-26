@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { QRCodeGenerator } from '@/components/qr/QRCodeGenerator'
+import { getProfileUrl } from '@/lib/userUtils'
 import {
   User,
   Mail,
@@ -112,7 +113,7 @@ export function UserCard({
   }
 
   const handleViewProfile = () => {
-    router.push(`/profile/${user.id}`)
+    router.push(getProfileUrl(user))
   }
 
   const handleMoreClick = () => {

@@ -65,6 +65,7 @@ import {
   Instagram
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { getProfileUrl } from '@/lib/userUtils'
 
 export function UserProfile() {
   const guard = usePermissionGuard()
@@ -463,7 +464,7 @@ export function UserProfile() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => router.push(`/profile/${authUser?.id}`)}
+                  onClick={() => router.push(authUser ? getProfileUrl(authUser) : '/profile')}
                   className="bg-white/10 hover:bg-white/20 border-white/30 text-white backdrop-blur-sm"
                 >
                   <ExternalLink className="h-4 w-4 mr-2" />

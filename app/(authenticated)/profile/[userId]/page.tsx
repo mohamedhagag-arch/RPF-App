@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { useAuth } from '@/app/providers'
 import { usePermissionGuard } from '@/lib/permissionGuard'
+import { getUserUsername } from '@/lib/userUtils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Alert } from '@/components/ui/Alert'
@@ -116,29 +117,103 @@ export default function UserProfilePage() {
   })
   const [copied, setCopied] = useState(false)
 
-  const userId = params.userId as string
+  const usernameOrId = params.userId as string
 
   useEffect(() => {
-    if (userId) {
+    if (usernameOrId) {
       loadUserProfile()
+    }
+  }, [usernameOrId])
+
+  useEffect(() => {
+    if (userProfile?.id) {
       loadUserProjects()
       loadUserActivities()
       loadRecentActivities()
       loadUserStats()
     }
-  }, [userId])
+  }, [userProfile?.id])
+
+  // Redirect from old ID-based URLs to new username-based URLs
+  useEffect(() => {
+    if (!userProfile) return
+    
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(usernameOrId)
+    
+    // If current URL uses UUID (old format), redirect to username (new format)
+    if (isUUID) {
+      const username = getUserUsername(userProfile)
+      if (username && username !== usernameOrId) {
+        // Replace the URL without page reload
+        router.replace(`/profile/${username}`)
+      }
+    }
+  }, [userProfile, usernameOrId, router])
 
   const loadUserProfile = async () => {
     try {
       setLoading(true)
       
-      const { data: profile, error: profileError } = await supabase
-        .from('user_profiles_complete')
-        .select('*')
-        .eq('id', userId)
-        .single()
+      // Try to find user by username (from email) first
+      // Username format: email part before @ converted to slug (e.g., "mohamed-hagag")
+      // Or try by ID if it's a UUID format
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(usernameOrId)
+      
+      let profile: any = null
+      let profileError: any = null
+      
+      if (isUUID) {
+        // Search by ID
+        const { data, error } = await supabase
+          .from('user_profiles_complete')
+          .select('*')
+          .eq('id', usernameOrId)
+          .single()
+        profile = data
+        profileError = error
+      } else {
+        // Search by username (email slug or name slug)
+        // First, try to find by email prefix match
+        // Convert username back to possible email patterns
+        const usernameLower = usernameOrId.toLowerCase()
+        const emailPattern = usernameLower.replace(/-/g, '.') // Try with dots
+        const emailPattern2 = usernameLower.replace(/-/g, '') // Try without separators
+        
+        // Get all users (we need to filter client-side for email prefix matching)
+        const { data: allUsers, error: allUsersError } = await supabase
+          .from('user_profiles_complete')
+          .select('*')
+          .limit(1000) // Reasonable limit
+        
+        if (allUsersError) throw allUsersError
+        
+        // Find user whose email username matches
+        profile = allUsers?.find((user: any) => {
+          if (!user.email) return false
+          const emailUsername = user.email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '-')
+          return emailUsername === usernameLower
+        })
+        
+        // If not found by email, try by full name
+        if (!profile) {
+          profile = allUsers?.find((user: any) => {
+            if (!user.full_name) return false
+            const nameUsername = user.full_name.toLowerCase().trim().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '-')
+            return nameUsername === usernameLower
+          })
+        }
+        
+        if (!profile) {
+          profileError = { message: 'User not found' }
+        }
+      }
 
       if (profileError) throw profileError
+      if (!profile) {
+        setError('User profile not found')
+        return
+      }
+      
       setUserProfile(profile)
       
     } catch (error: any) {
@@ -168,7 +243,7 @@ export default function UserProfilePage() {
         const { data: fallbackProjects } = await supabase
           .from('projects')
           .select('*')
-          .or(`project_manager.eq.${userId},assigned_users.cs.{${userId}}`)
+          .or(`project_manager.eq.${userProfile?.id},assigned_users.cs.{${userProfile?.id}}`)
           .order('created_at', { ascending: false })
           .limit(10)
         
@@ -237,7 +312,7 @@ export default function UserProfilePage() {
         const { data: fallbackActivities } = await supabase
           .from('boq_activities')
           .select('*')
-          .or(`assigned_to.eq.${userId},created_by.eq.${userId}`)
+          .or(`assigned_to.eq.${userProfile?.id},created_by.eq.${userProfile?.id}`)
           .order('created_at', { ascending: false })
           .limit(10)
         
@@ -527,7 +602,7 @@ export default function UserProfilePage() {
                       </>
                     )}
                   </Button>
-                  {authUser?.id === userId && (
+                  {authUser?.id === userProfile?.id && (
                     <Button
                       variant="outline"
                       size="sm"
@@ -541,7 +616,7 @@ export default function UserProfilePage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => router.push(`/qr/${userId}`)}
+                    onClick={() => router.push(`/qr/${userProfile?.id}`)}
                     className="bg-white/10 hover:bg-white/20 border-white/30 text-white backdrop-blur-sm"
                   >
                     <QrCode className="h-4 w-4 mr-2" />
