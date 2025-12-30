@@ -21,7 +21,11 @@ import {
   Volume2,
   VolumeX,
   Copy,
-  Check
+  Check,
+  Users,
+  Building2,
+  UserCog,
+  Plus
 } from 'lucide-react'
 import { urgentMessagesService, UrgentConversation, UrgentMessage } from '@/lib/urgentMessagesService'
 import { useAuth } from '@/app/providers'
@@ -48,6 +52,21 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
   const [messageSearchQuery, setMessageSearchQuery] = useState('')
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
   
+  // Send New Message Modal State
+  const [showSendMessageModal, setShowSendMessageModal] = useState(false)
+  const [newMessageSubject, setNewMessageSubject] = useState('')
+  const [newMessageText, setNewMessageText] = useState('')
+  const [newMessagePriority, setNewMessagePriority] = useState<'low' | 'normal' | 'high' | 'urgent'>('normal')
+  const [recipientType, setRecipientType] = useState<'users' | 'department' | 'role'>('users')
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([])
+  const [selectedDepartments, setSelectedDepartments] = useState<string[]>([])
+  const [selectedRoles, setSelectedRoles] = useState<string[]>([])
+  const [allUsers, setAllUsers] = useState<Array<{id: string, email: string, full_name: string, role: string, division: string | null}>>([])
+  const [departments, setDepartments] = useState<string[]>([])
+  const [roles, setRoles] = useState<string[]>([])
+  const [sendingNewMessage, setSendingNewMessage] = useState(false)
+  const [sendResult, setSendResult] = useState<{success: number, failed: number, errors: Array<{userId: string, error: string}>} | null>(null)
+  
   // Filters
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'in_progress' | 'resolved' | 'closed'>('all')
   const [priorityFilter, setPriorityFilter] = useState<'all' | 'low' | 'normal' | 'high' | 'urgent'>('all')
@@ -70,11 +89,16 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
     loadConversations()
     loadStats()
     requestNotificationPermission()
+    loadUsersAndFilters()
     
     // Keyboard shortcuts
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        if (showSendMessageModal) {
+          setShowSendMessageModal(false)
+        } else {
         onClose()
+        }
       }
     }
 
@@ -87,6 +111,21 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
       window.removeEventListener('keydown', handleKeyDown)
     }
   }, [statusFilter, priorityFilter, sortBy, sortOrder])
+
+  const loadUsersAndFilters = async () => {
+    try {
+      const [usersData, departmentsData, rolesData] = await Promise.all([
+        urgentMessagesService.getAllUsers(),
+        urgentMessagesService.getDivisions(),
+        urgentMessagesService.getRoles()
+      ])
+      setAllUsers(usersData)
+      setDepartments(departmentsData)
+      setRoles(rolesData)
+    } catch (error) {
+      console.error('Error loading users and filters:', error)
+    }
+  }
 
   useEffect(() => {
     if (selectedConversation && !isLoadingRef.current) {
@@ -391,6 +430,15 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Send New Message Button */}
+          <button
+            onClick={() => setShowSendMessageModal(true)}
+            className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors flex items-center gap-2 font-medium"
+            title="Send New Message / إرسال رسالة جديدة"
+          >
+            <Plus className="h-4 w-4" />
+            <span className="hidden sm:inline">Send New Message / إرسال رسالة جديدة</span>
+          </button>
           {/* Sound Toggle */}
           <button
             onClick={() => setSoundEnabled(!soundEnabled)}
@@ -770,6 +818,442 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
           )}
         </div>
       </div>
+
+      {/* Send New Message Modal */}
+      {showSendMessageModal && (
+        <div 
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[10000] flex items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowSendMessageModal(false)
+              setSendResult(null)
+              setNewMessageSubject('')
+              setNewMessageText('')
+              setSelectedUserIds([])
+              setSelectedDepartments([])
+              setSelectedRoles([])
+            }
+          }}
+        >
+          <div 
+            className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-violet-600 via-purple-600 to-indigo-600 text-white p-4 flex items-center justify-between flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <Send className="h-6 w-6" />
+                <div>
+                  <h3 className="font-bold text-lg">Send New Message / إرسال رسالة جديدة</h3>
+                  <p className="text-sm opacity-90">Send message to users / إرسال رسالة للمستخدمين</p>
+    </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowSendMessageModal(false)
+                  setSendResult(null)
+                  setNewMessageSubject('')
+                  setNewMessageText('')
+                  setSelectedUserIds([])
+                  setSelectedDepartments([])
+                  setSelectedRoles([])
+                }}
+                className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* Message Subject */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Subject / الموضوع <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newMessageSubject}
+                  onChange={(e) => setNewMessageSubject(e.target.value)}
+                  placeholder="Enter message subject / أدخل موضوع الرسالة"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                />
+              </div>
+
+              {/* Message Text */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Message / الرسالة <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={newMessageText}
+                  onChange={(e) => setNewMessageText(e.target.value)}
+                  placeholder="Enter your message / أدخل رسالتك"
+                  rows={6}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none"
+                />
+              </div>
+
+              {/* Priority */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Priority / الأولوية
+                </label>
+                <select
+                  value={newMessagePriority}
+                  onChange={(e) => setNewMessagePriority(e.target.value as any)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                >
+                  <option value="low">Low / منخفضة</option>
+                  <option value="normal">Normal / عادية</option>
+                  <option value="high">High / عالية</option>
+                  <option value="urgent">Urgent / عاجلة</option>
+                </select>
+              </div>
+
+              {/* Recipient Type Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Select Recipients / اختر المستلمين
+                </label>
+                <div className="flex gap-2 mb-4">
+                  <button
+                    onClick={() => setRecipientType('users')}
+                    className={`flex-1 px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${
+                      recipientType === 'users'
+                        ? 'bg-violet-600 text-white'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    <Users className="h-4 w-4" />
+                    <span>Users / مستخدمين</span>
+                  </button>
+                  <button
+                    onClick={() => setRecipientType('department')}
+                    className={`flex-1 px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${
+                      recipientType === 'department'
+                        ? 'bg-violet-600 text-white'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    <Building2 className="h-4 w-4" />
+                    <span>Department / قسم</span>
+                  </button>
+                  <button
+                    onClick={() => setRecipientType('role')}
+                    className={`flex-1 px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${
+                      recipientType === 'role'
+                        ? 'bg-violet-600 text-white'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    <UserCog className="h-4 w-4" />
+                    <span>Role / دور</span>
+                  </button>
+                </div>
+
+                {/* Users Selection */}
+                {recipientType === 'users' && (
+                  <div className="border border-gray-300 dark:border-gray-600 rounded-lg p-4">
+                    {/* Select All / Clear All Buttons */}
+                    <div className="flex gap-2 mb-3 pb-3 border-b border-gray-200 dark:border-gray-700">
+                      <button
+                        onClick={() => setSelectedUserIds(allUsers.map(u => u.id))}
+                        className="px-3 py-1 text-xs bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 rounded hover:bg-violet-200 dark:hover:bg-violet-900/50 transition-colors"
+                      >
+                        Select All / تحديد الكل ({allUsers.length})
+                      </button>
+                      <button
+                        onClick={() => setSelectedUserIds([])}
+                        className="px-3 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                      >
+                        Clear All / مسح الكل
+                      </button>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto">
+                      <div className="space-y-2">
+                        {allUsers.map((user) => (
+                        <label
+                          key={user.id}
+                          className="flex items-center gap-3 p-2 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedUserIds.includes(user.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedUserIds([...selectedUserIds, user.id])
+                              } else {
+                                setSelectedUserIds(selectedUserIds.filter(id => id !== user.id))
+                              }
+                            }}
+                            className="w-4 h-4 text-violet-600 rounded focus:ring-violet-500"
+                          />
+                          <div className="flex-1">
+                            <div className="font-medium text-gray-900 dark:text-white">{user.full_name}</div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">{user.email}</div>
+                            {user.division && (
+                              <div className="text-xs text-gray-400 dark:text-gray-500">{user.division} • {user.role}</div>
+                            )}
+                          </div>
+                        </label>
+                        ))}
+                      </div>
+                      {allUsers.length === 0 && (
+                        <div className="text-center text-gray-500 dark:text-gray-400 py-4">
+                          No users found / لم يتم العثور على مستخدمين
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Department Selection */}
+                {recipientType === 'department' && (
+                  <div className="border border-gray-300 dark:border-gray-600 rounded-lg p-4">
+                    {/* Select All / Clear All Buttons */}
+                    <div className="flex gap-2 mb-3 pb-3 border-b border-gray-200 dark:border-gray-700">
+                      <button
+                        onClick={() => setSelectedDepartments([...departments])}
+                        className="px-3 py-1 text-xs bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 rounded hover:bg-violet-200 dark:hover:bg-violet-900/50 transition-colors"
+                      >
+                        Select All / تحديد الكل ({departments.length})
+                      </button>
+                      <button
+                        onClick={() => setSelectedDepartments([])}
+                        className="px-3 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                      >
+                        Clear All / مسح الكل
+                      </button>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto">
+                      <div className="space-y-2">
+                        {departments.map((dept) => (
+                        <label
+                          key={dept}
+                          className="flex items-center gap-3 p-2 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedDepartments.includes(dept)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedDepartments([...selectedDepartments, dept])
+                              } else {
+                                setSelectedDepartments(selectedDepartments.filter(d => d !== dept))
+                              }
+                            }}
+                            className="w-4 h-4 text-violet-600 rounded focus:ring-violet-500"
+                          />
+                          <div className="font-medium text-gray-900 dark:text-white">{dept}</div>
+                          <span className="text-xs text-gray-500 dark:text-gray-400 ml-auto">
+                            {allUsers.filter(u => u.division === dept).length} users
+                          </span>
+                        </label>
+                        ))}
+                      </div>
+                      {departments.length === 0 && (
+                        <div className="text-center text-gray-500 dark:text-gray-400 py-4">
+                          No departments found / لم يتم العثور على أقسام
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Role Selection */}
+                {recipientType === 'role' && (
+                  <div className="border border-gray-300 dark:border-gray-600 rounded-lg p-4">
+                    {/* Select All / Clear All Buttons */}
+                    <div className="flex gap-2 mb-3 pb-3 border-b border-gray-200 dark:border-gray-700">
+                      <button
+                        onClick={() => setSelectedRoles([...roles])}
+                        className="px-3 py-1 text-xs bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 rounded hover:bg-violet-200 dark:hover:bg-violet-900/50 transition-colors"
+                      >
+                        Select All / تحديد الكل ({roles.length})
+                      </button>
+                      <button
+                        onClick={() => setSelectedRoles([])}
+                        className="px-3 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                      >
+                        Clear All / مسح الكل
+                      </button>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto">
+                      <div className="space-y-2">
+                        {roles.map((role) => (
+                        <label
+                          key={role}
+                          className="flex items-center gap-3 p-2 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedRoles.includes(role)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedRoles([...selectedRoles, role])
+                              } else {
+                                setSelectedRoles(selectedRoles.filter(r => r !== role))
+                              }
+                            }}
+                            className="w-4 h-4 text-violet-600 rounded focus:ring-violet-500"
+                          />
+                          <div className="font-medium text-gray-900 dark:text-white">{role}</div>
+                          <span className="text-xs text-gray-500 dark:text-gray-400 ml-auto">
+                            {allUsers.filter(u => u.role === role).length} users
+                            </span>
+                          </label>
+                          ))}
+                        </div>
+                        {roles.length === 0 && (
+                          <div className="text-center text-gray-500 dark:text-gray-400 py-4">
+                            No roles found / لم يتم العثور على أدوار
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                )}
+
+                {/* Selected Count */}
+                <div className="mt-4 text-sm text-gray-600 dark:text-gray-400">
+                  {(() => {
+                    let count = 0
+                    if (recipientType === 'users') {
+                      count = selectedUserIds.length
+                    } else if (recipientType === 'department') {
+                      count = selectedDepartments.reduce((sum, dept) => 
+                        sum + allUsers.filter(u => u.division === dept).length, 0
+                      )
+                    } else if (recipientType === 'role') {
+                      count = selectedRoles.reduce((sum, role) => 
+                        sum + allUsers.filter(u => u.role === role).length, 0
+                      )
+                    }
+                    return `Selected: ${count} recipient(s) / المحدد: ${count} مستلم(ين)`
+                  })()}
+                </div>
+              </div>
+
+              {/* Send Result */}
+              {sendResult && (
+                <div className={`p-4 rounded-lg ${
+                  sendResult.failed === 0 
+                    ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800'
+                    : 'bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800'
+                }`}>
+                  <div className="font-medium mb-2">
+                    {sendResult.failed === 0 
+                      ? `✅ Successfully sent to ${sendResult.success} recipient(s) / تم الإرسال بنجاح إلى ${sendResult.success} مستلم(ين)`
+                      : `⚠️ Sent to ${sendResult.success} recipient(s), failed for ${sendResult.failed} / تم الإرسال إلى ${sendResult.success} مستلم(ين)، فشل ${sendResult.failed}`
+                    }
+                  </div>
+                  {sendResult.errors.length > 0 && (
+                    <div className="text-sm text-gray-600 dark:text-gray-400 mt-2">
+                      <div className="font-medium">Errors / الأخطاء:</div>
+                      <ul className="list-disc list-inside mt-1">
+                        {sendResult.errors.map((err, idx) => (
+                          <li key={idx}>{err.error}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="border-t border-gray-200 dark:border-gray-700 p-4 flex items-center justify-end gap-3 flex-shrink-0">
+              <button
+                onClick={() => {
+                  setShowSendMessageModal(false)
+                  setSendResult(null)
+                  setNewMessageSubject('')
+                  setNewMessageText('')
+                  setSelectedUserIds([])
+                  setSelectedDepartments([])
+                  setSelectedRoles([])
+                }}
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                Cancel / إلغاء
+              </button>
+              <button
+                onClick={async () => {
+                  if (!newMessageSubject.trim() || !newMessageText.trim()) {
+                    alert('Please fill in subject and message / يرجى ملء الموضوع والرسالة')
+                    return
+                  }
+
+                  // Get final user IDs based on selection type
+                  let finalUserIds: string[] = []
+                  if (recipientType === 'users') {
+                    finalUserIds = selectedUserIds
+                  } else if (recipientType === 'department') {
+                    finalUserIds = allUsers
+                      .filter(u => selectedDepartments.includes(u.division || ''))
+                      .map(u => u.id)
+                  } else if (recipientType === 'role') {
+                    finalUserIds = allUsers
+                      .filter(u => selectedRoles.includes(u.role))
+                      .map(u => u.id)
+                  }
+
+                  if (finalUserIds.length === 0) {
+                    alert('Please select at least one recipient / يرجى اختيار مستلم واحد على الأقل')
+                    return
+                  }
+
+                  setSendingNewMessage(true)
+                  setSendResult(null)
+
+                  try {
+                    const result = await urgentMessagesService.sendMessageToUsers(
+                      finalUserIds,
+                      newMessageSubject,
+                      newMessageText,
+                      newMessagePriority
+                    )
+                    setSendResult(result)
+                    
+                    if (result.failed === 0) {
+                      // Reload conversations after successful send
+                      setTimeout(() => {
+                        loadConversations()
+                        loadStats()
+                        setShowSendMessageModal(false)
+                        setNewMessageSubject('')
+                        setNewMessageText('')
+                        setSelectedUserIds([])
+                        setSelectedDepartments([])
+                        setSelectedRoles([])
+                        setSendResult(null)
+                      }, 2000)
+                    }
+                  } catch (error: any) {
+                    alert(`Error sending messages: ${error.message} / خطأ في إرسال الرسائل: ${error.message}`)
+                  } finally {
+                    setSendingNewMessage(false)
+                  }
+                }}
+                disabled={sendingNewMessage || !newMessageSubject.trim() || !newMessageText.trim()}
+                className="px-6 py-2 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-lg hover:from-violet-700 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {sendingNewMessage ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    <span>Sending... / جاري الإرسال...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-4 w-4" />
+                    <span>Send Message / إرسال الرسالة</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -777,6 +777,250 @@ class UrgentMessagesService {
       )
       .subscribe()
   }
+
+  /**
+   * Get all active users for message targeting
+   * الحصول على جميع المستخدمين النشطين لاستهداف الرسائل
+   */
+  async getAllUsers(): Promise<Array<{
+    id: string
+    email: string
+    full_name: string
+    role: string
+    division: string | null
+    is_active: boolean
+  }>> {
+    try {
+      const { data, error } = await this.supabase
+        .from('users')
+        .select('id, email, full_name, role, division, is_active')
+        .eq('is_active', true)
+        .order('full_name', { ascending: true })
+
+      if (error) throw error
+      return (data || []) as Array<{
+        id: string
+        email: string
+        full_name: string
+        role: string
+        division: string | null
+        is_active: boolean
+      }>
+    } catch (error) {
+      console.error('Error fetching users:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Get unique divisions/departments from users
+   * الحصول على الأقسام الفريدة من المستخدمين
+   */
+  async getDivisions(): Promise<string[]> {
+    try {
+      const { data, error } = await this.supabase
+        .from('users')
+        .select('division')
+        .eq('is_active', true)
+        .not('division', 'is', null)
+
+      if (error) throw error
+
+      const divisions = new Set<string>()
+      data?.forEach((user: any) => {
+        if (user.division) {
+          divisions.add(user.division)
+        }
+      })
+
+      return Array.from(divisions).sort()
+    } catch (error) {
+      console.error('Error fetching divisions:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Get unique roles from users
+   * الحصول على الأدوار الفريدة من المستخدمين
+   */
+  async getRoles(): Promise<string[]> {
+    try {
+      const { data, error } = await this.supabase
+        .from('users')
+        .select('role')
+        .eq('is_active', true)
+
+      if (error) throw error
+
+      const roles = new Set<string>()
+      data?.forEach((user: any) => {
+        if (user.role) {
+          roles.add(user.role)
+        }
+      })
+
+      return Array.from(roles).sort()
+    } catch (error) {
+      console.error('Error fetching roles:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Send message to multiple users (creates conversations for each user)
+   * إرسال رسالة لعدة مستخدمين (ينشئ محادثة لكل مستخدم)
+   */
+  async sendMessageToUsers(
+    userIds: string[],
+    subject: string,
+    messageText: string,
+    priority: 'low' | 'normal' | 'high' | 'urgent' = 'normal'
+  ): Promise<{
+    success: number
+    failed: number
+    errors: Array<{ userId: string; error: string }>
+  }> {
+    try {
+      const { data: { user } } = await this.supabase.auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+
+      const { data: appUser } = await this.supabase
+        .from('users')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+
+      if (appUser?.role !== 'admin') {
+        throw new Error('Only admins can send messages to multiple users')
+      }
+
+      if (userIds.length === 0) {
+        throw new Error('No users selected')
+      }
+
+      const results = {
+        success: 0,
+        failed: 0,
+        errors: [] as Array<{ userId: string; error: string }>
+      }
+
+      // Create conversation and send message for each user
+      for (const userId of userIds) {
+        try {
+          // Check if user exists and is active
+          const { data: targetUser } = await this.supabase
+            .from('users')
+            .select('id, is_active')
+            .eq('id', userId)
+            .single()
+
+          if (!targetUser || !targetUser.is_active) {
+            results.failed++
+            results.errors.push({
+              userId,
+              error: 'User not found or inactive'
+            })
+            continue
+          }
+
+          // Create conversation for this user
+          const { data: conversation, error: convError } = await this.supabase
+            .from('urgent_conversations')
+            .insert({
+              user_id: userId,
+              admin_id: user.id,
+              subject,
+              priority,
+              status: 'in_progress'
+            })
+            .select()
+            .single()
+
+          if (convError) {
+            // Check if conversation already exists
+            const { data: existingConv } = await this.supabase
+              .from('urgent_conversations')
+              .select('id')
+              .eq('user_id', userId)
+              .eq('admin_id', user.id)
+              .eq('subject', subject)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .single()
+
+            if (existingConv) {
+              // Use existing conversation
+              const { error: msgError } = await this.supabase
+                .from('urgent_messages')
+                .insert({
+                  conversation_id: existingConv.id,
+                  sender_id: user.id,
+                  message_text: messageText
+                })
+
+              if (msgError) {
+                results.failed++
+                results.errors.push({
+                  userId,
+                  error: msgError.message
+                })
+                continue
+              }
+
+              // Update conversation
+              await this.supabase
+                .from('urgent_conversations')
+                .update({
+                  last_message_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                  status: 'in_progress'
+                })
+                .eq('id', existingConv.id)
+
+              results.success++
+            } else {
+              results.failed++
+              results.errors.push({
+                userId,
+                error: convError.message
+              })
+            }
+          } else if (conversation) {
+            // Send message in the new conversation
+            const { error: msgError } = await this.supabase
+              .from('urgent_messages')
+              .insert({
+                conversation_id: conversation.id,
+                sender_id: user.id,
+                message_text: messageText
+              })
+
+            if (msgError) {
+              results.failed++
+              results.errors.push({
+                userId,
+                error: msgError.message
+              })
+            } else {
+              results.success++
+            }
+          }
+        } catch (error: any) {
+          results.failed++
+          results.errors.push({
+            userId,
+            error: error.message || 'Unknown error'
+          })
+        }
+      }
+
+      return results
+    } catch (error) {
+      console.error('Error sending messages to users:', error)
+      throw error
+    }
+  }
 }
 
 export const urgentMessagesService = new UrgentMessagesService()
