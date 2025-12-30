@@ -687,8 +687,117 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   const filteredActivities = useMemo(() => {
     return allFilteredActivities
   }, [allFilteredActivities])
-  
+
   const filteredTotalCount = allFilteredActivities.length
+
+  // ✅ FIX: Activities for filter dropdowns (exclude zone filter to show all available zones)
+  // This ensures that when a zone is selected, all other zones remain visible in the dropdown
+  const activitiesForFilters = useMemo(() => {
+    return activities.filter(activity => {
+      // Multi-Project filter (Smart Filter) - keep this filter
+      if (selectedProjects.length > 0) {
+        const activityFullCode = (activity.project_full_code || '').toString().trim()
+        const activityProjectCode = (activity.project_code || '').toString().trim()
+        const activityProjectSubCode = (activity.project_sub_code || '').toString().trim()
+        
+        const matchesProject = selectedProjects.some(selectedProject => {
+          const selectedFullCodeUpper = selectedProject.toUpperCase().trim()
+          const activityFullCodeUpper = activityFullCode.toUpperCase().trim()
+          const activityProjectCodeUpper = activityProjectCode.toUpperCase().trim()
+          const activityProjectSubCodeUpper = activityProjectSubCode.toUpperCase().trim()
+          
+          // Priority 1: Exact match on project_full_code
+          if (activityFullCodeUpper === selectedFullCodeUpper) {
+            return true
+          }
+          
+          const selectedParts = selectedProject.split('-')
+          const selectedCode = selectedParts[0]?.toUpperCase().trim()
+          const selectedSubCode = selectedParts.slice(1).join('-').toUpperCase().trim()
+          
+          if (selectedCode && activityProjectCodeUpper === selectedCode) {
+            if (selectedSubCode) {
+              const activitySubCodeOnly = activityProjectSubCodeUpper.includes('-') 
+                ? activityProjectSubCodeUpper.split('-').slice(1).join('-').toUpperCase()
+                : activityProjectSubCodeUpper
+              
+              const selectedSubCodeOnly = selectedSubCode.includes('-')
+                ? selectedSubCode.split('-').slice(1).join('-').toUpperCase()
+                : selectedSubCode
+              
+              const subCodeMatches = 
+                activityProjectSubCodeUpper === selectedFullCodeUpper ||
+                activityProjectSubCodeUpper === selectedSubCode ||
+                activitySubCodeOnly === selectedSubCodeOnly ||
+                activityProjectSubCodeUpper.endsWith(selectedSubCode) ||
+                activityProjectSubCodeUpper.includes(selectedSubCode) ||
+                activityProjectSubCodeUpper.includes(selectedFullCodeUpper) ||
+                selectedFullCodeUpper.includes(activityProjectSubCodeUpper)
+              
+              const fullCodeMatches = 
+                activityFullCodeUpper === selectedFullCodeUpper ||
+                activityFullCodeUpper === selectedCode
+              
+              if (subCodeMatches || fullCodeMatches) {
+                return true
+              }
+            } else {
+              if (!activityProjectSubCode || 
+                  activityProjectSubCodeUpper === activityProjectCodeUpper ||
+                  activityFullCodeUpper === selectedCode) {
+                return true
+              }
+            }
+          }
+          
+          if (selectedSubCode && !activityProjectSubCode && activityProjectCodeUpper === selectedCode) {
+            return true
+          }
+          
+          if (activityProjectCode && activityProjectSubCode) {
+            let builtActivityFullCode = activityProjectCode
+            if (activityProjectSubCodeUpper.startsWith(activityProjectCodeUpper)) {
+              builtActivityFullCode = activityProjectSubCode
+            } else if (activityProjectSubCode.startsWith('-')) {
+              builtActivityFullCode = `${activityProjectCode}${activityProjectSubCode}`
+            } else {
+              builtActivityFullCode = `${activityProjectCode}-${activityProjectSubCode}`
+            }
+            
+            if (builtActivityFullCode.toUpperCase() === selectedFullCodeUpper) {
+              return true
+            }
+          }
+          
+          if (activityFullCodeUpper === selectedCode) {
+            return true
+          }
+          
+          return false
+        })
+        
+        if (!matchesProject) {
+          return false
+        }
+      }
+      
+      // Multi-Activity filter (Smart Filter) - keep this filter
+      if (selectedActivities.length > 0) {
+        const matchesActivity = selectedActivities.some(activityName =>
+          activity.activity_name === activityName ||
+          activity.activity_name?.toLowerCase().includes(activityName.toLowerCase())
+        )
+        if (!matchesActivity) return false
+      }
+      
+      // ✅ EXCLUDE zone filter - we want to show all zones even when some are selected
+      // ✅ EXCLUDE division filter - we want to show all divisions even when some are selected
+      // ✅ EXCLUDE unit filter - we want to show all units even when some are selected
+      // ✅ EXCLUDE date range, value range, quantity range, and search filters
+      
+      return true
+    })
+  }, [activities, selectedProjects, selectedActivities]) // Only depend on projects and activities, NOT zones
 
   // ✅ Handle filter changes (legacy - not used with SmartFilter)
   const handleFilterChange = (key: string, value: string | string[]) => {
@@ -3401,9 +3510,9 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
           }
         })}
         activities={(() => {
-          // ✅ Use only filtered activities (the ones shown in the table)
-          // This ensures zones dropdown shows only zones from visible activities
-          const activitiesToUse = filteredActivities.length > 0 ? filteredActivities : activities
+          // ✅ FIX: Use activitiesForFilters (excludes zone filter) instead of filteredActivities
+          // This ensures all zones remain visible in dropdown even when zone filter is applied
+          const activitiesToUse = activitiesForFilters.length > 0 ? activitiesForFilters : activities
           // ✅ Don't deduplicate by activity_name - we need all activities to get all zones
           const mapped = activitiesToUse.map(a => {
             // ✅ Get raw data if available (for accessing original database fields)
