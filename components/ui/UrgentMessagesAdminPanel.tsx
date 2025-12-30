@@ -394,11 +394,11 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'open': return <Circle className="h-4 w-4 text-green-500" />
-      case 'in_progress': return <Clock className="h-4 w-4 text-blue-500" />
-      case 'resolved': return <CheckCircle className="h-4 w-4 text-purple-500" />
-      case 'closed': return <XCircle className="h-4 w-4 text-gray-500" />
-      default: return <Circle className="h-4 w-4" />
+      case 'open': return <Circle className="h-5 w-5 text-green-500" />
+      case 'in_progress': return <Clock className="h-5 w-5 text-blue-500" />
+      case 'resolved': return <CheckCircle className="h-5 w-5 text-purple-500" />
+      case 'closed': return <XCircle className="h-5 w-5 text-gray-500" />
+      default: return <Circle className="h-5 w-5" />
     }
   }
 
@@ -421,82 +421,82 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
   return (
     <div className="fixed inset-4 bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 z-[9999] flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="bg-gradient-to-r from-violet-600 via-purple-600 to-indigo-600 text-white p-4 flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-3">
+      <div className="bg-gradient-to-r from-violet-600 via-purple-600 to-indigo-600 text-white p-5 flex items-center justify-between flex-shrink-0">
+        <div className="flex items-center gap-4">
           <MessageSquare className="h-6 w-6" />
           <div>
             <h2 className="font-bold text-xl">Urgent Messages Admin Panel / لوحة تحكم الرسائل العاجلة</h2>
             <p className="text-sm opacity-90">Manage all user conversations / إدارة جميع محادثات المستخدمين</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           {/* Send New Message Button */}
           <button
             onClick={() => setShowSendMessageModal(true)}
-            className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors flex items-center gap-2 font-medium"
+            className="px-5 py-3 bg-white/20 hover:bg-white/30 rounded-lg transition-colors flex items-center gap-2 font-semibold text-base"
             title="Send New Message / إرسال رسالة جديدة"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-5 w-5" />
             <span className="hidden sm:inline">Send New Message / إرسال رسالة جديدة</span>
           </button>
           {/* Sound Toggle */}
           <button
             onClick={() => setSoundEnabled(!soundEnabled)}
-            className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+            className="p-3 hover:bg-white/20 rounded-lg transition-colors"
             title={soundEnabled ? 'Disable Sound / تعطيل الصوت' : 'Enable Sound / تفعيل الصوت'}
           >
             {soundEnabled ? (
-              <Volume2 className="h-5 w-5" />
+              <Volume2 className="h-6 w-6" />
             ) : (
-              <VolumeX className="h-5 w-5" />
+              <VolumeX className="h-6 w-6" />
             )}
           </button>
           {/* Close Button */}
           <button
             onClick={onClose}
-            className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+            className="p-3 hover:bg-white/20 rounded-lg transition-colors"
             title="Close / إغلاق (ESC)"
           >
-            <X className="h-6 w-6" />
+            <X className="h-7 w-7" />
           </button>
         </div>
       </div>
 
       {/* Stats Bar */}
       {stats && (
-        <div className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700 p-4 flex-shrink-0">
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
-              <div className="flex items-center gap-2 mb-1">
-                <BarChart3 className="h-4 w-4 text-violet-600" />
+        <div className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700 p-5 flex-shrink-0">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-5">
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 shadow-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <BarChart3 className="h-5 w-5 text-violet-600" />
                 <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Total / الإجمالي</span>
               </div>
               <div className="text-2xl font-bold text-gray-900 dark:text-white">{stats.total}</div>
             </div>
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
-              <div className="flex items-center gap-2 mb-1">
-                <Circle className="h-4 w-4 text-green-500" />
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 shadow-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <Circle className="h-5 w-5 text-green-500" />
                 <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Open / مفتوحة</span>
               </div>
               <div className="text-2xl font-bold text-green-600">{stats.open}</div>
             </div>
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
-              <div className="flex items-center gap-2 mb-1">
-                <Clock className="h-4 w-4 text-blue-500" />
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 shadow-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <Clock className="h-5 w-5 text-blue-500" />
                 <span className="text-xs font-medium text-gray-600 dark:text-gray-400">In Progress / قيد المعالجة</span>
               </div>
               <div className="text-2xl font-bold text-blue-600">{stats.in_progress}</div>
             </div>
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
-              <div className="flex items-center gap-2 mb-1">
-                <AlertCircle className="h-4 w-4 text-red-500" />
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 shadow-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertCircle className="h-5 w-5 text-red-500" />
                 <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Urgent / عاجلة</span>
               </div>
               <div className="text-2xl font-bold text-red-600">{stats.urgent}</div>
             </div>
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
-              <div className="flex items-center gap-2 mb-1">
-                <TrendingUp className="h-4 w-4 text-orange-500" />
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 shadow-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <TrendingUp className="h-5 w-5 text-orange-500" />
                 <span className="text-xs font-medium text-gray-600 dark:text-gray-400">High / عالية</span>
               </div>
               <div className="text-2xl font-bold text-orange-600">{stats.high}</div>
@@ -506,18 +506,18 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
       )}
 
       {/* Filters and Search */}
-      <div className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700 p-4 flex-shrink-0">
-        <div className="flex flex-wrap gap-3 items-center">
+      <div className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700 p-5 flex-shrink-0">
+        <div className="flex flex-wrap gap-4 items-center">
           {/* Search */}
-          <div className="flex-1 min-w-[200px]">
+          <div className="flex-1 min-w-[250px]">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search conversations / البحث في المحادثات..."
-                className="w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                className="w-full pl-12 pr-4 py-3 border-2 border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500 transition-all"
               />
             </div>
           </div>
@@ -526,7 +526,7 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as any)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+            className="px-4 py-3 border-2 border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500 transition-all cursor-pointer"
           >
             <option value="all">All Status / جميع الحالات</option>
             <option value="open">Open / مفتوحة</option>
@@ -539,7 +539,7 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
           <select
             value={priorityFilter}
             onChange={(e) => setPriorityFilter(e.target.value as any)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+            className="px-4 py-3 border-2 border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500 transition-all cursor-pointer"
           >
             <option value="all">All Priority / جميع الأولويات</option>
             <option value="urgent">Urgent / عاجلة</option>
@@ -552,7 +552,7 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as any)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+            className="px-4 py-3 border-2 border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500 transition-all cursor-pointer"
           >
             <option value="date">Sort by Date / ترتيب حسب التاريخ</option>
             <option value="priority">Sort by Priority / ترتيب حسب الأولوية</option>
@@ -562,10 +562,10 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
           {/* Sort Order */}
           <button
             onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            className="px-4 py-3 border-2 border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all"
             title={sortOrder === 'asc' ? 'Ascending / تصاعدي' : 'Descending / تنازلي'}
           >
-            {sortOrder === 'asc' ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            {sortOrder === 'asc' ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
           </button>
         </div>
       </div>
@@ -579,12 +579,12 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600"></div>
             </div>
           ) : filteredConversations.length === 0 ? (
-            <div className="p-4 text-center text-gray-500 dark:text-gray-400">
-              <MessageSquare className="h-12 w-12 mx-auto mb-2 opacity-50" />
-              <p className="text-sm">No conversations found / لم يتم العثور على محادثات</p>
+            <div className="p-6 text-center text-gray-500 dark:text-gray-400">
+              <MessageSquare className="h-16 w-16 mx-auto mb-3 opacity-50" />
+              <p className="text-sm font-medium">No conversations found / لم يتم العثور على محادثات</p>
             </div>
           ) : (
-            <div className="p-2 space-y-2">
+            <div className="p-3 space-y-3">
               {filteredConversations.map((conv) => (
                 <button
                   key={conv.id}
@@ -592,23 +592,23 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
                     setSelectedConversation(conv)
                     loadMessages(conv.id)
                   }}
-                  className={`w-full text-left p-3 rounded-lg transition-all ${
+                  className={`w-full text-left p-4 rounded-xl transition-all ${
                     selectedConversation?.id === conv.id
-                      ? 'bg-violet-100 dark:bg-violet-900/30 border-2 border-violet-500 shadow-md'
-                      : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-violet-300 dark:hover:border-violet-700 hover:shadow-sm'
+                      ? 'bg-violet-100 dark:bg-violet-900/30 border-2 border-violet-500 shadow-lg'
+                      : 'bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 hover:border-violet-300 dark:hover:border-violet-700 hover:shadow-md'
                   }`}
                 >
-                  <div className="flex items-start justify-between mb-2">
+                  <div className="flex items-start justify-between mb-3">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-3 mb-2">
                         {getStatusIcon(conv.status)}
                         <span className="font-semibold text-sm text-gray-900 dark:text-white truncate">
                           {conv.subject || 'No Subject / بدون موضوع'}
                         </span>
                       </div>
                       {conv.user && (
-                        <div className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400 mb-1">
-                          <User className="h-3 w-3" />
+                        <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 mb-2">
+                          <User className="h-4 w-4" />
                           <span className="truncate">{conv.user.full_name}</span>
                         </div>
                       )}
@@ -620,7 +620,7 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
                     )}
                   </div>
                   
-                  <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-3 flex-wrap">
                     <span className={`text-xs px-2 py-0.5 rounded border ${getPriorityColor(conv.priority)}`}>
                       {conv.priority}
                     </span>
@@ -639,8 +639,8 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
           {selectedConversation ? (
             <>
               {/* Conversation Header */}
-              <div className="border-b border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900/50 flex-shrink-0">
-                <div className="flex items-start justify-between mb-3">
+              <div className="border-b-2 border-gray-200 dark:border-gray-700 p-5 bg-gray-50 dark:bg-gray-900/50 flex-shrink-0">
+                <div className="flex items-start justify-between mb-4">
                   <div className="flex-1">
                     <h3 className="font-bold text-lg text-gray-900 dark:text-white mb-1">
                       {selectedConversation.subject || 'No Subject / بدون موضوع'}
@@ -689,15 +689,15 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
 
               {/* Message Search */}
               {selectedConversation && messages.length > 0 && (
-                <div className="border-b border-gray-200 dark:border-gray-700 p-2 bg-gray-50 dark:bg-gray-900/30">
+                <div className="border-b-2 border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900/30">
                   <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
                     <input
                       type="text"
                       value={messageSearchQuery}
                       onChange={(e) => setMessageSearchQuery(e.target.value)}
                       placeholder="Search messages... / البحث في الرسائل..."
-                      className="w-full pl-10 pr-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                      className="w-full pl-12 pr-4 py-3 text-sm border-2 border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 transition-all"
                     />
                   </div>
                 </div>
@@ -722,15 +722,15 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
                       className={`flex ${isAdminMessage ? 'justify-end' : 'justify-start'}`}
                     >
                       <div
-                        className={`max-w-[70%] rounded-lg p-3 transition-all duration-200 hover:shadow-md ${
+                        className={`max-w-[75%] rounded-xl p-4 transition-all duration-200 hover:shadow-lg ${
                           isAdminMessage
                             ? 'bg-gradient-to-r from-violet-600 to-purple-600 text-white'
                             : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
                         }`}
                       >
-                        <div className="flex items-center gap-2 mb-1">
+                        <div className="flex items-center gap-3 mb-2">
                           {/* Avatar */}
-                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${
                             isAdminMessage
                               ? 'bg-white/20 text-white'
                               : 'bg-gradient-to-br from-violet-500 to-purple-600 text-white'
@@ -776,8 +776,8 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
               </div>
 
               {/* Message Input */}
-              <div className="border-t border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900/50 flex-shrink-0">
-                <div className="flex gap-2">
+              <div className="border-t-2 border-gray-200 dark:border-gray-700 p-5 bg-gray-50 dark:bg-gray-900/50 flex-shrink-0">
+                <div className="flex gap-3">
                   <input
                     type="text"
                     value={messageText}
@@ -791,12 +791,12 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
                       }
                     }}
                     placeholder="Type your reply... (Enter to send, ESC to close) / اكتب ردك... (Enter للإرسال، ESC للإغلاق)"
-                    className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all"
+                    className="flex-1 px-5 py-3 border-2 border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500 transition-all"
                   />
                   <button
                     onClick={sendMessage}
                     disabled={!messageText.trim() || sending}
-                    className="px-6 py-2 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-lg hover:from-violet-700 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:scale-105 active:scale-95"
+                    className="px-8 py-3 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-xl hover:from-violet-700 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:scale-105 active:scale-95"
                   >
                     {sending ? (
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
@@ -840,13 +840,13 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="bg-gradient-to-r from-violet-600 via-purple-600 to-indigo-600 text-white p-4 flex items-center justify-between flex-shrink-0">
-              <div className="flex items-center gap-3">
+            <div className="bg-gradient-to-r from-violet-600 via-purple-600 to-indigo-600 text-white p-5 flex items-center justify-between flex-shrink-0">
+              <div className="flex items-center gap-4">
                 <Send className="h-6 w-6" />
                 <div>
                   <h3 className="font-bold text-lg">Send New Message / إرسال رسالة جديدة</h3>
                   <p className="text-sm opacity-90">Send message to users / إرسال رسالة للمستخدمين</p>
-    </div>
+                </div>
               </div>
               <button
                 onClick={() => {
@@ -858,9 +858,9 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
                   setSelectedDepartments([])
                   setSelectedRoles([])
                 }}
-                className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                className="p-3 hover:bg-white/20 rounded-lg transition-colors"
               >
-                <X className="h-5 w-5" />
+                <X className="h-6 w-6" />
               </button>
             </div>
 
@@ -876,7 +876,7 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
                   value={newMessageSubject}
                   onChange={(e) => setNewMessageSubject(e.target.value)}
                   placeholder="Enter message subject / أدخل موضوع الرسالة"
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                  className="w-full px-5 py-3 border-2 border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 transition-all"
                 />
               </div>
 
@@ -890,7 +890,7 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
                   onChange={(e) => setNewMessageText(e.target.value)}
                   placeholder="Enter your message / أدخل رسالتك"
                   rows={6}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none"
+                  className="w-full px-5 py-3 border-2 border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 resize-none transition-all"
                 />
               </div>
 
@@ -902,7 +902,7 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
                 <select
                   value={newMessagePriority}
                   onChange={(e) => setNewMessagePriority(e.target.value as any)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                  className="w-full px-5 py-3 border-2 border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 transition-all cursor-pointer"
                 >
                   <option value="low">Low / منخفضة</option>
                   <option value="normal">Normal / عادية</option>
@@ -916,12 +916,12 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Select Recipients / اختر المستلمين
                 </label>
-                <div className="flex gap-2 mb-4">
+                <div className="flex gap-3 mb-4">
                   <button
                     onClick={() => setRecipientType('users')}
-                    className={`flex-1 px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${
+                    className={`flex-1 px-5 py-3 rounded-xl transition-colors flex items-center justify-center gap-2 ${
                       recipientType === 'users'
-                        ? 'bg-violet-600 text-white'
+                        ? 'bg-violet-600 text-white shadow-lg'
                         : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
                     }`}
                   >
@@ -930,9 +930,9 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
                   </button>
                   <button
                     onClick={() => setRecipientType('department')}
-                    className={`flex-1 px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${
+                    className={`flex-1 px-5 py-3 rounded-xl transition-colors flex items-center justify-center gap-2 ${
                       recipientType === 'department'
-                        ? 'bg-violet-600 text-white'
+                        ? 'bg-violet-600 text-white shadow-lg'
                         : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
                     }`}
                   >
@@ -941,9 +941,9 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
                   </button>
                   <button
                     onClick={() => setRecipientType('role')}
-                    className={`flex-1 px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 ${
+                    className={`flex-1 px-5 py-3 rounded-xl transition-colors flex items-center justify-center gap-2 ${
                       recipientType === 'role'
-                        ? 'bg-violet-600 text-white'
+                        ? 'bg-violet-600 text-white shadow-lg'
                         : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
                     }`}
                   >
@@ -956,16 +956,16 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
                 {recipientType === 'users' && (
                   <div className="border border-gray-300 dark:border-gray-600 rounded-lg p-4">
                     {/* Select All / Clear All Buttons */}
-                    <div className="flex gap-2 mb-3 pb-3 border-b border-gray-200 dark:border-gray-700">
+                    <div className="flex gap-3 mb-4 pb-4 border-b-2 border-gray-200 dark:border-gray-700">
                       <button
                         onClick={() => setSelectedUserIds(allUsers.map(u => u.id))}
-                        className="px-3 py-1 text-xs bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 rounded hover:bg-violet-200 dark:hover:bg-violet-900/50 transition-colors"
+                        className="px-4 py-2 text-sm font-semibold bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 rounded-xl hover:bg-violet-200 dark:hover:bg-violet-900/50 transition-colors"
                       >
                         Select All / تحديد الكل ({allUsers.length})
                       </button>
                       <button
                         onClick={() => setSelectedUserIds([])}
-                        className="px-3 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                        className="px-4 py-2 text-sm font-semibold bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                       >
                         Clear All / مسح الكل
                       </button>
@@ -987,7 +987,7 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
                                 setSelectedUserIds(selectedUserIds.filter(id => id !== user.id))
                               }
                             }}
-                            className="w-4 h-4 text-violet-600 rounded focus:ring-violet-500"
+                            className="w-5 h-5 text-violet-600 rounded focus:ring-violet-500 cursor-pointer"
                           />
                           <div className="flex-1">
                             <div className="font-medium text-gray-900 dark:text-white">{user.full_name}</div>
@@ -1162,7 +1162,7 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
             </div>
 
             {/* Modal Footer */}
-            <div className="border-t border-gray-200 dark:border-gray-700 p-4 flex items-center justify-end gap-3 flex-shrink-0">
+            <div className="border-t-2 border-gray-200 dark:border-gray-700 p-5 flex items-center justify-end gap-4 flex-shrink-0">
               <button
                 onClick={() => {
                   setShowSendMessageModal(false)
@@ -1173,7 +1173,7 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
                   setSelectedDepartments([])
                   setSelectedRoles([])
                 }}
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                className="px-6 py-3 border-2 border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
               >
                 Cancel / إلغاء
               </button>
@@ -1236,7 +1236,7 @@ export function UrgentMessagesAdminPanel({ onClose, onUnreadCountChange }: Urgen
                   }
                 }}
                 disabled={sendingNewMessage || !newMessageSubject.trim() || !newMessageText.trim()}
-                className="px-6 py-2 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-lg hover:from-violet-700 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className="px-8 py-3 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-xl hover:from-violet-700 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:scale-105 active:scale-95"
               >
                 {sendingNewMessage ? (
                   <>
