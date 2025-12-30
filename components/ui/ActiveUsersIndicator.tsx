@@ -14,6 +14,7 @@ interface OnlineUser {
   role: string
   last_seen: string
   is_online: boolean
+  profile_picture_url?: string
   current_activity?: {
     page_title: string
     page_path: string
@@ -40,6 +41,16 @@ export function ActiveUsersIndicator() {
       try {
         const response = await fetch('/api/users/activity?type=online')
         const data = await response.json()
+
+        // Log response for debugging
+        if (process.env.NODE_ENV === 'development') {
+          console.log('📊 [Online Users] API Response:', {
+            success: data.success,
+            usersCount: data.users?.length || 0,
+            error: data.error,
+            users: data.users?.map((u: any) => ({ email: u.email, full_name: u.full_name, is_online: u.is_online }))
+          })
+        }
 
         if (data.success) {
           const users = data.users || []
@@ -154,18 +165,20 @@ export function ActiveUsersIndicator() {
           })
         })
         
-        // Silently handle heartbeat responses - errors are non-critical
-        if (!response.ok && response.status !== 401) {
-          // Only log non-401 errors in development
-          if (process.env.NODE_ENV === 'development') {
-            console.warn('⚠️ Heartbeat response not OK:', response.status)
+        const responseData = await response.json().catch(() => ({}))
+        
+        // Log heartbeat for debugging
+        if (process.env.NODE_ENV === 'development') {
+          if (response.ok) {
+            console.log('✅ [Heartbeat] Sent successfully:', responseData.message || 'OK')
+          } else {
+            console.warn('⚠️ [Heartbeat] Response not OK:', response.status, responseData)
           }
         }
       } catch (error) {
-        // Silently handle heartbeat errors - they're not critical
-        // Only log in development
+        // Log heartbeat errors in development
         if (process.env.NODE_ENV === 'development') {
-          console.warn('⚠️ Heartbeat error (non-critical):', error)
+          console.error('❌ [Heartbeat] Error:', error)
         }
       }
     }
@@ -378,11 +391,31 @@ export function ActiveUsersIndicator() {
                 onClick={() => router.push('/settings?tab=active-users')}
               >
                 <div className="relative">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 flex items-center justify-center">
-                    <span className="text-white font-medium text-sm">
-                      {user.full_name?.charAt(0)?.toUpperCase() || user.email?.charAt(0)?.toUpperCase() || 'U'}
-                    </span>
-                  </div>
+                  {user.profile_picture_url ? (
+                    <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-green-500 dark:border-green-400">
+                      <img
+                        src={user.profile_picture_url}
+                        alt={user.full_name || user.email}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          // Fallback to initials if image fails to load
+                          const target = e.target as HTMLImageElement
+                          target.style.display = 'none'
+                          const parent = target.parentElement
+                          if (parent) {
+                            parent.className = 'w-10 h-10 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 flex items-center justify-center border-2 border-green-500 dark:border-green-400'
+                            parent.innerHTML = `<span class="text-white font-medium text-sm">${user.full_name?.charAt(0)?.toUpperCase() || user.email?.charAt(0)?.toUpperCase() || 'U'}</span>`
+                          }
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 flex items-center justify-center">
+                      <span className="text-white font-medium text-sm">
+                        {user.full_name?.charAt(0)?.toUpperCase() || user.email?.charAt(0)?.toUpperCase() || 'U'}
+                      </span>
+                    </div>
+                  )}
                   <div className="absolute -bottom-0.5 -right-0.5 h-3 w-3 bg-green-500 rounded-full border-2 border-white dark:border-gray-800">
                     <div className="absolute inset-0 bg-green-400 rounded-full animate-ping opacity-75"></div>
                   </div>

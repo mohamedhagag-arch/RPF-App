@@ -1,9 +1,33 @@
 -- ============================================================
--- USER ACTIVITY TABLE SCHEMA
--- جدول لتتبع المستخدمين النشطين (Online Users)
+-- Restore user_activity table and functions to original state
+-- إرجاع جدول user_activity والدوال إلى الحالة الأصلية
 -- ============================================================
 
--- إنشاء جدول تتبع نشاط المستخدمين
+-- Drop existing policies (if they exist) - must drop all first
+DO $$ 
+BEGIN
+  DROP POLICY IF EXISTS "Users can view all online users" ON public.user_activity;
+  DROP POLICY IF EXISTS "Users can update their own activity" ON public.user_activity;
+  DROP POLICY IF EXISTS "System can manage all activities" ON public.user_activity;
+EXCEPTION
+  WHEN OTHERS THEN NULL;
+END $$;
+
+-- Drop trigger first (it depends on the function)
+DROP TRIGGER IF EXISTS trigger_update_user_activity_updated_at ON public.user_activity;
+
+-- Drop existing functions (if they exist)
+DROP FUNCTION IF EXISTS get_online_users();
+DROP FUNCTION IF EXISTS get_today_users();
+DROP FUNCTION IF EXISTS mark_inactive_users_offline();
+DROP FUNCTION IF EXISTS update_user_activity(UUID, BOOLEAN, TEXT, TEXT, INET);
+DROP FUNCTION IF EXISTS update_user_activity_updated_at();
+
+-- ============================================================
+-- Recreate everything from scratch
+-- ============================================================
+
+-- Ensure table exists
 CREATE TABLE IF NOT EXISTS public.user_activity (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
@@ -19,24 +43,25 @@ CREATE TABLE IF NOT EXISTS public.user_activity (
   UNIQUE(user_id)
 );
 
--- إنشاء فهارس للبحث السريع
+-- Create indexes
 CREATE INDEX IF NOT EXISTS idx_user_activity_user_id ON public.user_activity(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_activity_last_seen ON public.user_activity(last_seen);
 CREATE INDEX IF NOT EXISTS idx_user_activity_is_online ON public.user_activity(is_online);
 CREATE INDEX IF NOT EXISTS idx_user_activity_updated_at ON public.user_activity(updated_at);
 
--- RLS Policies
+-- Enable RLS
 ALTER TABLE public.user_activity ENABLE ROW LEVEL SECURITY;
 
--- Policy: Users can view all online users
+-- Recreate policies (drop first if exists to avoid errors)
+DROP POLICY IF EXISTS "Users can view all online users" ON public.user_activity;
 CREATE POLICY "Users can view all online users" ON public.user_activity
   FOR SELECT USING (true);
 
--- Policy: Users can update their own activity
+DROP POLICY IF EXISTS "Users can update their own activity" ON public.user_activity;
 CREATE POLICY "Users can update their own activity" ON public.user_activity
   FOR ALL USING (auth.uid() = user_id);
 
--- Policy: System can insert/update any activity (for API endpoints)
+DROP POLICY IF EXISTS "System can manage all activities" ON public.user_activity;
 CREATE POLICY "System can manage all activities" ON public.user_activity
   FOR ALL USING (true);
 
@@ -79,7 +104,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Function to mark users as offline (older than 2 minutes - real-time)
+-- Function to mark users as offline (older than 2 minutes)
 CREATE OR REPLACE FUNCTION mark_inactive_users_offline()
 RETURNS void AS $$
 BEGIN
@@ -170,9 +195,7 @@ CREATE TRIGGER trigger_update_user_activity_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION update_user_activity_updated_at();
 
--- Comments
-COMMENT ON TABLE public.user_activity IS 'Tracks user online activity and last seen timestamps';
-COMMENT ON COLUMN public.user_activity.last_seen IS 'Last time the user was active';
-COMMENT ON COLUMN public.user_activity.is_online IS 'Whether the user is currently online';
-COMMENT ON COLUMN public.user_activity.session_id IS 'Unique session identifier';
+-- ============================================================
+-- ✅ Done! Database restored to original state
+-- ============================================================
 
