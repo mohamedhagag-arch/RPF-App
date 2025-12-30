@@ -622,11 +622,12 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         }
         
         const activityZone = (zoneValue || '').toString().toLowerCase().trim()
-        const matchesZone = selectedZones.some(zone =>
-          activityZone === zone.toLowerCase().trim() ||
-          activityZone.includes(zone.toLowerCase().trim()) ||
-          zone.toLowerCase().trim().includes(activityZone)
-        )
+        // ✅ FIX: Use exact match only to prevent "Tower-Side-C" from matching "Tower"
+        const matchesZone = selectedZones.some(zone => {
+          const selectedZone = zone.toLowerCase().trim()
+          // Exact match only - no partial matching to avoid false positives
+          return activityZone === selectedZone
+        })
         if (!matchesZone) return false
       }
       
