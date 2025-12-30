@@ -890,8 +890,7 @@ export function ProjectsList({
 
   const handlePageChange = useCallback((page: number) => {
     setCurrentPage(page)
-    // ✅ FIX: Don't scroll to top when changing pages - preserve user's scroll position
-    // window.scrollTo({ top: 0, behavior: 'smooth' })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [])
 
   const handleCreateProject = useCallback(async (projectData: Partial<Project>) => {

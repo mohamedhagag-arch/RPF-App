@@ -6,6 +6,7 @@ import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { TABLES } from '@/lib/supabase'
 import { Loader2, AlertCircle } from 'lucide-react'
 import { Alert } from '@/components/ui/Alert'
+import { DEFAULT_ROLE_PERMISSIONS } from '@/lib/permissionsSystem'
 
 export default function AuthCallback() {
   const [loading, setLoading] = useState(true)
@@ -109,7 +110,10 @@ export default function AuthCallback() {
           const firstName = nameParts[0] || 'User'
           const lastName = nameParts.slice(1).join(' ') || ''
 
-          // Create user profile
+          // Get Viewer role permissions
+          const viewerPermissions = DEFAULT_ROLE_PERMISSIONS.viewer || []
+
+          // Create user profile with correct Viewer permissions
           const { error: insertError } = await supabase
             .from(TABLES.USERS)
             // @ts-ignore
@@ -120,6 +124,8 @@ export default function AuthCallback() {
               last_name: lastName,
               full_name: fullName,
               role: 'viewer', // Default role for new users
+              permissions: viewerPermissions, // Set correct Viewer permissions
+              custom_permissions_enabled: false, // Use default role permissions
               created_at: new Date().toISOString(),
             })
 
