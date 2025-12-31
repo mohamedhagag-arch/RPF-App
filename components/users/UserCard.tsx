@@ -218,13 +218,30 @@ export function UserCard({
     return (
       <Card className="group relative overflow-hidden bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border border-gray-200/50 dark:border-gray-800/50 shadow-lg hover:shadow-2xl transition-all duration-500 hover:scale-[1.01]">
         <div className="absolute inset-0 bg-gradient-to-br from-blue-50/50 via-transparent to-purple-50/50 dark:from-blue-950/20 dark:via-transparent dark:to-purple-950/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-        <CardContent className="p-6 relative z-10">
-          <div className="flex items-start gap-5">
+        <CardContent className="p-6 pl-8 relative z-10">
+          <div className="flex items-center gap-8">
             {/* Enhanced Profile Picture */}
-            <div className="relative flex-shrink-0">
+            <div className="relative flex-shrink-0 ml-3">
               <div className="absolute inset-0 bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 rounded-2xl blur-xl opacity-0 group-hover:opacity-30 transition-opacity duration-500"></div>
               <div className="relative w-20 h-20 bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 rounded-2xl flex items-center justify-center text-white text-xl font-bold shadow-xl group-hover:shadow-2xl group-hover:scale-110 transition-all duration-500 overflow-hidden ring-2 ring-white/50 dark:ring-gray-800/50">
-                {getInitials()}
+                {user.profile_picture_url ? (
+                  <img
+                    src={user.profile_picture_url}
+                    alt="Profile Picture"
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement
+                      target.style.display = 'none'
+                      const parent = target.parentElement
+                      if (parent) {
+                        parent.innerHTML = getInitials()
+                        parent.className = 'relative w-20 h-20 bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 rounded-2xl flex items-center justify-center text-white text-xl font-bold shadow-xl group-hover:shadow-2xl group-hover:scale-110 transition-all duration-500 overflow-hidden ring-2 ring-white/50 dark:ring-gray-800/50'
+                      }
+                    }}
+                  />
+                ) : (
+                  getInitials()
+                )}
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
               </div>
               <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-gradient-to-br from-green-400 to-emerald-500 rounded-full border-3 border-white dark:border-gray-900 shadow-lg flex items-center justify-center">
@@ -232,8 +249,8 @@ export function UserCard({
               </div>
             </div>
             
-          {/* User Info */}
-          <div className="flex-1 min-w-0 space-y-3.5">
+          {/* User Info - Centered */}
+          <div className="flex-1 min-w-0 space-y-3.5 flex flex-col justify-center">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
                   <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-300">
@@ -305,7 +322,7 @@ export function UserCard({
             
             {/* Enhanced Actions */}
             {showActions && (
-              <div className="flex flex-col gap-2 flex-shrink-0">
+              <div className="flex flex-col gap-2 flex-shrink-0 justify-center">
                 <Button
                   size="sm"
                   onClick={handleViewProfile}
