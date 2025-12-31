@@ -691,8 +691,8 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
 
   const filteredTotalCount = allFilteredActivities.length
 
-  // ✅ FIX: Activities for filter dropdowns (exclude zone filter to show all available zones)
-  // This ensures that when a zone is selected, all other zones remain visible in the dropdown
+  // ✅ FIX: Activities for filter dropdowns (exclude activity, zone, unit, division filters to show all available options)
+  // This ensures that when filters are applied, all options remain visible in the dropdowns
   const activitiesForFilters = useMemo(() => {
     return activities.filter(activity => {
       // Multi-Project filter (Smart Filter) - keep this filter
@@ -782,15 +782,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         }
       }
       
-      // Multi-Activity filter (Smart Filter) - keep this filter
-      if (selectedActivities.length > 0) {
-        const matchesActivity = selectedActivities.some(activityName =>
-          activity.activity_name === activityName ||
-          activity.activity_name?.toLowerCase().includes(activityName.toLowerCase())
-        )
-        if (!matchesActivity) return false
-      }
-      
+      // ✅ EXCLUDE activity filter - we want to show all activities even when some are selected
       // ✅ EXCLUDE zone filter - we want to show all zones even when some are selected
       // ✅ EXCLUDE division filter - we want to show all divisions even when some are selected
       // ✅ EXCLUDE unit filter - we want to show all units even when some are selected
@@ -798,7 +790,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       
       return true
     })
-  }, [activities, selectedProjects, selectedActivities]) // Only depend on projects and activities, NOT zones
+  }, [activities, selectedProjects]) // Only depend on projects, NOT activities, zones, units, or divisions
 
   // ✅ Handle filter changes (legacy - not used with SmartFilter)
   const handleFilterChange = (key: string, value: string | string[]) => {

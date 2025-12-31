@@ -192,14 +192,17 @@ export function BOQFilter({
   })
   
   // Filter activities by selected projects and search, then remove duplicates
-  const availableActivities = selectedProjects.length > 0 ? (() => {
-    // First filter by selected projects
-    const filteredByProject = activities.filter(a => {
-      const activityFullCode = ((a as any).project_full_code || '').toString().trim()
-      return selectedProjects.some(selectedFullCode => 
-        activityFullCode.toUpperCase() === selectedFullCode.toUpperCase()
-      )
-    })
+  // ✅ FIX: Show all activities when no projects selected, filter by projects when selected
+  const availableActivities = (() => {
+    // First filter by selected projects (if any)
+    const filteredByProject = selectedProjects.length > 0
+      ? activities.filter(a => {
+          const activityFullCode = ((a as any).project_full_code || '').toString().trim()
+          return selectedProjects.some(selectedFullCode => 
+            activityFullCode.toUpperCase() === selectedFullCode.toUpperCase()
+          )
+        })
+      : activities // If no projects selected, use all activities
     
     // Remove duplicates by activity_name (keep unique activities)
     const uniqueActivities = Array.from(
@@ -212,7 +215,7 @@ export function BOQFilter({
     return uniqueActivities.filter(activity =>
       !activitySearch || activity.activity_name.toLowerCase().includes(activitySearch.toLowerCase())
     )
-  })() : []
+  })()
   
   // Get unique zones from "Zone Ref" and "Zone Number" columns from database
   // ✅ FIX: Extract zones ONLY from Zone Ref and Zone Number columns, matching selected projects
