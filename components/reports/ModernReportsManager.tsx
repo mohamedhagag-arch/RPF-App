@@ -4341,17 +4341,19 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
 
   const divisions = useMemo(() => {
     // ✅ FIX: Get divisions from activities (same as table) for consistency
+    // ✅ CRITICAL: Use EXACT SAME logic as filteredProjects and divisionsDataMap
     const allDivisions = new Set<string>()
     
-    // Get divisions from activities
+    // Get divisions from activities (EXACT SAME logic as filteredProjects)
     activities.forEach((activity: any) => {
       const rawActivity = (activity as any).raw || {}
       const division = activity.activity_division || 
-                     activity['Activity Division'] || 
+                     (activity as any)['Activity Division'] || 
                      rawActivity['Activity Division'] || 
                      rawActivity['activity_division'] || ''
       
       if (division && division.trim() !== '') {
+        // ✅ Normalize: trim and store as-is (same as filteredProjects)
         allDivisions.add(division.trim())
       }
     })
@@ -4361,7 +4363,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       projects.forEach((p: Project) => {
         const division = p.responsible_division
         if (division) {
-          // Split by comma and trim each division
+          // Split by comma and trim each division (EXACT SAME logic as filteredProjects)
           const divisionsList = division.split(',').map(d => d.trim()).filter(Boolean)
           divisionsList.forEach(d => allDivisions.add(d))
         }
@@ -4473,15 +4475,17 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
         })
         
         // Get unique divisions from activities (same logic as divisionsDataMap)
+        // ✅ FIX: Normalize divisions to match exactly with divisions array from activities
         const projectDivisions = new Set<string>()
         projectActivities.forEach((activity: any) => {
           const rawActivity = (activity as any).raw || {}
           const division = activity.activity_division || 
-                         activity['Activity Division'] || 
+                         (activity as any)['Activity Division'] || 
                          rawActivity['Activity Division'] || 
                          rawActivity['activity_division'] || ''
           
           if (division && division.trim() !== '') {
+            // ✅ Normalize: trim and store as-is (same as divisions array)
             projectDivisions.add(division.trim())
           }
         })
@@ -4490,15 +4494,21 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
         if (projectDivisions.size === 0) {
           const division = p.responsible_division
           if (!division) return false
-          const divisionsList = division.split(',').map(d => d.trim())
+          const divisionsList = division.split(',').map(d => d.trim()).filter(Boolean)
           divisionsList.forEach(d => projectDivisions.add(d))
         }
         
-        // Check if any selected division matches any project division (case-insensitive)
+        // ✅ FIX: Check if any selected division matches any project division
+        // Use exact match first, then case-insensitive match as fallback
         const projectDivisionsArray = Array.from(projectDivisions)
         return selectedDivisions.some(selectedDiv => {
-          const normalizedSelectedDiv = selectedDiv.trim().toLowerCase()
-          return projectDivisionsArray.some(d => d.trim().toLowerCase() === normalizedSelectedDiv)
+          const normalizedSelectedDiv = selectedDiv.trim()
+          // Try exact match first
+          if (projectDivisionsArray.some(d => d.trim() === normalizedSelectedDiv)) {
+            return true
+          }
+          // Fallback to case-insensitive match
+          return projectDivisionsArray.some(d => d.trim().toLowerCase() === normalizedSelectedDiv.toLowerCase())
         })
       })
     }
@@ -5985,13 +5995,33 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
         }
       }, 0)
     })
-  }, [kpis, periods, activities, today, projectKPIsMap, showVirtualMaterialValues])
+  }, [kpis, periods, activities, today, projectKPIsMap, showVirtualMaterialValues, selectedDivisions])
 
   // ✅ Calculate Virtual Material Amount per period from KPIs for activities with use_virtual_material
   const calculatePeriodVirtualMaterialAmount = useCallback((project: Project, analytics: any): number[] => {
     const projectKPIs = projectKPIsMap.get(project.id)
     const allProjectKPIs = projectKPIs?.actual || []
-    const projectActivities = analytics.activities || []
+    // ✅ FIX: Filter activities by selected divisions if filter is applied
+    let projectActivities = analytics.activities || []
+    if (selectedDivisions.length > 0) {
+      projectActivities = projectActivities.filter((activity: BOQActivity) => {
+        const rawActivity = (activity as any).raw || {}
+        const division = activity.activity_division || 
+                       (activity as any)['Activity Division'] || 
+                       rawActivity['Activity Division'] || 
+                       rawActivity['activity_division'] || ''
+        
+        if (!division || division.trim() === '') {
+          return false
+        }
+        
+        // Check if activity division matches any selected division (case-insensitive)
+        const normalizedDivision = division.trim().toLowerCase()
+        return selectedDivisions.some(selectedDiv => 
+          selectedDiv.trim().toLowerCase() === normalizedDivision
+        )
+      })
+    }
     
     // Get Virtual Material Percentage from project
     let virtualMaterialPercentage = 0
@@ -6199,7 +6229,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
         }
       }, 0)
     })
-  }, [kpis, periods, activities, today, projectKPIsMap, kpiMatchesActivity])
+  }, [kpis, periods, activities, today, projectKPIsMap, kpiMatchesActivity, selectedDivisions])
 
   const allAnalytics = useMemo(() => {
     return getAllProjectsAnalytics(filteredProjects, activities, kpis)
@@ -6284,7 +6314,27 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       })
       
       // ✅ Calculate value using EXACT SAME LOGIC as calculatePeriodEarnedValue
-      const projectActivities = analytics.activities || []
+      // ✅ FIX: Filter activities by selected divisions if filter is applied
+      let projectActivities = analytics.activities || []
+      if (selectedDivisions.length > 0) {
+        projectActivities = projectActivities.filter((activity: BOQActivity) => {
+          const rawActivity = (activity as any).raw || {}
+          const division = activity.activity_division || 
+                         (activity as any)['Activity Division'] || 
+                         rawActivity['Activity Division'] || 
+                         rawActivity['activity_division'] || ''
+          
+          if (!division || division.trim() === '') {
+            return false
+          }
+          
+          // Check if activity division matches any selected division (case-insensitive)
+          const normalizedDivision = division.trim().toLowerCase()
+          return selectedDivisions.some(selectedDiv => 
+            selectedDiv.trim().toLowerCase() === normalizedDivision
+          )
+        })
+      }
       
       return actualKPIsInOuterRange.reduce((sum: number, kpi: any) => {
         try {
@@ -6411,7 +6461,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       console.error('[Outer Range] Error calculating outer range value:', error)
       return 0
     }
-  }, [outerRangeStart, dateRange.start, today, projectKPIsMap, getPeriodsInRange])
+  }, [outerRangeStart, dateRange.start, today, projectKPIsMap, getPeriodsInRange, selectedDivisions])
 
   // ✅ Calculate Planned value before the selected date range (Outer Range)
   const calculateOuterRangePlannedValue = useCallback((project: Project, analytics: any): number => {
@@ -6485,7 +6535,27 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       })
       
       // ✅ Calculate value using EXACT SAME LOGIC as calculatePeriodPlannedValue
-      const projectActivities = analytics.activities || []
+      // ✅ FIX: Filter activities by selected divisions if filter is applied
+      let projectActivities = analytics.activities || []
+      if (selectedDivisions.length > 0) {
+        projectActivities = projectActivities.filter((activity: BOQActivity) => {
+          const rawActivity = (activity as any).raw || {}
+          const division = activity.activity_division || 
+                         (activity as any)['Activity Division'] || 
+                         rawActivity['Activity Division'] || 
+                         rawActivity['activity_division'] || ''
+          
+          if (!division || division.trim() === '') {
+            return false
+          }
+          
+          // Check if activity division matches any selected division (case-insensitive)
+          const normalizedDivision = division.trim().toLowerCase()
+          return selectedDivisions.some(selectedDiv => 
+            selectedDiv.trim().toLowerCase() === normalizedDivision
+          )
+        })
+      }
       
       return plannedKPIsInOuterRange.reduce((sum: number, kpi: any) => {
         try {
@@ -6614,7 +6684,27 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
     
     const projectKPIs = projectKPIsMap.get(project.id)
     const allProjectKPIs = projectKPIs?.actual || []
-    const projectActivities = analytics.activities || []
+    // ✅ FIX: Filter activities by selected divisions if filter is applied
+    let projectActivities = analytics.activities || []
+    if (selectedDivisions.length > 0) {
+      projectActivities = projectActivities.filter((activity: BOQActivity) => {
+        const rawActivity = (activity as any).raw || {}
+        const division = activity.activity_division || 
+                       (activity as any)['Activity Division'] || 
+                       rawActivity['Activity Division'] || 
+                       rawActivity['activity_division'] || ''
+        
+        if (!division || division.trim() === '') {
+          return false
+        }
+        
+        // Check if activity division matches any selected division (case-insensitive)
+        const normalizedDivision = division.trim().toLowerCase()
+        return selectedDivisions.some(selectedDiv => 
+          selectedDiv.trim().toLowerCase() === normalizedDivision
+        )
+      })
+    }
     
     // Get Virtual Material Percentage from project
     let virtualMaterialPercentage = 0
@@ -6832,7 +6922,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       console.error('[Outer Range VM] Error calculating outer range virtual material amount:', error)
       return 0
     }
-  }, [outerRangeStart, dateRange.start, today, projectKPIsMap, getPeriodsInRange, showVirtualMaterialValues])
+  }, [outerRangeStart, dateRange.start, today, projectKPIsMap, getPeriodsInRange, showVirtualMaterialValues, selectedDivisions])
 
   // ✅ Calculate Virtual Material Amount for Outer Range (Planned)
   const calculateOuterRangePlannedVirtualMaterialAmount = useCallback((project: Project, analytics: any): number => {
@@ -6845,7 +6935,27 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
     
     const projectKPIs = projectKPIsMap.get(project.id)
     const allProjectKPIs = projectKPIs?.planned || []
-    const projectActivities = analytics.activities || []
+    // ✅ FIX: Filter activities by selected divisions if filter is applied
+    let projectActivities = analytics.activities || []
+    if (selectedDivisions.length > 0) {
+      projectActivities = projectActivities.filter((activity: BOQActivity) => {
+        const rawActivity = (activity as any).raw || {}
+        const division = activity.activity_division || 
+                       (activity as any)['Activity Division'] || 
+                       rawActivity['Activity Division'] || 
+                       rawActivity['activity_division'] || ''
+        
+        if (!division || division.trim() === '') {
+          return false
+        }
+        
+        // Check if activity division matches any selected division (case-insensitive)
+        const normalizedDivision = division.trim().toLowerCase()
+        return selectedDivisions.some(selectedDiv => 
+          selectedDiv.trim().toLowerCase() === normalizedDivision
+        )
+      })
+    }
     
     // Get Virtual Material Percentage from project
     let virtualMaterialPercentage = 0
@@ -7060,13 +7170,33 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       console.error('[Outer Range Planned VM] Error calculating outer range planned virtual material amount:', error)
       return 0
     }
-  }, [outerRangeStart, dateRange.start, today, projectKPIsMap, getPeriodsInRange, showVirtualMaterialValues, viewPlannedValue])
+  }, [outerRangeStart, dateRange.start, today, projectKPIsMap, getPeriodsInRange, showVirtualMaterialValues, viewPlannedValue, selectedDivisions])
 
   // ✅ Calculate Virtual Material Amount for Planned KPIs
   const calculatePeriodPlannedVirtualMaterialAmount = useCallback((project: Project, analytics: any): number[] => {
     const projectKPIs = projectKPIsMap.get(project.id)
     const allProjectKPIs = projectKPIs?.planned || []
-    const projectActivities = analytics.activities || []
+    // ✅ FIX: Filter activities by selected divisions if filter is applied
+    let projectActivities = analytics.activities || []
+    if (selectedDivisions.length > 0) {
+      projectActivities = projectActivities.filter((activity: BOQActivity) => {
+        const rawActivity = (activity as any).raw || {}
+        const division = activity.activity_division || 
+                       (activity as any)['Activity Division'] || 
+                       rawActivity['Activity Division'] || 
+                       rawActivity['activity_division'] || ''
+        
+        if (!division || division.trim() === '') {
+          return false
+        }
+        
+        // Check if activity division matches any selected division (case-insensitive)
+        const normalizedDivision = division.trim().toLowerCase()
+        return selectedDivisions.some(selectedDiv => 
+          selectedDiv.trim().toLowerCase() === normalizedDivision
+        )
+      })
+    }
     
     // Get Virtual Material Percentage from project
     let virtualMaterialPercentage = 0
@@ -7269,51 +7399,24 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
         }
       }, 0)
     })
-  }, [kpis, periods, activities, today, projectKPIsMap, kpiMatchesActivity])
+  }, [kpis, periods, activities, today, projectKPIsMap, kpiMatchesActivity, selectedDivisions])
 
   // ✅ PERFORMANCE: Use existing optimized functions instead of recalculating
   // These functions are already optimized and use projectKPIsMap for fast lookups
+  // ✅ FIX: Use selectedDivisions as a string key to ensure cache recalculation
+  const selectedDivisionsKey = useMemo(() => selectedDivisions.sort().join(','), [selectedDivisions])
+  
   const periodValuesCache = useMemo(() => {
     const cache = new Map<string, { earned: number[], planned: number[], outerRangeValue: number, outerRangePlannedValue: number, outerRangeVirtualMaterialAmount: number, outerRangePlannedVirtualMaterialAmount: number, virtualMaterialAmount: number[], plannedVirtualMaterialAmount: number[] }>()
     
     allAnalytics.forEach((analytics: any) => {
       const projectId = analytics.project.id
-      const earnedValues = calculatePeriodEarnedValue(analytics.project, analytics)
-      const plannedValues = viewPlannedValue ? calculatePeriodPlannedValue(analytics.project, analytics) : []
-      const outerRangeValue = showOuterRangeColumn ? calculateOuterRangeValue(analytics.project, analytics) : 0
-      const outerRangePlannedValue = showOuterRangeColumn && viewPlannedValue ? calculateOuterRangePlannedValue(analytics.project, analytics) : 0
-      const outerRangeVirtualMaterialAmount = showOuterRangeColumn && showVirtualMaterialValues ? calculateOuterRangeVirtualMaterialAmount(analytics.project, analytics) : 0
-      const outerRangePlannedVirtualMaterialAmount = showOuterRangeColumn && showVirtualMaterialValues && viewPlannedValue ? calculateOuterRangePlannedVirtualMaterialAmount(analytics.project, analytics) : 0
-      const virtualMaterialAmount = showVirtualMaterialValues ? calculatePeriodVirtualMaterialAmount(analytics.project, analytics) : []
-      const plannedVirtualMaterialAmount = showVirtualMaterialValues && viewPlannedValue ? calculatePeriodPlannedVirtualMaterialAmount(analytics.project, analytics) : []
-      cache.set(projectId, { earned: earnedValues, planned: plannedValues, outerRangeValue, outerRangePlannedValue, outerRangeVirtualMaterialAmount, outerRangePlannedVirtualMaterialAmount, virtualMaterialAmount, plannedVirtualMaterialAmount })
-    })
-    
-    return cache
-  }, [allAnalytics, calculatePeriodEarnedValue, calculatePeriodPlannedValue, viewPlannedValue, showOuterRangeColumn, calculateOuterRangeValue, calculateOuterRangePlannedValue, calculateOuterRangeVirtualMaterialAmount, calculateOuterRangePlannedVirtualMaterialAmount, showVirtualMaterialValues, calculatePeriodVirtualMaterialAmount, calculatePeriodPlannedVirtualMaterialAmount])
-
-  // ✅ FIX: Show ALL projects from allAnalytics, regardless of date range or KPIs
-  // The date range filter only affects which periods show data in the table, not which projects are displayed
-  // This ensures ALL active projects are always visible, even if they don't have KPIs in the selected period
-  const projectsWithWorkInRange = useMemo(() => {
-    // Always return ALL projects from allAnalytics
-    // The date range is only used for calculating period values, not for filtering projects
-    let filtered = allAnalytics
-    
-    // ✅ FIX: Filter projects by selected divisions if filter is applied
-    if (selectedDivisions.length > 0) {
-      filtered = filtered.filter((analytics: any) => {
-        const project = analytics.project
-        const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
-        
-        // Get all activities for this project
-        const projectActivities = activities.filter((activity: BOQActivity) => {
-          const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
-          return activityFullCode === projectFullCode || activity.project_id === project.id
-        })
-        
-        // Check if any activity belongs to selected divisions
-        const hasMatchingDivision = projectActivities.some((activity: any) => {
+      
+      // ✅ FIX: Filter activities by selected divisions if filter is applied
+      // Create a filtered analytics object with only activities matching selected divisions
+      let filteredAnalytics = analytics
+      if (selectedDivisions.length > 0) {
+        const filteredActivities = (analytics.activities || []).filter((activity: BOQActivity) => {
           const rawActivity = (activity as any).raw || {}
           const division = activity.activity_division || 
                          (activity as any)['Activity Division'] || 
@@ -7331,11 +7434,38 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
           )
         })
         
-        return hasMatchingDivision
-      })
-    }
+        // Create a new analytics object with filtered activities
+        filteredAnalytics = {
+          ...analytics,
+          activities: filteredActivities
+        }
+      }
+      
+      const earnedValues = calculatePeriodEarnedValue(analytics.project, filteredAnalytics)
+      const plannedValues = viewPlannedValue ? calculatePeriodPlannedValue(analytics.project, filteredAnalytics) : []
+      const outerRangeValue = showOuterRangeColumn ? calculateOuterRangeValue(analytics.project, filteredAnalytics) : 0
+      const outerRangePlannedValue = showOuterRangeColumn && viewPlannedValue ? calculateOuterRangePlannedValue(analytics.project, filteredAnalytics) : 0
+      const outerRangeVirtualMaterialAmount = showOuterRangeColumn && showVirtualMaterialValues ? calculateOuterRangeVirtualMaterialAmount(analytics.project, filteredAnalytics) : 0
+      const outerRangePlannedVirtualMaterialAmount = showOuterRangeColumn && showVirtualMaterialValues && viewPlannedValue ? calculateOuterRangePlannedVirtualMaterialAmount(analytics.project, filteredAnalytics) : 0
+      const virtualMaterialAmount = showVirtualMaterialValues ? calculatePeriodVirtualMaterialAmount(analytics.project, filteredAnalytics) : []
+      const plannedVirtualMaterialAmount = showVirtualMaterialValues && viewPlannedValue ? calculatePeriodPlannedVirtualMaterialAmount(analytics.project, filteredAnalytics) : []
+      cache.set(projectId, { earned: earnedValues, planned: plannedValues, outerRangeValue, outerRangePlannedValue, outerRangeVirtualMaterialAmount, outerRangePlannedVirtualMaterialAmount, virtualMaterialAmount, plannedVirtualMaterialAmount })
+    })
+    
+    return cache
+  }, [allAnalytics, calculatePeriodEarnedValue, calculatePeriodPlannedValue, viewPlannedValue, showOuterRangeColumn, calculateOuterRangeValue, calculateOuterRangePlannedValue, calculateOuterRangeVirtualMaterialAmount, calculateOuterRangePlannedVirtualMaterialAmount, showVirtualMaterialValues, calculatePeriodVirtualMaterialAmount, calculatePeriodPlannedVirtualMaterialAmount, selectedDivisionsKey, selectedDivisions])
+
+  // ✅ FIX: Show ALL projects from allAnalytics, regardless of date range or KPIs
+  // The date range filter only affects which periods show data in the table, not which projects are displayed
+  // This ensures ALL active projects are always visible, even if they don't have KPIs in the selected period
+  const projectsWithWorkInRange = useMemo(() => {
+    // ✅ allAnalytics already contains only filtered projects (from filteredProjects)
+    // filteredProjects is already filtered by selectedDivisions, so allAnalytics is also filtered
+    // The date range is only used for calculating period values, not for filtering projects
+    let filtered = allAnalytics
     
     // ✅ Filter out projects with Grand Total = 0 if checkbox is checked
+    // Note: This filter is applied AFTER division filter (which is already in allAnalytics)
     if (hideZeroProjects) {
       filtered = filtered.filter((analytics: any) => {
         const projectId = analytics.project.id
@@ -7347,7 +7477,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
     }
     
     return filtered
-  }, [allAnalytics, hideZeroProjects, periodValuesCache, selectedDivisions, activities])
+  }, [allAnalytics, hideZeroProjects, periodValuesCache])
 
   // ✅ PERFORMANCE: Removed debug logging useEffect for production
 
@@ -7491,28 +7621,47 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
     
     // ✅ Calculate period earned value totals from PROJECT ROWS ONLY (not from expanded activities)
     // ✅ FIX: When project is expanded, its row already shows sum of activities, so we only sum project rows
-    // ✅ FIX: Use allAnalytics (not projectsWithWorkInRange) for chart calculations to avoid changes when hideZeroProjects is enabled
+    // ✅ FIX: Use projectsWithWorkInRange to match exactly what's displayed in the table
     const periodEarnedValueTotals = periods.map((_, periodIndex) => {
       let sum = 0
       
       // ✅ Sum ONLY from project rows (not from expanded activities)
       // When a project is expanded, its row value is already the sum of its activities
-      // ✅ Use allAnalytics instead of projectsWithWorkInRange so chart values don't change when hideZeroProjects is toggled
-      allAnalytics.forEach((analytics: any) => {
-        const isExpanded = expandedProjects.has(analytics.project.id)
+      // ✅ FIX: Use projectsWithWorkInRange to match exactly what's displayed in the table
+      // ✅ FIX: Always calculate from activities (same logic as project row) to ensure consistency
+      projectsWithWorkInRange.forEach((analytics: any) => {
+        const project = analytics.project
+        const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+        let projectActivities = activities.filter((activity: BOQActivity) => {
+          const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+          return activityFullCode === projectFullCode || activity.project_id === project.id
+        })
         
-        if (isExpanded) {
-          // ✅ Project is expanded: use the sum of activities (which is what the project row displays)
-          // This is calculated in the project row rendering logic
-          const project = analytics.project
-          const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
-          const projectActivities = activities.filter((activity: BOQActivity) => {
-            const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
-            return activityFullCode === projectFullCode || activity.project_id === project.id
+        // ✅ FIX: Filter activities by selected divisions if filter is applied (same as project row)
+        if (selectedDivisions.length > 0) {
+          projectActivities = projectActivities.filter((activity: BOQActivity) => {
+            const rawActivity = (activity as any).raw || {}
+            const division = activity.activity_division || 
+                           (activity as any)['Activity Division'] || 
+                           rawActivity['Activity Division'] || 
+                           rawActivity['activity_division'] || ''
+            
+            if (!division || division.trim() === '') {
+              return false
+            }
+            
+            // Check if activity division matches any selected division (case-insensitive)
+            const normalizedDivision = division.trim().toLowerCase()
+            return selectedDivisions.some(selectedDiv => 
+              selectedDiv.trim().toLowerCase() === normalizedDivision
+            )
           })
-          
-          // Calculate sum of activities for this period (same logic as project row when expanded)
-          let periodSum = 0
+        }
+        
+        // ✅ FIX: Always calculate from activities (same logic as project row) to ensure consistency
+        // This ensures Total row matches exactly what's displayed in project rows
+        let periodSum = 0
+        if (projectActivities.length > 0) {
           projectActivities.forEach((activity: BOQActivity) => {
             const rawActivity = (activity as any).raw || {}
             const period = periods[periodIndex]
@@ -7681,13 +7830,9 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
             
             periodSum += activityEarnedValue
           })
-          
-          sum += periodSum
-        } else {
-          // ✅ Project is NOT expanded: use cached value (direct KPI calculation)
-          const earnedValues = calculatePeriodEarnedValue(analytics.project, analytics)
-          sum += earnedValues[periodIndex] || 0
         }
+        
+        sum += periodSum
       })
       
       return sum
@@ -7700,21 +7845,41 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       
       // ✅ Sum ONLY from project rows (not from expanded activities)
       // When a project is expanded, its row value is already the sum of its activities
-      // ✅ Use allAnalytics instead of projectsWithWorkInRange so chart values don't change when hideZeroProjects is toggled
-      allAnalytics.forEach((analytics: any) => {
-        const isExpanded = expandedProjects.has(analytics.project.id)
+      // ✅ FIX: Use projectsWithWorkInRange to match exactly what's displayed in the table
+      // ✅ FIX: Always calculate from activities (same logic as project row) to ensure consistency
+      projectsWithWorkInRange.forEach((analytics: any) => {
+        const project = analytics.project
+        const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+        let projectActivities = activities.filter((activity: BOQActivity) => {
+          const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+          return activityFullCode === projectFullCode || activity.project_id === project.id
+        })
         
-        if (isExpanded) {
-          // ✅ Project is expanded: use the sum of activities (which is what the project row displays)
-          const project = analytics.project
-          const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
-          const projectActivities = activities.filter((activity: BOQActivity) => {
-            const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
-            return activityFullCode === projectFullCode || activity.project_id === project.id
+        // ✅ FIX: Filter activities by selected divisions if filter is applied (same as project row)
+        if (selectedDivisions.length > 0) {
+          projectActivities = projectActivities.filter((activity: BOQActivity) => {
+            const rawActivity = (activity as any).raw || {}
+            const division = activity.activity_division || 
+                           (activity as any)['Activity Division'] || 
+                           rawActivity['Activity Division'] || 
+                           rawActivity['activity_division'] || ''
+            
+            if (!division || division.trim() === '') {
+              return false
+            }
+            
+            // Check if activity division matches any selected division (case-insensitive)
+            const normalizedDivision = division.trim().toLowerCase()
+            return selectedDivisions.some(selectedDiv => 
+              selectedDiv.trim().toLowerCase() === normalizedDivision
+            )
           })
-          
-          // Calculate sum of activities for this period (same logic as project row when expanded)
-          let periodSum = 0
+        }
+        
+        // ✅ FIX: Always calculate from activities (same logic as project row) to ensure consistency
+        // This ensures Total row matches exactly what's displayed in project rows
+        let periodSum = 0
+        if (projectActivities.length > 0) {
           projectActivities.forEach((activity: BOQActivity) => {
             const rawActivity = (activity as any).raw || {}
             const period = periods[periodIndex]
@@ -7793,13 +7958,9 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
             
             periodSum += activityPlannedValue
           })
-          
-          sum += periodSum
-        } else {
-          // ✅ Project is NOT expanded: use cached value (direct KPI calculation)
-          const plannedValues = viewPlannedValue ? calculatePeriodPlannedValue(analytics.project, analytics) : []
-          sum += plannedValues[periodIndex] || 0
         }
+        
+        sum += periodSum
       })
       
       return sum
@@ -8141,7 +8302,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       totalVirtualMaterialAmount,
       totalPlannedVirtualMaterialAmount
     }
-  }, [filteredProjects, periods, periodValuesCache, allAnalytics, showVirtualMaterialValues, viewPlannedValue, expandedProjects, activities, kpis, today, calculatePeriodEarnedValue, calculatePeriodPlannedValue])
+  }, [filteredProjects, periods, periodValuesCache, allAnalytics, projectsWithWorkInRange, showVirtualMaterialValues, viewPlannedValue, expandedProjects, activities, kpis, today, calculatePeriodEarnedValue, calculatePeriodPlannedValue, selectedDivisions])
 
   // Export to Excel function with advanced formatting
   const handleExportPeriodRevenue = useCallback(async () => {
@@ -8207,13 +8368,23 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
         const divisionNames = divisionsData?.divisionNames || {}
         
         // Build divisions list
-        const divisionsList = Object.keys(divisionAmounts)
+        let divisionsList = Object.keys(divisionAmounts)
           .map(key => ({
             key: key.toLowerCase().trim(),
             name: divisionNames[key] || key,
             amount: divisionAmounts[key] || 0
           }))
           .sort((a, b) => b.amount - a.amount)
+        
+        // ✅ FIX: Filter divisions by selected divisions if filter is applied
+        if (selectedDivisions.length > 0) {
+          divisionsList = divisionsList.filter(div => {
+            const normalizedDivName = div.name.trim().toLowerCase()
+            return selectedDivisions.some(selectedDiv => 
+              selectedDiv.trim().toLowerCase() === normalizedDivName
+            )
+          })
+        }
         
         const divisionContractAmount = divisionsList.reduce((sum, div) => sum + div.amount, 0)
         const divisionsText = divisionsList.length > 0 
@@ -9699,7 +9870,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
                     const divisionNames = divisionsData?.divisionNames || {}
                     
                     // Build divisions list sorted by amount (descending)
-                    const divisionsList = Object.keys(divisionAmounts)
+                    let divisionsList = Object.keys(divisionAmounts)
                       .map(key => ({
                         key: key.toLowerCase().trim(),
                         name: divisionNames[key] || key,
@@ -9707,7 +9878,17 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
                       }))
                       .sort((a, b) => b.amount - a.amount)
                     
-                    // Calculate total
+                    // ✅ FIX: Filter divisions by selected divisions if filter is applied
+                    if (selectedDivisions.length > 0) {
+                      divisionsList = divisionsList.filter(div => {
+                        const normalizedDivName = div.name.trim().toLowerCase()
+                        return selectedDivisions.some(selectedDiv => 
+                          selectedDiv.trim().toLowerCase() === normalizedDivName
+                        )
+                      })
+                    }
+                    
+                    // Calculate total (only for selected divisions if filter is applied)
                     const divisionContractAmount = divisionsList.reduce((sum, div) => sum + div.amount, 0)
                     
                     // Get Workmanship
@@ -9721,18 +9902,40 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
                     
                     // Get project activities
                     const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
-                    const projectActivities = activities.filter((activity: BOQActivity) => {
+                    let projectActivities = activities.filter((activity: BOQActivity) => {
                       const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
                       return activityFullCode === projectFullCode || activity.project_id === project.id
                     })
                     
-                    // ✅ FIX: If project is expanded, calculate values from activities FIRST; otherwise use cache
+                    // ✅ FIX: Filter activities by selected divisions if filter is applied
+                    if (selectedDivisions.length > 0) {
+                      projectActivities = projectActivities.filter((activity: BOQActivity) => {
+                        const rawActivity = (activity as any).raw || {}
+                        const division = activity.activity_division || 
+                                       (activity as any)['Activity Division'] || 
+                                       rawActivity['Activity Division'] || 
+                                       rawActivity['activity_division'] || ''
+                        
+                        if (!division || division.trim() === '') {
+                          return false
+                        }
+                        
+                        // Check if activity division matches any selected division (case-insensitive)
+                        const normalizedDivision = division.trim().toLowerCase()
+                        return selectedDivisions.some(selectedDiv => 
+                          selectedDiv.trim().toLowerCase() === normalizedDivision
+                        )
+                      })
+                    }
+                    
+                    // ✅ FIX: Always calculate values from activities (same logic for expanded and collapsed)
+                    // This ensures consistency between expanded and collapsed states
                     let periodValues: number[] = []
                     let periodPlannedValues: number[] = []
                     let periodVirtualMaterialAmounts: number[] = []
                     let periodPlannedVirtualMaterialAmounts: number[] = []
                     
-                    if (isExpanded && projectActivities.length > 0) {
+                    if (projectActivities.length > 0) {
                       // Initialize arrays with zeros
                       periodValues = new Array(periods.length).fill(0)
                       periodPlannedValues = viewPlannedValue ? new Array(periods.length).fill(0) : []
@@ -9740,6 +9943,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
                       periodPlannedVirtualMaterialAmounts = showVirtualMaterialValues && viewPlannedValue ? new Array(periods.length).fill(0) : []
                       
                       // ✅ CRITICAL: Calculate activity values BEFORE rendering project row
+                      // This ensures collapsed and expanded states show the same values
                       projectActivities.forEach((activity: BOQActivity) => {
                         const rawActivity = (activity as any).raw || {}
                         
@@ -10003,8 +10207,9 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
                         })
                       })
                     } else {
-                      // Use cache values (from KPIs directly)
-                    const cachedValues = periodValuesCache.get(project.id)
+                      // ✅ FIX: If no activities, use cache values as fallback
+                      // This should rarely happen if filtering is correct
+                      const cachedValues = periodValuesCache.get(project.id)
                       periodValues = cachedValues?.earned || []
                       periodPlannedValues = viewPlannedValue ? (cachedValues?.planned || []) : []
                       periodVirtualMaterialAmounts = showVirtualMaterialValues ? (cachedValues?.virtualMaterialAmount || []) : []
