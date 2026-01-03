@@ -8,6 +8,7 @@ import { Project, BOQActivity, TABLES } from '@/lib/supabase'
 import { mapProjectFromDB, mapBOQFromDB, mapKPIFromDB } from '@/lib/dataMappers'
 import { processKPIRecord, ProcessedKPI } from '@/lib/kpiProcessor'
 import { getAllProjectsAnalytics } from '@/lib/projectAnalytics'
+import { processAnalyticsInChunks, createDebouncedAnalyticsProcessor } from '@/lib/analyticsProcessor'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
@@ -15,10 +16,13 @@ import { Alert } from '@/components/ui/Alert'
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 import { calculateProjectLookAhead, ProjectLookAhead } from './LookAheadHelper'
 import { formatDate } from '@/lib/dateHelpers'
-import { KPICChartReportView } from './KPICChartReportView'
-import { DelayedActivitiesReportView } from './DelayedActivitiesReportView'
-import { ActivityPeriodicalProgressReportView } from './ActivityPeriodicalProgressReportView'
 import { PrintButton } from '@/components/ui/PrintButton'
+import { Pagination } from '@/components/ui/Pagination'
+
+// ✅ PERFORMANCE: Lazy load report components to reduce initial bundle size
+const KPICChartReportView = lazy(() => import('./KPICChartReportView').then(module => ({ default: module.KPICChartReportView })))
+const DelayedActivitiesReportView = lazy(() => import('./DelayedActivitiesReportView').then(module => ({ default: module.DelayedActivitiesReportView })))
+const ActivityPeriodicalProgressReportView = lazy(() => import('./ActivityPeriodicalProgressReportView').then(module => ({ default: module.ActivityPeriodicalProgressReportView })))
 import {
   FileText,
   Download,
@@ -95,6 +99,8 @@ export function ModernReportsManager() {
   const [isFromCache, setIsFromCache] = useState(false)
   const [activeReport, setActiveReport] = useState<ReportType>('overview')
   const [cachedAnalytics, setCachedAnalytics] = useState<any[] | null>(null) // ✅ Store cached analytics
+  const [computedAnalytics, setComputedAnalytics] = useState<any[]>([]) // ✅ Store computed analytics (chunked)
+  const [isComputingAnalytics, setIsComputingAnalytics] = useState(false) // ✅ Track analytics computation
   const [selectedDivision, setSelectedDivision] = useState<string>('')
   const [selectedProjects, setSelectedProjects] = useState<string[]>([]) // ✅ Changed to array for multi-select
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ start: '', end: '' })
@@ -113,6 +119,7 @@ export function ModernReportsManager() {
   const supabase = getSupabaseClient()
   const isMountedRef = useRef(true)
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const lastProcessedDataRef = useRef<string>('') // ✅ Track last processed data to prevent unnecessary recalculations
   
   // ✅ PERFORMANCE: Use transition for non-urgent updates (report switching, filtering)
   const [isPending, startTransition] = useTransition()
@@ -141,16 +148,20 @@ export function ModernReportsManager() {
   }, [])
 
   // ✅ PERFORMANCE: Debounce filter changes to reduce recalculation
+  // ✅ PERFORMANCE: Adaptive debounce - shorter for simple filters, longer for complex ones
   useEffect(() => {
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current)
     }
     
+    // Use shorter debounce for simple filters, longer for date ranges (heavier calculations)
+    const debounceTime = dateRange.start || dateRange.end ? 500 : 200
+    
     debounceTimerRef.current = setTimeout(() => {
       setDebouncedDivision(selectedDivision)
       setDebouncedProjects(selectedProjects)
       setDebouncedDateRange(dateRange)
-    }, 300) // 300ms debounce
+    }, debounceTime)
     
     return () => {
       if (debounceTimerRef.current) {
@@ -380,6 +391,7 @@ export function ModernReportsManager() {
       loadingFunctionsRef.current.startSmartLoading(setLoading)
       setError('')
 
+      // ✅ PERFORMANCE: Fetch all data in parallel for faster loading
       // Fetch all data with pagination to get ALL records (not just first 1000)
       const [projectsData, activitiesData, kpisData] = await Promise.all([
         fetchAllRecords(TABLES.PROJECTS),
@@ -387,12 +399,13 @@ export function ModernReportsManager() {
         fetchAllRecords(TABLES.KPI)
       ])
 
+      // ✅ PERFORMANCE: Batch mapping operations for better memory management
       const mappedProjects = (projectsData || []).map(mapProjectFromDB)
       const mappedActivities = (activitiesData || []).map(mapBOQFromDB)
       const mappedKPIs = (kpisData || []).map(mapKPIFromDB)
       const processedKPIs = mappedKPIs.map(processKPIRecord)
 
-      // ✅ PERFORMANCE: Calculate analytics once and cache it
+      // ✅ PERFORMANCE: Calculate analytics once and cache it (expensive operation)
       const calculatedAnalytics = getAllProjectsAnalytics(mappedProjects, mappedActivities, processedKPIs)
 
       if (isMountedRef.current) {
@@ -440,7 +453,15 @@ export function ModernReportsManager() {
 
   // Filter data based on division, project, and date range
   // ✅ PERFORMANCE: Optimized filtering using Sets for O(1) lookups and debounced values
+  // ✅ PERFORMANCE: Use requestIdleCallback or setTimeout for heavy filtering operations
   const filteredData = useMemo(() => {
+    // Early return if no filters and data hasn't changed
+    const hasFilters = debouncedDivision || debouncedProjects.length > 0 || debouncedDateRange.start || debouncedDateRange.end
+    
+    if (!hasFilters) {
+      return { filteredProjects: projects, filteredActivities: activities, filteredKPIs: kpis }
+    }
+
     let filteredProjects = projects
     let filteredActivities = activities
     let filteredKPIs = kpis
@@ -448,12 +469,14 @@ export function ModernReportsManager() {
     // Filter by division (using debounced value)
     // ✅ FIX: Support projects with multiple divisions (e.g., "Enabling Division, Soil Improvement Division")
     if (debouncedDivision) {
+      // ✅ PERFORMANCE: Pre-compute division sets for faster lookup
+      const divisionSet = new Set([debouncedDivision])
       filteredProjects = filteredProjects.filter(p => {
         const division = p.responsible_division
         if (!division) return false
         // Check if selected division is in the project's divisions (split by comma)
         const divisionsList = division.split(',').map(d => d.trim())
-        return divisionsList.includes(debouncedDivision)
+        return divisionsList.some(d => divisionSet.has(d))
       })
     }
 
@@ -474,6 +497,7 @@ export function ModernReportsManager() {
       const projectFullCodesSet = new Set(filteredProjects.map(p => p.project_full_code).filter(Boolean))
       const projectIdsSet = new Set(filteredProjects.map(p => p.id))
       
+      // ✅ PERFORMANCE: Batch filter operations
       filteredActivities = filteredActivities.filter(a => {
         const activityFullCode = a.project_full_code || ''
         return projectFullCodesSet.has(activityFullCode) ||
@@ -488,23 +512,25 @@ export function ModernReportsManager() {
     }
 
     // Filter by date range (using debounced values)
-    if (debouncedDateRange.start) {
-      const startDate = new Date(debouncedDateRange.start).getTime()
+    // ✅ PERFORMANCE: Pre-compute date timestamps
+    const startDateTimestamp = debouncedDateRange.start ? new Date(debouncedDateRange.start).getTime() : null
+    const endDateTimestamp = debouncedDateRange.end ? new Date(debouncedDateRange.end).getTime() : null
+    
+    if (startDateTimestamp !== null) {
       filteredActivities = filteredActivities.filter(a => {
-        return new Date(a.created_at).getTime() >= startDate
+        return new Date(a.created_at).getTime() >= startDateTimestamp
       })
       filteredKPIs = filteredKPIs.filter(k => {
-        return new Date(k.created_at).getTime() >= startDate
+        return new Date(k.created_at).getTime() >= startDateTimestamp
       })
     }
 
-    if (debouncedDateRange.end) {
-      const endDate = new Date(debouncedDateRange.end).getTime()
+    if (endDateTimestamp !== null) {
       filteredActivities = filteredActivities.filter(a => {
-        return new Date(a.created_at).getTime() <= endDate
+        return new Date(a.created_at).getTime() <= endDateTimestamp
       })
       filteredKPIs = filteredKPIs.filter(k => {
-        return new Date(k.created_at).getTime() <= endDate
+        return new Date(k.created_at).getTime() <= endDateTimestamp
       })
     }
 
@@ -512,53 +538,183 @@ export function ModernReportsManager() {
   }, [projects, activities, kpis, debouncedDivision, debouncedProjects, debouncedDateRange.start, debouncedDateRange.end])
 
   // ✅ PERFORMANCE: Use cached analytics and filter instead of recalculating
+  // ✅ PERFORMANCE: Enhanced caching with dependency tracking
+  // ✅ PERFORMANCE: Process analytics in chunks to prevent page freezing
   const allAnalytics = useMemo(() => {
     const { filteredProjects, filteredActivities, filteredKPIs } = filteredData
     
-    // If no filters applied, use cached analytics directly (much faster)
+    // Early return if no projects
+    if (filteredProjects.length === 0) {
+      return []
+    }
+    
+    // ✅ PRIORITY 1: If no filters applied, use cached analytics directly (much faster)
     if (!debouncedDivision && debouncedProjects.length === 0 && !debouncedDateRange.start && !debouncedDateRange.end) {
       if (cachedAnalytics && cachedAnalytics.length > 0) {
-        // Filter cached analytics by projects
+        // Filter cached analytics by projects using Set for O(1) lookup
         const filteredProjectIds = new Set(filteredProjects.map(p => p.id))
-        return cachedAnalytics.filter((a: any) => filteredProjectIds.has(a.project.id))
+        const filteredProjectFullCodes = new Set(filteredProjects.map(p => p.project_full_code).filter(Boolean))
+        
+        const filtered = cachedAnalytics.filter((a: any) => {
+          const project = a.project
+          return filteredProjectIds.has(project.id) || 
+                 (project.project_full_code && filteredProjectFullCodes.has(project.project_full_code))
+        })
+        return filtered
       }
     }
     
-    // If filters applied or no cache, calculate from filtered data
-    if (filteredProjects.length === 0) return []
+    // ✅ PRIORITY 2: If computed analytics available, use them
+    if (computedAnalytics && computedAnalytics.length > 0) {
+      return computedAnalytics
+    }
     
-    // ✅ PERFORMANCE: Only recalculate if filters changed, otherwise use cached
-    return getAllProjectsAnalytics(filteredProjects, filteredActivities, filteredKPIs)
-  }, [filteredData, cachedAnalytics, debouncedDivision, debouncedProjects, debouncedDateRange.start, debouncedDateRange.end])
+    // ✅ PRIORITY 3: Fallback to cached analytics even with filters (better than nothing)
+    if (cachedAnalytics && cachedAnalytics.length > 0) {
+      const filteredProjectIds = new Set(filteredProjects.map(p => p.id))
+      const filteredProjectFullCodes = new Set(filteredProjects.map(p => p.project_full_code).filter(Boolean))
+      
+      return cachedAnalytics.filter((a: any) => {
+        const project = a.project
+        return filteredProjectIds.has(project.id) || 
+               (project.project_full_code && filteredProjectFullCodes.has(project.project_full_code))
+      })
+    }
+    
+    // Last resort: return empty array (will trigger computation)
+    return []
+  }, [filteredData, cachedAnalytics, computedAnalytics, debouncedDivision, debouncedProjects, debouncedDateRange.start, debouncedDateRange.end])
+  
+  // ✅ PERFORMANCE: Process analytics in chunks asynchronously to prevent freezing
+  useEffect(() => {
+    const { filteredProjects, filteredActivities, filteredKPIs } = filteredData
+    
+    // Skip if no projects
+    if (filteredProjects.length === 0) {
+      setComputedAnalytics([])
+      lastProcessedDataRef.current = ''
+      return
+    }
+    
+    // ✅ FIX: Create a hash of the data to prevent unnecessary recalculations
+    const dataHash = JSON.stringify({
+      projects: filteredProjects.length,
+      activities: filteredActivities.length,
+      kpis: filteredKPIs.length,
+      division: debouncedDivision,
+      projectsList: debouncedProjects.sort().join(','),
+      dateRange: `${debouncedDateRange.start}-${debouncedDateRange.end}`
+    })
+    
+    // Skip if data hasn't changed
+    if (dataHash === lastProcessedDataRef.current) {
+      return
+    }
+    
+    // Skip if we can use cached analytics (already handled in useMemo above)
+    if (!debouncedDivision && debouncedProjects.length === 0 && !debouncedDateRange.start && !debouncedDateRange.end) {
+      if (cachedAnalytics && cachedAnalytics.length > 0) {
+        lastProcessedDataRef.current = dataHash
+        return // Will use cached in useMemo
+      }
+    }
+    
+    // Process analytics in chunks to prevent page freezing
+    let cancelled = false
+    
+    const processAnalytics = async () => {
+      setIsComputingAnalytics(true)
+      
+      try {
+        const results = await processAnalyticsInChunks(
+          filteredProjects,
+          filteredActivities,
+          filteredKPIs,
+          {
+            chunkSize: 50, // Process 50 projects at a time
+            onProgress: (processed, total) => {
+              // Optional: show progress if needed
+              if (process.env.NODE_ENV === 'development') {
+                console.log(`Processing analytics: ${processed}/${total}`)
+              }
+            }
+          }
+        )
+        
+        if (!cancelled && isMountedRef.current) {
+          setComputedAnalytics(results)
+          lastProcessedDataRef.current = dataHash
+        }
+      } catch (error) {
+        console.error('Error processing analytics:', error)
+        if (!cancelled && isMountedRef.current) {
+          // Fallback to synchronous processing if chunked fails
+          setComputedAnalytics(getAllProjectsAnalytics(filteredProjects, filteredActivities, filteredKPIs))
+          lastProcessedDataRef.current = dataHash
+        }
+      } finally {
+        if (!cancelled) {
+          setIsComputingAnalytics(false)
+        }
+      }
+    }
+    
+    // Debounce the processing slightly to avoid rapid recalculations
+    const timeoutId = setTimeout(() => {
+      processAnalytics()
+    }, 100)
+    
+    return () => {
+      cancelled = true
+      clearTimeout(timeoutId)
+    }
+    // ✅ FIX: Use filteredData object instead of individual properties to prevent infinite loops
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredData, debouncedDivision, debouncedProjects, debouncedDateRange.start, debouncedDateRange.end, cachedAnalytics])
 
   // Calculate comprehensive statistics
   // ✅ PERFORMANCE: Optimized stats calculation - separate simple counts from heavy analytics
+  // ✅ PERFORMANCE: Use single pass for multiple filters
   const stats = useMemo((): ReportStats => {
     const { filteredProjects, filteredActivities, filteredKPIs } = filteredData
     
-    // Projects stats - simple counts (fast)
+    // Projects stats - single pass (faster)
+    let activeProjects = 0
+    let completedProjects = 0
+    for (const p of filteredProjects) {
+      if (p.project_status === 'on-going' || p.project_status === 'site-preparation') {
+        activeProjects++
+      } else if (p.project_status === 'completed-duration' || p.project_status === 'contract-completed') {
+        completedProjects++
+      }
+    }
     const totalProjects = filteredProjects.length
-    const activeProjects = filteredProjects.filter(p => 
-      p.project_status === 'on-going' || p.project_status === 'site-preparation'
-    ).length
-    const completedProjects = filteredProjects.filter(p => 
-      p.project_status === 'completed-duration' || p.project_status === 'contract-completed'
-    ).length
 
-    // Activities stats - simple counts (fast)
-    const totalActivities = filteredActivities.length
-    const completedActivities = filteredActivities.filter(a => 
-      a.activity_progress_percentage >= 100 || a.activity_completed
-    ).length
+    // Activities stats - single pass (faster)
+    let completedActivities = 0
+    let delayedActivities = 0
     const now = Date.now()
-    const delayedActivities = filteredActivities.filter(a => 
-      a.activity_delayed || (a.deadline && new Date(a.deadline).getTime() < now && a.activity_progress_percentage < 100)
-    ).length
+    for (const a of filteredActivities) {
+      if (a.activity_progress_percentage >= 100 || a.activity_completed) {
+        completedActivities++
+      }
+      if (a.activity_delayed || (a.deadline && new Date(a.deadline).getTime() < now && a.activity_progress_percentage < 100)) {
+        delayedActivities++
+      }
+    }
+    const totalActivities = filteredActivities.length
 
-    // KPIs stats - simple counts (fast)
+    // KPIs stats - single pass (faster)
+    let plannedKPIs = 0
+    let actualKPIs = 0
+    for (const k of filteredKPIs) {
+      if (k.input_type === 'Planned') {
+        plannedKPIs++
+      } else if (k.input_type === 'Actual') {
+        actualKPIs++
+      }
+    }
     const totalKPIs = filteredKPIs.length
-    const plannedKPIs = filteredKPIs.filter(k => k.input_type === 'Planned').length
-    const actualKPIs = filteredKPIs.filter(k => k.input_type === 'Actual').length
 
     // ✅ FIXED: Calculate Financial stats directly from KPIs
     // This prevents double-counting when multiple projects share KPIs
@@ -1239,9 +1395,11 @@ export function ModernReportsManager() {
             <Button
               key={tab.id}
               variant={activeReport === tab.id ? 'primary' : 'outline'}
-              onClick={() => startTransition(() => setActiveReport(tab.id as ReportType))}
+              onClick={() => {
+                // ✅ PERFORMANCE: Don't use transition for tab switching - show immediately
+                setActiveReport(tab.id as ReportType)
+              }}
               size="sm"
-              disabled={isPending}
             >
               <Icon className="w-4 h-4 mr-2" />
               {tab.label}
@@ -1277,64 +1435,94 @@ export function ModernReportsManager() {
 
       {/* Report Content */}
       <div className="report-section">
-        {isPending && (
+        {/* ✅ PERFORMANCE: Only show loading if data is actually loading, not when switching tabs */}
+        {/* ✅ FIX: Show content immediately if we have cached analytics or computed analytics, even if computing */}
+        {(isPending || (isComputingAnalytics && allAnalytics.length === 0 && !cachedAnalytics)) && (
           <div className="flex items-center justify-center py-8">
             <LoadingSpinner size="md" />
-            <span className="ml-2 text-gray-600 dark:text-gray-400">Loading report...</span>
+            <span className="ml-2 text-gray-600 dark:text-gray-400">
+              {isComputingAnalytics ? 'Processing analytics...' : 'Loading report...'}
+            </span>
           </div>
         )}
-        {!isPending && activeReport === 'overview' && (
-            <OverviewReport stats={stats} filteredData={filteredData} formatCurrency={formatCurrency} formatPercentage={formatPercentage} />
-          )}
-          {!isPending && activeReport === 'projects' && (
-            <ProjectsReport projects={filteredData.filteredProjects} activities={filteredData.filteredActivities} kpis={filteredData.filteredKPIs} formatCurrency={formatCurrency} />
-          )}
-          {!isPending && activeReport === 'activities' && (
-            <ActivitiesReport activities={filteredData.filteredActivities} kpis={filteredData.filteredKPIs} formatCurrency={formatCurrency} />
-          )}
-          {!isPending && activeReport === 'kpis' && (
-            <KPIsReport kpis={filteredData.filteredKPIs} formatCurrency={formatCurrency} />
-          )}
-          {!isPending && activeReport === 'financial' && (
-            <FinancialReport stats={stats} filteredData={filteredData} formatCurrency={formatCurrency} />
-          )}
-          {!isPending && activeReport === 'performance' && (
-            <PerformanceReport filteredData={filteredData} formatCurrency={formatCurrency} formatPercentage={formatPercentage} />
-          )}
-          {!isPending && activeReport === 'lookahead' && (
-            <LookaheadReportView activities={filteredData.filteredActivities} projects={filteredData.filteredProjects} formatCurrency={formatCurrency} />
-          )}
-          {!isPending && activeReport === 'monthly-revenue' && (
-            <MonthlyWorkRevenueReportView 
-              activities={filteredData.filteredActivities} 
-              projects={filteredData.filteredProjects} 
-              kpis={filteredData.filteredKPIs}
-              formatCurrency={formatCurrency} 
-            />
-          )}
-          {!isPending && activeReport === 'kpi-chart' && (
-            <KPICChartReportView 
-              activities={filteredData.filteredActivities} 
-              projects={filteredData.filteredProjects} 
-              kpis={filteredData.filteredKPIs}
-              formatCurrency={formatCurrency} 
-            />
-          )}
-          {!isPending && activeReport === 'delayed-activities' && (
-            <DelayedActivitiesReportView 
-              activities={filteredData.filteredActivities} 
-              projects={filteredData.filteredProjects} 
-              formatCurrency={formatCurrency} 
-            />
-          )}
-          {!isPending && activeReport === 'activity-periodical-progress' && (
-            <ActivityPeriodicalProgressReportView 
-              activities={filteredData.filteredActivities} 
-              projects={filteredData.filteredProjects} 
-              kpis={filteredData.filteredKPIs}
-              formatCurrency={formatCurrency} 
-            />
-          )}
+        {!isPending && (allAnalytics.length > 0 || (cachedAnalytics && cachedAnalytics.length > 0)) && (
+          <Suspense fallback={
+            <div className="flex items-center justify-center py-8">
+              <LoadingSpinner size="md" />
+              <span className="ml-2 text-gray-600 dark:text-gray-400">Loading report...</span>
+            </div>
+          }>
+            {activeReport === 'overview' && (
+              <OverviewReport stats={stats} filteredData={filteredData} formatCurrency={formatCurrency} formatPercentage={formatPercentage} />
+            )}
+            {activeReport === 'projects' && (
+              <ProjectsReport 
+                projects={filteredData.filteredProjects} 
+                activities={filteredData.filteredActivities} 
+                kpis={filteredData.filteredKPIs} 
+                allAnalytics={allAnalytics}
+                formatCurrency={formatCurrency} 
+              />
+            )}
+            {activeReport === 'activities' && (
+              <ActivitiesReport activities={filteredData.filteredActivities} kpis={filteredData.filteredKPIs} formatCurrency={formatCurrency} />
+            )}
+            {activeReport === 'kpis' && (
+              <KPIsReport kpis={filteredData.filteredKPIs} formatCurrency={formatCurrency} />
+            )}
+            {activeReport === 'financial' && (
+              <FinancialReport 
+                stats={stats} 
+                filteredData={filteredData} 
+                allAnalytics={allAnalytics}
+                formatCurrency={formatCurrency} 
+              />
+            )}
+            {activeReport === 'performance' && (
+              <PerformanceReport 
+                filteredData={filteredData} 
+                allAnalytics={allAnalytics}
+                formatCurrency={formatCurrency} 
+                formatPercentage={formatPercentage} 
+              />
+            )}
+            {activeReport === 'lookahead' && (
+              <LookaheadReportView activities={filteredData.filteredActivities} projects={filteredData.filteredProjects} formatCurrency={formatCurrency} />
+            )}
+            {activeReport === 'monthly-revenue' && (
+              <MonthlyWorkRevenueReportView 
+                activities={filteredData.filteredActivities} 
+                projects={filteredData.filteredProjects} 
+                kpis={filteredData.filteredKPIs}
+                allAnalytics={allAnalytics}
+                formatCurrency={formatCurrency} 
+              />
+            )}
+            {activeReport === 'kpi-chart' && (
+              <KPICChartReportView 
+                activities={filteredData.filteredActivities} 
+                projects={filteredData.filteredProjects} 
+                kpis={filteredData.filteredKPIs}
+                formatCurrency={formatCurrency} 
+              />
+            )}
+            {activeReport === 'delayed-activities' && (
+              <DelayedActivitiesReportView 
+                activities={filteredData.filteredActivities} 
+                projects={filteredData.filteredProjects} 
+                formatCurrency={formatCurrency} 
+              />
+            )}
+            {activeReport === 'activity-periodical-progress' && (
+              <ActivityPeriodicalProgressReportView 
+                activities={filteredData.filteredActivities} 
+                projects={filteredData.filteredProjects} 
+                kpis={filteredData.filteredKPIs}
+                formatCurrency={formatCurrency} 
+              />
+            )}
+          </Suspense>
+        )}
       </div>
     </div>
   )
@@ -1457,11 +1645,33 @@ const OverviewReport = memo(function OverviewReport({ stats, filteredData, forma
 
 // Projects Report Component
 // ✅ PERFORMANCE: Memoized to prevent unnecessary re-renders
-const ProjectsReport = memo(function ProjectsReport({ projects, activities, kpis, formatCurrency }: any) {
-  // ✅ PERFORMANCE: Memoize analytics calculation
+// ✅ PERFORMANCE: Added pagination for large tables
+const ProjectsReport = memo(function ProjectsReport({ projects, activities, kpis, allAnalytics: providedAnalytics, formatCurrency }: any) {
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage, setItemsPerPage] = useState(50)
+  
+  // ✅ PERFORMANCE: Use provided analytics if available, otherwise calculate
   const allAnalytics = useMemo(() => {
+    if (providedAnalytics && providedAnalytics.length > 0) {
+      return providedAnalytics
+    }
+    // Fallback: calculate if not provided
     return getAllProjectsAnalytics(projects, activities, kpis)
-  }, [projects, activities, kpis])
+  }, [providedAnalytics, projects, activities, kpis])
+
+  // ✅ PERFORMANCE: Paginate data
+  const paginatedAnalytics = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage
+    const endIndex = startIndex + itemsPerPage
+    return allAnalytics.slice(startIndex, endIndex)
+  }, [allAnalytics, currentPage, itemsPerPage])
+
+  const totalPages = Math.ceil(allAnalytics.length / itemsPerPage)
+
+  // Reset to page 1 when items per page changes
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [itemsPerPage])
 
   return (
     <Card>
@@ -1469,7 +1679,7 @@ const ProjectsReport = memo(function ProjectsReport({ projects, activities, kpis
         <CardTitle>Projects Report</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: '70vh' }}>
+        <div className="overflow-x-auto">
           <table className="w-full border-collapse">
             <thead className="sticky top-0 z-10">
               <tr className="bg-gradient-to-r from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-700 border-b-2 border-gray-300 dark:border-gray-600">
@@ -1482,7 +1692,7 @@ const ProjectsReport = memo(function ProjectsReport({ projects, activities, kpis
               </tr>
             </thead>
             <tbody>
-              {allAnalytics.map((analytics: any) => {
+              {paginatedAnalytics.map((analytics: any) => {
                 const project = analytics.project
                 const progress = analytics.actualProgress || 0
                 const variance = analytics.variance || 0
@@ -1564,6 +1774,16 @@ const ProjectsReport = memo(function ProjectsReport({ projects, activities, kpis
             )}
           </table>
         </div>
+        {allAnalytics.length > itemsPerPage && (
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+            itemsPerPage={itemsPerPage}
+            totalItems={allAnalytics.length}
+            onItemsPerPageChange={setItemsPerPage}
+          />
+        )}
           </CardContent>
         </Card>
   )
@@ -1571,9 +1791,15 @@ const ProjectsReport = memo(function ProjectsReport({ projects, activities, kpis
 
 // Activities Report Component
 // ✅ PERFORMANCE: Memoized to prevent unnecessary re-renders
+// ✅ PERFORMANCE: Added pagination for large tables
 const ActivitiesReport = memo(function ActivitiesReport({ activities, kpis = [], formatCurrency }: any) {
   const [currentPage, setCurrentPage] = useState(1)
-  const itemsPerPage = 50
+  const [itemsPerPage, setItemsPerPage] = useState(50)
+  
+  // ✅ PERFORMANCE: Reset to page 1 when items per page changes
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [itemsPerPage])
   
   // Get project currency for each activity
   const getActivityCurrency = (activity: BOQActivity): string => {
@@ -3024,30 +3250,15 @@ const ActivitiesReport = memo(function ActivitiesReport({ activities, kpis = [],
           </div>
           
           {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between mt-4">
-              <div className="text-sm text-gray-600 dark:text-gray-400">
-                Page {currentPage} of {totalPages}
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                  disabled={currentPage === 1}
-                >
-                  Previous
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                  disabled={currentPage === totalPages}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
+          {activities.length > itemsPerPage && (
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
+              itemsPerPage={itemsPerPage}
+              totalItems={activities.length}
+              onItemsPerPageChange={setItemsPerPage}
+            />
           )}
       </CardContent>
     </Card>
@@ -3057,7 +3268,16 @@ const ActivitiesReport = memo(function ActivitiesReport({ activities, kpis = [],
 
 // KPIs Report Component
 // ✅ PERFORMANCE: Memoized to prevent unnecessary re-renders
+// ✅ PERFORMANCE: Added pagination for large tables
 const KPIsReport = memo(function KPIsReport({ kpis, formatCurrency }: any) {
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage, setItemsPerPage] = useState(50)
+  
+  // ✅ PERFORMANCE: Reset to page 1 when items per page changes
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [itemsPerPage])
+  
   // ✅ PERFORMANCE: Memoize filtered KPIs
   const plannedKPIs = useMemo(() => {
     return kpis.filter((k: ProcessedKPI) => k.input_type === 'Planned')
@@ -3076,10 +3296,14 @@ const KPIsReport = memo(function KPIsReport({ kpis, formatCurrency }: any) {
     return actualKPIs.reduce((sum: number, k: ProcessedKPI) => sum + (k.quantity || 0), 0)
   }, [actualKPIs])
   
-  // ✅ PERFORMANCE: Memoize displayed KPIs (limit to 100)
+  // ✅ PERFORMANCE: Paginate displayed KPIs
   const displayedKPIs = useMemo(() => {
-    return kpis.slice(0, 100)
-  }, [kpis])
+    const startIndex = (currentPage - 1) * itemsPerPage
+    const endIndex = startIndex + itemsPerPage
+    return kpis.slice(startIndex, endIndex)
+  }, [kpis, currentPage, itemsPerPage])
+  
+  const totalPages = Math.ceil(kpis.length / itemsPerPage)
   
   return (
     <div className="space-y-6">
@@ -3151,6 +3375,16 @@ const KPIsReport = memo(function KPIsReport({ kpis, formatCurrency }: any) {
           </tbody>
         </table>
             </div>
+          {kpis.length > itemsPerPage && (
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
+              itemsPerPage={itemsPerPage}
+              totalItems={kpis.length}
+              onItemsPerPageChange={setItemsPerPage}
+            />
+          )}
           </CardContent>
         </Card>
     </div>
@@ -3159,13 +3393,35 @@ const KPIsReport = memo(function KPIsReport({ kpis, formatCurrency }: any) {
 
 // Financial Report Component
 // ✅ PERFORMANCE: Memoized to prevent unnecessary re-renders
-const FinancialReport = memo(function FinancialReport({ stats, filteredData, formatCurrency }: any) {
+// ✅ PERFORMANCE: Added pagination for large tables
+const FinancialReport = memo(function FinancialReport({ stats, filteredData, allAnalytics: providedAnalytics, formatCurrency }: any) {
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage, setItemsPerPage] = useState(50)
+  
+  // ✅ PERFORMANCE: Reset to page 1 when items per page changes
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [itemsPerPage])
+  
   const { filteredProjects } = filteredData
   
-  // ✅ PERFORMANCE: Memoize analytics calculation
+  // ✅ PERFORMANCE: Use provided analytics if available, otherwise calculate
   const allAnalytics = useMemo(() => {
+    if (providedAnalytics && providedAnalytics.length > 0) {
+      return providedAnalytics
+    }
+    // Fallback: calculate if not provided
     return getAllProjectsAnalytics(filteredProjects, filteredData.filteredActivities, filteredData.filteredKPIs)
-  }, [filteredProjects, filteredData.filteredActivities, filteredData.filteredKPIs])
+  }, [providedAnalytics, filteredProjects, filteredData.filteredActivities, filteredData.filteredKPIs])
+  
+  // ✅ PERFORMANCE: Paginate analytics
+  const paginatedAnalytics = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage
+    const endIndex = startIndex + itemsPerPage
+    return allAnalytics.slice(startIndex, endIndex)
+  }, [allAnalytics, currentPage, itemsPerPage])
+  
+  const totalPages = Math.ceil(allAnalytics.length / itemsPerPage)
 
   // ✅ PERFORMANCE: Memoize totals
   const totals = useMemo(() => {
@@ -3242,7 +3498,7 @@ const FinancialReport = memo(function FinancialReport({ stats, filteredData, for
             </tr>
           </thead>
               <tbody>
-                {allAnalytics.map((analytics: any) => {
+                {paginatedAnalytics.map((analytics: any) => {
                   const project = analytics.project
               return (
                 <tr key={project.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
@@ -3300,6 +3556,16 @@ const FinancialReport = memo(function FinancialReport({ stats, filteredData, for
             )}
         </table>
       </div>
+      {allAnalytics.length > itemsPerPage && (
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+          itemsPerPage={itemsPerPage}
+          totalItems={allAnalytics.length}
+          onItemsPerPageChange={setItemsPerPage}
+        />
+      )}
         </CardContent>
       </Card>
     </div>
@@ -3308,11 +3574,33 @@ const FinancialReport = memo(function FinancialReport({ stats, filteredData, for
 
 // Performance Report Component
 // ✅ PERFORMANCE: Memoized to prevent unnecessary re-renders
-const PerformanceReport = memo(function PerformanceReport({ filteredData, formatCurrency, formatPercentage }: any) {
-  // ✅ PERFORMANCE: Memoize analytics calculation
+// ✅ PERFORMANCE: Added pagination for large tables
+const PerformanceReport = memo(function PerformanceReport({ filteredData, allAnalytics: providedAnalytics, formatCurrency, formatPercentage }: any) {
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage, setItemsPerPage] = useState(50)
+  
+  // ✅ PERFORMANCE: Reset to page 1 when items per page changes
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [itemsPerPage])
+  
+  // ✅ PERFORMANCE: Use provided analytics if available, otherwise calculate
   const allAnalytics = useMemo(() => {
+    if (providedAnalytics && providedAnalytics.length > 0) {
+      return providedAnalytics
+    }
+    // Fallback: calculate if not provided
     return getAllProjectsAnalytics(filteredData.filteredProjects, filteredData.filteredActivities, filteredData.filteredKPIs)
-  }, [filteredData.filteredProjects, filteredData.filteredActivities, filteredData.filteredKPIs])
+  }, [providedAnalytics, filteredData.filteredProjects, filteredData.filteredActivities, filteredData.filteredKPIs])
+  
+  // ✅ PERFORMANCE: Paginate analytics
+  const paginatedAnalytics = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage
+    const endIndex = startIndex + itemsPerPage
+    return allAnalytics.slice(startIndex, endIndex)
+  }, [allAnalytics, currentPage, itemsPerPage])
+  
+  const totalPages = Math.ceil(allAnalytics.length / itemsPerPage)
 
   // ✅ PERFORMANCE: Memoize project status counts
   const projectStatusCounts = useMemo(() => {
@@ -3374,7 +3662,7 @@ const PerformanceReport = memo(function PerformanceReport({ filteredData, format
             </tr>
           </thead>
               <tbody>
-                {allAnalytics.map((analytics: any) => {
+                {paginatedAnalytics.map((analytics: any) => {
                   const project = analytics.project
                   const progress = analytics.actualProgress || 0
                   const plannedProgress = analytics.plannedProgress || 0
@@ -3443,6 +3731,16 @@ const PerformanceReport = memo(function PerformanceReport({ filteredData, format
             )}
         </table>
       </div>
+      {allAnalytics.length > itemsPerPage && (
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+          itemsPerPage={itemsPerPage}
+          totalItems={allAnalytics.length}
+          onItemsPerPageChange={setItemsPerPage}
+        />
+      )}
         </CardContent>
       </Card>
     </div>
@@ -4300,8 +4598,9 @@ const LookaheadReportView = memo(function LookaheadReportView({ activities, proj
 type PeriodType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
 
 // ✅ PERFORMANCE: Memoized to prevent unnecessary re-renders
-const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView({ activities, projects, kpis, formatCurrency }: any) {
+const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView({ activities, projects, kpis, allAnalytics: providedAnalytics, formatCurrency }: any) {
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>([]) // ✅ Changed to array for multi-select
+  const [debouncedSelectedDivisions, setDebouncedSelectedDivisions] = useState<string[]>([]) // ✅ Debounced divisions
   const [showDivisionDropdown, setShowDivisionDropdown] = useState<boolean>(false)
   const [divisionSearch, setDivisionSearch] = useState<string>('')
   const divisionDropdownRef = useRef<HTMLDivElement>(null)
@@ -4309,7 +4608,30 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
     start: '', 
     end: '' 
   })
+  const [debouncedDateRange, setDebouncedDateRange] = useState<{ start: string; end: string }>({ 
+    start: '', 
+    end: '' 
+  }) // ✅ Debounced date range
   const [periodType, setPeriodType] = useState<PeriodType>('weekly')
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // ✅ PERFORMANCE: Debounce filter changes to reduce recalculation
+  useEffect(() => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current)
+    }
+    
+    debounceTimerRef.current = setTimeout(() => {
+      setDebouncedSelectedDivisions(selectedDivisions)
+      setDebouncedDateRange(dateRange)
+    }, 300) // 300ms debounce
+    
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current)
+      }
+    }
+  }, [debouncedSelectedDivisions, debouncedDateRange])
   const [viewPlannedValue, setViewPlannedValue] = useState<boolean>(false)
   const [hideZeroProjects, setHideZeroProjects] = useState<boolean>(false)
   const [hideDivisionsColumn, setHideDivisionsColumn] = useState<boolean>(false)
@@ -4457,13 +4779,14 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
 
   // ✅ Show ALL projects (not filtered by status)
   // The user wants to see all projects, including those that might not be "active"
+  // ✅ PERFORMANCE: Use debounced divisions to reduce recalculation
   const filteredProjects = useMemo(() => {
     let filtered = projects
     
     // Filter by divisions (if selected) - ✅ Support multi-select
     // ✅ FIX: Use divisions from activities (same as table) instead of project.responsible_division
     // This ensures consistency between filter and table display
-    if (selectedDivisions.length > 0) {
+    if (debouncedSelectedDivisions.length > 0) {
       filtered = filtered.filter((p: Project) => {
         // Build project full code for matching
         const projectFullCode = (p.project_full_code || `${p.project_code}${p.project_sub_code ? `-${p.project_sub_code}` : ''}`).toString().trim().toUpperCase()
@@ -4501,7 +4824,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
         // ✅ FIX: Check if any selected division matches any project division
         // Use exact match first, then case-insensitive match as fallback
         const projectDivisionsArray = Array.from(projectDivisions)
-        return selectedDivisions.some(selectedDiv => {
+        return debouncedSelectedDivisions.some(selectedDiv => {
           const normalizedSelectedDiv = selectedDiv.trim()
           // Try exact match first
           if (projectDivisionsArray.some(d => d.trim() === normalizedSelectedDiv)) {
@@ -4517,7 +4840,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
     // This ensures all projects are visible in the report
     
     return filtered
-  }, [projects, selectedDivisions, activities])
+  }, [projects, debouncedSelectedDivisions, activities])
 
   // ✅ Helper functions for zone matching (same logic as other components)
   const normalizeZone = useCallback((zone: string, projectCode: string, projectFullCode?: string): string => {
@@ -4720,7 +5043,8 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
     }
     
     // ✅ FIX: Only process filtered projects (if division filter is applied)
-    const projectsToProcess = selectedDivisions.length > 0 ? filteredProjects : projects
+    // ✅ PERFORMANCE: Use debounced divisions to reduce recalculation
+    const projectsToProcess = debouncedSelectedDivisions.length > 0 ? filteredProjects : projects
     
     projectsToProcess.forEach((project: Project) => {
       // ✅ FIX: Use project_full_code as primary identifier (use existing if available)
@@ -4785,8 +5109,9 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       const divisionNames: Record<string, string> = {}
       
       // ✅ FIX: Filter activities by selected divisions if filter is applied
+      // ✅ PERFORMANCE: Use debounced divisions to reduce recalculation
       let activitiesToProcess = projectActivities
-      if (selectedDivisions.length > 0) {
+      if (debouncedSelectedDivisions.length > 0) {
         activitiesToProcess = projectActivities.filter((activity: any) => {
           const rawActivity = (activity as any).raw || {}
           const division = activity.activity_division || 
@@ -4800,7 +5125,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
           
           // Check if activity division matches any selected division (case-insensitive)
           const normalizedDivision = division.trim().toLowerCase()
-          return selectedDivisions.some(selectedDiv => 
+          return debouncedSelectedDivisions.some(selectedDiv => 
             selectedDiv.trim().toLowerCase() === normalizedDivision
           )
         })
@@ -4863,13 +5188,14 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
     })
     
     return map
-  }, [projects, activities, selectedDivisions, filteredProjects])
+  }, [projects, activities, debouncedSelectedDivisions, filteredProjects])
 
   // Get periods in date range - تقسيم المدة حسب النوع المختار (يومي، أسبوعي، شهري، ربع سنوي، سنوي)
+  // ✅ PERFORMANCE: Use debounced date range to reduce recalculation
   const getPeriodsInRange = useMemo(() => {
     const periods: Array<{ label: string; start: Date; end: Date }> = []
     
-    if (!dateRange.start || !dateRange.end) {
+    if (!debouncedDateRange.start || !debouncedDateRange.end) {
       // Default: last 4 periods based on periodType
       const now = new Date()
       const defaultCount = periodType === 'daily' ? 30 : periodType === 'weekly' ? 4 : periodType === 'monthly' ? 6 : periodType === 'quarterly' ? 4 : 2
@@ -4954,8 +5280,8 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       return periods
     }
 
-    const start = new Date(dateRange.start)
-    const end = new Date(dateRange.end)
+    const start = new Date(debouncedDateRange.start)
+    const end = new Date(debouncedDateRange.end)
     start.setHours(0, 0, 0, 0)
     end.setHours(23, 59, 59, 999)
     
@@ -5064,7 +5390,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
     }
 
     return periods
-  }, [dateRange, periodType])
+  }, [debouncedDateRange, periodType])
 
   const periods = getPeriodsInRange
   // Keep 'weeks' alias for backward compatibility
@@ -5353,7 +5679,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       // ✅ PERFORMANCE: Use cached project activities from analytics instead of filtering every time
       // ✅ FIX: Filter activities by selected divisions if filter is applied
       let projectActivities = analytics.activities || []
-      if (selectedDivisions.length > 0) {
+      if (debouncedSelectedDivisions.length > 0) {
         projectActivities = projectActivities.filter((activity: BOQActivity) => {
           const rawActivity = (activity as any).raw || {}
           const division = activity.activity_division || 
@@ -5367,7 +5693,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
           
           // Check if activity division matches any selected division (case-insensitive)
           const normalizedDivision = division.trim().toLowerCase()
-          return selectedDivisions.some(selectedDiv => 
+          return debouncedSelectedDivisions.some(selectedDiv => 
             selectedDiv.trim().toLowerCase() === normalizedDivision
           )
         })
@@ -5539,7 +5865,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
         }
       }, 0)
     })
-  }, [kpis, weeks, activities, selectedDivisions])
+  }, [kpis, weeks, activities, debouncedSelectedDivisions])
 
   // ✅ Calculate Virtual Material Value from KPIs for activities with use_virtual_material
   // For activities with use_virtual_material = true: Total Virtual Material Value = Base Value + Virtual Material Amount
@@ -5782,7 +6108,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
         }
       }, 0)
     })
-  }, [kpis, periods, activities, today, projectKPIsMap, kpiMatchesActivity, selectedDivisions])
+  }, [kpis, periods, activities, today, projectKPIsMap, kpiMatchesActivity, debouncedSelectedDivisions])
 
   // ✅ PERFORMANCE: Memoize calculatePeriodEarnedValue to avoid recalculations
   const calculatePeriodEarnedValue = useCallback((project: Project, analytics: any): number[] => {
@@ -5887,7 +6213,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
           // ✅ PERFORMANCE: Use cached project activities from analytics (already filtered)
           // ✅ FIX: Filter activities by selected divisions if filter is applied
           let projectActivities = analytics.activities || []
-          if (selectedDivisions.length > 0) {
+          if (debouncedSelectedDivisions.length > 0) {
             projectActivities = projectActivities.filter((activity: BOQActivity) => {
               const rawActivity = (activity as any).raw || {}
               const division = activity.activity_division || 
@@ -5995,7 +6321,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
         }
       }, 0)
     })
-  }, [kpis, periods, activities, today, projectKPIsMap, showVirtualMaterialValues, selectedDivisions])
+  }, [kpis, periods, activities, today, projectKPIsMap, showVirtualMaterialValues, debouncedSelectedDivisions])
 
   // ✅ Calculate Virtual Material Amount per period from KPIs for activities with use_virtual_material
   const calculatePeriodVirtualMaterialAmount = useCallback((project: Project, analytics: any): number[] => {
@@ -6229,11 +6555,16 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
         }
       }, 0)
     })
-  }, [kpis, periods, activities, today, projectKPIsMap, kpiMatchesActivity, selectedDivisions])
+  }, [kpis, periods, activities, today, projectKPIsMap, kpiMatchesActivity, debouncedSelectedDivisions])
 
+  // ✅ PERFORMANCE: Use provided analytics if available, otherwise calculate
   const allAnalytics = useMemo(() => {
+    if (providedAnalytics && providedAnalytics.length > 0) {
+      return providedAnalytics
+    }
+    // Fallback: calculate if not provided
     return getAllProjectsAnalytics(filteredProjects, activities, kpis)
-  }, [filteredProjects, activities, kpis])
+  }, [providedAnalytics, filteredProjects, activities, kpis])
 
   // ✅ PERFORMANCE: Pre-calculate period values for all projects once
   // ✅ Calculate value before the selected date range (Outer Range)
@@ -6316,7 +6647,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       // ✅ Calculate value using EXACT SAME LOGIC as calculatePeriodEarnedValue
       // ✅ FIX: Filter activities by selected divisions if filter is applied
       let projectActivities = analytics.activities || []
-      if (selectedDivisions.length > 0) {
+      if (debouncedSelectedDivisions.length > 0) {
         projectActivities = projectActivities.filter((activity: BOQActivity) => {
           const rawActivity = (activity as any).raw || {}
           const division = activity.activity_division || 
@@ -6330,7 +6661,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
           
           // Check if activity division matches any selected division (case-insensitive)
           const normalizedDivision = division.trim().toLowerCase()
-          return selectedDivisions.some(selectedDiv => 
+          return debouncedSelectedDivisions.some(selectedDiv => 
             selectedDiv.trim().toLowerCase() === normalizedDivision
           )
         })
@@ -6461,7 +6792,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       console.error('[Outer Range] Error calculating outer range value:', error)
       return 0
     }
-  }, [outerRangeStart, dateRange.start, today, projectKPIsMap, getPeriodsInRange, selectedDivisions])
+  }, [outerRangeStart, debouncedDateRange.start, today, projectKPIsMap, getPeriodsInRange, debouncedSelectedDivisions])
 
   // ✅ Calculate Planned value before the selected date range (Outer Range)
   const calculateOuterRangePlannedValue = useCallback((project: Project, analytics: any): number => {
@@ -6537,7 +6868,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       // ✅ Calculate value using EXACT SAME LOGIC as calculatePeriodPlannedValue
       // ✅ FIX: Filter activities by selected divisions if filter is applied
       let projectActivities = analytics.activities || []
-      if (selectedDivisions.length > 0) {
+      if (debouncedSelectedDivisions.length > 0) {
         projectActivities = projectActivities.filter((activity: BOQActivity) => {
           const rawActivity = (activity as any).raw || {}
           const division = activity.activity_division || 
@@ -6551,7 +6882,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
           
           // Check if activity division matches any selected division (case-insensitive)
           const normalizedDivision = division.trim().toLowerCase()
-          return selectedDivisions.some(selectedDiv => 
+          return debouncedSelectedDivisions.some(selectedDiv => 
             selectedDiv.trim().toLowerCase() === normalizedDivision
           )
         })
@@ -6922,7 +7253,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       console.error('[Outer Range VM] Error calculating outer range virtual material amount:', error)
       return 0
     }
-  }, [outerRangeStart, dateRange.start, today, projectKPIsMap, getPeriodsInRange, showVirtualMaterialValues, selectedDivisions])
+  }, [outerRangeStart, debouncedDateRange.start, today, projectKPIsMap, getPeriodsInRange, showVirtualMaterialValues, debouncedSelectedDivisions])
 
   // ✅ Calculate Virtual Material Amount for Outer Range (Planned)
   const calculateOuterRangePlannedVirtualMaterialAmount = useCallback((project: Project, analytics: any): number => {
@@ -7170,7 +7501,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       console.error('[Outer Range Planned VM] Error calculating outer range planned virtual material amount:', error)
       return 0
     }
-  }, [outerRangeStart, dateRange.start, today, projectKPIsMap, getPeriodsInRange, showVirtualMaterialValues, viewPlannedValue, selectedDivisions])
+  }, [outerRangeStart, debouncedDateRange.start, today, projectKPIsMap, getPeriodsInRange, showVirtualMaterialValues, viewPlannedValue, debouncedSelectedDivisions])
 
   // ✅ Calculate Virtual Material Amount for Planned KPIs
   const calculatePeriodPlannedVirtualMaterialAmount = useCallback((project: Project, analytics: any): number[] => {
@@ -7399,12 +7730,12 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
         }
       }, 0)
     })
-  }, [kpis, periods, activities, today, projectKPIsMap, kpiMatchesActivity, selectedDivisions])
+  }, [kpis, periods, activities, today, projectKPIsMap, kpiMatchesActivity, debouncedSelectedDivisions])
 
   // ✅ PERFORMANCE: Use existing optimized functions instead of recalculating
   // These functions are already optimized and use projectKPIsMap for fast lookups
-  // ✅ FIX: Use selectedDivisions as a string key to ensure cache recalculation
-  const selectedDivisionsKey = useMemo(() => selectedDivisions.sort().join(','), [selectedDivisions])
+  // ✅ FIX: Use debouncedSelectedDivisions as a string key to ensure cache recalculation
+  const selectedDivisionsKey = useMemo(() => debouncedSelectedDivisions.sort().join(','), [debouncedSelectedDivisions])
   
   const periodValuesCache = useMemo(() => {
     const cache = new Map<string, { earned: number[], planned: number[], outerRangeValue: number, outerRangePlannedValue: number, outerRangeVirtualMaterialAmount: number, outerRangePlannedVirtualMaterialAmount: number, virtualMaterialAmount: number[], plannedVirtualMaterialAmount: number[] }>()
@@ -7415,7 +7746,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       // ✅ FIX: Filter activities by selected divisions if filter is applied
       // Create a filtered analytics object with only activities matching selected divisions
       let filteredAnalytics = analytics
-      if (selectedDivisions.length > 0) {
+      if (debouncedSelectedDivisions.length > 0) {
         const filteredActivities = (analytics.activities || []).filter((activity: BOQActivity) => {
           const rawActivity = (activity as any).raw || {}
           const division = activity.activity_division || 
@@ -7429,7 +7760,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
           
           // Check if activity division matches any selected division (case-insensitive)
           const normalizedDivision = division.trim().toLowerCase()
-          return selectedDivisions.some(selectedDiv => 
+          return debouncedSelectedDivisions.some(selectedDiv => 
             selectedDiv.trim().toLowerCase() === normalizedDivision
           )
         })
@@ -7453,7 +7784,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
     })
     
     return cache
-  }, [allAnalytics, calculatePeriodEarnedValue, calculatePeriodPlannedValue, viewPlannedValue, showOuterRangeColumn, calculateOuterRangeValue, calculateOuterRangePlannedValue, calculateOuterRangeVirtualMaterialAmount, calculateOuterRangePlannedVirtualMaterialAmount, showVirtualMaterialValues, calculatePeriodVirtualMaterialAmount, calculatePeriodPlannedVirtualMaterialAmount, selectedDivisionsKey, selectedDivisions])
+  }, [allAnalytics, calculatePeriodEarnedValue, calculatePeriodPlannedValue, viewPlannedValue, showOuterRangeColumn, calculateOuterRangeValue, calculateOuterRangePlannedValue, calculateOuterRangeVirtualMaterialAmount, calculateOuterRangePlannedVirtualMaterialAmount, showVirtualMaterialValues, calculatePeriodVirtualMaterialAmount, calculatePeriodPlannedVirtualMaterialAmount, selectedDivisionsKey, debouncedSelectedDivisions])
 
   // ✅ FIX: Show ALL projects from allAnalytics, regardless of date range or KPIs
   // The date range filter only affects which periods show data in the table, not which projects are displayed
@@ -7638,7 +7969,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
         })
         
         // ✅ FIX: Filter activities by selected divisions if filter is applied (same as project row)
-        if (selectedDivisions.length > 0) {
+        if (debouncedSelectedDivisions.length > 0) {
           projectActivities = projectActivities.filter((activity: BOQActivity) => {
             const rawActivity = (activity as any).raw || {}
             const division = activity.activity_division || 
@@ -7856,7 +8187,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
         })
         
         // ✅ FIX: Filter activities by selected divisions if filter is applied (same as project row)
-        if (selectedDivisions.length > 0) {
+        if (debouncedSelectedDivisions.length > 0) {
           projectActivities = projectActivities.filter((activity: BOQActivity) => {
             const rawActivity = (activity as any).raw || {}
             const division = activity.activity_division || 
@@ -8302,7 +8633,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       totalVirtualMaterialAmount,
       totalPlannedVirtualMaterialAmount
     }
-  }, [filteredProjects, periods, periodValuesCache, allAnalytics, projectsWithWorkInRange, showVirtualMaterialValues, viewPlannedValue, expandedProjects, activities, kpis, today, calculatePeriodEarnedValue, calculatePeriodPlannedValue, selectedDivisions])
+  }, [filteredProjects, periods, periodValuesCache, allAnalytics, projectsWithWorkInRange, showVirtualMaterialValues, viewPlannedValue, expandedProjects, activities, kpis, today, calculatePeriodEarnedValue, calculatePeriodPlannedValue, debouncedSelectedDivisions])
 
   // Export to Excel function with advanced formatting
   const handleExportPeriodRevenue = useCallback(async () => {
@@ -8377,7 +8708,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
           .sort((a, b) => b.amount - a.amount)
         
         // ✅ FIX: Filter divisions by selected divisions if filter is applied
-        if (selectedDivisions.length > 0) {
+        if (debouncedSelectedDivisions.length > 0) {
           divisionsList = divisionsList.filter(div => {
             const normalizedDivName = div.name.trim().toLowerCase()
             return selectedDivisions.some(selectedDiv => 
@@ -8579,7 +8910,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       }
       
       // Also add formulas for Grand Total in each data row
-      projectsWithWorkInRange.forEach((_, projectIndex) => {
+      projectsWithWorkInRange.forEach((_: any, projectIndex: number) => {
         const rowNum = dataStartRow + projectIndex
         const grandTotalCellAddr = `${grandTotalCol}${rowNum}`
         
@@ -9879,7 +10210,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
                       .sort((a, b) => b.amount - a.amount)
                     
                     // ✅ FIX: Filter divisions by selected divisions if filter is applied
-                    if (selectedDivisions.length > 0) {
+                    if (debouncedSelectedDivisions.length > 0) {
                       divisionsList = divisionsList.filter(div => {
                         const normalizedDivName = div.name.trim().toLowerCase()
                         return selectedDivisions.some(selectedDiv => 
@@ -9908,7 +10239,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
                     })
                     
                     // ✅ FIX: Filter activities by selected divisions if filter is applied
-                    if (selectedDivisions.length > 0) {
+                    if (debouncedSelectedDivisions.length > 0) {
                       projectActivities = projectActivities.filter((activity: BOQActivity) => {
                         const rawActivity = (activity as any).raw || {}
                         const division = activity.activity_division || 
