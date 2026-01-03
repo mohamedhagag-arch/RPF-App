@@ -4598,7 +4598,8 @@ const LookaheadReportView = memo(function LookaheadReportView({ activities, proj
 type PeriodType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
 
 // ✅ PERFORMANCE: Memoized to prevent unnecessary re-renders
-const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView({ activities, projects, kpis, allAnalytics: _providedAnalytics, formatCurrency }: any) {
+// ✅ FIX: Use function declaration to allow hoisting
+function MonthlyWorkRevenueReportViewComponent({ activities, projects, kpis, allAnalytics: _providedAnalytics, formatCurrency }: any) {
   // ✅ PERFORMANCE: Don't use providedAnalytics - calculate locally only when needed
   // This prevents heavy computation on component mount
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>([]) // ✅ Changed to array for multi-select
@@ -12432,4 +12433,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       </Card>
     </div>
   )
-})
+}
+
+// ✅ PERFORMANCE: Memoized to prevent unnecessary re-renders
+const MonthlyWorkRevenueReportView = memo(MonthlyWorkRevenueReportViewComponent)
