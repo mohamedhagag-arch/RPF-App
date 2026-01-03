@@ -1783,7 +1783,6 @@ export function ProjectsList({
             totalItems={filteredTotalCount}
             itemsPerPage={itemsPerPage}
             onPageChange={handlePageChange}
-            loading={loading}
           />
         )}
       </Card>
