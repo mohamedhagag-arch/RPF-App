@@ -4709,7 +4709,10 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       return map
     }
     
-    projects.forEach((project: Project) => {
+    // ✅ FIX: Only process filtered projects (if division filter is applied)
+    const projectsToProcess = selectedDivisions.length > 0 ? filteredProjects : projects
+    
+    projectsToProcess.forEach((project: Project) => {
       // ✅ FIX: Use project_full_code as primary identifier (use existing if available)
       let projectFullCode = (project.project_full_code || '').toString().trim()
       if (!projectFullCode) {
@@ -4771,7 +4774,29 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       const divisionAmounts: Record<string, number> = {}
       const divisionNames: Record<string, string> = {}
       
-      projectActivities.forEach((activity: any) => {
+      // ✅ FIX: Filter activities by selected divisions if filter is applied
+      let activitiesToProcess = projectActivities
+      if (selectedDivisions.length > 0) {
+        activitiesToProcess = projectActivities.filter((activity: any) => {
+          const rawActivity = (activity as any).raw || {}
+          const division = activity.activity_division || 
+                         activity['Activity Division'] || 
+                         rawActivity['Activity Division'] || 
+                         rawActivity['activity_division'] || ''
+          
+          if (!division || division.trim() === '') {
+            return false
+          }
+          
+          // Check if activity division matches any selected division (case-insensitive)
+          const normalizedDivision = division.trim().toLowerCase()
+          return selectedDivisions.some(selectedDiv => 
+            selectedDiv.trim().toLowerCase() === normalizedDivision
+          )
+        })
+      }
+      
+      activitiesToProcess.forEach((activity: any) => {
         const rawActivity = (activity as any).raw || {}
         
         // Get division from activity
@@ -4828,7 +4853,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
     })
     
     return map
-  }, [projects, activities])
+  }, [projects, activities, selectedDivisions, filteredProjects])
 
   // Get periods in date range - تقسيم المدة حسب النوع المختار (يومي، أسبوعي، شهري، ربع سنوي، سنوي)
   const getPeriodsInRange = useMemo(() => {
@@ -5316,7 +5341,27 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       })
 
       // ✅ PERFORMANCE: Use cached project activities from analytics instead of filtering every time
-      const projectActivities = analytics.activities || []
+      // ✅ FIX: Filter activities by selected divisions if filter is applied
+      let projectActivities = analytics.activities || []
+      if (selectedDivisions.length > 0) {
+        projectActivities = projectActivities.filter((activity: BOQActivity) => {
+          const rawActivity = (activity as any).raw || {}
+          const division = activity.activity_division || 
+                         (activity as any)['Activity Division'] || 
+                         rawActivity['Activity Division'] || 
+                         rawActivity['activity_division'] || ''
+          
+          if (!division || division.trim() === '') {
+            return false
+          }
+          
+          // Check if activity division matches any selected division (case-insensitive)
+          const normalizedDivision = division.trim().toLowerCase()
+          return selectedDivisions.some(selectedDiv => 
+            selectedDiv.trim().toLowerCase() === normalizedDivision
+          )
+        })
+      }
 
       // ✅ Calculate Planned Value using EXACT SAME LOGIC as KPI page (KPITracking.tsx lines 2861-2943)
       // PRIORITY 1: Use Value field directly (if Value ≠ Quantity)
@@ -5484,7 +5529,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
         }
       }, 0)
     })
-  }, [kpis, weeks, activities])
+  }, [kpis, weeks, activities, selectedDivisions])
 
   // ✅ Calculate Virtual Material Value from KPIs for activities with use_virtual_material
   // For activities with use_virtual_material = true: Total Virtual Material Value = Base Value + Virtual Material Amount
@@ -5492,7 +5537,27 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
   const calculatePeriodVirtualMaterialValue = useCallback((project: Project, analytics: any): number[] => {
     const projectKPIs = projectKPIsMap.get(project.id)
     const allProjectKPIs = projectKPIs?.actual || []
-    const projectActivities = analytics.activities || []
+    // ✅ FIX: Filter activities by selected divisions if filter is applied
+    let projectActivities = analytics.activities || []
+    if (selectedDivisions.length > 0) {
+      projectActivities = projectActivities.filter((activity: BOQActivity) => {
+        const rawActivity = (activity as any).raw || {}
+        const division = activity.activity_division || 
+                       (activity as any)['Activity Division'] || 
+                       rawActivity['Activity Division'] || 
+                       rawActivity['activity_division'] || ''
+        
+        if (!division || division.trim() === '') {
+          return false
+        }
+        
+        // Check if activity division matches any selected division (case-insensitive)
+        const normalizedDivision = division.trim().toLowerCase()
+        return selectedDivisions.some(selectedDiv => 
+          selectedDiv.trim().toLowerCase() === normalizedDivision
+        )
+      })
+    }
     
     // Get Virtual Material Percentage from project
     let virtualMaterialPercentage = 0
@@ -5707,7 +5772,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
         }
       }, 0)
     })
-  }, [kpis, periods, activities, today, projectKPIsMap, kpiMatchesActivity])
+  }, [kpis, periods, activities, today, projectKPIsMap, kpiMatchesActivity, selectedDivisions])
 
   // ✅ PERFORMANCE: Memoize calculatePeriodEarnedValue to avoid recalculations
   const calculatePeriodEarnedValue = useCallback((project: Project, analytics: any): number[] => {
@@ -5810,7 +5875,27 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
           let financialValue = 0
           
           // ✅ PERFORMANCE: Use cached project activities from analytics (already filtered)
-          const projectActivities = analytics.activities || []
+          // ✅ FIX: Filter activities by selected divisions if filter is applied
+          let projectActivities = analytics.activities || []
+          if (selectedDivisions.length > 0) {
+            projectActivities = projectActivities.filter((activity: BOQActivity) => {
+              const rawActivity = (activity as any).raw || {}
+              const division = activity.activity_division || 
+                             (activity as any)['Activity Division'] || 
+                             rawActivity['Activity Division'] || 
+                             rawActivity['activity_division'] || ''
+              
+              if (!division || division.trim() === '') {
+                return false
+              }
+              
+              // Check if activity division matches any selected division (case-insensitive)
+              const normalizedDivision = division.trim().toLowerCase()
+              return selectedDivisions.some(selectedDiv => 
+                selectedDiv.trim().toLowerCase() === normalizedDivision
+              )
+            })
+          }
           const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
           
           // ✅ PERFORMANCE: Use kpiMatchesActivity helper (same as expanded view) for faster matching
@@ -7215,6 +7300,41 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
     // The date range is only used for calculating period values, not for filtering projects
     let filtered = allAnalytics
     
+    // ✅ FIX: Filter projects by selected divisions if filter is applied
+    if (selectedDivisions.length > 0) {
+      filtered = filtered.filter((analytics: any) => {
+        const project = analytics.project
+        const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+        
+        // Get all activities for this project
+        const projectActivities = activities.filter((activity: BOQActivity) => {
+          const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+          return activityFullCode === projectFullCode || activity.project_id === project.id
+        })
+        
+        // Check if any activity belongs to selected divisions
+        const hasMatchingDivision = projectActivities.some((activity: any) => {
+          const rawActivity = (activity as any).raw || {}
+          const division = activity.activity_division || 
+                         (activity as any)['Activity Division'] || 
+                         rawActivity['Activity Division'] || 
+                         rawActivity['activity_division'] || ''
+          
+          if (!division || division.trim() === '') {
+            return false
+          }
+          
+          // Check if activity division matches any selected division (case-insensitive)
+          const normalizedDivision = division.trim().toLowerCase()
+          return selectedDivisions.some(selectedDiv => 
+            selectedDiv.trim().toLowerCase() === normalizedDivision
+          )
+        })
+        
+        return hasMatchingDivision
+      })
+    }
+    
     // ✅ Filter out projects with Grand Total = 0 if checkbox is checked
     if (hideZeroProjects) {
       filtered = filtered.filter((analytics: any) => {
@@ -7227,7 +7347,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
     }
     
     return filtered
-  }, [allAnalytics, hideZeroProjects, periodValuesCache])
+  }, [allAnalytics, hideZeroProjects, periodValuesCache, selectedDivisions, activities])
 
   // ✅ PERFORMANCE: Removed debug logging useEffect for production
 

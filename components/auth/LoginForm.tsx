@@ -30,12 +30,30 @@ export function LoginForm() {
   const [isSubmitting, setIsSubmitting] = useState(false) // ✅ حماية من الطلبات المتعددة
   const [rateLimitCooldown, setRateLimitCooldown] = useState(0) // ✅ Cooldown timer
   const [lastAttemptTime, setLastAttemptTime] = useState(0) // ✅ Track last attempt time
+  const [cooldownManuallyCleared, setCooldownManuallyCleared] = useState(false) // ✅ Track if user manually cleared cooldown
   
   // ✅ Load rate limit cooldown from localStorage on mount
   useEffect(() => {
     try {
       const savedCooldown = localStorage.getItem('login_rate_limit_cooldown')
       const savedCooldownTime = localStorage.getItem('login_rate_limit_time')
+      const manuallyCleared = localStorage.getItem('cooldown_manually_cleared')
+      const clearedTime = localStorage.getItem('cooldown_cleared_time')
+      
+      // Check if cooldown was manually cleared recently (within last 5 minutes)
+      if (manuallyCleared === 'true' && clearedTime) {
+        const timeSinceCleared = Date.now() - parseInt(clearedTime)
+        if (timeSinceCleared < 5 * 60 * 1000) { // 5 minutes
+          setCooldownManuallyCleared(true)
+          // Don't restore cooldown if it was manually cleared
+          return
+        } else {
+          // Clear expired manual clear flag
+          localStorage.removeItem('cooldown_manually_cleared')
+          localStorage.removeItem('cooldown_cleared_time')
+        }
+      }
+      
       if (savedCooldown && savedCooldownTime) {
         const elapsed = Math.floor((Date.now() - parseInt(savedCooldownTime)) / 1000)
         const remaining = Math.max(0, parseInt(savedCooldown) - elapsed)
@@ -222,7 +240,8 @@ export function LoginForm() {
     }
 
     // ✅ Check rate limit cooldown (if enabled)
-    if (securitySettings.enableRateLimiting && rateLimitCooldown > 0) {
+    // Allow login if cooldown was manually cleared
+    if (securitySettings.enableRateLimiting && rateLimitCooldown > 0 && !cooldownManuallyCleared) {
       setError(`Too many login attempts. Please wait ${rateLimitCooldown} seconds before trying again.`)
       return
     }
@@ -303,7 +322,14 @@ export function LoginForm() {
               
               if (error) throw error
               
-              // Success - redirect
+              // Success - reset manual clear flag and redirect
+              setCooldownManuallyCleared(false)
+              try {
+                localStorage.removeItem('cooldown_manually_cleared')
+                localStorage.removeItem('cooldown_cleared_time')
+              } catch (e) {
+                // Ignore
+              }
               router.push('/dashboard')
               return
             } catch (err: any) {
@@ -321,8 +347,8 @@ export function LoginForm() {
                   retries++
                   continue
               } else {
-                // Max retries reached, set cooldown
-                if (securitySettings.enableRateLimiting) {
+                // Max retries reached, set cooldown only if not manually cleared
+                if (securitySettings.enableRateLimiting && !cooldownManuallyCleared) {
                   setRateLimitCooldown(securitySettings.rateLimitCooldownSeconds)
                   try {
                     localStorage.setItem('login_rate_limit_cooldown', securitySettings.rateLimitCooldownSeconds.toString())
@@ -351,7 +377,14 @@ export function LoginForm() {
           
           if (error) throw error
           
-          // Success - redirect
+          // Success - reset manual clear flag and redirect
+          setCooldownManuallyCleared(false)
+          try {
+            localStorage.removeItem('cooldown_manually_cleared')
+            localStorage.removeItem('cooldown_cleared_time')
+          } catch (e) {
+            // Ignore
+          }
           router.push('/dashboard')
           return
         }
@@ -359,17 +392,55 @@ export function LoginForm() {
     } catch (error: any) {
       // ✅ معالجة خاصة لخطأ 429 (Too Many Requests)
       if (error.status === 429 || error.message?.includes('429') || error.message?.includes('Too Many Requests') || error.message?.includes('rate limit')) {
-        // Only set cooldown if enabled and not already set
-        if (securitySettings.enableRateLimiting && rateLimitCooldown === 0) {
+        // Only set cooldown if enabled, not already set, and not manually cleared
+        if (securitySettings.enableRateLimiting && rateLimitCooldown === 0 && !cooldownManuallyCleared) {
           setRateLimitCooldown(securitySettings.rateLimitCooldownSeconds)
+          try {
+            localStorage.setItem('login_rate_limit_cooldown', securitySettings.rateLimitCooldownSeconds.toString())
+            localStorage.setItem('login_rate_limit_time', Date.now().toString())
+          } catch (e) {
+            console.warn('⚠️ Failed to save rate limit to localStorage:', e)
+          }
         }
-        const cooldownMinutes = Math.ceil(rateLimitCooldown / 60)
-        setError(`Too many login attempts. Please wait ${cooldownMinutes} minute${cooldownMinutes > 1 ? 's' : ''} before trying again.`)
+        
+        // If cooldown was manually cleared, show a different message
+        if (cooldownManuallyCleared) {
+          setError('Server is still rate limiting. Please wait a moment and try again, or contact support if the issue persists.')
+          // Reset the flag after showing the error (user can try again)
+          setTimeout(() => {
+            setCooldownManuallyCleared(false)
+            try {
+              localStorage.removeItem('cooldown_manually_cleared')
+              localStorage.removeItem('cooldown_cleared_time')
+            } catch (e) {
+              // Ignore
+            }
+          }, 30000) // Reset after 30 seconds
+        } else {
+          const cooldownMinutes = Math.ceil(rateLimitCooldown / 60)
+          setError(`Too many login attempts. Please wait ${cooldownMinutes} minute${cooldownMinutes > 1 ? 's' : ''} before trying again.`)
+        }
         console.error('❌ Rate limit exceeded:', error)
       } else if (error.message?.includes('Invalid login credentials')) {
         setError('Invalid email or password. Please check your credentials and try again.')
+        // Reset manual clear flag on successful error handling (non-rate-limit error)
+        setCooldownManuallyCleared(false)
+        try {
+          localStorage.removeItem('cooldown_manually_cleared')
+          localStorage.removeItem('cooldown_cleared_time')
+        } catch (e) {
+          // Ignore
+        }
       } else {
         setError(error.message || 'An error occurred. Please try again.')
+        // Reset manual clear flag on successful error handling (non-rate-limit error)
+        setCooldownManuallyCleared(false)
+        try {
+          localStorage.removeItem('cooldown_manually_cleared')
+          localStorage.removeItem('cooldown_cleared_time')
+        } catch (e) {
+          // Ignore
+        }
       }
     } finally {
       setLoading(false)
@@ -721,18 +792,21 @@ export function LoginForm() {
                           // Clear local state
                           setRateLimitCooldown(0)
                           setError('')
+                          setLastAttemptTime(0) // Reset last attempt time
+                          setCooldownManuallyCleared(true) // Mark as manually cleared
                           // Clear from localStorage
                           try {
                             localStorage.removeItem('login_rate_limit_cooldown')
                             localStorage.removeItem('login_rate_limit_time')
+                            localStorage.setItem('cooldown_manually_cleared', 'true')
+                            localStorage.setItem('cooldown_cleared_time', Date.now().toString())
                           } catch (e) {
                             console.warn('⚠️ Failed to clear rate limit from localStorage:', e)
                           }
-                          // Note: Supabase server-side rate limit may still be active
-                          // User may need to wait or use a different IP/device
+                          console.log('✅ Cooldown manually cleared - user can try again')
                         }}
                         className="ml-2 px-2 py-1 text-xs bg-red-600/50 hover:bg-red-600/70 text-white rounded transition-colors"
-                        title="Clear local cooldown (Note: Server may still block requests)"
+                        title="Clear cooldown and allow login attempt"
                       >
                         Clear
                       </button>
