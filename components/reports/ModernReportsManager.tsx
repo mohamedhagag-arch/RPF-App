@@ -456,7 +456,7 @@ export function ModernReportsManager() {
   // ✅ PERFORMANCE: Use requestIdleCallback or setTimeout for heavy filtering operations
   const filteredData = useMemo(() => {
     // Early return if no filters and data hasn't changed
-    const hasFilters = debouncedDivision || debouncedProjects.length > 0 || debouncedDateRange.start || debouncedDateRange.end
+    const hasFilters = debouncedDivision || debouncedProjects.length > 0 || dateRange.start || dateRange.end
     
     if (!hasFilters) {
       return { filteredProjects: projects, filteredActivities: activities, filteredKPIs: kpis }
@@ -513,8 +513,8 @@ export function ModernReportsManager() {
 
     // Filter by date range (using debounced values)
     // ✅ PERFORMANCE: Pre-compute date timestamps
-    const startDateTimestamp = debouncedDateRange.start ? new Date(debouncedDateRange.start).getTime() : null
-    const endDateTimestamp = debouncedDateRange.end ? new Date(debouncedDateRange.end).getTime() : null
+    const startDateTimestamp = dateRange.start ? new Date(dateRange.start).getTime() : null
+    const endDateTimestamp = dateRange.end ? new Date(dateRange.end).getTime() : null
     
     if (startDateTimestamp !== null) {
       filteredActivities = filteredActivities.filter(a => {
@@ -535,7 +535,7 @@ export function ModernReportsManager() {
     }
 
     return { filteredProjects, filteredActivities, filteredKPIs }
-  }, [projects, activities, kpis, debouncedDivision, debouncedProjects, debouncedDateRange.start, debouncedDateRange.end])
+  }, [projects, activities, kpis, debouncedDivision, debouncedProjects, dateRange.start, dateRange.end])
 
   // ✅ PERFORMANCE: Use cached analytics and filter instead of recalculating
   // ✅ PERFORMANCE: Enhanced caching with dependency tracking
@@ -549,7 +549,7 @@ export function ModernReportsManager() {
     }
     
     // ✅ PRIORITY 1: If no filters applied, use cached analytics directly (much faster)
-    if (!debouncedDivision && debouncedProjects.length === 0 && !debouncedDateRange.start && !debouncedDateRange.end) {
+    if (!debouncedDivision && debouncedProjects.length === 0 && !dateRange.start && !dateRange.end) {
       if (cachedAnalytics && cachedAnalytics.length > 0) {
         // Filter cached analytics by projects using Set for O(1) lookup
         const filteredProjectIds = new Set(filteredProjects.map(p => p.id))
@@ -583,7 +583,7 @@ export function ModernReportsManager() {
     
     // Last resort: return empty array (will trigger computation)
     return []
-  }, [filteredData, cachedAnalytics, computedAnalytics, debouncedDivision, debouncedProjects, debouncedDateRange.start, debouncedDateRange.end])
+  }, [filteredData, cachedAnalytics, computedAnalytics, debouncedDivision, debouncedProjects, dateRange.start, dateRange.end])
   
   // ✅ PERFORMANCE: Process analytics in chunks asynchronously to prevent freezing
   useEffect(() => {
@@ -603,7 +603,7 @@ export function ModernReportsManager() {
       kpis: filteredKPIs.length,
       division: debouncedDivision,
       projectsList: debouncedProjects.sort().join(','),
-      dateRange: `${debouncedDateRange.start}-${debouncedDateRange.end}`
+      dateRange: `${dateRange.start}-${dateRange.end}`
     })
     
     // Skip if data hasn't changed
@@ -612,7 +612,7 @@ export function ModernReportsManager() {
     }
     
     // Skip if we can use cached analytics (already handled in useMemo above)
-    if (!debouncedDivision && debouncedProjects.length === 0 && !debouncedDateRange.start && !debouncedDateRange.end) {
+    if (!debouncedDivision && debouncedProjects.length === 0 && !dateRange.start && !dateRange.end) {
       if (cachedAnalytics && cachedAnalytics.length > 0) {
         lastProcessedDataRef.current = dataHash
         return // Will use cached in useMemo
@@ -670,7 +670,7 @@ export function ModernReportsManager() {
     }
     // ✅ FIX: Use filteredData object instead of individual properties to prevent infinite loops
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredData, debouncedDivision, debouncedProjects, debouncedDateRange.start, debouncedDateRange.end, cachedAnalytics])
+  }, [filteredData, debouncedDivision, debouncedProjects, dateRange.start, dateRange.end, cachedAnalytics])
 
   // Calculate comprehensive statistics
   // ✅ PERFORMANCE: Optimized stats calculation - separate simple counts from heavy analytics
@@ -4598,9 +4598,10 @@ const LookaheadReportView = memo(function LookaheadReportView({ activities, proj
 type PeriodType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
 
 // ✅ PERFORMANCE: Memoized to prevent unnecessary re-renders
-const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView({ activities, projects, kpis, allAnalytics: providedAnalytics, formatCurrency }: any) {
+const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView({ activities, projects, kpis, allAnalytics: _providedAnalytics, formatCurrency }: any) {
+  // ✅ PERFORMANCE: Don't use providedAnalytics - calculate locally only when needed
+  // This prevents heavy computation on component mount
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>([]) // ✅ Changed to array for multi-select
-  const [debouncedSelectedDivisions, setDebouncedSelectedDivisions] = useState<string[]>([]) // ✅ Debounced divisions
   const [showDivisionDropdown, setShowDivisionDropdown] = useState<boolean>(false)
   const [divisionSearch, setDivisionSearch] = useState<string>('')
   const divisionDropdownRef = useRef<HTMLDivElement>(null)
@@ -4608,30 +4609,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
     start: '', 
     end: '' 
   })
-  const [debouncedDateRange, setDebouncedDateRange] = useState<{ start: string; end: string }>({ 
-    start: '', 
-    end: '' 
-  }) // ✅ Debounced date range
   const [periodType, setPeriodType] = useState<PeriodType>('weekly')
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
-  
-  // ✅ PERFORMANCE: Debounce filter changes to reduce recalculation
-  useEffect(() => {
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current)
-    }
-    
-    debounceTimerRef.current = setTimeout(() => {
-      setDebouncedSelectedDivisions(selectedDivisions)
-      setDebouncedDateRange(dateRange)
-    }, 300) // 300ms debounce
-    
-    return () => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current)
-      }
-    }
-  }, [debouncedSelectedDivisions, debouncedDateRange])
   const [viewPlannedValue, setViewPlannedValue] = useState<boolean>(false)
   const [hideZeroProjects, setHideZeroProjects] = useState<boolean>(false)
   const [hideDivisionsColumn, setHideDivisionsColumn] = useState<boolean>(false)
@@ -4779,14 +4757,13 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
 
   // ✅ Show ALL projects (not filtered by status)
   // The user wants to see all projects, including those that might not be "active"
-  // ✅ PERFORMANCE: Use debounced divisions to reduce recalculation
   const filteredProjects = useMemo(() => {
     let filtered = projects
     
     // Filter by divisions (if selected) - ✅ Support multi-select
     // ✅ FIX: Use divisions from activities (same as table) instead of project.responsible_division
     // This ensures consistency between filter and table display
-    if (debouncedSelectedDivisions.length > 0) {
+    if (selectedDivisions.length > 0) {
       filtered = filtered.filter((p: Project) => {
         // Build project full code for matching
         const projectFullCode = (p.project_full_code || `${p.project_code}${p.project_sub_code ? `-${p.project_sub_code}` : ''}`).toString().trim().toUpperCase()
@@ -4824,7 +4801,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
         // ✅ FIX: Check if any selected division matches any project division
         // Use exact match first, then case-insensitive match as fallback
         const projectDivisionsArray = Array.from(projectDivisions)
-        return debouncedSelectedDivisions.some(selectedDiv => {
+        return selectedDivisions.some(selectedDiv => {
           const normalizedSelectedDiv = selectedDiv.trim()
           // Try exact match first
           if (projectDivisionsArray.some(d => d.trim() === normalizedSelectedDiv)) {
@@ -4840,7 +4817,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
     // This ensures all projects are visible in the report
     
     return filtered
-  }, [projects, debouncedSelectedDivisions, activities])
+  }, [projects, selectedDivisions, activities])
 
   // ✅ Helper functions for zone matching (same logic as other components)
   const normalizeZone = useCallback((zone: string, projectCode: string, projectFullCode?: string): string => {
@@ -5044,7 +5021,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
     
     // ✅ FIX: Only process filtered projects (if division filter is applied)
     // ✅ PERFORMANCE: Use debounced divisions to reduce recalculation
-    const projectsToProcess = debouncedSelectedDivisions.length > 0 ? filteredProjects : projects
+    const projectsToProcess = selectedDivisions.length > 0 ? filteredProjects : projects
     
     projectsToProcess.forEach((project: Project) => {
       // ✅ FIX: Use project_full_code as primary identifier (use existing if available)
@@ -5111,7 +5088,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       // ✅ FIX: Filter activities by selected divisions if filter is applied
       // ✅ PERFORMANCE: Use debounced divisions to reduce recalculation
       let activitiesToProcess = projectActivities
-      if (debouncedSelectedDivisions.length > 0) {
+      if (selectedDivisions.length > 0) {
         activitiesToProcess = projectActivities.filter((activity: any) => {
           const rawActivity = (activity as any).raw || {}
           const division = activity.activity_division || 
@@ -5125,7 +5102,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
           
           // Check if activity division matches any selected division (case-insensitive)
           const normalizedDivision = division.trim().toLowerCase()
-          return debouncedSelectedDivisions.some(selectedDiv => 
+          return selectedDivisions.some(selectedDiv => 
             selectedDiv.trim().toLowerCase() === normalizedDivision
           )
         })
@@ -5188,14 +5165,14 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
     })
     
     return map
-  }, [projects, activities, debouncedSelectedDivisions, filteredProjects])
+  }, [projects, activities, selectedDivisions, filteredProjects])
 
   // Get periods in date range - تقسيم المدة حسب النوع المختار (يومي، أسبوعي، شهري، ربع سنوي، سنوي)
   // ✅ PERFORMANCE: Use debounced date range to reduce recalculation
   const getPeriodsInRange = useMemo(() => {
     const periods: Array<{ label: string; start: Date; end: Date }> = []
     
-    if (!debouncedDateRange.start || !debouncedDateRange.end) {
+    if (!dateRange.start || !dateRange.end) {
       // Default: last 4 periods based on periodType
       const now = new Date()
       const defaultCount = periodType === 'daily' ? 30 : periodType === 'weekly' ? 4 : periodType === 'monthly' ? 6 : periodType === 'quarterly' ? 4 : 2
@@ -5280,8 +5257,8 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       return periods
     }
 
-    const start = new Date(debouncedDateRange.start)
-    const end = new Date(debouncedDateRange.end)
+    const start = new Date(dateRange.start)
+    const end = new Date(dateRange.end)
     start.setHours(0, 0, 0, 0)
     end.setHours(23, 59, 59, 999)
     
@@ -5390,7 +5367,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
     }
 
     return periods
-  }, [debouncedDateRange, periodType])
+  }, [dateRange, periodType])
 
   const periods = getPeriodsInRange
   // Keep 'weeks' alias for backward compatibility
@@ -5679,7 +5656,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       // ✅ PERFORMANCE: Use cached project activities from analytics instead of filtering every time
       // ✅ FIX: Filter activities by selected divisions if filter is applied
       let projectActivities = analytics.activities || []
-      if (debouncedSelectedDivisions.length > 0) {
+      if (selectedDivisions.length > 0) {
         projectActivities = projectActivities.filter((activity: BOQActivity) => {
           const rawActivity = (activity as any).raw || {}
           const division = activity.activity_division || 
@@ -5693,7 +5670,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
           
           // Check if activity division matches any selected division (case-insensitive)
           const normalizedDivision = division.trim().toLowerCase()
-          return debouncedSelectedDivisions.some(selectedDiv => 
+          return selectedDivisions.some(selectedDiv => 
             selectedDiv.trim().toLowerCase() === normalizedDivision
           )
         })
@@ -5865,7 +5842,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
         }
       }, 0)
     })
-  }, [kpis, weeks, activities, debouncedSelectedDivisions])
+  }, [kpis, weeks, activities, selectedDivisions])
 
   // ✅ Calculate Virtual Material Value from KPIs for activities with use_virtual_material
   // For activities with use_virtual_material = true: Total Virtual Material Value = Base Value + Virtual Material Amount
@@ -6108,7 +6085,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
         }
       }, 0)
     })
-  }, [kpis, periods, activities, today, projectKPIsMap, kpiMatchesActivity, debouncedSelectedDivisions])
+  }, [kpis, periods, activities, today, projectKPIsMap, kpiMatchesActivity, selectedDivisions])
 
   // ✅ PERFORMANCE: Memoize calculatePeriodEarnedValue to avoid recalculations
   const calculatePeriodEarnedValue = useCallback((project: Project, analytics: any): number[] => {
@@ -6213,7 +6190,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
           // ✅ PERFORMANCE: Use cached project activities from analytics (already filtered)
           // ✅ FIX: Filter activities by selected divisions if filter is applied
           let projectActivities = analytics.activities || []
-          if (debouncedSelectedDivisions.length > 0) {
+          if (selectedDivisions.length > 0) {
             projectActivities = projectActivities.filter((activity: BOQActivity) => {
               const rawActivity = (activity as any).raw || {}
               const division = activity.activity_division || 
@@ -6321,7 +6298,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
         }
       }, 0)
     })
-  }, [kpis, periods, activities, today, projectKPIsMap, showVirtualMaterialValues, debouncedSelectedDivisions])
+  }, [kpis, periods, activities, today, projectKPIsMap, showVirtualMaterialValues, selectedDivisions])
 
   // ✅ Calculate Virtual Material Amount per period from KPIs for activities with use_virtual_material
   const calculatePeriodVirtualMaterialAmount = useCallback((project: Project, analytics: any): number[] => {
@@ -6555,16 +6532,18 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
         }
       }, 0)
     })
-  }, [kpis, periods, activities, today, projectKPIsMap, kpiMatchesActivity, debouncedSelectedDivisions])
+  }, [kpis, periods, activities, today, projectKPIsMap, kpiMatchesActivity, selectedDivisions])
 
-  // ✅ PERFORMANCE: Use provided analytics if available, otherwise calculate
+  // ✅ PERFORMANCE: Calculate analytics only for filtered projects (not all projects)
+  // This prevents heavy computation on component mount
   const allAnalytics = useMemo(() => {
-    if (providedAnalytics && providedAnalytics.length > 0) {
-      return providedAnalytics
+    // Only calculate for filtered projects to reduce computation
+    if (filteredProjects.length === 0) {
+      return []
     }
-    // Fallback: calculate if not provided
+    // Calculate analytics only for visible projects
     return getAllProjectsAnalytics(filteredProjects, activities, kpis)
-  }, [providedAnalytics, filteredProjects, activities, kpis])
+  }, [filteredProjects, activities, kpis])
 
   // ✅ PERFORMANCE: Pre-calculate period values for all projects once
   // ✅ Calculate value before the selected date range (Outer Range)
@@ -6647,7 +6626,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       // ✅ Calculate value using EXACT SAME LOGIC as calculatePeriodEarnedValue
       // ✅ FIX: Filter activities by selected divisions if filter is applied
       let projectActivities = analytics.activities || []
-      if (debouncedSelectedDivisions.length > 0) {
+      if (selectedDivisions.length > 0) {
         projectActivities = projectActivities.filter((activity: BOQActivity) => {
           const rawActivity = (activity as any).raw || {}
           const division = activity.activity_division || 
@@ -6661,7 +6640,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
           
           // Check if activity division matches any selected division (case-insensitive)
           const normalizedDivision = division.trim().toLowerCase()
-          return debouncedSelectedDivisions.some(selectedDiv => 
+          return selectedDivisions.some(selectedDiv => 
             selectedDiv.trim().toLowerCase() === normalizedDivision
           )
         })
@@ -6792,7 +6771,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       console.error('[Outer Range] Error calculating outer range value:', error)
       return 0
     }
-  }, [outerRangeStart, debouncedDateRange.start, today, projectKPIsMap, getPeriodsInRange, debouncedSelectedDivisions])
+  }, [outerRangeStart, dateRange.start, today, projectKPIsMap, getPeriodsInRange, selectedDivisions])
 
   // ✅ Calculate Planned value before the selected date range (Outer Range)
   const calculateOuterRangePlannedValue = useCallback((project: Project, analytics: any): number => {
@@ -6868,7 +6847,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       // ✅ Calculate value using EXACT SAME LOGIC as calculatePeriodPlannedValue
       // ✅ FIX: Filter activities by selected divisions if filter is applied
       let projectActivities = analytics.activities || []
-      if (debouncedSelectedDivisions.length > 0) {
+      if (selectedDivisions.length > 0) {
         projectActivities = projectActivities.filter((activity: BOQActivity) => {
           const rawActivity = (activity as any).raw || {}
           const division = activity.activity_division || 
@@ -6882,7 +6861,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
           
           // Check if activity division matches any selected division (case-insensitive)
           const normalizedDivision = division.trim().toLowerCase()
-          return debouncedSelectedDivisions.some(selectedDiv => 
+          return selectedDivisions.some(selectedDiv => 
             selectedDiv.trim().toLowerCase() === normalizedDivision
           )
         })
@@ -7253,7 +7232,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       console.error('[Outer Range VM] Error calculating outer range virtual material amount:', error)
       return 0
     }
-  }, [outerRangeStart, debouncedDateRange.start, today, projectKPIsMap, getPeriodsInRange, showVirtualMaterialValues, debouncedSelectedDivisions])
+  }, [outerRangeStart, dateRange.start, today, projectKPIsMap, getPeriodsInRange, showVirtualMaterialValues, selectedDivisions])
 
   // ✅ Calculate Virtual Material Amount for Outer Range (Planned)
   const calculateOuterRangePlannedVirtualMaterialAmount = useCallback((project: Project, analytics: any): number => {
@@ -7501,7 +7480,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       console.error('[Outer Range Planned VM] Error calculating outer range planned virtual material amount:', error)
       return 0
     }
-  }, [outerRangeStart, debouncedDateRange.start, today, projectKPIsMap, getPeriodsInRange, showVirtualMaterialValues, viewPlannedValue, debouncedSelectedDivisions])
+  }, [outerRangeStart, dateRange.start, today, projectKPIsMap, getPeriodsInRange, showVirtualMaterialValues, viewPlannedValue, selectedDivisions])
 
   // ✅ Calculate Virtual Material Amount for Planned KPIs
   const calculatePeriodPlannedVirtualMaterialAmount = useCallback((project: Project, analytics: any): number[] => {
@@ -7730,23 +7709,27 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
         }
       }, 0)
     })
-  }, [kpis, periods, activities, today, projectKPIsMap, kpiMatchesActivity, debouncedSelectedDivisions])
+  }, [kpis, periods, activities, today, projectKPIsMap, kpiMatchesActivity, selectedDivisions])
 
   // ✅ PERFORMANCE: Use existing optimized functions instead of recalculating
   // These functions are already optimized and use projectKPIsMap for fast lookups
-  // ✅ FIX: Use debouncedSelectedDivisions as a string key to ensure cache recalculation
-  const selectedDivisionsKey = useMemo(() => debouncedSelectedDivisions.sort().join(','), [debouncedSelectedDivisions])
+  // ✅ FIX: Use selectedDivisions as a string key to ensure cache recalculation
+  const selectedDivisionsKey = useMemo(() => selectedDivisions.sort().join(','), [selectedDivisions])
   
   const periodValuesCache = useMemo(() => {
     const cache = new Map<string, { earned: number[], planned: number[], outerRangeValue: number, outerRangePlannedValue: number, outerRangeVirtualMaterialAmount: number, outerRangePlannedVirtualMaterialAmount: number, virtualMaterialAmount: number[], plannedVirtualMaterialAmount: number[] }>()
     
-    allAnalytics.forEach((analytics: any) => {
+    // ✅ PERFORMANCE: Only calculate for first 20 projects to prevent blocking
+    // Calculate remaining projects lazily when needed
+    const projectsToProcess = allAnalytics.slice(0, 20)
+    
+    projectsToProcess.forEach((analytics: any) => {
       const projectId = analytics.project.id
       
       // ✅ FIX: Filter activities by selected divisions if filter is applied
       // Create a filtered analytics object with only activities matching selected divisions
       let filteredAnalytics = analytics
-      if (debouncedSelectedDivisions.length > 0) {
+      if (selectedDivisions.length > 0) {
         const filteredActivities = (analytics.activities || []).filter((activity: BOQActivity) => {
           const rawActivity = (activity as any).raw || {}
           const division = activity.activity_division || 
@@ -7760,7 +7743,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
           
           // Check if activity division matches any selected division (case-insensitive)
           const normalizedDivision = division.trim().toLowerCase()
-          return debouncedSelectedDivisions.some(selectedDiv => 
+          return selectedDivisions.some(selectedDiv => 
             selectedDiv.trim().toLowerCase() === normalizedDivision
           )
         })
@@ -7784,7 +7767,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
     })
     
     return cache
-  }, [allAnalytics, calculatePeriodEarnedValue, calculatePeriodPlannedValue, viewPlannedValue, showOuterRangeColumn, calculateOuterRangeValue, calculateOuterRangePlannedValue, calculateOuterRangeVirtualMaterialAmount, calculateOuterRangePlannedVirtualMaterialAmount, showVirtualMaterialValues, calculatePeriodVirtualMaterialAmount, calculatePeriodPlannedVirtualMaterialAmount, selectedDivisionsKey, debouncedSelectedDivisions])
+  }, [allAnalytics, calculatePeriodEarnedValue, calculatePeriodPlannedValue, viewPlannedValue, showOuterRangeColumn, calculateOuterRangeValue, calculateOuterRangePlannedValue, calculateOuterRangeVirtualMaterialAmount, calculateOuterRangePlannedVirtualMaterialAmount, showVirtualMaterialValues, calculatePeriodVirtualMaterialAmount, calculatePeriodPlannedVirtualMaterialAmount, selectedDivisionsKey, selectedDivisions])
 
   // ✅ FIX: Show ALL projects from allAnalytics, regardless of date range or KPIs
   // The date range filter only affects which periods show data in the table, not which projects are displayed
@@ -7969,7 +7952,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
         })
         
         // ✅ FIX: Filter activities by selected divisions if filter is applied (same as project row)
-        if (debouncedSelectedDivisions.length > 0) {
+        if (selectedDivisions.length > 0) {
           projectActivities = projectActivities.filter((activity: BOQActivity) => {
             const rawActivity = (activity as any).raw || {}
             const division = activity.activity_division || 
@@ -8187,7 +8170,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
         })
         
         // ✅ FIX: Filter activities by selected divisions if filter is applied (same as project row)
-        if (debouncedSelectedDivisions.length > 0) {
+        if (selectedDivisions.length > 0) {
           projectActivities = projectActivities.filter((activity: BOQActivity) => {
             const rawActivity = (activity as any).raw || {}
             const division = activity.activity_division || 
@@ -8633,7 +8616,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
       totalVirtualMaterialAmount,
       totalPlannedVirtualMaterialAmount
     }
-  }, [filteredProjects, periods, periodValuesCache, allAnalytics, projectsWithWorkInRange, showVirtualMaterialValues, viewPlannedValue, expandedProjects, activities, kpis, today, calculatePeriodEarnedValue, calculatePeriodPlannedValue, debouncedSelectedDivisions])
+  }, [filteredProjects, periods, periodValuesCache, allAnalytics, projectsWithWorkInRange, showVirtualMaterialValues, viewPlannedValue, expandedProjects, activities, kpis, today, calculatePeriodEarnedValue, calculatePeriodPlannedValue, selectedDivisions])
 
   // Export to Excel function with advanced formatting
   const handleExportPeriodRevenue = useCallback(async () => {
@@ -8708,7 +8691,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
           .sort((a, b) => b.amount - a.amount)
         
         // ✅ FIX: Filter divisions by selected divisions if filter is applied
-        if (debouncedSelectedDivisions.length > 0) {
+        if (selectedDivisions.length > 0) {
           divisionsList = divisionsList.filter(div => {
             const normalizedDivName = div.name.trim().toLowerCase()
             return selectedDivisions.some(selectedDiv => 
@@ -10210,7 +10193,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
                       .sort((a, b) => b.amount - a.amount)
                     
                     // ✅ FIX: Filter divisions by selected divisions if filter is applied
-                    if (debouncedSelectedDivisions.length > 0) {
+                    if (selectedDivisions.length > 0) {
                       divisionsList = divisionsList.filter(div => {
                         const normalizedDivName = div.name.trim().toLowerCase()
                         return selectedDivisions.some(selectedDiv => 
@@ -10239,7 +10222,7 @@ const MonthlyWorkRevenueReportView = memo(function MonthlyWorkRevenueReportView(
                     })
                     
                     // ✅ FIX: Filter activities by selected divisions if filter is applied
-                    if (debouncedSelectedDivisions.length > 0) {
+                    if (selectedDivisions.length > 0) {
                       projectActivities = projectActivities.filter((activity: BOQActivity) => {
                         const rawActivity = (activity as any).raw || {}
                         const division = activity.activity_division || 
