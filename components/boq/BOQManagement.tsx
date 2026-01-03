@@ -3927,7 +3927,6 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
             totalItems={filteredActivities.length}
             itemsPerPage={itemsPerPage}
             onPageChange={handlePageChange}
-            loading={loading}
           />
         )}
       </Card>
