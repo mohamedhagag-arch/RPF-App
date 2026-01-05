@@ -464,26 +464,13 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   }, [periodType, dateRange])
   
   // Calculate period earned value
+  // ✅ FIX: analytics.activities is already filtered by divisions in getCachedPeriodValues
+  // So we should use analytics.activities directly without filtering again
   const calculatePeriodEarnedValue = useCallback((project: Project, analytics: any): number[] => {
     const projectKPIs = projectKPIsMap.get(project.id)
     const allProjectKPIs = projectKPIs?.actual || []
-    let projectActivities = analytics.activities || []
-    if (debouncedSelectedDivisions.length > 0) {
-      projectActivities = projectActivities.filter((activity: BOQActivity) => {
-        const rawActivity = (activity as any).raw || {}
-        const division = activity.activity_division || 
-                       (activity as any)['Activity Division'] || 
-                       rawActivity['Activity Division'] || 
-                       rawActivity['activity_division'] || ''
-        if (!division || division.trim() === '') {
-          return false
-        }
-        const normalizedDivision = division.trim().toLowerCase()
-        return debouncedSelectedDivisions.some(selectedDiv => 
-          selectedDiv.trim().toLowerCase() === normalizedDivision
-        )
-      })
-    }
+    // ✅ FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
+    const projectActivities = analytics.activities || []
     
     return periods.map((period) => {
       const periodStart = period.start
@@ -613,6 +600,13 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
             }
           }
           
+          // ✅ FIX: Only add value if relatedActivity was found in filtered activities
+          // If relatedActivity is not found, it means this KPI belongs to an activity that was filtered out
+          // So we should NOT add its value to the sum
+          if (!relatedActivity) {
+            return sum
+          }
+          
           if (financialValue === 0) {
             let kpiValue = 0
             
@@ -655,30 +649,13 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   }, [kpis, periods, activities, today, projectKPIsMap, showVirtualMaterialValues, debouncedSelectedDivisions])
 
   // ✅ Calculate Virtual Material Amount per period from KPIs for activities with use_virtual_material
+  // ✅ FIX: analytics.activities is already filtered by divisions in getCachedPeriodValues
+  // So we should use analytics.activities directly without filtering again
   const calculatePeriodVirtualMaterialAmount = useCallback((project: Project, analytics: any): number[] => {
     const projectKPIs = projectKPIsMap.get(project.id)
     const allProjectKPIs = projectKPIs?.actual || []
-    // ✅ PERFORMANCE: Filter activities by debounced selected divisions if filter is applied
-    let projectActivities = analytics.activities || []
-    if (debouncedSelectedDivisions.length > 0) {
-      projectActivities = projectActivities.filter((activity: BOQActivity) => {
-        const rawActivity = (activity as any).raw || {}
-        const division = activity.activity_division || 
-                       (activity as any)['Activity Division'] || 
-                       rawActivity['Activity Division'] || 
-                       rawActivity['activity_division'] || ''
-        
-        if (!division || division.trim() === '') {
-          return false
-        }
-        
-        // Check if activity division matches any selected division (case-insensitive)
-        const normalizedDivision = division.trim().toLowerCase()
-        return debouncedSelectedDivisions.some(selectedDiv => 
-          selectedDiv.trim().toLowerCase() === normalizedDivision
-        )
-      })
-    }
+    // ✅ FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
+    const projectActivities = analytics.activities || []
     
     // Get Virtual Material Percentage from project
     let virtualMaterialPercentage = 0
@@ -889,26 +866,13 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   }, [kpis, periods, activities, today, projectKPIsMap, debouncedSelectedDivisions])
 
   // Calculate period planned value
+  // ✅ FIX: analytics.activities is already filtered by divisions in getCachedPeriodValues
+  // So we should use analytics.activities directly without filtering again
   const calculatePeriodPlannedValue = useCallback((project: Project, analytics: any): number[] => {
     const projectKPIs = projectKPIsMap.get(project.id)
     const allProjectKPIs = projectKPIs?.planned || []
-    let projectActivities = analytics.activities || []
-    if (debouncedSelectedDivisions.length > 0) {
-      projectActivities = projectActivities.filter((activity: BOQActivity) => {
-        const rawActivity = (activity as any).raw || {}
-        const division = activity.activity_division || 
-                       (activity as any)['Activity Division'] || 
-                       rawActivity['Activity Division'] || 
-                       rawActivity['activity_division'] || ''
-        if (!division || division.trim() === '') {
-          return false
-        }
-        const normalizedDivision = division.trim().toLowerCase()
-        return debouncedSelectedDivisions.some(selectedDiv => 
-          selectedDiv.trim().toLowerCase() === normalizedDivision
-        )
-      })
-    }
+    // ✅ FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
+    const projectActivities = analytics.activities || []
     
     return periods.map((period) => {
       const periodStart = period.start
@@ -1033,6 +997,13 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                 return sum + financialValue
               }
             }
+          }
+          
+          // ✅ FIX: Only add value if relatedActivity was found in filtered activities
+          // If relatedActivity is not found, it means this KPI belongs to an activity that was filtered out
+          // So we should NOT add its value to the sum
+          if (!relatedActivity) {
+            return sum
           }
           
           if (financialValue === 0) {
@@ -1169,27 +1140,8 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       })
       
       // ✅ Calculate value using EXACT SAME LOGIC as calculatePeriodEarnedValue
-      // ✅ FIX: Filter activities by selected divisions if filter is applied
-      let projectActivities = analytics.activities || []
-      if (selectedDivisions.length > 0) {
-        projectActivities = projectActivities.filter((activity: BOQActivity) => {
-          const rawActivity = (activity as any).raw || {}
-          const division = activity.activity_division || 
-                         (activity as any)['Activity Division'] || 
-                         rawActivity['Activity Division'] || 
-                         rawActivity['activity_division'] || ''
-          
-          if (!division || division.trim() === '') {
-            return false
-          }
-          
-          // Check if activity division matches any selected division (case-insensitive)
-          const normalizedDivision = division.trim().toLowerCase()
-          return selectedDivisions.some(selectedDiv => 
-            selectedDiv.trim().toLowerCase() === normalizedDivision
-          )
-        })
-      }
+      // ✅ FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
+      const projectActivities = analytics.activities || []
       
       return actualKPIsInOuterRange.reduce((sum: number, kpi: any) => {
         try {
@@ -1269,6 +1221,13 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                 return sum + financialValue
               }
             }
+          }
+          
+          // ✅ FIX: Only add value if relatedActivity was found in filtered activities
+          // If relatedActivity is not found, it means this KPI belongs to an activity that was filtered out
+          // So we should NOT add its value to the sum
+          if (!relatedActivity) {
+            return sum
           }
           
           if (financialValue === 0) {
@@ -1390,27 +1349,8 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       })
       
       // ✅ Calculate value using EXACT SAME LOGIC as calculatePeriodPlannedValue
-      // ✅ FIX: Filter activities by selected divisions if filter is applied
-      let projectActivities = analytics.activities || []
-      if (selectedDivisions.length > 0) {
-        projectActivities = projectActivities.filter((activity: BOQActivity) => {
-          const rawActivity = (activity as any).raw || {}
-          const division = activity.activity_division || 
-                         (activity as any)['Activity Division'] || 
-                         rawActivity['Activity Division'] || 
-                         rawActivity['activity_division'] || ''
-          
-          if (!division || division.trim() === '') {
-            return false
-          }
-          
-          // Check if activity division matches any selected division (case-insensitive)
-          const normalizedDivision = division.trim().toLowerCase()
-          return selectedDivisions.some(selectedDiv => 
-            selectedDiv.trim().toLowerCase() === normalizedDivision
-          )
-        })
-      }
+      // ✅ FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
+      const projectActivities = analytics.activities || []
       
       return plannedKPIsInOuterRange.reduce((sum: number, kpi: any) => {
         try {
@@ -1492,6 +1432,13 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
             }
           }
           
+          // ✅ FIX: Only add value if relatedActivity was found in filtered activities
+          // If relatedActivity is not found, it means this KPI belongs to an activity that was filtered out
+          // So we should NOT add its value to the sum
+          if (!relatedActivity) {
+            return sum
+          }
+          
           if (financialValue === 0) {
             let kpiValue = 0
             
@@ -1529,6 +1476,8 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   }, [outerRangeStart, dateRange.start, today, projectKPIsMap, getPeriodsInRange])
 
   // ✅ Calculate Virtual Material Amount for Outer Range (Actual)
+  // ✅ FIX: analytics.activities is already filtered by divisions in getCachedPeriodValues
+  // So we should use analytics.activities directly without filtering again
   const calculateOuterRangeVirtualMaterialAmount = useCallback((project: Project, analytics: any): number => {
     if (!outerRangeStart || !showVirtualMaterialValues) return 0
     
@@ -1539,27 +1488,8 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     
     const projectKPIs = projectKPIsMap.get(project.id)
     const allProjectKPIs = projectKPIs?.actual || []
-    // ✅ PERFORMANCE: Filter activities by debounced selected divisions if filter is applied
-    let projectActivities = analytics.activities || []
-    if (debouncedSelectedDivisions.length > 0) {
-      projectActivities = projectActivities.filter((activity: BOQActivity) => {
-        const rawActivity = (activity as any).raw || {}
-        const division = activity.activity_division || 
-                       (activity as any)['Activity Division'] || 
-                       rawActivity['Activity Division'] || 
-                       rawActivity['activity_division'] || ''
-        
-        if (!division || division.trim() === '') {
-          return false
-        }
-        
-        // Check if activity division matches any selected division (case-insensitive)
-        const normalizedDivision = division.trim().toLowerCase()
-        return debouncedSelectedDivisions.some(selectedDiv => 
-          selectedDiv.trim().toLowerCase() === normalizedDivision
-        )
-      })
-    }
+    // ✅ FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
+    const projectActivities = analytics.activities || []
     
     // Get Virtual Material Percentage from project
     let virtualMaterialPercentage = 0
@@ -1780,6 +1710,8 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   }, [outerRangeStart, debouncedDateRange.start, today, projectKPIsMap, getPeriodsInRange, showVirtualMaterialValues, debouncedSelectedDivisions])
 
   // ✅ Calculate Virtual Material Amount for Outer Range (Planned)
+  // ✅ FIX: analytics.activities is already filtered by divisions in getCachedPeriodValues
+  // So we should use analytics.activities directly without filtering again
   const calculateOuterRangePlannedVirtualMaterialAmount = useCallback((project: Project, analytics: any): number => {
     if (!outerRangeStart || !showVirtualMaterialValues || !viewPlannedValue) return 0
     
@@ -1790,27 +1722,8 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     
     const projectKPIs = projectKPIsMap.get(project.id)
     const allProjectKPIs = projectKPIs?.planned || []
-    // ✅ PERFORMANCE: Filter activities by debounced selected divisions if filter is applied
-    let projectActivities = analytics.activities || []
-    if (debouncedSelectedDivisions.length > 0) {
-      projectActivities = projectActivities.filter((activity: BOQActivity) => {
-        const rawActivity = (activity as any).raw || {}
-        const division = activity.activity_division || 
-                       (activity as any)['Activity Division'] || 
-                       rawActivity['Activity Division'] || 
-                       rawActivity['activity_division'] || ''
-        
-        if (!division || division.trim() === '') {
-          return false
-        }
-        
-        // Check if activity division matches any selected division (case-insensitive)
-        const normalizedDivision = division.trim().toLowerCase()
-        return debouncedSelectedDivisions.some(selectedDiv => 
-          selectedDiv.trim().toLowerCase() === normalizedDivision
-        )
-      })
-    }
+    // ✅ FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
+    const projectActivities = analytics.activities || []
     
     // Get Virtual Material Percentage from project
     let virtualMaterialPercentage = 0
@@ -2028,30 +1941,13 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   }, [outerRangeStart, debouncedDateRange.start, today, projectKPIsMap, getPeriodsInRange, showVirtualMaterialValues, viewPlannedValue, debouncedSelectedDivisions])
 
   // ✅ Calculate Virtual Material Amount for Planned KPIs
+  // ✅ FIX: analytics.activities is already filtered by divisions in getCachedPeriodValues
+  // So we should use analytics.activities directly without filtering again
   const calculatePeriodPlannedVirtualMaterialAmount = useCallback((project: Project, analytics: any): number[] => {
     const projectKPIs = projectKPIsMap.get(project.id)
     const allProjectKPIs = projectKPIs?.planned || []
-    // ✅ PERFORMANCE: Filter activities by debounced selected divisions if filter is applied
-    let projectActivities = analytics.activities || []
-    if (debouncedSelectedDivisions.length > 0) {
-      projectActivities = projectActivities.filter((activity: BOQActivity) => {
-        const rawActivity = (activity as any).raw || {}
-        const division = activity.activity_division || 
-                       (activity as any)['Activity Division'] || 
-                       rawActivity['Activity Division'] || 
-                       rawActivity['activity_division'] || ''
-        
-        if (!division || division.trim() === '') {
-          return false
-        }
-        
-        // Check if activity division matches any selected division (case-insensitive)
-        const normalizedDivision = division.trim().toLowerCase()
-        return debouncedSelectedDivisions.some(selectedDiv => 
-          selectedDiv.trim().toLowerCase() === normalizedDivision
-        )
-      })
-    }
+    // ✅ FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
+    const projectActivities = analytics.activities || []
     
     // Get Virtual Material Percentage from project
     let virtualMaterialPercentage = 0
@@ -5071,7 +4967,8 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                           return activityFullCode === projectFullCode || activity.project_id === project.id
                         })
                         
-                        if (selectedDivisions.length > 0) {
+                        // ✅ FIX: Use debouncedSelectedDivisions to match getCachedPeriodValues filtering
+                        if (debouncedSelectedDivisions.length > 0) {
                           projectActivities = projectActivities.filter((activity: BOQActivity) => {
                             const rawActivity = (activity as any).raw || {}
                             const division = activity.activity_division || 
@@ -5084,7 +4981,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                             }
                             
                             const normalizedDivision = division.trim().toLowerCase()
-                            return selectedDivisions.some(selectedDiv => 
+                            return debouncedSelectedDivisions.some(selectedDiv => 
                               selectedDiv.trim().toLowerCase() === normalizedDivision
                             )
                           })
