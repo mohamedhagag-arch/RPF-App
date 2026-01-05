@@ -341,7 +341,7 @@ export function formatCurrency(amount: number, currency: Currency): string {
     maximumFractionDigits: 2
   }).format(amount)
   
-  return `${formattedAmount} ${currency.symbol}`
+  return `${currency.symbol} ${formattedAmount}`
 }
 
 /**
@@ -390,6 +390,11 @@ export async function refreshCurrencyCache(): Promise<void> {
 }
 
 export function formatCurrencyByCodeSync(amount: number, currencyCode?: string): string {
+  // Handle NaN, null, undefined, and invalid values
+  if (amount === null || amount === undefined || isNaN(amount) || !isFinite(amount)) {
+    amount = 0
+  }
+  
   // تحديث الـ cache إذا كان قديم
   if (Date.now() - currencyCacheTimestamp > CACHE_DURATION || currencyCache.size === 0) {
     refreshCurrencyCache().catch(console.error)
@@ -409,7 +414,7 @@ export function formatCurrencyByCodeSync(amount: number, currencyCode?: string):
     maximumFractionDigits: 2
   }).format(amount)
   
-  return `${formattedAmount} ${currency.symbol}`
+  return `${currency.symbol} ${formattedAmount}`
 }
 
 /**

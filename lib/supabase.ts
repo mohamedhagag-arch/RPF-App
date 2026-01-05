@@ -31,7 +31,8 @@ export const TABLES = {
   MACHINERY_DAY_RATES: 'machinery_day_rates',          // ✅ Machinery day rates table
   MACHINE_DAILY_RATE_HISTORY: 'machine_daily_rate_history', // ✅ Machine daily rate history with time periods
   KPI_REJECTED: 'kpi_rejected',                        // ✅ Rejected KPIs table (temporary storage)
-  KPI_IGNORED_REPORTING: 'kpi_ignored_reporting_dates' // ✅ Ignored KPI reporting dates (shared across users)
+  KPI_IGNORED_REPORTING: 'kpi_ignored_reporting_dates', // ✅ Ignored KPI reporting dates (shared across users)
+  COMMERCIAL_BOQ_ITEMS: 'BOQ items'                    // ✅ Commercial BOQ items table
 } as const
 
 // Backward compatibility alias
@@ -383,4 +384,23 @@ export interface MachineDailyRateHistory {
   created_by?: string | null
   updated_by?: string | null
   machine?: Machine // Joined machine data
+}
+
+// ✅ Commercial BOQ Items Interface
+export interface CommercialBOQItem {
+  id: string
+  auto_generated_unique_reference_number: string // Auto-generated unique reference number
+  project_full_code: string
+  project_name: string
+  item_description: string
+  unit?: string
+  quantity: number
+  rate: number // Currency
+  total_value: number // Currency (calculated: quantity * rate)
+  remeasurable: boolean
+  planning_assigned_amount: number // Currency
+  variations: number // Currency
+  total_including_variations: number // Currency (calculated: total_value + variations)
+  created_at: string
+  updated_at: string
 }

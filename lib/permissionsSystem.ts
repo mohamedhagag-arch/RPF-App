@@ -7,7 +7,7 @@
 export interface Permission {
   id: string
   name: string
-  category: 'projects' | 'boq' | 'kpi' | 'users' | 'reports' | 'settings' | 'system' | 'database' | 'cost-control' | 'hr' | 'procurement'
+  category: 'projects' | 'boq' | 'kpi' | 'users' | 'reports' | 'settings' | 'system' | 'database' | 'cost-control' | 'hr' | 'procurement' | 'commercial'
   description: string
   action: 'view' | 'create' | 'edit' | 'delete' | 'manage' | 'export' | 'approve' | 'backup' | 'restore'
 }
@@ -331,6 +331,21 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: 'procurement.lpo.delete', name: 'Delete LPO Records', category: 'procurement', description: 'Can delete LPO records', action: 'delete' },
   { id: 'procurement.lpo.import', name: 'Import LPO Records', category: 'procurement', description: 'Can import LPO records from files', action: 'manage' },
   { id: 'procurement.lpo.export', name: 'Export LPO Records', category: 'procurement', description: 'Can export LPO records data', action: 'export' },
+  
+  // Commercial Permissions
+  { id: 'commercial.view', name: 'View Commercial', category: 'commercial', description: 'Can view commercial module and overview', action: 'view' },
+  { id: 'commercial.boq_items.view', name: 'View BOQ Items', category: 'commercial', description: 'Can view commercial BOQ items', action: 'view' },
+  { id: 'commercial.boq_items.create', name: 'Create BOQ Items', category: 'commercial', description: 'Can create new commercial BOQ items', action: 'create' },
+  { id: 'commercial.boq_items.edit', name: 'Edit BOQ Items', category: 'commercial', description: 'Can edit commercial BOQ items', action: 'edit' },
+  { id: 'commercial.boq_items.delete', name: 'Delete BOQ Items', category: 'commercial', description: 'Can delete commercial BOQ items', action: 'delete' },
+  { id: 'commercial.boq_items.export', name: 'Export BOQ Items', category: 'commercial', description: 'Can export commercial BOQ items data', action: 'export' },
+  { id: 'commercial.boq_items.import', name: 'Import BOQ Items', category: 'commercial', description: 'Can import commercial BOQ items from files', action: 'manage' },
+  { id: 'commercial.payments_invoicing.view', name: 'View Payments & Invoicing', category: 'commercial', description: 'Can view payments and invoicing records', action: 'view' },
+  { id: 'commercial.payments_invoicing.create', name: 'Create Payments & Invoicing', category: 'commercial', description: 'Can create new payments and invoicing records', action: 'create' },
+  { id: 'commercial.payments_invoicing.edit', name: 'Edit Payments & Invoicing', category: 'commercial', description: 'Can edit payments and invoicing records', action: 'edit' },
+  { id: 'commercial.payments_invoicing.delete', name: 'Delete Payments & Invoicing', category: 'commercial', description: 'Can delete payments and invoicing records', action: 'delete' },
+  { id: 'commercial.payments_invoicing.export', name: 'Export Payments & Invoicing', category: 'commercial', description: 'Can export payments and invoicing data', action: 'export' },
+  { id: 'commercial.payments_invoicing.import', name: 'Import Payments & Invoicing', category: 'commercial', description: 'Can import payments and invoicing records from files', action: 'manage' },
 ]
 
 // الصلاحيات الافتراضية لكل دور
@@ -377,6 +392,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'procurement.items_list.view', 'procurement.items_list.create', 'procurement.items_list.edit', 'procurement.items_list.delete', 'procurement.items_list.import', 'procurement.items_list.export',
     'procurement.payment_terms.view', 'procurement.payment_terms.create', 'procurement.payment_terms.edit', 'procurement.payment_terms.delete', 'procurement.payment_terms.import', 'procurement.payment_terms.export',
     'procurement.lpo.view', 'procurement.lpo.create', 'procurement.lpo.edit', 'procurement.lpo.delete', 'procurement.lpo.import', 'procurement.lpo.export',
+    // Commercial
+    'commercial.view', 'commercial.boq_items.view', 'commercial.boq_items.create', 'commercial.boq_items.edit', 'commercial.boq_items.delete', 'commercial.boq_items.import', 'commercial.boq_items.export',
+    'commercial.payments_invoicing.view', 'commercial.payments_invoicing.create', 'commercial.payments_invoicing.edit', 'commercial.payments_invoicing.delete', 'commercial.payments_invoicing.import', 'commercial.payments_invoicing.export',
     // Settings (manage most settings)
     'settings.view', 'settings.company', 'settings.divisions', 'settings.project_types', 'settings.currencies', 'settings.activities', 'settings.holidays', 'settings.holidays.view', 'settings.holidays.create', 'settings.holidays.edit', 'settings.holidays.delete',
     'settings.manage', 'companies.view', 'companies.create', 'companies.edit', 'companies.delete',
@@ -425,6 +443,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'hr.view', 'hr.attendance.view', 'hr.attendance.check_in_out', 'hr.attendance.reports.view',
     // Procurement (view only)
     'procurement.view', 'procurement.vendor_list.view', 'procurement.items_list.view', 'procurement.payment_terms.view', 'procurement.lpo.view',
+    // Commercial (view only)
+    'commercial.view', 'commercial.boq_items.view', 'commercial.payments_invoicing.view',
     // Settings (view only)
     'settings.view', 'project_types.view', 'activities.view', 'departments.view', 'job_titles.view', 'companies.view',
     // Users (limited)
@@ -452,6 +472,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'hr.view', 'hr.manpower.view', 'hr.attendance.view', 'hr.attendance.reports.view',
     // Procurement (view only)
     'procurement.view', 'procurement.vendor_list.view', 'procurement.items_list.view', 'procurement.payment_terms.view', 'procurement.lpo.view',
+    // Commercial (view only)
+    'commercial.view', 'commercial.boq_items.view', 'commercial.payments_invoicing.view',
     'settings.view', 'project_types.view', 'activities.view', 'departments.view', 'job_titles.view', 'companies.view',
     'directory.view', 'directory.search', 'profile.view',
     'system.search', 'user_guide.view', 'active_users.view',
@@ -480,6 +502,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'hr.view', 'hr.manpower.view', 'hr.attendance.view', 'hr.attendance.reports.view',
     // Procurement (view only)
     'procurement.view', 'procurement.vendor_list.view', 'procurement.items_list.view', 'procurement.payment_terms.view', 'procurement.lpo.view',
+    // Commercial (view only)
+    'commercial.view', 'commercial.boq_items.view', 'commercial.payments_invoicing.view',
     // Settings (view only)
     'settings.view', 'project_types.view', 'activities.view', 'departments.view', 'job_titles.view', 'companies.view',
     // Users (limited)
