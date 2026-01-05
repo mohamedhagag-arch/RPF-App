@@ -120,6 +120,9 @@ BEGIN
         full_name,
         phone_1,
         role,
+        is_active,
+        custom_permissions_enabled,
+        permissions,
         created_at,
         updated_at
     ) VALUES (
@@ -133,6 +136,34 @@ BEGIN
         ),
         COALESCE(NEW.raw_user_meta_data->>'phone', NEW.raw_user_meta_data->>'phone_1'),
         COALESCE(NEW.raw_user_meta_data->>'role', 'viewer'),
+        true,
+        false,
+        -- صلاحيات Viewer الصحيحة
+        ARRAY[
+          'dashboard.view',
+          'projects.view',
+          'boq.view',
+          'kpi.view',
+          'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly',
+          'reports.lookahead', 'reports.critical', 'reports.performance',
+          'cost_control.view', 'cost_control.manpower.view', 'cost_control.designation_rates.view', 
+          'cost_control.machine_list.view', 'cost_control.machinery_day_rates.view', 
+          'cost_control.material.view', 'cost_control.subcontractor.view', 'cost_control.diesel.view', 
+          'cost_control.transportation.view', 'cost_control.hired_manpower.view', 
+          'cost_control.rpf_equipment.view', 'cost_control.rented_equipment.view', 
+          'cost_control.other_cost.view',
+          'hr.view', 'hr.manpower.view', 'hr.attendance.view', 'hr.attendance.reports.view',
+          'procurement.view', 'procurement.vendor_list.view', 'procurement.items_list.view', 
+          'procurement.payment_terms.view', 'procurement.lpo.view',
+          'settings.view', 'project_types.view', 'activities.view', 'departments.view', 
+          'job_titles.view', 'companies.view',
+          'directory.view', 'directory.search', 'profile.view',
+          'system.search', 'user_guide.view', 'active_users.view',
+          'analytics.view', 'performance.view',
+          'notifications.view', 'alerts.view', 'integrations.view',
+          'workflow.view', 'automation.view', 'security.view', 'compliance.view',
+          'database.view'
+        ]::TEXT[],
         NOW(),
         NOW()
     )

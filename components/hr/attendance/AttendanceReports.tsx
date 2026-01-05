@@ -65,7 +65,7 @@ type DepartmentSummaryRow = {
   totalHours: number
 }
 
-type ReportType = 'attendance' | 'summary' | 'missing' | 'late_early' | 'department_summary' | 'employee_timeline'
+type ReportType = 'attendance' | 'summary' | 'missing' | 'late_early' | 'department_summary' | 'employee_timeline' | 'time_sheet'
 
 export function AttendanceReports() {
   const [reports, setReports] = useState<AttendanceRecord[]>([])
@@ -93,11 +93,42 @@ export function AttendanceReports() {
   const [departments, setDepartments] = useState<string[]>([])
   const [reportType, setReportType] = useState<ReportType>('attendance')
   const [exportFormat, setExportFormat] = useState<ExportFormat>('excel')
+  const [timeSheetData, setTimeSheetData] = useState<any[]>([])
+  const [timeSheetMonth, setTimeSheetMonth] = useState<string>(() => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  })
+  const [signatures, setSignatures] = useState({
+    preparedBy: '',
+    costController: '',
+    technicalTeamApproval: '',
+    operationsApproval: '',
+    accounts: '',
+    management: ''
+  })
 
   useEffect(() => {
     fetchEmployees()
     fetchReports()
   }, [filters])
+
+  // Refetch when switching to time_sheet report type or changing month
+  useEffect(() => {
+    if (reportType === 'time_sheet') {
+      // Update filters to match selected month
+      const [yearStr, monthStr] = timeSheetMonth.split('-')
+      const year = parseInt(yearStr, 10)
+      const month = parseInt(monthStr, 10)
+      const firstDay = `${year}-${monthStr}-01`
+      const lastDay = `${year}-${monthStr}-${new Date(year, month, 0).getDate()}`
+      
+      setFilters(prev => ({
+        ...prev,
+        start_date: firstDay,
+        end_date: lastDay
+      }))
+    }
+  }, [reportType, timeSheetMonth])
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -326,6 +357,421 @@ export function AttendanceReports() {
     }
   }
 
+  // Build Time Sheet data
+  type TimeSheetData = {
+    month: number
+    year: number
+    monthName: string
+    rows: Array<{
+      sn: number
+      code: string
+      designation: string
+      name: string
+      aCode: string
+      dayData: (string | number)[]
+      overtime: string
+      notes: string
+    }>
+    dailyTotals: number[]
+    grandTotal: number
+  }
+
+  const buildTimeSheetData = useMemo((): TimeSheetData | null => {
+    if (reportType !== 'time_sheet' || dailyRows.length === 0) {
+      return null
+    }
+
+    // Get month from timeSheetMonth selector
+    const [yearStr, monthStr] = timeSheetMonth.split('-')
+    const year = parseInt(yearStr, 10)
+    const month = parseInt(monthStr, 10)
+    
+    // Get all days in the month
+    const daysInMonth = new Date(year, month, 0).getDate()
+    const monthDays = Array.from({ length: daysInMonth }, (_, i) => i + 1)
+    
+    // Get all unique employees from dailyRows
+    const employeeMap = new Map<string, AttendanceEmployee>()
+    dailyRows.forEach(row => {
+      if (!employeeMap.has(row.employee.id)) {
+        employeeMap.set(row.employee.id, row.employee)
+      }
+    })
+    
+    const allEmployees = Array.from(employeeMap.values()).sort((a, b) => {
+      // Sort by employee_code if available, otherwise by name
+      const codeA = a.employee_code || ''
+      const codeB = b.employee_code || ''
+      if (codeA && codeB) {
+        return codeA.localeCompare(codeB)
+      }
+      return a.name.localeCompare(b.name)
+    })
+    
+    // Build time sheet rows
+    const timeSheetRows = allEmployees.map((employee, index) => {
+      const employeeRows = dailyRows.filter(row => row.employee.id === employee.id)
+      
+      // Create a map of date -> row for quick lookup
+      const dateMap = new Map<string, DailyRow>()
+      employeeRows.forEach(row => {
+        dateMap.set(row.date, row)
+      })
+      
+      // Build day data for each day in month
+      const dayData: (string | number)[] = []
+      let totalOvertime = 0
+      
+      monthDays.forEach(day => {
+        const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+        const row = dateMap.get(dateStr)
+        
+        if (!row) {
+          dayData.push('')
+        } else {
+          // Map status to Time Sheet codes
+          let value: string | number = ''
+          const status = row.status || 'missing'
+          
+          if (status === 'attended') {
+            if (row.workDurationHours && row.workDurationHours > 8) {
+              // Overtime hours
+              const overtime = row.workDurationHours - 8
+              totalOvertime += overtime
+              value = row.workDurationHours.toFixed(2)
+            } else if (row.workDurationHours) {
+              value = row.workDurationHours.toFixed(2)
+            } else {
+              value = 'P' // Present
+            }
+          } else if (status === 'vacation') {
+            value = 'V'
+          } else if (status === 'cancelled') {
+            value = 'C'
+          } else if (status === 'excused_absent') {
+            value = 'E'
+          } else if (status === 'absent') {
+            value = 'A'
+          } else {
+            value = ''
+          }
+          
+          dayData.push(value)
+        }
+      })
+      
+      // Get notes (combine all notes from the month)
+      const notes = employeeRows
+        .filter(row => row.notes)
+        .map(row => row.notes)
+        .join('; ')
+      
+      return {
+        sn: index + 1,
+        code: employee.employee_code || '',
+        designation: employee.job_title || '',
+        name: employee.name,
+        aCode: '', // A-CODE (can be added later if needed)
+        dayData,
+        overtime: totalOvertime.toFixed(2),
+        notes: notes || ''
+      }
+    })
+    
+    // Calculate daily totals
+    const dailyTotals: number[] = []
+    monthDays.forEach(day => {
+      let dayTotal = 0
+      timeSheetRows.forEach(row => {
+        const dayValue = row.dayData[day - 1]
+        if (typeof dayValue === 'number') {
+          dayTotal += dayValue
+        } else if (dayValue === 'P') {
+          dayTotal += 8 // Assume 8 hours for P
+        }
+      })
+      dailyTotals.push(dayTotal)
+    })
+    
+    // Calculate grand total
+    const grandTotal = timeSheetRows.reduce((sum, row) => {
+      return sum + parseFloat(row.overtime || '0')
+    }, 0)
+    
+    return {
+      month,
+      year,
+      monthName: new Date(year, month - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' }),
+      rows: timeSheetRows,
+      dailyTotals,
+      grandTotal
+    }
+  }, [dailyRows, timeSheetMonth, reportType])
+
+  useEffect(() => {
+    if (reportType === 'time_sheet' && buildTimeSheetData) {
+      setTimeSheetData(buildTimeSheetData.rows)
+    }
+  }, [buildTimeSheetData, reportType])
+
+  // Render Time Sheet Table
+  const renderTimeSheetTable = () => {
+    if (!buildTimeSheetData || !buildTimeSheetData.rows || buildTimeSheetData.rows.length === 0) {
+      return (
+        <div className="text-center py-8">
+          <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+          <p className="text-gray-500">No data available for Time Sheet</p>
+        </div>
+      )
+    }
+
+    const { month, year, monthName, rows, dailyTotals, grandTotal } = buildTimeSheetData
+    const daysInMonth = new Date(year, month, 0).getDate()
+    const monthDays = Array.from({ length: daysInMonth }, (_, i) => i + 1)
+    const today = new Date()
+    const currentDate = today.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
+
+    return (
+      <div className="space-y-4">
+        {/* Header Info */}
+        <div className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+          <div className="flex justify-between items-center">
+            <div>
+              <span className="font-semibold">Date:</span> {currentDate}
+            </div>
+            <div>
+              <span className="font-semibold">Rev:</span> 0
+            </div>
+          </div>
+        </div>
+
+        {/* Description */}
+        <div className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
+          DESCRIBTION - {monthName}
+        </div>
+
+        {/* Time Sheet Table */}
+        <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+          <div className="overflow-auto max-h-[calc(100vh-300px)]">
+            <table className="w-full text-xs border-collapse bg-white dark:bg-gray-900">
+              <thead className="sticky top-0 z-20">
+                <tr className="bg-gray-100 dark:bg-gray-800">
+                  <th className="border border-gray-300 dark:border-gray-600 px-2 py-2 text-left font-semibold sticky left-0 z-30 !bg-gray-100 dark:!bg-gray-800 shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
+                    S/N
+                  </th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-2 py-2 text-left font-semibold sticky left-[40px] z-30 !bg-gray-100 dark:!bg-gray-800 shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
+                    Code #
+                  </th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-2 py-2 text-left font-semibold sticky left-[100px] z-30 !bg-gray-100 dark:!bg-gray-800 min-w-[150px] shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
+                    DESIGNATION
+                  </th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-2 py-2 text-left font-semibold sticky left-[280px] z-30 !bg-gray-100 dark:!bg-gray-800 min-w-[200px] shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
+                    NAME
+                  </th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-2 py-2 text-left font-semibold">
+                    A-CODE
+                  </th>
+                  {monthDays.map((day) => (
+                    <th
+                      key={day}
+                      className="border border-gray-300 dark:border-gray-600 px-1 py-2 text-center font-semibold min-w-[35px]"
+                    >
+                      {day}
+                    </th>
+                  ))}
+                  <th className="border border-gray-300 dark:border-gray-600 px-2 py-2 text-center font-semibold">
+                    OVERTIME
+                  </th>
+                  <th className="border border-gray-300 dark:border-gray-600 px-2 py-2 text-left font-semibold min-w-[200px]">
+                    Notes
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row: any) => (
+                  <tr key={row.code} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                    <td className="border border-gray-300 dark:border-gray-600 px-2 py-2 text-center sticky left-0 z-10 !bg-white dark:!bg-gray-900 shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
+                      {row.sn}
+                    </td>
+                    <td className="border border-gray-300 dark:border-gray-600 px-2 py-2 text-center sticky left-[40px] z-10 !bg-white dark:!bg-gray-900 shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
+                      {row.code}
+                    </td>
+                    <td className="border border-gray-300 dark:border-gray-600 px-2 py-2 text-left sticky left-[100px] z-10 !bg-white dark:!bg-gray-900 min-w-[150px] shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
+                      {row.designation}
+                    </td>
+                    <td className="border border-gray-300 dark:border-gray-600 px-2 py-2 text-left sticky left-[280px] z-10 !bg-white dark:!bg-gray-900 min-w-[200px] shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
+                      {row.name}
+                    </td>
+                  <td className="border border-gray-300 dark:border-gray-600 px-2 py-2 text-center">
+                    {row.aCode}
+                  </td>
+                  {row.dayData.map((value: any, dayIndex: number) => (
+                    <td
+                      key={dayIndex}
+                      className="border border-gray-300 dark:border-gray-600 px-1 py-2 text-center"
+                    >
+                      {value}
+                    </td>
+                  ))}
+                  <td className="border border-gray-300 dark:border-gray-600 px-2 py-2 text-center font-semibold">
+                    {row.overtime}
+                  </td>
+                  <td className="border border-gray-300 dark:border-gray-600 px-2 py-2 text-left text-xs">
+                    {row.notes}
+                  </td>
+                </tr>
+              ))}
+              
+                {/* Daily Totals Row */}
+                <tr className="bg-gray-50 dark:bg-gray-800 font-semibold">
+                  <td colSpan={5} className="border border-gray-300 dark:border-gray-600 px-2 py-2 text-right sticky left-0 z-10 !bg-gray-50 dark:!bg-gray-800 shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
+                    TOTAL
+                  </td>
+                  {dailyTotals.map((total: number, index: number) => (
+                    <td
+                      key={index}
+                      className="border border-gray-300 dark:border-gray-600 px-1 py-2 text-center"
+                    >
+                      {total > 0 ? total.toFixed(2) : ''}
+                    </td>
+                  ))}
+                  <td className="border border-gray-300 dark:border-gray-600 px-2 py-2 text-center">
+                    {grandTotal.toFixed(2)}
+                  </td>
+                  <td className="border border-gray-300 dark:border-gray-600 px-2 py-2"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Signatures Section */}
+        <div className="mt-6 space-y-4">
+          <div className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
+            Signatures & Approvals
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-semibold mb-1 text-gray-700 dark:text-gray-300">
+                Prepared by:
+              </label>
+              <Input
+                type="text"
+                value={signatures.preparedBy}
+                onChange={(e) => setSignatures(prev => ({ ...prev, preparedBy: e.target.value }))}
+                placeholder="Enter name..."
+                className="w-full text-xs"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1 text-gray-700 dark:text-gray-300">
+                Cost Controller:
+              </label>
+              <Input
+                type="text"
+                value={signatures.costController}
+                onChange={(e) => setSignatures(prev => ({ ...prev, costController: e.target.value }))}
+                placeholder="Enter name..."
+                className="w-full text-xs"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1 text-gray-700 dark:text-gray-300">
+                Technical Team Approval:
+              </label>
+              <Input
+                type="text"
+                value={signatures.technicalTeamApproval}
+                onChange={(e) => setSignatures(prev => ({ ...prev, technicalTeamApproval: e.target.value }))}
+                placeholder="Enter name..."
+                className="w-full text-xs"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1 text-gray-700 dark:text-gray-300">
+                Operations Approval:
+              </label>
+              <Input
+                type="text"
+                value={signatures.operationsApproval}
+                onChange={(e) => setSignatures(prev => ({ ...prev, operationsApproval: e.target.value }))}
+                placeholder="Enter name..."
+                className="w-full text-xs"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1 text-gray-700 dark:text-gray-300">
+                Accounts:
+              </label>
+              <Input
+                type="text"
+                value={signatures.accounts}
+                onChange={(e) => setSignatures(prev => ({ ...prev, accounts: e.target.value }))}
+                placeholder="Enter name..."
+                className="w-full text-xs"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1 text-gray-700 dark:text-gray-300">
+                Management:
+              </label>
+              <Input
+                type="text"
+                value={signatures.management}
+                onChange={(e) => setSignatures(prev => ({ ...prev, management: e.target.value }))}
+                placeholder="Enter name..."
+                className="w-full text-xs"
+              />
+            </div>
+          </div>
+          
+          {/* Display Signatures Preview */}
+          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <div className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">Preview:</div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs">
+              <div>
+                <span className="font-semibold">Prepared by:</span>{' '}
+                <span className="text-gray-600 dark:text-gray-400">
+                  {signatures.preparedBy || '_________________'}
+                </span>
+              </div>
+              <div>
+                <span className="font-semibold">Cost Controller:</span>{' '}
+                <span className="text-gray-600 dark:text-gray-400">
+                  {signatures.costController || '_________________'}
+                </span>
+              </div>
+              <div>
+                <span className="font-semibold">Technical Team Approval:</span>{' '}
+                <span className="text-gray-600 dark:text-gray-400">
+                  {signatures.technicalTeamApproval || '_________________'}
+                </span>
+              </div>
+              <div>
+                <span className="font-semibold">Operations Approval:</span>{' '}
+                <span className="text-gray-600 dark:text-gray-400">
+                  {signatures.operationsApproval || '_________________'}
+                </span>
+              </div>
+              <div>
+                <span className="font-semibold">Accounts:</span>{' '}
+                <span className="text-gray-600 dark:text-gray-400">
+                  {signatures.accounts || '_________________'}
+                </span>
+              </div>
+              <div>
+                <span className="font-semibold">Management:</span>{' '}
+                <span className="text-gray-600 dark:text-gray-400">
+                  {signatures.management || '_________________'}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   const handleExport = async () => {
     try {
       setExporting(true)
@@ -334,6 +780,171 @@ export function AttendanceReports() {
 
       if (reportType === 'employee_timeline' && filters.employee_ids.length === 0) {
         setError('Select at least one employee before exporting the timeline')
+        return
+      }
+
+      // Handle Time Sheet export separately
+      if (reportType === 'time_sheet') {
+        if (!buildTimeSheetData || !buildTimeSheetData.rows || buildTimeSheetData.rows.length === 0) {
+          setError('No data to export')
+          return
+        }
+        
+        const { month, year, monthName, rows, dailyTotals, grandTotal } = buildTimeSheetData
+        const daysInMonth = new Date(year, month, 0).getDate()
+        const monthDays = Array.from({ length: daysInMonth }, (_, i) => i + 1)
+        const today = new Date()
+        const currentDate = today.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
+        
+        // Build CSV data in the exact format of the provided file
+        const csvRows: string[] = []
+        
+        // Calculate total columns: S/N, Code #, DESIGNATION, NAME, (empty), A-CODE, days, OVERTIME, (empty), Notes
+        const totalColumns = 6 + daysInMonth + 3 // 6 base columns + days + 3 end columns
+        
+        // Header rows - Date and Rev in the last columns
+        const headerRow1 = Array(totalColumns - 2).fill('').concat(['Date:', currentDate])
+        // Ensure exact length
+        if (headerRow1.length !== totalColumns) {
+          headerRow1.length = totalColumns
+        }
+        csvRows.push(headerRow1.join(','))
+        
+        const headerRow2 = Array(totalColumns - 2).fill('').concat(['Rev:', '0'])
+        // Ensure exact length
+        if (headerRow2.length !== totalColumns) {
+          headerRow2.length = totalColumns
+        }
+        csvRows.push(headerRow2.join(','))
+        
+        // Description row - DESCRIBTION in first column, month name after 4 empty columns, Notes in last column
+        // DESCRIBTION (1) + 4 empty + monthName (1) + X empty + Notes (1) = totalColumns
+        // So X = totalColumns - 7
+        const descEmptyCols = totalColumns - 7 // DESCRIBTION (1) + 4 empty + monthName (1) + Notes (1) = 7
+        const descRow = ['DESCRIBTION'].concat(Array(4).fill('')).concat([monthName]).concat(
+          Array(Math.max(0, descEmptyCols)).fill('')
+        ).concat(['Notes'])
+        // Ensure exact length
+        const descRowFinal = descRow.slice(0, totalColumns)
+        while (descRowFinal.length < totalColumns) {
+          descRowFinal.push('')
+        }
+        csvRows.push(descRowFinal.join(','))
+        
+        // Table header
+        const tableHeader = ['S/N', 'Code #', 'DESIGNATION', 'NAME', '', 'A-CODE'].concat(
+          monthDays.map(day => day.toString())
+        ).concat(['OVERTIME', '', ''])
+        // Ensure exact length
+        if (tableHeader.length !== totalColumns) {
+          while (tableHeader.length < totalColumns) {
+            tableHeader.push('')
+          }
+          tableHeader.length = totalColumns
+        }
+        csvRows.push(tableHeader.join(','))
+        
+        // Employee rows
+        rows.forEach((row: any) => {
+          const employeeRow = [
+            row.sn.toString(),
+            row.code,
+            row.designation,
+            row.name,
+            '',
+            row.aCode || ''
+          ].concat(
+            row.dayData.map((val: any) => val === '' ? '' : val.toString())
+          ).concat([
+            row.overtime,
+            '',
+            row.notes || ''
+          ])
+          // Ensure exact length
+          if (employeeRow.length !== totalColumns) {
+            while (employeeRow.length < totalColumns) {
+              employeeRow.push('')
+            }
+            employeeRow.length = totalColumns
+          }
+          csvRows.push(employeeRow.join(','))
+        })
+        
+        // Daily totals row
+        const totalsRow = ['TOTAL'].concat(Array(4).fill('')).concat(
+          dailyTotals.map((total: number) => total > 0 ? total.toFixed(2) : '')
+        ).concat([grandTotal.toFixed(2), '', ''])
+        // Ensure exact length
+        if (totalsRow.length !== totalColumns) {
+          while (totalsRow.length < totalColumns) {
+            totalsRow.push('')
+          }
+          totalsRow.length = totalColumns
+        }
+        csvRows.push(totalsRow.join(','))
+        
+        // Empty row (only one empty row)
+        csvRows.push(Array(totalColumns).fill('').join(','))
+        
+        // Signatures row - format similar to original file
+        // Prepared by, Cost Controller, Technical Team Approval, Operations Approval, Accounts, Management
+        const signaturesRow: string[] = Array(totalColumns).fill('')
+        
+        // Place signatures at specific positions with names if provided
+        signaturesRow[1] = 'Prepared by:'
+        if (signatures.preparedBy) {
+          signaturesRow[2] = signatures.preparedBy
+        }
+        
+        signaturesRow[3] = 'Cost Controller:'
+        if (signatures.costController) {
+          signaturesRow[4] = signatures.costController
+        }
+        
+        signaturesRow[5] = 'Technical Team Approval:'
+        if (signatures.technicalTeamApproval) {
+          signaturesRow[6] = signatures.technicalTeamApproval
+        }
+        
+        // Operations Approval - place after some empty columns
+        const opsApprovalIndex = Math.floor(totalColumns * 0.25)
+        signaturesRow[opsApprovalIndex] = 'Operations Approval'
+        if (signatures.operationsApproval) {
+          signaturesRow[opsApprovalIndex + 1] = signatures.operationsApproval
+        }
+        
+        // Accounts - place after more empty columns
+        const accountsIndex = Math.floor(totalColumns * 0.5)
+        signaturesRow[accountsIndex] = 'Accounts:'
+        if (signatures.accounts) {
+          signaturesRow[accountsIndex + 1] = signatures.accounts
+        }
+        
+        // Management - place near the end
+        const managementIndex = Math.floor(totalColumns * 0.75)
+        signaturesRow[managementIndex] = 'Management:'
+        if (signatures.management) {
+          signaturesRow[managementIndex + 1] = signatures.management
+        }
+        
+        csvRows.push(signaturesRow.join(','))
+        
+        // Convert to CSV string
+        const csvContent = csvRows.join('\n')
+        
+        // Create blob and download
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+        const link = document.createElement('a')
+        const url = URL.createObjectURL(blob)
+        link.setAttribute('href', url)
+        link.setAttribute('download', `TIME SHEET (${year}) ${month.toString().padStart(2, '0')} ${monthName.toUpperCase()} - Time Sheet.csv`)
+        link.style.visibility = 'hidden'
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        URL.revokeObjectURL(url)
+        
+        setSuccess('Time Sheet exported successfully')
         return
       }
 
@@ -757,8 +1368,21 @@ export function AttendanceReports() {
                 <option value="missing">Missing Only</option>
                 <option value="late_early">Late / Early Only</option>
                 <option value="employee_timeline">Employee Daily Timeline</option>
+                <option value="time_sheet">Time Sheet</option>
               </select>
             </div>
+
+            {reportType === 'time_sheet' && (
+              <div>
+                <label className="block text-sm font-medium mb-1">Month</label>
+                <Input
+                  type="month"
+                  value={timeSheetMonth}
+                  onChange={(e) => setTimeSheetMonth(e.target.value)}
+                  className="w-full"
+                />
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium mb-1">Export Format</label>
@@ -1097,6 +1721,8 @@ export function AttendanceReports() {
             renderSummaryTable()
           ) : reportType === 'department_summary' ? (
             renderDeptSummaryTable()
+          ) : reportType === 'time_sheet' ? (
+            renderTimeSheetTable()
           ) : reportType === 'employee_timeline' ? (
             employeeTimeline.length === 0 ? (
               <div className="text-center py-8">

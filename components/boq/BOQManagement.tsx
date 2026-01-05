@@ -45,6 +45,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   const guard = usePermissionGuard()
   const { user: authUser, appUser } = useAuth()
   const [activities, setActivities] = useState<BOQActivity[]>([])
+  const [allActivitiesForFilter, setAllActivitiesForFilter] = useState<BOQActivity[]>([]) // ✅ All activities for filter dropdowns (without filters)
   const [totalCount, setTotalCount] = useState(0)
   const [projects, setProjects] = useState<Project[]>([])
   const [allKPIs, setAllKPIs] = useState<any[]>([]) // Store all KPIs to pass to sub-components
@@ -273,6 +274,34 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       throw error
     }
   }
+  
+  // ✅ Load ALL activities (without filters) for filter dropdowns on mount
+  useEffect(() => {
+    const loadAllActivitiesForFilters = async () => {
+      if (allActivitiesForFilter.length > 0) return // Already loaded
+      
+      try {
+        console.log('📊 Loading all activities for filter dropdowns...')
+        const { data: allActivitiesData, error: allActivitiesError } = await supabase
+          .from(TABLES.BOQ_ACTIVITIES)
+          .select('*')
+          .limit(10000) // Limit to prevent huge queries
+          .order('created_at', { ascending: false })
+        
+        if (!allActivitiesError && allActivitiesData) {
+          const allMappedActivities = (allActivitiesData || []).map(mapBOQFromDB)
+          setAllActivitiesForFilter(allMappedActivities)
+          console.log(`✅ Loaded ${allMappedActivities.length} activities for filter dropdowns`)
+        } else if (allActivitiesError) {
+          console.warn('⚠️ Error loading all activities for filters:', allActivitiesError)
+        }
+      } catch (error) {
+        console.warn('⚠️ Error loading all activities for filters:', error)
+      }
+    }
+    
+    loadAllActivitiesForFilters()
+  }, []) // Run once on mount
   
   // ✅ Close project dropdown when clicking outside
   useEffect(() => {
@@ -559,13 +588,46 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       }
       
       // Zone filter (Smart Filter)
+      // ✅ FIX: Use same normalization logic as BOQFilter and BOQTableWithCustomization
       if (selectedZones.length > 0) {
-        const activityZone = (activity.zone_ref || activity.zone_number || '').toLowerCase().trim()
-        const matchesZone = selectedZones.some(zone =>
-          activityZone === zone.toLowerCase().trim() ||
-          activityZone.includes(zone.toLowerCase().trim()) ||
-          zone.toLowerCase().trim().includes(activityZone)
-        )
+        const rawActivity = (activity as any).raw || {}
+        
+        // ✅ Use EXACT same priority and normalization as BOQFilter
+        let zoneValue = activity.zone_number || 
+                       activity.zone_ref || 
+                       rawActivity['Zone Number'] ||
+                       rawActivity['Zone Ref'] ||
+                       rawActivity['Zone #'] ||
+                       ''
+        
+        if (zoneValue && zoneValue.toString().trim()) {
+          let zoneStr = zoneValue.toString().trim()
+          
+          // ✅ Apply same normalization as BOQFilter (remove project code prefix)
+          const projectCode = activity.project_full_code || activity.project_code || ''
+          if (projectCode) {
+            const projectCodeUpper = projectCode.toString().toUpperCase().trim()
+            const baseProjectCode = projectCodeUpper.split('-')[0].split(' ')[0]
+            zoneStr = zoneStr
+              .replace(new RegExp(`^${baseProjectCode}\\s*-\\s*`, 'i'), '')
+              .replace(new RegExp(`^${baseProjectCode}\\s+`, 'i'), '')
+              .replace(new RegExp(`^${baseProjectCode}-`, 'i'), '')
+              .trim()
+          }
+          
+          // ✅ Apply same cleanup as BOQFilter
+          zoneStr = zoneStr.replace(/^\s*-\s*/, '').replace(/-\s*$/, '').trim()
+          zoneStr = zoneStr.replace(/\s+/g, ' ').trim()
+          zoneValue = zoneStr || ''
+        }
+        
+        const activityZone = (zoneValue || '').toString().toLowerCase().trim()
+        // ✅ FIX: Use exact match only to prevent "Tower-Side-C" from matching "Tower"
+        const matchesZone = selectedZones.some(zone => {
+          const selectedZone = zone.toLowerCase().trim()
+          // Exact match only - no partial matching to avoid false positives
+          return activityZone === selectedZone
+        })
         if (!matchesZone) return false
       }
       
@@ -626,8 +688,109 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   const filteredActivities = useMemo(() => {
     return allFilteredActivities
   }, [allFilteredActivities])
-  
+
   const filteredTotalCount = allFilteredActivities.length
+
+  // ✅ FIX: Activities for filter dropdowns (exclude activity, zone, unit, division filters to show all available options)
+  // This ensures that when filters are applied, all options remain visible in the dropdowns
+  const activitiesForFilters = useMemo(() => {
+    return activities.filter(activity => {
+      // Multi-Project filter (Smart Filter) - keep this filter
+      if (selectedProjects.length > 0) {
+        const activityFullCode = (activity.project_full_code || '').toString().trim()
+        const activityProjectCode = (activity.project_code || '').toString().trim()
+        const activityProjectSubCode = (activity.project_sub_code || '').toString().trim()
+        
+        const matchesProject = selectedProjects.some(selectedProject => {
+          const selectedFullCodeUpper = selectedProject.toUpperCase().trim()
+          const activityFullCodeUpper = activityFullCode.toUpperCase().trim()
+          const activityProjectCodeUpper = activityProjectCode.toUpperCase().trim()
+          const activityProjectSubCodeUpper = activityProjectSubCode.toUpperCase().trim()
+          
+          // Priority 1: Exact match on project_full_code
+          if (activityFullCodeUpper === selectedFullCodeUpper) {
+            return true
+          }
+          
+          const selectedParts = selectedProject.split('-')
+          const selectedCode = selectedParts[0]?.toUpperCase().trim()
+          const selectedSubCode = selectedParts.slice(1).join('-').toUpperCase().trim()
+          
+          if (selectedCode && activityProjectCodeUpper === selectedCode) {
+            if (selectedSubCode) {
+              const activitySubCodeOnly = activityProjectSubCodeUpper.includes('-') 
+                ? activityProjectSubCodeUpper.split('-').slice(1).join('-').toUpperCase()
+                : activityProjectSubCodeUpper
+              
+              const selectedSubCodeOnly = selectedSubCode.includes('-')
+                ? selectedSubCode.split('-').slice(1).join('-').toUpperCase()
+                : selectedSubCode
+              
+              const subCodeMatches = 
+                activityProjectSubCodeUpper === selectedFullCodeUpper ||
+                activityProjectSubCodeUpper === selectedSubCode ||
+                activitySubCodeOnly === selectedSubCodeOnly ||
+                activityProjectSubCodeUpper.endsWith(selectedSubCode) ||
+                activityProjectSubCodeUpper.includes(selectedSubCode) ||
+                activityProjectSubCodeUpper.includes(selectedFullCodeUpper) ||
+                selectedFullCodeUpper.includes(activityProjectSubCodeUpper)
+              
+              const fullCodeMatches = 
+                activityFullCodeUpper === selectedFullCodeUpper ||
+                activityFullCodeUpper === selectedCode
+              
+              if (subCodeMatches || fullCodeMatches) {
+                return true
+              }
+            } else {
+              if (!activityProjectSubCode || 
+                  activityProjectSubCodeUpper === activityProjectCodeUpper ||
+                  activityFullCodeUpper === selectedCode) {
+                return true
+              }
+            }
+          }
+          
+          if (selectedSubCode && !activityProjectSubCode && activityProjectCodeUpper === selectedCode) {
+            return true
+          }
+          
+          if (activityProjectCode && activityProjectSubCode) {
+            let builtActivityFullCode = activityProjectCode
+            if (activityProjectSubCodeUpper.startsWith(activityProjectCodeUpper)) {
+              builtActivityFullCode = activityProjectSubCode
+            } else if (activityProjectSubCode.startsWith('-')) {
+              builtActivityFullCode = `${activityProjectCode}${activityProjectSubCode}`
+            } else {
+              builtActivityFullCode = `${activityProjectCode}-${activityProjectSubCode}`
+            }
+            
+            if (builtActivityFullCode.toUpperCase() === selectedFullCodeUpper) {
+              return true
+            }
+          }
+          
+          if (activityFullCodeUpper === selectedCode) {
+            return true
+          }
+          
+          return false
+        })
+        
+        if (!matchesProject) {
+          return false
+        }
+      }
+      
+      // ✅ EXCLUDE activity filter - we want to show all activities even when some are selected
+      // ✅ EXCLUDE zone filter - we want to show all zones even when some are selected
+      // ✅ EXCLUDE division filter - we want to show all divisions even when some are selected
+      // ✅ EXCLUDE unit filter - we want to show all units even when some are selected
+      // ✅ EXCLUDE date range, value range, quantity range, and search filters
+      
+      return true
+    })
+  }, [activities, selectedProjects]) // Only depend on projects, NOT activities, zones, units, or divisions
 
   // ✅ Handle filter changes (legacy - not used with SmartFilter)
   const handleFilterChange = (key: string, value: string | string[]) => {
@@ -3340,20 +3503,29 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
           }
         })}
         activities={(() => {
-          // Combine activities and filteredActivities, then remove duplicates by activity_name
-          const allActivities = [...activities, ...filteredActivities]
-          const uniqueActivities = Array.from(
-            new Map(
-              allActivities.map(activity => [activity.activity_name, activity])
-            ).values()
-          )
-          return uniqueActivities.map(a => ({
-          activity_name: a.activity_name,
-          project_full_code: a.project_full_code || a.project_code,
-          zone: a.zone_ref || a.zone_number || '',
-          unit: a.unit || '',
-          activity_division: a.activity_division || ''
-          }))
+          // ✅ FIX: Use activitiesForFilters (excludes zone filter) instead of filteredActivities
+          // This ensures all zones remain visible in dropdown even when zone filter is applied
+          const activitiesToUse = activitiesForFilters.length > 0 ? activitiesForFilters : activities
+          // ✅ Don't deduplicate by activity_name - we need all activities to get all zones
+          const mapped = activitiesToUse.map(a => {
+            // ✅ Get raw data if available (for accessing original database fields)
+            const rawActivity = (a as any).raw || {}
+            
+            return {
+              activity_name: a.activity_name,
+              project_full_code: a.project_full_code || a.project_code,
+              project_code: a.project_code || '',
+              zone: a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || rawActivity['Zone #'] || rawActivity['Zone'] || (a as any).zone || '',
+              zone_ref: a.zone_ref || rawActivity['Zone Ref'] || '',
+              zone_number: a.zone_number || rawActivity['Zone Number'] || rawActivity['Zone #'] || '',
+              unit: a.unit || '',
+              activity_division: a.activity_division || '',
+              // ✅ CRITICAL: Include raw data for accessing original database fields (Zone Ref, Zone Number)
+              raw: rawActivity
+            }
+          })
+          
+          return mapped
         })()}
         selectedProjects={selectedProjects}
         selectedActivities={selectedActivities}
@@ -3755,7 +3927,6 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
             totalItems={filteredActivities.length}
             itemsPerPage={itemsPerPage}
             onPageChange={handlePageChange}
-            loading={loading}
           />
         )}
       </Card>

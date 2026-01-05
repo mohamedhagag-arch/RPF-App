@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, useRef } from 'react'
+import { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react'
 import { getStableSupabaseClient } from '@/lib/stableConnection'
 import { User } from '@supabase/supabase-js'
 import { User as AppUser } from '@/lib/supabase'
@@ -40,10 +40,19 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const supabase = getStableSupabaseClient()
   const mounted = useRef(true)
   const initialized = useRef(false)
+  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const profileLoadingRef = useRef<Set<string>>(new Set()) // Prevent duplicate profile loads
 
-  // Function to refresh user profile data
-  const refreshUserProfile = async () => {
+  // Function to refresh user profile data (with deduplication)
+  const refreshUserProfile = useCallback(async () => {
     if (!user?.id) return
+    
+    // Prevent duplicate loads
+    if (profileLoadingRef.current.has(user.id)) {
+      return
+    }
+    
+    profileLoadingRef.current.add(user.id)
     
     try {
       console.log('🔄 Providers: Refreshing user profile...')
@@ -80,8 +89,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
       }
     } catch (error) {
       console.log('❌ Providers: Error refreshing user profile:', error)
+    } finally {
+      profileLoadingRef.current.delete(user.id)
     }
-  }
+  }, [user?.id, supabase])
 
   // Load default role overrides cache on mount
   useEffect(() => {
@@ -114,10 +125,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
     if (typeof window !== 'undefined') {
       (window as any).refreshUserProfile = refreshUserProfile
     }
-  }, [user?.id])
+  }, [refreshUserProfile])
 
   // Session check function
-  const checkSession = async (forceCheck: boolean = false) => {
+  const checkSession = useCallback(async (forceCheck: boolean = false) => {
     if (!mounted.current) return
     
     try {
@@ -127,8 +138,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
         setUser(session.user)
         setLoading(false)
         
-        // Fetch profile if needed
-        if (!appUser || appUser.id !== session.user.id) {
+        // Fetch profile if needed (with deduplication)
+        if ((!appUser || appUser.id !== session.user.id) && !profileLoadingRef.current.has(session.user.id)) {
           refreshUserProfile()
         }
       } else if (mounted.current) {
@@ -142,7 +153,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         setLoading(false)
       }
     }
-  }
+  }, [appUser, refreshUserProfile])
 
   // Initialize session manager and subscribe to changes
   useEffect(() => {
@@ -152,30 +163,53 @@ export function Providers({ children }: { children: React.ReactNode }) {
     mounted.current = true
     console.log('🔧 Providers: Initializing with professional session manager...')
 
-    // Initialize session manager
-    professionalSessionManager.initialize()
+    // Initialize session manager (non-blocking)
+    professionalSessionManager.initialize().catch(err => {
+      console.warn('⚠️ Providers: Session manager init error:', err)
+    })
 
     // Subscribe to session state changes
     const unsubscribe = professionalSessionManager.subscribe(async (state: SessionState) => {
       if (!mounted.current) return
 
-      console.log('🔔 Providers: Session state changed:', {
-        isLoading: state.isLoading,
-        isRecovering: state.isRecovering,
-        hasUser: !!state.user,
-        userEmail: state.user?.email
-      })
-
-      // Update loading state (keep loading true if recovering or checking)
-      // This prevents premature redirects during session recovery
-      setLoading(state.isLoading || state.isRecovering || professionalSessionManager.isRecovering())
+      // ✅ محسّن: تحديث loading state بشكل ذكي مع offline support
+      const shouldBeLoading = state.isLoading || (state.isRecovering && !state.isOffline)
+      
+      if (shouldBeLoading) {
+        setLoading(true)
+        
+        // Clear existing timeout
+        if (loadingTimeoutRef.current) {
+          clearTimeout(loadingTimeoutRef.current)
+        }
+        
+        // Force loading to false after max time (safety net)
+        loadingTimeoutRef.current = setTimeout(() => {
+          if (mounted.current) {
+            console.warn('⚠️ Providers: Force stopping loading after timeout')
+            setLoading(false)
+          }
+        }, 2000) // 2 seconds max (محسّن)
+      } else {
+        // Clear timeout if loading stopped
+        if (loadingTimeoutRef.current) {
+          clearTimeout(loadingTimeoutRef.current)
+          loadingTimeoutRef.current = null
+        }
+        setLoading(false)
+      }
 
       // Update user from session
       if (state.user) {
-        setUser(state.user)
+        // Only update if user changed (prevent unnecessary re-renders)
+        if (!user || user.id !== state.user.id) {
+          setUser(state.user)
+        }
         
-        // Fetch profile if we don't have it or if user changed
-        if (!appUser || appUser.id !== state.user.id) {
+        // Fetch profile if we don't have it or if user changed (with deduplication)
+        if ((!appUser || appUser.id !== state.user.id) && !profileLoadingRef.current.has(state.user.id)) {
+          profileLoadingRef.current.add(state.user.id)
+          
           try {
             const { data: profile, error } = await supabase
               .from('users')
@@ -196,6 +230,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
             }
           } catch (error) {
             console.log('❌ Providers: Error fetching profile:', error)
+          } finally {
+            profileLoadingRef.current.delete(state.user.id)
           }
         }
       } else {
@@ -205,28 +241,48 @@ export function Providers({ children }: { children: React.ReactNode }) {
       }
     })
 
-    // Initial session check (non-blocking)
-    professionalSessionManager.checkSession(false).then(() => {
-      // Force loading to false after max 1 second
-      setTimeout(() => {
+    // Initial session check (non-blocking, with timeout)
+    // Use cached session immediately if available (optimistic)
+    const initialState = professionalSessionManager.getState()
+    if (initialState.session && initialState.user) {
+      setUser(initialState.user)
+      setLoading(false)
+      // Load profile in background
+      if (!profileLoadingRef.current.has(initialState.user.id)) {
+        refreshUserProfile()
+      }
+    } else {
+      professionalSessionManager.checkSession(false).then(() => {
+        // Force loading to false after max 2 seconds
+        setTimeout(() => {
+          if (mounted.current) {
+            setLoading(false)
+          }
+        }, 2000)
+      }).catch(err => {
+        console.warn('⚠️ Providers: Initial session check error:', err)
         if (mounted.current) {
           setLoading(false)
         }
-      }, 1000)
-    })
+      })
+    }
 
     // Cleanup
     return () => {
       mounted.current = false
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current)
+      }
       unsubscribe()
     }
   }, []) // Empty deps - run only once
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     await professionalSessionManager.signOut()
     setUser(null)
     setAppUser(null)
-  }
+    setLoading(false)
+  }, [])
 
   return (
     <AuthContext.Provider value={{ 

@@ -103,11 +103,12 @@ RETURNS TABLE (
 ) AS $$
 BEGIN
   -- First, mark users inactive if last_seen > 2 minutes
-  UPDATE public.user_activity
+  -- Use table alias to avoid ambiguity with RETURN TABLE column
+  UPDATE public.user_activity ua
   SET is_online = false,
       updated_at = NOW()
-  WHERE is_online = true
-    AND last_seen < NOW() - INTERVAL '2 minutes';
+  WHERE ua.is_online = true
+    AND ua.last_seen < NOW() - INTERVAL '2 minutes';
   
   -- Then return active users
   RETURN QUERY

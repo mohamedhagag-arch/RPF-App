@@ -74,10 +74,31 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
     // Filter by selected activities (multiple selection)
     if (selectedActivityIds.size > 0) {
       // Get all selected activity names
+      // First, try to find activities by ID in the filtered list
       const selectedActivityNames = new Set<string>()
       selectedActivityIds.forEach((activityId) => {
-        const selectedActivity = filtered.find((activity: BOQActivity) => activity.id === activityId)
-        if (selectedActivity) {
+        // Try to find in filtered list first
+        let selectedActivity = filtered.find((activity: BOQActivity) => activity.id === activityId)
+        
+        // If not found, try to find in all project activities
+        if (!selectedActivity) {
+          const projectFullCode = (selectedProject?.project_full_code || `${selectedProject?.project_code}${selectedProject?.project_sub_code ? `-${selectedProject.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+          const projectActivities = activities.filter((activity: BOQActivity) => {
+            const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+            return activityFullCode === projectFullCode || activity.project_id === selectedProject?.id
+          })
+          selectedActivity = projectActivities.find((activity: BOQActivity) => activity.id === activityId)
+        }
+        
+        // If still not found, try to find by matching with availableActivities
+        if (!selectedActivity) {
+          const availableActivity = availableActivities.find((a) => a.id === activityId)
+          if (availableActivity) {
+            // Use the name from availableActivities
+            selectedActivityNames.add(availableActivity.name.toLowerCase().trim())
+          }
+        } else {
+          // Use the activity name from the found activity
           const activityName = (selectedActivity.activity_name || selectedActivity.activity || '').toLowerCase().trim()
           selectedActivityNames.add(activityName)
         }
@@ -118,11 +139,32 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
       return activityFullCode === projectFullCode || activity.project_id === selectedProject.id
     })
     
-    return projectActivities.map((activity: BOQActivity) => ({
-      id: activity.id,
-      name: activity.activity_name || activity.activity || 'Unknown Activity',
-      zone: (activity as any).zone_ref || (activity as any).zone_number || ((activity as any).raw || {})['Zone Ref'] || ((activity as any).raw || {})['Zone Number'] || ''
-    }))
+    // Use Map to store unique activities by name (normalized)
+    // This ensures each activity appears only once in the filter, even if it exists in multiple zones
+    const uniqueActivitiesMap = new Map<string, { id: string; name: string; zone: string }>()
+    
+    projectActivities.forEach((activity: BOQActivity) => {
+      const activityName = (activity.activity_name || activity.activity || 'Unknown Activity').trim()
+      const zone = (activity as any).zone_ref || (activity as any).zone_number || ((activity as any).raw || {})['Zone Ref'] || ((activity as any).raw || {})['Zone Number'] || ''
+      
+      // Use normalized activity name as key to ensure uniqueness
+      const normalizedName = activityName.toLowerCase().trim()
+      
+      // If activity doesn't exist in map, add it
+      // If it exists, we keep the first occurrence (or you could keep the one with the first ID)
+      if (!uniqueActivitiesMap.has(normalizedName)) {
+        uniqueActivitiesMap.set(normalizedName, {
+          id: activity.id, // Use the first activity ID found
+          name: activityName,
+          zone: zone // This will be the zone of the first occurrence, but it doesn't matter for the filter
+        })
+      }
+    })
+    
+    // Convert Map values to array and sort by name
+    return Array.from(uniqueActivitiesMap.values()).sort((a, b) => 
+      a.name.localeCompare(b.name)
+    )
   }, [activities, selectedProject])
   
   // Get unique zones for dropdown
@@ -1096,6 +1138,23 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
     return (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim()
   }, [])
   
+  // Helper function to generate a stable unique ID for an activity
+  const getActivityStableId = useCallback((activity: BOQActivity, activityData?: any): string => {
+    // Use activity.id if available
+    if (activity.id) {
+      return activity.id
+    }
+    
+    // Otherwise, create a stable ID based on activity properties
+    const activityName = (activity.activity_name || activity.activity || 'Unknown Activity').trim()
+    const zone = activityData ? getActivityZone(activityData.activity || activity) : getActivityZone(activity)
+    const projectCode = selectedProject?.project_full_code || selectedProject?.project_code || ''
+    
+    // Create a unique ID from activity name, zone, and project
+    const baseId = `${projectCode}_${activityName}_${zone || 'nozone'}`.replace(/[^a-z0-9_]/gi, '_').toLowerCase()
+    return baseId
+  }, [selectedProject, getActivityZone])
+  
   // Export multiple activities as PDF
   const handleExportAllPDF = useCallback(async () => {
     if (!selectedProject || activitiesChartData.length === 0) {
@@ -1139,6 +1198,62 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
     // Disable UI interactions during export to improve performance
     document.body.style.pointerEvents = 'none'
     document.body.style.cursor = 'wait'
+    
+    // Verify all activities to export have their elements in DOM
+    const missingElements: string[] = []
+    for (const activityData of activitiesToExport) {
+      const activity = activityData.activity
+      const activityId = getActivityStableId(activity, activityData)
+      const chartElement = chartRefs.current.get(activityId)
+      const tableElement = tableRefs.current.get(activityId)
+      
+      if (!chartElement || !tableElement) {
+        // Try with activity.id
+        const chartById = activity.id ? chartRefs.current.get(activity.id) : null
+        const tableById = activity.id ? tableRefs.current.get(activity.id) : null
+        
+        if (!chartById || !tableById) {
+          const activityName = activity.activity_name || activity.activity || 'Unknown Activity'
+          missingElements.push(activityName)
+        }
+      }
+    }
+    
+    if (missingElements.length > 0) {
+      console.warn('Some activities are missing from DOM:', missingElements)
+      console.log('Available chart refs:', Array.from(chartRefs.current.keys()))
+      console.log('Available table refs:', Array.from(tableRefs.current.keys()))
+      
+      // Try to wait a bit and check again (in case elements are still rendering)
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
+      // Re-check after waiting
+      const stillMissing: string[] = []
+      for (const activityData of activitiesToExport) {
+        const activity = activityData.activity
+        const activityId = getActivityStableId(activity, activityData)
+        let chartElement = chartRefs.current.get(activityId)
+        let tableElement = tableRefs.current.get(activityId)
+        
+        if (!chartElement || !tableElement) {
+          chartElement = activity.id ? chartRefs.current.get(activity.id) || chartElement : chartElement
+          tableElement = activity.id ? tableRefs.current.get(activity.id) || tableElement : tableElement
+        }
+        
+        if (!chartElement || !tableElement) {
+          const activityName = activity.activity_name || activity.activity || 'Unknown Activity'
+          stillMissing.push(activityName)
+        }
+      }
+      
+      if (stillMissing.length > 0) {
+        alert(`Cannot export: Some activities are not visible in the page. Please make sure all selected activities are displayed.\n\nMissing: ${stillMissing.join(', ')}`)
+        setIsExporting(false)
+        document.body.style.pointerEvents = ''
+        document.body.style.cursor = ''
+        return
+      }
+    }
     
     try {
       const html2canvas = (await import('html2canvas')).default
@@ -1229,7 +1344,8 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
           const globalIndex = batchIndex * 5 + i
           const activityData = batch[i]
           const activity = activityData.activity
-          const activityId = activity.id || `activity-${globalIndex}`
+          // Use stable ID that matches the one used when setting refs
+          const activityId = getActivityStableId(activity, activityData)
           const activityName = activity.activity_name || activity.activity || 'Unknown Activity'
           
           // Update progress
@@ -1240,12 +1356,91 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
             await yieldToBrowser()
           }
           
-          const chartElement = chartRefs.current.get(activityId)
-          const tableElement = tableRefs.current.get(activityId)
+          // Try to find elements by stable ID first
+          let chartElement = chartRefs.current.get(activityId)
+          let tableElement = tableRefs.current.get(activityId)
+          
+          // If not found, try with activity.id or fallback IDs
+          if (!chartElement || !tableElement) {
+            // Try with activity.id if different from stable ID
+            if (activity.id && activity.id !== activityId) {
+              chartElement = chartRefs.current.get(activity.id) || chartElement
+              tableElement = tableRefs.current.get(activity.id) || tableElement
+            }
+            
+            // Try to find by searching all refs for matching activity
+            if (!chartElement || !tableElement) {
+              // Search through all refs to find matching elements
+              const chartRefsArray = Array.from(chartRefs.current.entries())
+              for (const [refId, refElement] of chartRefsArray) {
+                if (refElement) {
+                  // Check if this element contains the activity name
+                  const textContent = refElement.textContent || ''
+                  if (textContent.includes(activityName)) {
+                    chartElement = refElement
+                    // Try to find corresponding table
+                    const tableRefsArray = Array.from(tableRefs.current.entries())
+                    for (const [tableRefId, tableRefElement] of tableRefsArray) {
+                      if (tableRefElement && tableRefElement.textContent?.includes(activityName)) {
+                        tableElement = tableRefElement
+                        break
+                      }
+                    }
+                    break
+                  }
+                }
+              }
+            }
+          }
           
           if (!chartElement || !tableElement) {
-            console.warn(`Skipping activity ${activityName}: chart or table not found`)
+            console.warn(`Skipping activity ${activityName} (ID: ${activityId}): chart or table not found in DOM. Available refs:`, {
+              chartRefs: Array.from(chartRefs.current.keys()),
+              tableRefs: Array.from(tableRefs.current.keys())
+            })
             continue
+          }
+          
+          // Ensure elements are visible and in viewport before capturing
+          try {
+            // Make sure parent containers are visible
+            let parent = chartElement.parentElement
+            while (parent && parent !== document.body) {
+              if (parent.style.display === 'none' || parent.style.visibility === 'hidden') {
+                parent.style.display = ''
+                parent.style.visibility = 'visible'
+              }
+              parent = parent.parentElement
+            }
+            
+            parent = tableElement.parentElement
+            while (parent && parent !== document.body) {
+              if (parent.style.display === 'none' || parent.style.visibility === 'hidden') {
+                parent.style.display = ''
+                parent.style.visibility = 'visible'
+              }
+              parent = parent.parentElement
+            }
+            
+            // Ensure elements themselves are visible
+            chartElement.style.visibility = 'visible'
+            chartElement.style.opacity = '1'
+            tableElement.style.visibility = 'visible'
+            tableElement.style.opacity = '1'
+            
+            // Scroll element into view smoothly
+            chartElement.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'nearest' })
+            await yieldToBrowser()
+            await new Promise(resolve => setTimeout(resolve, 200))
+            
+            tableElement.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'nearest' })
+            await yieldToBrowser()
+            await new Promise(resolve => setTimeout(resolve, 200))
+            
+            // Additional wait for rendering to complete
+            await new Promise(resolve => setTimeout(resolve, 300))
+          } catch (scrollError) {
+            console.warn('Error preparing elements for capture:', scrollError)
           }
           
           // Add new page for each activity (except the first one)
@@ -1254,29 +1449,145 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
           }
           
           // ✅ Process with high quality settings
-          const chartCanvas = await html2canvas(chartElement, {
-            ...canvasOptions
-          })
+          let chartCanvas: HTMLCanvasElement
+          let tableCanvas: HTMLCanvasElement
+          
+          try {
+            // Verify element is still in DOM before capturing
+            if (!document.body.contains(chartElement)) {
+              throw new Error(`Chart element for ${activityName} is not in DOM`)
+            }
+            
+            chartCanvas = await html2canvas(chartElement, {
+              ...canvasOptions,
+              onclone: (clonedDoc: Document, element: HTMLElement) => {
+                try {
+                  // Hide any animations or transitions
+                  const style = clonedDoc.createElement('style')
+                  style.textContent = `
+                    * { 
+                      animation: none !important; 
+                      transition: none !important;
+                    }
+                    svg, canvas {
+                      visibility: visible !important;
+                      opacity: 1 !important;
+                    }
+                  `
+                  clonedDoc.head.appendChild(style)
+                  
+                  // Ensure the cloned element and all children are visible
+                  if (element) {
+                    element.style.visibility = 'visible'
+                    element.style.opacity = '1'
+                    element.style.display = 'block'
+                    
+                    // Make sure all child elements are visible
+                    const allChildren = element.querySelectorAll('*')
+                    allChildren.forEach((child: any) => {
+                      if (child.style) {
+                        child.style.visibility = 'visible'
+                        child.style.opacity = '1'
+                      }
+                    })
+                  }
+                } catch (cloneError) {
+                  console.warn('Error in onclone for chart:', cloneError)
+                }
+              }
+            })
+          } catch (chartError: any) {
+            console.error(`Error capturing chart for ${activityName}:`, chartError)
+            // Try with simpler options if the first attempt fails
+            try {
+              chartCanvas = await html2canvas(chartElement, {
+                backgroundColor: '#ffffff',
+                scale: 1.5,
+                logging: false,
+                useCORS: true,
+                foreignObjectRendering: false,
+                allowTaint: false
+              })
+            } catch (retryError) {
+              console.error(`Failed to capture chart for ${activityName} after retry:`, retryError)
+              throw new Error(`Unable to capture chart for ${activityName}: ${retryError instanceof Error ? retryError.message : 'Unknown error'}`)
+            }
+          }
           
           // Yield between captures
           await yieldToBrowser()
           
-          const tableCanvas = await html2canvas(tableElement, {
-            backgroundColor: '#ffffff',
-            scale: 2.5,
-            logging: false,
-            useCORS: true,
-            width: tableElement.scrollWidth,
-            height: tableElement.scrollHeight,
-            foreignObjectRendering: false,
-            allowTaint: false,
-            removeContainer: true,
-            onclone: (clonedDoc: Document) => {
-              const style = clonedDoc.createElement('style')
-              style.textContent = '* { animation: none !important; transition: none !important; }'
-              clonedDoc.head.appendChild(style)
+          try {
+            // Verify element is still in DOM before capturing
+            if (!document.body.contains(tableElement)) {
+              throw new Error(`Table element for ${activityName} is not in DOM`)
             }
-          })
+            
+            tableCanvas = await html2canvas(tableElement, {
+              backgroundColor: '#ffffff',
+              scale: 2.5,
+              logging: false,
+              useCORS: true,
+              width: tableElement.scrollWidth,
+              height: tableElement.scrollHeight,
+              foreignObjectRendering: false,
+              allowTaint: false,
+              removeContainer: true,
+              onclone: (clonedDoc: Document, element: HTMLElement) => {
+                try {
+                  const style = clonedDoc.createElement('style')
+                  style.textContent = `
+                    * { 
+                      animation: none !important; 
+                      transition: none !important;
+                    }
+                    table, thead, tbody, tr, td, th {
+                      visibility: visible !important;
+                      opacity: 1 !important;
+                      display: table !important;
+                    }
+                  `
+                  clonedDoc.head.appendChild(style)
+                  
+                  // Ensure the cloned element and all children are visible
+                  if (element) {
+                    element.style.visibility = 'visible'
+                    element.style.opacity = '1'
+                    element.style.display = 'table'
+                    
+                    // Make sure all child elements are visible
+                    const allChildren = element.querySelectorAll('*')
+                    allChildren.forEach((child: any) => {
+                      if (child.style) {
+                        child.style.visibility = 'visible'
+                        child.style.opacity = '1'
+                      }
+                    })
+                  }
+                } catch (cloneError) {
+                  console.warn('Error in onclone for table:', cloneError)
+                }
+              }
+            })
+          } catch (tableError: any) {
+            console.error(`Error capturing table for ${activityName}:`, tableError)
+            // Try with simpler options if the first attempt fails
+            try {
+              tableCanvas = await html2canvas(tableElement, {
+                backgroundColor: '#ffffff',
+                scale: 1.5,
+                logging: false,
+                useCORS: true,
+                width: tableElement.scrollWidth,
+                height: tableElement.scrollHeight,
+                foreignObjectRendering: false,
+                allowTaint: false
+              })
+            } catch (retryError) {
+              console.error(`Failed to capture table for ${activityName} after retry:`, retryError)
+              throw new Error(`Unable to capture table for ${activityName}: ${retryError instanceof Error ? retryError.message : 'Unknown error'}`)
+            }
+          }
           
           // Get zone information
           const zone = getActivityZone(activity)
@@ -1364,11 +1675,37 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
         foreignObjectRendering: false,
         allowTaint: false,
         removeContainer: true, // Remove container after capture to free memory
-        onclone: (clonedDoc: Document) => {
-          // Hide any animations or transitions that might slow down rendering
-          const style = clonedDoc.createElement('style')
-          style.textContent = '* { animation: none !important; transition: none !important; }'
-          clonedDoc.head.appendChild(style)
+        windowWidth: window.innerWidth,
+        windowHeight: window.innerHeight,
+        x: 0,
+        y: 0,
+        scrollX: 0,
+        scrollY: 0,
+        onclone: (clonedDoc: Document, element: HTMLElement) => {
+          try {
+            // Hide any animations or transitions that might slow down rendering
+            const style = clonedDoc.createElement('style')
+            style.textContent = `
+              * { 
+                animation: none !important; 
+                transition: none !important;
+              }
+              svg, canvas, img {
+                visibility: visible !important;
+                opacity: 1 !important;
+              }
+            `
+            clonedDoc.head.appendChild(style)
+            
+            // Ensure element is visible in cloned document
+            if (element) {
+              element.style.visibility = 'visible'
+              element.style.opacity = '1'
+              element.style.display = 'block'
+            }
+          } catch (error) {
+            console.warn('Error in canvasOptions onclone:', error)
+          }
         }
       }
       
@@ -1413,7 +1750,7 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
       document.body.style.cursor = ''
       setIsExporting(false)
     }
-  }, [selectedProject, activitiesChartData, selectedActivitiesForExport, selectedZonesForExport, cutOffDate, getActivityZone, showCombinedView])
+  }, [selectedProject, activitiesChartData, selectedActivitiesForExport, selectedZonesForExport, cutOffDate, getActivityZone, getActivityStableId, showCombinedView])
   
   return (
     <div className="space-y-6">
@@ -1566,7 +1903,37 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
                         -- All Activities --
                       </button>
                       {filteredActivities.map((activity) => {
-                        const isSelected = selectedActivityIds.has(activity.id)
+                        // Check if this activity is selected by checking if any activity with the same name is selected
+                        // Since we filter by name, we need to check if the activity name matches any selected activity name
+                        const isSelected = (() => {
+                          if (selectedActivityIds.size === 0) return false
+                          
+                          // Get all selected activity names
+                          const selectedActivityNames = new Set<string>()
+                          selectedActivityIds.forEach((activityId) => {
+                            // Try to find the activity in availableActivities
+                            const selectedActivity = availableActivities.find((a) => a.id === activityId)
+                            if (selectedActivity) {
+                              selectedActivityNames.add(selectedActivity.name.toLowerCase().trim())
+                            } else {
+                              // If not found in availableActivities, try to find in all activities
+                              const projectFullCode = (selectedProject?.project_full_code || `${selectedProject?.project_code}${selectedProject?.project_sub_code ? `-${selectedProject.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+                              const projectActivities = activities.filter((a: BOQActivity) => {
+                                const activityFullCode = (a.project_full_code || a.project_code || '').toString().trim().toUpperCase()
+                                return activityFullCode === projectFullCode || a.project_id === selectedProject?.id
+                              })
+                              const foundActivity = projectActivities.find((a: BOQActivity) => a.id === activityId)
+                              if (foundActivity) {
+                                const activityName = (foundActivity.activity_name || foundActivity.activity || '').toLowerCase().trim()
+                                selectedActivityNames.add(activityName)
+                              }
+                            }
+                          })
+                          
+                          // Check if current activity name matches any selected activity name
+                          return selectedActivityNames.has(activity.name.toLowerCase().trim())
+                        })()
+                        
                         return (
                           <label
                             key={activity.id}
@@ -1579,10 +1946,29 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
                               checked={isSelected}
                               onChange={(e) => {
                                 const newSet = new Set(selectedActivityIds)
+                                const activityName = activity.name.toLowerCase().trim()
+                                const projectFullCode = (selectedProject?.project_full_code || `${selectedProject?.project_code}${selectedProject?.project_sub_code ? `-${selectedProject.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+                                const projectActivities = activities.filter((a: BOQActivity) => {
+                                  const activityFullCode = (a.project_full_code || a.project_code || '').toString().trim().toUpperCase()
+                                  return activityFullCode === projectFullCode || a.project_id === selectedProject?.id
+                                })
+                                
                                 if (e.target.checked) {
-                                  newSet.add(activity.id)
+                                  // Add all activity IDs that have the same name (all zones)
+                                  projectActivities.forEach((a: BOQActivity) => {
+                                    const aName = (a.activity_name || a.activity || '').toLowerCase().trim()
+                                    if (aName === activityName) {
+                                      newSet.add(a.id)
+                                    }
+                                  })
                                 } else {
-                                  newSet.delete(activity.id)
+                                  // Remove all activity IDs that have the same name
+                                  projectActivities.forEach((a: BOQActivity) => {
+                                    const aName = (a.activity_name || a.activity || '').toLowerCase().trim()
+                                    if (aName === activityName) {
+                                      newSet.delete(a.id)
+                                    }
+                                  })
                                 }
                                 setSelectedActivityIds(newSet)
                               }}
@@ -1818,7 +2204,7 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => handleExportChart(activity.id || `activity-${index}`, activityName, 'png')}
+                      onClick={() => handleExportChart(getActivityStableId(activity, activityData), activityName, 'png')}
                       className="flex items-center gap-2"
                     >
                       <ImageIcon className="h-4 w-4" />
@@ -1827,7 +2213,7 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => handleExportTable(activity.id || `activity-${index}`, activityName, activityData.tableData)}
+                      onClick={() => handleExportTable(getActivityStableId(activity, activityData), activityName, activityData.tableData)}
                       className="flex items-center gap-2"
                     >
                       <FileSpreadsheet className="h-4 w-4" />
@@ -1836,7 +2222,7 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => handleExportPDF(activity.id || `activity-${index}`, activityName, activityData.tableData)}
+                      onClick={() => handleExportPDF(getActivityStableId(activity, activityData), activityName, activityData.tableData)}
                       className="flex items-center gap-2 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 border-blue-300 dark:border-blue-700"
                     >
                       <FileText className="h-4 w-4" />
@@ -1851,7 +2237,14 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
                   <>
                     <div 
                       ref={(el) => {
-                        if (el) chartRefs.current.set(activity.id || `activity-${index}`, el)
+                        if (el) {
+                          const stableId = getActivityStableId(activity, activityData)
+                          chartRefs.current.set(stableId, el)
+                          // Also set with activity.id if different for backward compatibility
+                          if (activity.id && activity.id !== stableId) {
+                            chartRefs.current.set(activity.id, el)
+                          }
+                        }
                       }}
                       className="mb-6" 
                       style={{ height: '400px' }}
@@ -1945,7 +2338,14 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
                     <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700" style={{ maxHeight: '500px' }}>
                       <table 
                         ref={(el) => {
-                          if (el) tableRefs.current.set(activity.id || `activity-${index}`, el)
+                          if (el) {
+                            const stableId = getActivityStableId(activity, activityData)
+                            tableRefs.current.set(stableId, el)
+                            // Also set with activity.id if different for backward compatibility
+                            if (activity.id && activity.id !== stableId) {
+                              tableRefs.current.set(activity.id, el)
+                            }
+                          }
                         }}
                         className="w-full border-collapse text-sm bg-white dark:bg-gray-900"
                       >
@@ -1954,19 +2354,84 @@ export function KPICChartReportView({ activities, projects, kpis, formatCurrency
                             <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold bg-gray-200 dark:bg-gray-700 sticky left-0 z-20 min-w-[120px]">
                               Values
                             </th>
-                            {activityData.tableData.map((row: any, index: number) => (
-                              <th 
-                                key={index}
-                                className="border border-gray-300 dark:border-gray-600 px-2 py-3 text-center font-semibold bg-gray-600 dark:bg-gray-800 text-white min-w-[80px]"
-                                style={{ 
-                                  writingMode: 'vertical-rl',
-                                  textOrientation: 'mixed',
-                                  height: '120px'
-                                }}
-                              >
-                                {row.dateStr}
-                              </th>
-                            ))}
+                            {activityData.tableData.map((row: any, index: number) => {
+                              // Format the header text for clean vertical display
+                              const formatHeaderText = (dateStr: string) => {
+                                if (groupBy === 'weekly') {
+                                  // Parse "Week 43 (Oct 26 - Nov 3)" format
+                                  const weekMatch = dateStr.match(/Week\s+(\d+)\s+\(([^)]+)\)/)
+                                  if (weekMatch) {
+                                    const weekNum = weekMatch[1]
+                                    const dateRange = weekMatch[2]
+                                    const [startDate, endDate] = dateRange.split(' - ')
+                                    return (
+                                      <div className="text-white" style={{ 
+                                        display: 'flex', 
+                                        flexDirection: 'column', 
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: '4px',
+                                        height: '100%',
+                                        padding: '8px 4px',
+                                        color: 'white'
+                                      }}>
+                                        <div className="text-white" style={{ fontSize: '0.75em', fontWeight: '600', whiteSpace: 'nowrap', color: 'white' }}>Week</div>
+                                        <div className="text-white" style={{ fontSize: '1.1em', fontWeight: 'bold', whiteSpace: 'nowrap', color: 'white' }}>{weekNum}</div>
+                                        <div className="text-white" style={{ fontSize: '0.7em', whiteSpace: 'nowrap', marginTop: '2px', color: 'white' }}>{startDate}</div>
+                                        <div className="text-white" style={{ fontSize: '0.65em', whiteSpace: 'nowrap', color: 'white' }}>-</div>
+                                        <div className="text-white" style={{ fontSize: '0.7em', whiteSpace: 'nowrap', color: 'white' }}>{endDate}</div>
+                                      </div>
+                                    )
+                                  }
+                                } else if (groupBy === 'daily') {
+                                  // For daily, show date in a simple format
+                                  return (
+                                    <div className="text-white" style={{ 
+                                      display: 'flex', 
+                                      flexDirection: 'column', 
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      height: '100%',
+                                      padding: '8px 4px',
+                                      lineHeight: '1.4',
+                                      color: 'white'
+                                    }}>
+                                      <div className="text-white" style={{ fontSize: '0.85em', whiteSpace: 'normal', wordBreak: 'break-word', textAlign: 'center', color: 'white' }}>{dateStr}</div>
+                                    </div>
+                                  )
+                                } else {
+                                  // Monthly format
+                                  return (
+                                    <div className="text-white" style={{ 
+                                      display: 'flex', 
+                                      flexDirection: 'column', 
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      height: '100%',
+                                      padding: '8px 4px',
+                                      lineHeight: '1.4',
+                                      color: 'white'
+                                    }}>
+                                      <div className="text-white" style={{ fontSize: '0.85em', whiteSpace: 'normal', wordBreak: 'break-word', textAlign: 'center', color: 'white' }}>{dateStr}</div>
+                                    </div>
+                                  )
+                                }
+                              }
+                              
+                              return (
+                                <th 
+                                  key={index}
+                                  className="border border-gray-300 dark:border-gray-600 px-2 py-3 text-center font-semibold bg-gray-600 dark:bg-gray-800 text-white min-w-[80px]"
+                                  style={{ 
+                                    height: '120px',
+                                    verticalAlign: 'middle',
+                                    padding: '0'
+                                  }}
+                                >
+                                  {formatHeaderText(row.dateStr)}
+                                </th>
+                              )
+                            })}
                           </tr>
                         </thead>
                         <tbody>

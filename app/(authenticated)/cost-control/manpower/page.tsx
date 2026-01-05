@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Alert } from '@/components/ui/Alert'
-import { UserCheck, Download, RefreshCw, Search, X, CheckCircle, AlertCircle, Filter, SlidersHorizontal, Calendar, DollarSign, Clock, Database, ArrowRight, Plus, Save, Edit, Trash2, CheckSquare, Square, Calculator } from 'lucide-react'
+import { UserCheck, Download, Upload, RefreshCw, Search, X, CheckCircle, AlertCircle, Filter, SlidersHorizontal, Calendar, DollarSign, Clock, ArrowRight, Plus, Save, Edit, Trash2, CheckSquare, Square, Calculator, FileText, FileSpreadsheet } from 'lucide-react'
 import DesignationRates from '@/components/cost-control/DesignationRates'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { useRouter } from 'next/navigation'
@@ -54,7 +54,14 @@ export default function ManpowerPage() {
   const canEdit = guard.hasAccess('cost_control.manpower.edit')
   const canDelete = guard.hasAccess('cost_control.manpower.delete')
   const canExport = guard.hasAccess('cost_control.manpower.export')
-  const canManageDatabase = guard.hasAccess('cost_control.database.manage')
+  const canImport = guard.hasAccess('cost_control.manpower.create') // Import requires create permission
+  
+  // ✅ Import/Export State
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importPreview, setImportPreview] = useState<any[] | null>(null)
+  const [showImportPreview, setShowImportPreview] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importProgress, setImportProgress] = useState(0)
   
   // ✅ Enhanced Add Form State with Multiple Records Support
   const [showAddForm, setShowAddForm] = useState(false)
@@ -1672,6 +1679,218 @@ export default function ManpowerPage() {
     }
   }
 
+  // ✅ CSV Import Functions
+  const parseCSV = (text: string): any[] => {
+    const lines = text.split('\n').filter(line => line.trim())
+    if (lines.length < 2) return []
+    
+    const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''))
+    const data: any[] = []
+    
+    for (let i = 1; i < lines.length; i++) {
+      const values = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''))
+      if (values.length === headers.length) {
+        const row: any = {}
+        headers.forEach((header, index) => {
+          row[header] = values[index] || ''
+        })
+        data.push(row)
+      }
+    }
+    
+    return data
+  }
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file) {
+      console.log('📁 File selected:', file.name, file.size, 'bytes')
+      setImportFile(file)
+      setError('')
+      setSuccess('')
+      setImportPreview(null)
+      setShowImportPreview(false)
+    } else {
+      console.log('⚠️ No file selected')
+      setImportFile(null)
+    }
+  }
+
+  const handleImportPreview = async () => {
+    if (!importFile) {
+      setError('Please select a file to import.')
+      return
+    }
+    
+    setImporting(true)
+    setError('')
+    setSuccess('')
+    
+    try {
+      const text = await importFile.text()
+      let parsedData: any[] = []
+
+      if (importFile.name.endsWith('.csv')) {
+        parsedData = parseCSV(text)
+      } else if (importFile.name.endsWith('.json')) {
+        parsedData = JSON.parse(text)
+        if (!Array.isArray(parsedData)) {
+          parsedData = [parsedData]
+        }
+      } else {
+        setError('Unsupported file type. Please upload CSV or JSON.')
+        setImporting(false)
+        return
+      }
+
+      // Map CSV/JSON columns to database columns
+      const mappedData = parsedData.map((row: any) => {
+        const date = row['Date'] || row['date'] || row['Column 1'] || row['column_1'] || ''
+        const projectCode = row['Project Code'] || row['PROJECT CODE'] || row['project_code'] || row['ProjectCode'] || ''
+        const labourCode = row['Labour Code'] || row['LABOUR CODE'] || row['labour_code'] || row['LabourCode'] || ''
+        const designation = row['Designation'] || row['designation'] || ''
+        const start = row['Start Time'] || row['START'] || row['start'] || row['StartTime'] || ''
+        const finish = row['Finish Time'] || row['FINISH'] || row['finish'] || row['FinishTime'] || ''
+        const overtime = row['Overtime'] || row['OVERTIME'] || row['overtime'] || ''
+        const totalHours = row['Total Hours'] || row['total_hours'] || row['TotalHours'] || row['Total Hours'] || ''
+        const cost = row['Cost'] || row['cost'] || ''
+
+        return {
+          date,
+          project_code: projectCode,
+          labour_code: labourCode,
+          designation,
+          start,
+          finish,
+          overtime,
+          total_hours: totalHours ? parseFloat(String(totalHours)) : null,
+          cost: cost ? parseFloat(String(cost)) : null
+        }
+      }).filter((row: any) => row.date && row.project_code && row.labour_code && row.designation)
+
+      if (mappedData.length === 0) {
+        setError('No valid data found in file. Please check the file format.')
+        setImporting(false)
+        return
+      }
+
+      setImportPreview(mappedData)
+      setShowImportPreview(true)
+      setSuccess(`Previewing ${mappedData.length} records.`)
+      
+    } catch (err: any) {
+      setError(`Failed to parse file: ${err.message || 'Invalid file content'}`)
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const handleConfirmImport = async () => {
+    if (!importPreview || importPreview.length === 0) return
+
+    setImporting(true)
+    setError('')
+    setSuccess('')
+    setImportProgress(0)
+
+    try {
+      const totalRows = importPreview.length
+      setImportProgress(10)
+      
+      // Prepare all data at once
+      const dataToImport = importPreview.map((row: any) => ({
+        date: row.date,
+        project_code: row.project_code,
+        labour_code: row.labour_code,
+        designation: row.designation,
+        start: row.start || null,
+        finish: row.finish || null,
+        overtime: row.overtime || null,
+        total_hours: row.total_hours || null,
+        cost: row.cost || null
+      }))
+
+      setImportProgress(30)
+      
+      // Import all rows in batches
+      const batchSize = 50
+      let importedCount = 0
+      let updatedCount = 0
+      const errors: string[] = []
+
+      for (let i = 0; i < dataToImport.length; i += batchSize) {
+        const batch = dataToImport.slice(i, i + batchSize)
+        setImportProgress(30 + Math.round((i / dataToImport.length) * 50))
+
+        try {
+          // Insert batch into MANPOWER table
+          const { error: batchError } = await (supabase
+            .from(TABLES.MANPOWER) as any)
+            .insert(batch)
+
+          if (batchError) {
+            errors.push(`Batch ${Math.floor(i / batchSize) + 1}: ${batchError.message}`)
+          } else {
+            importedCount += batch.length
+          }
+        } catch (err: any) {
+          errors.push(`Batch ${Math.floor(i / batchSize) + 1}: ${err.message || 'Unknown error'}`)
+        }
+      }
+
+      setImportProgress(100)
+
+      if (errors.length > 0) {
+        setError(`Import completed with ${errors.length} errors. ${importedCount} records imported.`)
+        console.error('Import errors:', errors)
+      } else {
+        setSuccess(`Successfully imported ${importedCount} records.`)
+      }
+
+      setShowImportPreview(false)
+      setImportPreview(null)
+      setImportFile(null)
+      
+      // Reset file input
+      const fileInput = document.getElementById('import-file-input-manpower') as HTMLInputElement
+      if (fileInput) fileInput.value = ''
+      
+      // Reload data if we have a project code search
+      if (projectCodeSearch) {
+        await searchByProjectCodeDirect(projectCodeSearch)
+      }
+      
+      setTimeout(() => {
+        setSuccess('')
+        setError('')
+      }, 5000)
+    } catch (err: any) {
+      setError(`Import failed: ${err.message || 'Unknown error'}`)
+      console.error('Import error:', err)
+    } finally {
+      setImporting(false)
+      setImportProgress(0)
+    }
+  }
+
+  const handleDownloadTemplate = () => {
+    const template = [
+      ['Date', 'Project Code', 'Labour Code', 'Designation', 'Start Time', 'Finish Time', 'Overtime', 'Total Hours', 'Cost'],
+      ['2024-01-15', 'P4110-P', 'EMP001', 'Engineer', '08:00', '17:00', '0', '8', '800']
+    ]
+
+    const csvContent = template.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    link.setAttribute('href', url)
+    link.setAttribute('download', 'manpower-import-template.csv')
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
   // ✅ Advanced Filter Function
   const filteredData = data.filter((record) => {
     const rawRecord = (record as any).raw || record
@@ -1885,16 +2104,6 @@ export default function ManpowerPage() {
                     <Plus className="h-4 w-4 mr-2" />
                     {showAddForm ? 'Cancel' : 'Add New Record'}
                   </PermissionButton>
-                  <PermissionButton
-                    permission="cost_control.database.manage"
-                    variant="primary"
-                    onClick={() => router.push('/settings?tab=database')}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white"
-                  >
-                    <Database className="h-4 w-4 mr-2" />
-                    Database Manager
-                    <ArrowRight className="h-4 w-4 ml-2" />
-                  </PermissionButton>
                   {filteredData.length > 0 && (
                     <PermissionButton
                       permission="cost_control.manpower.export"
@@ -1906,6 +2115,81 @@ export default function ManpowerPage() {
                       <Download className="h-4 w-4 mr-2" />
                       Export ({filteredData.length})
                     </PermissionButton>
+                  )}
+                  {canImport && (
+                    <>
+                      <input
+                        type="file"
+                        accept=".csv,.json"
+                        onChange={handleFileChange}
+                        className="hidden"
+                        id="import-file-input-manpower"
+                      />
+                      <PermissionButton
+                        permission="cost_control.manpower.create"
+                        variant="outline"
+                        size="sm"
+                        className="flex items-center gap-2"
+                        type="button"
+                        onClick={() => {
+                          document.getElementById('import-file-input-manpower')?.click()
+                        }}
+                      >
+                        <Upload className="h-4 w-4" />
+                        Import
+                      </PermissionButton>
+                      {importFile && (
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                            <FileText className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                            <span className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                              {importFile.name}
+                            </span>
+                            <span className="text-xs text-blue-600 dark:text-blue-400">
+                              ({(importFile.size / 1024).toFixed(2)} KB)
+                            </span>
+                            <button
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                setImportFile(null)
+                                setImportPreview(null)
+                                setShowImportPreview(false)
+                                const fileInput = document.getElementById('import-file-input-manpower') as HTMLInputElement
+                                if (fileInput) fileInput.value = ''
+                              }}
+                              className="ml-2 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200"
+                              title="Remove file"
+                              type="button"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                          <PermissionButton
+                            permission="cost_control.manpower.create"
+                            onClick={handleImportPreview}
+                            variant="primary"
+                            size="sm"
+                            disabled={importing}
+                            className="flex items-center gap-2"
+                          >
+                            <FileSpreadsheet className="h-4 w-4" />
+                            Preview Import
+                          </PermissionButton>
+                        </div>
+                      )}
+                      <PermissionButton
+                        permission="cost_control.manpower.create"
+                        onClick={handleDownloadTemplate}
+                        variant="ghost"
+                        size="sm"
+                        className="flex items-center gap-2"
+                        title="Download CSV Template"
+                      >
+                        <FileText className="h-4 w-4" />
+                        Template
+                      </PermissionButton>
+                    </>
                   )}
                 </>
               )}
@@ -4348,6 +4632,109 @@ export default function ManpowerPage() {
             </CardContent>
           </Card>
             </>
+          )}
+
+          {/* Import Progress */}
+          {importing && (
+            <Card>
+              <CardContent className="pt-6">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-gray-600 dark:text-gray-400">Importing...</span>
+                    <span className="text-sm font-medium">{importProgress}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                    <div
+                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${importProgress}%` }}
+                    />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Import Preview Modal */}
+          {showImportPreview && importPreview && (
+            <Card className="border-blue-500">
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  <span>Import Preview ({importPreview.length} records)</span>
+                  <Button
+                    onClick={() => {
+                      setShowImportPreview(false)
+                      setImportPreview(null)
+                    }}
+                    variant="ghost"
+                    size="sm"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="max-h-96 overflow-auto">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-gray-100 dark:bg-gray-800">
+                      <tr>
+                        <th className="p-2 text-left">Date</th>
+                        <th className="p-2 text-left">Project Code</th>
+                        <th className="p-2 text-left">Labour Code</th>
+                        <th className="p-2 text-left">Designation</th>
+                        <th className="p-2 text-left">Start</th>
+                        <th className="p-2 text-left">Finish</th>
+                        <th className="p-2 text-left">Overtime</th>
+                        <th className="p-2 text-right">Total Hours</th>
+                        <th className="p-2 text-right">Cost</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importPreview.slice(0, 10).map((row, index) => (
+                        <tr key={index} className="border-b">
+                          <td className="p-2">{row.date || '-'}</td>
+                          <td className="p-2">{row.project_code || '-'}</td>
+                          <td className="p-2">{row.labour_code || '-'}</td>
+                          <td className="p-2">{row.designation || '-'}</td>
+                          <td className="p-2">{row.start || '-'}</td>
+                          <td className="p-2">{row.finish || '-'}</td>
+                          <td className="p-2">{row.overtime || '-'}</td>
+                          <td className="p-2 text-right">{row.total_hours || '-'}</td>
+                          <td className="p-2 text-right">{row.cost ? `AED ${row.cost}` : '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {importPreview.length > 10 && (
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
+                      Showing first 10 of {importPreview.length} records
+                    </p>
+                  )}
+                </div>
+                <div className="flex gap-2 mt-4">
+                  <PermissionButton
+                    permission="cost_control.manpower.create"
+                    onClick={handleConfirmImport}
+                    variant="primary"
+                    disabled={importing}
+                    className="flex items-center gap-2"
+                  >
+                    <CheckCircle className="h-4 w-4" />
+                    Confirm Import
+                  </PermissionButton>
+                  <Button
+                    onClick={() => {
+                      setShowImportPreview(false)
+                      setImportPreview(null)
+                    }}
+                    variant="ghost"
+                    className="flex items-center gap-2"
+                  >
+                    <X className="h-4 w-4" />
+                    Cancel
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
           )}
         </div>
       </div>

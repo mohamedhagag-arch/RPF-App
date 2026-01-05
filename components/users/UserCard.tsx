@@ -1,10 +1,12 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { QRCodeGenerator } from '@/components/qr/QRCodeGenerator'
+import { getProfileUrl } from '@/lib/userUtils'
 import {
   User,
   Mail,
@@ -60,7 +62,15 @@ export function UserCard({
   const router = useRouter()
   const [showMore, setShowMore] = useState(false)
   const [dropdownPosition, setDropdownPosition] = useState<'bottom' | 'top'>('bottom')
+  const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({})
+  const [mounted, setMounted] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  
+  // Ensure component is mounted before using portal
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -103,33 +113,59 @@ export function UserCard({
   }
 
   const handleViewProfile = () => {
-    router.push(`/profile/${user.id}`)
+    router.push(getProfileUrl(user))
   }
 
   const handleMoreClick = () => {
-    setShowMore(!showMore)
-    
-    // Check if dropdown should appear above or below
     if (showMore) {
-      // Closing dropdown
       setShowMore(false)
     } else {
-      // Opening dropdown - check position
-      const rect = document.getElementById(`more-button-${user.id}`)?.getBoundingClientRect()
-      if (rect) {
-        const spaceBelow = window.innerHeight - rect.bottom
-        const spaceAbove = rect.top
-        const dropdownHeight = 200 // Approximate dropdown height
-        
-        if (spaceBelow < dropdownHeight && spaceAbove > dropdownHeight) {
-          setDropdownPosition('top')
-        } else {
-          setDropdownPosition('bottom')
-        }
-      }
       setShowMore(true)
     }
   }
+  
+  // Calculate dropdown position when it opens
+  useEffect(() => {
+    if (showMore && buttonRef.current && mounted) {
+      const updatePosition = () => {
+        const rect = buttonRef.current?.getBoundingClientRect()
+        if (!rect) return
+        
+        const spaceBelow = window.innerHeight - rect.bottom
+        const spaceAbove = rect.top
+        const dropdownHeight = 280 // Approximate dropdown height
+        
+        if (spaceBelow < dropdownHeight && spaceAbove > dropdownHeight) {
+          setDropdownPosition('top')
+          setDropdownStyle({
+            bottom: `${window.innerHeight - rect.top + 8}px`,
+            right: `${window.innerWidth - rect.right}px`,
+            position: 'fixed',
+            zIndex: 10000
+          })
+        } else {
+          setDropdownPosition('bottom')
+          setDropdownStyle({
+            top: `${rect.bottom + 8}px`,
+            right: `${window.innerWidth - rect.right}px`,
+            position: 'fixed',
+            zIndex: 10000
+          })
+        }
+      }
+      
+      updatePosition()
+      
+      // Update position on scroll or resize
+      window.addEventListener('scroll', updatePosition, true)
+      window.addEventListener('resize', updatePosition)
+      
+      return () => {
+        window.removeEventListener('scroll', updatePosition, true)
+        window.removeEventListener('resize', updatePosition)
+      }
+    }
+  }, [showMore, mounted])
 
   const getInitials = () => {
     return `${user.first_name?.[0] || ''}${user.last_name?.[0] || ''}`.toUpperCase()
@@ -150,96 +186,132 @@ export function UserCard({
 
   if (variant === 'compact') {
     return (
-      <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={handleViewProfile}>
-        <CardContent className="p-4">
+      <Card className="group relative overflow-hidden bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border border-gray-200/50 dark:border-gray-800/50 shadow-md hover:shadow-xl transition-all duration-300 hover:scale-105 cursor-pointer" onClick={handleViewProfile}>
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-50/50 to-purple-50/50 dark:from-blue-950/20 dark:to-purple-950/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+        <CardContent className="p-4 relative z-10">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white text-sm font-bold">
-              {getInitials()}
+            <div className="relative flex-shrink-0">
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 rounded-xl flex items-center justify-center text-white text-sm font-bold shadow-lg group-hover:shadow-xl group-hover:scale-110 transition-all duration-300 ring-2 ring-white/50 dark:ring-gray-800/50">
+                {getInitials()}
+              </div>
+              <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-green-500 rounded-full border-2 border-white dark:border-gray-900"></div>
             </div>
             <div className="flex-1 min-w-0">
-              <h4 className="font-semibold text-gray-900 dark:text-white truncate">
+              <h4 className="font-bold text-gray-900 dark:text-white truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-300">
                 {user.full_name}
               </h4>
               <p className="text-sm text-gray-600 dark:text-gray-400 truncate">
                 {user.job_title_en || user.role}
               </p>
             </div>
-            <span className={`px-2 py-1 rounded-full text-xs font-medium ${getRoleColor(user.role)}`}>
+            <span className={`px-3 py-1.5 rounded-full text-xs font-bold shadow-md ${getRoleColor(user.role)} flex-shrink-0 group-hover:scale-105 transition-transform duration-300`}>
               {user.role}
             </span>
           </div>
         </CardContent>
+        <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 via-purple-500 to-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
       </Card>
     )
   }
 
   if (variant === 'detailed') {
     return (
-      <Card className="hover:shadow-lg transition-all duration-200">
-        <CardContent className="p-6">
-          <div className="flex items-start gap-4">
-            {/* Profile Picture */}
-            <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white text-lg font-bold flex-shrink-0">
-              {getInitials()}
+      <Card className="group relative overflow-hidden bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border border-gray-200/50 dark:border-gray-800/50 shadow-lg hover:shadow-2xl transition-all duration-500 hover:scale-[1.01]">
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-50/50 via-transparent to-purple-50/50 dark:from-blue-950/20 dark:via-transparent dark:to-purple-950/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+        <CardContent className="p-6 pl-8 relative z-10">
+          <div className="flex items-center gap-8">
+            {/* Enhanced Profile Picture */}
+            <div className="relative flex-shrink-0 ml-3">
+              <div className="absolute inset-0 bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 rounded-2xl blur-xl opacity-0 group-hover:opacity-30 transition-opacity duration-500"></div>
+              <div className="relative w-20 h-20 bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 rounded-2xl flex items-center justify-center text-white text-xl font-bold shadow-xl group-hover:shadow-2xl group-hover:scale-110 transition-all duration-500 overflow-hidden ring-2 ring-white/50 dark:ring-gray-800/50">
+                {user.profile_picture_url ? (
+                  <img
+                    src={user.profile_picture_url}
+                    alt="Profile Picture"
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement
+                      target.style.display = 'none'
+                      const parent = target.parentElement
+                      if (parent) {
+                        parent.innerHTML = getInitials()
+                        parent.className = 'relative w-20 h-20 bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 rounded-2xl flex items-center justify-center text-white text-xl font-bold shadow-xl group-hover:shadow-2xl group-hover:scale-110 transition-all duration-500 overflow-hidden ring-2 ring-white/50 dark:ring-gray-800/50'
+                      }
+                    }}
+                  />
+                ) : (
+                  getInitials()
+                )}
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
+              </div>
+              <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-gradient-to-br from-green-400 to-emerald-500 rounded-full border-3 border-white dark:border-gray-900 shadow-lg flex items-center justify-center">
+                <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+              </div>
             </div>
             
-            {/* User Info */}
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  {user.full_name}
-                </h3>
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getRoleColor(user.role)}`}>
+          {/* User Info - Centered */}
+          <div className="flex-1 min-w-0 space-y-3.5 flex flex-col justify-center">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-300">
+                    {user.full_name}
+                  </h3>
+                </div>
+                <span className={`px-3 py-1.5 rounded-full text-xs font-bold shadow-md ${getRoleColor(user.role)} flex-shrink-0 group-hover:scale-105 transition-transform duration-300`}>
                   {user.role}
                 </span>
               </div>
               
-              <div className="space-y-1 text-sm text-gray-600 dark:text-gray-400">
+              <div className="space-y-2 text-sm">
                 {user.job_title_en && (
-                  <p className="flex items-center gap-2">
-                    <Briefcase className="h-4 w-4" />
-                    {user.job_title_en}
-                  </p>
+                  <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
+                    <Briefcase className="h-4 w-4 text-blue-500 dark:text-blue-400 flex-shrink-0" />
+                    <span className="font-medium">{user.job_title_en}</span>
+                  </div>
                 )}
                 {user.department_name_en && (
-                  <p className="flex items-center gap-2">
-                    <Building className="h-4 w-4" />
-                    {user.department_name_en}
-                  </p>
+                  <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                    <Building className="h-4 w-4 text-purple-500 dark:text-purple-400 flex-shrink-0" />
+                    <span>{user.department_name_en}</span>
+                  </div>
                 )}
-                <p className="flex items-center gap-2">
-                  <Mail className="h-4 w-4" />
-                  {user.email}
-                </p>
+                <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                  <Mail className="h-4 w-4 text-gray-400 dark:text-gray-500 flex-shrink-0" />
+                  <span className="truncate">{user.email}</span>
+                </div>
                 {user.phone_1 && (
-                  <p className="flex items-center gap-2">
-                    <Phone className="h-4 w-4" />
-                    {user.phone_1}
-                  </p>
+                  <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                    <Phone className="h-4 w-4 text-green-500 dark:text-green-400 flex-shrink-0" />
+                    <span>{user.phone_1}</span>
+                  </div>
                 )}
               </div>
               
               {user.about && (
-                <p className="text-sm text-gray-700 dark:text-gray-300 mt-3 line-clamp-2">
+                <p className="text-sm text-gray-700 dark:text-gray-300 mt-3 line-clamp-2 bg-gray-50/50 dark:bg-gray-800/50 p-3 rounded-lg">
                   {user.about}
                 </p>
               )}
               
               {/* Stats */}
               {stats && (
-                <div className="flex items-center gap-4 mt-4 text-sm">
+                <div className="flex items-center gap-6 mt-4 pt-4 border-t border-gray-200/50 dark:border-gray-700/50">
                   {stats.totalProjects !== undefined && (
-                    <div className="flex items-center gap-1">
-                      <Target className="h-4 w-4 text-blue-500" />
-                      <span className="text-gray-600 dark:text-gray-400">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                        <Target className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                      </div>
+                      <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
                         {stats.totalProjects} projects
                       </span>
                     </div>
                   )}
                   {stats.activeProjects !== undefined && (
-                    <div className="flex items-center gap-1">
-                      <TrendingUp className="h-4 w-4 text-green-500" />
-                      <span className="text-gray-600 dark:text-gray-400">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 bg-green-100 dark:bg-green-900/30 rounded-lg">
+                        <TrendingUp className="h-4 w-4 text-green-600 dark:text-green-400" />
+                      </div>
+                      <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
                         {stats.activeProjects} active
                       </span>
                     </div>
@@ -248,24 +320,24 @@ export function UserCard({
               )}
             </div>
             
-            {/* Actions */}
+            {/* Enhanced Actions */}
             {showActions && (
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2 flex-shrink-0 justify-center">
                 <Button
                   size="sm"
                   onClick={handleViewProfile}
-                  className="w-full"
+                  className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105"
                 >
                   <ExternalLink className="h-4 w-4 mr-2" />
                   View Profile
                 </Button>
                 
-                <div className="flex gap-1">
+                <div className="flex gap-1.5">
                   <Button
                     size="sm"
                     variant="outline"
                     onClick={() => handleContact('email')}
-                    className="flex-1"
+                    className="flex-1 h-9 bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 dark:hover:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-700 hover:scale-110 transition-all duration-300"
                     title="Send Email"
                   >
                     <MailIcon className="h-4 w-4" />
@@ -277,7 +349,7 @@ export function UserCard({
                         size="sm"
                         variant="outline"
                         onClick={() => handleContact('phone')}
-                        className="flex-1"
+                        className="flex-1 h-9 bg-green-50 hover:bg-green-100 dark:bg-green-900/20 dark:hover:bg-green-900/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-700 hover:scale-110 transition-all duration-300"
                         title="Call"
                       >
                         <PhoneCall className="h-4 w-4" />
@@ -287,7 +359,7 @@ export function UserCard({
                         size="sm"
                         variant="outline"
                         onClick={() => handleContact('whatsapp')}
-                        className="flex-1 bg-green-50 hover:bg-green-100 dark:bg-green-900/20 dark:hover:bg-green-900/30 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800"
+                        className="flex-1 h-9 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:hover:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-700 hover:scale-110 transition-all duration-300"
                         title="WhatsApp"
                       >
                         <MessageCircle className="h-4 w-4" />
@@ -299,7 +371,7 @@ export function UserCard({
                     size="sm"
                     variant="outline"
                     onClick={() => handleContact('message')}
-                    className="flex-1"
+                    className="flex-1 h-9 bg-purple-50 hover:bg-purple-100 dark:bg-purple-900/20 dark:hover:bg-purple-900/30 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-700 hover:scale-110 transition-all duration-300"
                     title="Message"
                   >
                     <MessageCircle className="h-4 w-4" />
@@ -309,30 +381,31 @@ export function UserCard({
             )}
           </div>
         </CardContent>
+        <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
       </Card>
     )
   }
 
-  // Default variant
+  // Default variant - Completely Redesigned
   return (
-    <Card className="hover:shadow-xl hover:shadow-blue-500/10 dark:hover:shadow-blue-400/10 transition-all duration-300 border-gray-200/50 dark:border-gray-700/50 bg-white/80 backdrop-blur-sm dark:bg-gray-800/80 group relative overflow-visible">
-      <CardContent className="p-6 overflow-visible">
-        <div className="flex items-center gap-4">
-          <div className="relative">
-            <div className="w-14 h-14 bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 rounded-2xl flex items-center justify-center text-white font-bold text-lg shadow-lg group-hover:shadow-xl group-hover:scale-105 transition-all duration-300 overflow-hidden">
+    <Card className="group relative bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-md hover:shadow-xl transition-all duration-300 hover:-translate-y-1" style={{ overflow: 'visible', zIndex: showMore ? 50 : 'auto' }}>
+      <CardContent className="!p-5 !pt-5 relative z-10" style={{ overflow: 'visible' }}>
+        <div className="flex items-start gap-4">
+          {/* Avatar - Smaller */}
+          <div className="relative flex-shrink-0 z-0">
+            <div className="relative w-14 h-14 bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 rounded-xl flex items-center justify-center text-white font-bold text-sm shadow-md group-hover:shadow-lg group-hover:scale-105 transition-all duration-300 overflow-hidden z-0">
               {user.profile_picture_url ? (
                 <img
                   src={user.profile_picture_url}
                   alt="Profile Picture"
                   className="w-full h-full object-cover"
                   onError={(e) => {
-                    // Fallback to initials if image fails to load
                     const target = e.target as HTMLImageElement
                     target.style.display = 'none'
                     const parent = target.parentElement
                     if (parent) {
                       parent.innerHTML = getInitials()
-                      parent.className = 'w-14 h-14 bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 rounded-2xl flex items-center justify-center text-white font-bold text-lg shadow-lg group-hover:shadow-xl group-hover:scale-105 transition-all duration-300'
+                      parent.className = 'relative w-14 h-14 bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 rounded-xl flex items-center justify-center text-white font-bold text-sm shadow-md group-hover:shadow-lg group-hover:scale-105 transition-all duration-300 overflow-hidden z-0'
                     }
                   }}
                 />
@@ -340,80 +413,114 @@ export function UserCard({
                 getInitials()
               )}
             </div>
-            <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-green-500 rounded-full border-2 border-white dark:border-gray-800"></div>
+            
+            {/* Online status indicator */}
+            <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-green-500 rounded-full border-2 border-white dark:border-gray-900 shadow-sm z-10"></div>
+            
+            {/* Role badge on avatar */}
+            <div className={`absolute -top-1 -right-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold shadow-md ${getRoleColor(user.role)} border border-white dark:border-gray-900 z-10`}>
+              {user.role.charAt(0).toUpperCase()}
+            </div>
           </div>
           
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between mb-2">
-              <h4 className="font-bold text-gray-900 dark:text-white truncate text-lg">
-                {user.full_name}
+          {/* User Info - Takes available space */}
+          <div className="flex-1 min-w-0 space-y-2 relative z-10 pr-2">
+            {/* Name - Full width */}
+            <div className="mb-1.5">
+              <h4 className="font-bold text-gray-900 dark:text-white text-base group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors break-words">
+                {user.full_name || 'No Name'}
               </h4>
-              <span className={`px-3 py-1 rounded-full text-xs font-semibold shadow-sm ${getRoleColor(user.role)}`}>
+            </div>
+            
+            {/* Role badge - Separate line */}
+            <div className="mb-1.5">
+              <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-semibold shadow-sm ${getRoleColor(user.role)} group-hover:scale-105 transition-transform`}>
                 {user.role}
               </span>
             </div>
             
-            <p className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate mb-1">
-              {user.job_title_en || user.email}
-            </p>
+            {/* Job Title */}
+            {user.job_title_en && (
+              <div className="flex items-center gap-2 mb-1.5">
+                <Briefcase className="h-4 w-4 text-blue-500 dark:text-blue-400 flex-shrink-0" />
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 break-words flex-1 min-w-0">
+                  {user.job_title_en}
+                </p>
+              </div>
+            )}
             
+            {/* Department */}
             {user.department_name_en && (
-              <div className="flex items-center gap-1">
-                <Building className="h-3 w-3 text-gray-400" />
-                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+              <div className="flex items-center gap-2 mb-1.5">
+                <Building className="h-4 w-4 text-purple-500 dark:text-purple-400 flex-shrink-0" />
+                <p className="text-sm text-gray-600 dark:text-gray-400 break-words flex-1 min-w-0">
                   {user.department_name_en}
                 </p>
               </div>
             )}
+            
+            {/* Email */}
+            <div className="flex items-center gap-2">
+              <Mail className="h-4 w-4 text-gray-400 dark:text-gray-500 flex-shrink-0" />
+              <p className="text-xs text-gray-500 dark:text-gray-400 flex-1 min-w-0" style={{ 
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }}>
+                {user.email}
+              </p>
+            </div>
           </div>
           
+          {/* Action Buttons */}
           {showActions && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-start gap-2 flex-shrink-0 relative z-20">
               <Button
                 size="sm"
                 variant="outline"
                 onClick={handleViewProfile}
-                className="h-9 w-9 p-0 bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 dark:hover:bg-blue-900/30 border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300 hover:scale-105 transition-all duration-200"
+                className="h-9 w-9 p-0 bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 dark:hover:bg-blue-900/30 border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300 hover:scale-110 transition-all duration-200 relative z-20"
                 title="View Profile"
               >
-                <ExternalLink className="h-4 w-4" />
+                <ExternalLink className="h-4.5 w-4.5" />
               </Button>
               
-              <div className="relative">
+              <div className="relative z-20">
                 <Button
+                  ref={buttonRef}
                   id={`more-button-${user.id}`}
                   size="sm"
                   variant="outline"
                   onClick={handleMoreClick}
-                  className="h-9 w-9 p-0 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200"
+                  className={`h-9 w-9 p-0 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 relative z-20 hover:scale-110 ${showMore ? 'bg-gray-100 dark:bg-gray-700' : ''}`}
                 >
-                  <MoreHorizontal className="h-4 w-4" />
+                  <MoreHorizontal className="h-4.5 w-4.5" />
                 </Button>
-                
-                {showMore && (
-                  <div ref={dropdownRef}>
-                    {/* Backdrop to close dropdown when clicking outside */}
-                    <div 
-                      className="fixed inset-0 z-[9998] bg-transparent" 
-                      onClick={() => setShowMore(false)}
-                    />
-                    <div 
-                      className={`absolute right-0 w-52 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm rounded-xl shadow-xl border border-gray-200/50 dark:border-gray-700/50 z-[9999] overflow-visible ${
-                        dropdownPosition === 'top' 
-                          ? 'bottom-full mb-2' 
-                          : 'top-full mt-2'
-                      }`}
-                    >
-                      <div className="py-2">
+              </div>
+              
+              {/* Dropdown */}
+              {showMore && mounted && typeof window !== 'undefined' && createPortal(
+                <>
+                  <div 
+                    className="fixed inset-0 bg-transparent" 
+                    onClick={() => setShowMore(false)}
+                    style={{ zIndex: 10000 }}
+                  />
+                  <div 
+                    ref={dropdownRef}
+                    className="fixed w-52 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden"
+                    style={{ ...dropdownStyle, zIndex: 10001 }}
+                  >
+                    <div className="py-1">
                       <button
                         onClick={() => {
                           handleContact('email')
                           setShowMore(false)
                         }}
-                        className="w-full px-4 py-3 text-left text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 flex items-center gap-3 transition-colors duration-200"
+                        className="w-full px-4 py-2.5 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 flex items-center gap-2.5 transition-colors"
                       >
                         <MailIcon className="h-4 w-4 text-blue-500" />
-                        Send Email
+                        <span>Send Email</span>
                       </button>
                       
                       {user.phone_1 && (
@@ -423,10 +530,10 @@ export function UserCard({
                               handleContact('phone')
                               setShowMore(false)
                             }}
-                            className="w-full px-4 py-3 text-left text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-green-50 dark:hover:bg-green-900/20 flex items-center gap-3 transition-colors duration-200"
+                            className="w-full px-4 py-2.5 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-green-50 dark:hover:bg-green-900/20 flex items-center gap-2.5 transition-colors"
                           >
                             <PhoneCall className="h-4 w-4 text-green-500" />
-                            Call
+                            <span>Call</span>
                           </button>
                           
                           <button
@@ -434,10 +541,10 @@ export function UserCard({
                               handleContact('whatsapp')
                               setShowMore(false)
                             }}
-                            className="w-full px-4 py-3 text-left text-sm font-medium text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 flex items-center gap-3 transition-colors duration-200"
+                            className="w-full px-4 py-2.5 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-green-50 dark:hover:bg-green-900/20 flex items-center gap-2.5 transition-colors"
                           >
                             <MessageCircle className="h-4 w-4 text-green-500" />
-                            WhatsApp
+                            <span>WhatsApp</span>
                           </button>
                         </>
                       )}
@@ -447,27 +554,29 @@ export function UserCard({
                           handleContact('message')
                           setShowMore(false)
                         }}
-                        className="w-full px-4 py-3 text-left text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 flex items-center gap-3 transition-colors duration-200"
+                        className="w-full px-4 py-2.5 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 flex items-center gap-2.5 transition-colors"
                       >
                         <MessageCircle className="h-4 w-4 text-purple-500" />
-                        Message
+                        <span>Message</span>
                       </button>
+                      
+                      <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
                       
                       <button
                         onClick={() => {
                           router.push(`/qr/${user.id}`)
                           setShowMore(false)
                         }}
-                        className="w-full px-4 py-3 text-left text-sm font-medium text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 flex items-center gap-3 transition-colors duration-200"
+                        className="w-full px-4 py-2.5 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 flex items-center gap-2.5 transition-colors"
                       >
                         <QrCode className="h-4 w-4 text-blue-500" />
-                        QR Code
+                        <span>QR Code</span>
                       </button>
-                      </div>
                     </div>
                   </div>
-                )}
-              </div>
+                </>,
+                document.body
+              )}
             </div>
           )}
         </div>

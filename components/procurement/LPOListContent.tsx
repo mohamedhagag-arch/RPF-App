@@ -1472,7 +1472,6 @@ export default function LPOListContent() {
                         tableContainer.scrollIntoView({ behavior: 'smooth', block: 'start' })
                       }
                     }}
-                    loading={loading}
                   />
                 </div>
               )}

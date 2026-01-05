@@ -29,14 +29,12 @@ import {
   Edit,
   X,
   Check,
-  MapPin,
-  DollarSign
+  MapPin
 } from 'lucide-react'
 import { TableManager } from './TableManager'
 import { 
   getAllTables, 
   getAllTablesStats,
-  getAllCostControlTables,
   TableInfo,
   canManageDatabase,
   cleanupOldData,
@@ -51,13 +49,12 @@ import {
   BackupData
 } from '@/lib/backupManager'
 
-type ViewMode = 'overview' | 'tables' | 'cost-control' | 'backup' | 'restore' | 'auto-backup'
+type ViewMode = 'overview' | 'tables' | 'backup' | 'restore' | 'auto-backup'
 
 export function DatabaseManagement() {
   const guard = usePermissionGuard()
   const [viewMode, setViewMode] = useState<ViewMode>('overview')
   const [tables, setTables] = useState<TableInfo[]>([])
-  const [costControlTables, setCostControlTables] = useState<TableInfo[]>([])
   const [stats, setStats] = useState<Record<string, any>>({})
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info', text: string } | null>(null)
@@ -208,10 +205,6 @@ export function DatabaseManagement() {
     try {
       const allTables = getAllTables()
       setTables(allTables)
-      
-      // Load Cost Control tables
-      const costControlTables = getAllCostControlTables()
-      setCostControlTables(costControlTables)
       
       const allStats = await getAllTablesStats()
       setStats(allStats)
@@ -429,7 +422,6 @@ export function DatabaseManagement() {
         {[
           { id: 'overview', label: 'Overview', icon: Database },
           { id: 'tables', label: 'Manage Tables', icon: HardDrive },
-          { id: 'cost-control', label: '💰 Cost Control', icon: DollarSign },
           { id: 'backup', label: 'Create Backup', icon: Save },
           { id: 'restore', label: 'Restore', icon: Upload },
           { id: 'auto-backup', label: 'Auto Backup', icon: Cloud }
@@ -577,91 +569,6 @@ export function DatabaseManagement() {
               onUpdate={loadData}
             />
           ))}
-        </div>
-      )}
-
-      {/* Cost Control Tables */}
-      {viewMode === 'cost-control' && (
-        <div className="space-y-6">
-          {/* Header */}
-          <div className="bg-gradient-to-r from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20 rounded-lg p-6 border border-yellow-200 dark:border-yellow-800">
-            <div className="flex items-center gap-4">
-              <div className="bg-yellow-600 p-3 rounded-lg">
-                <DollarSign className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
-                  Cost Control Database Management
-                </h2>
-                <p className="text-gray-600 dark:text-gray-400">
-                  Manage and control all Cost Control related data tables. Import, export, and maintain data for MANPOWER and other cost control tables.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Cost Control Tables Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {costControlTables.map((table) => {
-              const tableStat = stats[table.name]
-              return (
-                <div
-                  key={table.name}
-                  className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4"
-                >
-                  <div className="flex items-center gap-3 mb-2">
-                    <span className="text-2xl">{table.icon}</span>
-                    <div>
-                      <h3 className="font-semibold text-gray-900 dark:text-white">
-                        {table.displayName}
-                      </h3>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {table.description}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
-                      <span className="font-semibold">{tableStat?.totalRows.toLocaleString() || 0}</span> rows
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
-                      {tableStat?.estimatedSize || 'N/A'}
-                    </p>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-
-          {/* Cost Control Tables Management */}
-          <div className="space-y-4">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-              Manage Cost Control Tables
-            </h3>
-            {costControlTables.map((table) => (
-              <TableManager 
-                key={table.name} 
-                table={table}
-                onUpdate={loadData}
-              />
-            ))}
-          </div>
-
-          {/* Info Card */}
-          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 p-4">
-            <div className="flex items-start gap-3">
-              <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5" />
-              <div className="flex-1">
-                <h4 className="font-semibold text-blue-900 dark:text-blue-200 mb-1">
-                  Cost Control Tables
-                </h4>
-                <p className="text-sm text-blue-800 dark:text-blue-300">
-                  These tables are specifically for Cost Control operations. You can import, export, and manage data for MANPOWER and other cost-related tables. 
-                  All operations here are focused on cost control data management.
-                </p>
-              </div>
-            </div>
-          </div>
         </div>
       )}
 

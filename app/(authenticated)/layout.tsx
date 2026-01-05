@@ -9,12 +9,16 @@ import { ThemeToggle } from '@/components/ui/ThemeToggle'
 import { UserDropdown } from '@/components/ui/UserDropdown'
 import { ActiveUsersIndicator } from '@/components/ui/ActiveUsersIndicator'
 import { KPINotificationsDropdown } from '@/components/ui/KPINotificationsDropdown'
+import { PrayerTimesWidget } from '@/components/ui/PrayerTimesWidget'
+import { UrgentMessageFloatingButton } from '@/components/ui/UrgentMessageFloatingButton'
 import { kpiNotificationService } from '@/lib/kpiNotificationService'
-import { Users, Bell } from 'lucide-react'
+import { Users, Bell, Home, ChevronRight } from 'lucide-react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { ConnectionMonitor } from '@/components/common/ConnectionMonitor'
 import { ProfileCompletionWrapper } from '@/components/auth/ProfileCompletionWrapper'
 import { useActivityTracker } from '@/hooks/useActivityTracker'
+import { sessionTimeoutManager } from '@/lib/sessionTimeoutManager'
+import { professionalSessionManager } from '@/lib/professionalSessionManager'
 import '@/lib/simpleConnectionTest'
 
 /**
@@ -51,6 +55,20 @@ export default function AuthenticatedLayout({
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  // Initialize session timeout manager when user is authenticated
+  useEffect(() => {
+    if (user && appUser) {
+      sessionTimeoutManager.initialize().catch(err => {
+        console.warn('⚠️ Failed to initialize session timeout manager:', err)
+      })
+    }
+    
+    return () => {
+      // Cleanup on unmount
+      sessionTimeoutManager.cleanup()
+    }
+  }, [user, appUser])
 
   // Load notification count and check for pending KPIs
   useEffect(() => {
@@ -243,79 +261,64 @@ export default function AuthenticatedLayout({
     }
   }, [user])
 
-  // Handle redirect if no user after loading completes
-  // Improved: Check for refresh token before redirecting
+  // ✅ Handle redirect ONLY if no user after loading completes AND session recovery failed
+  // لا يعيد التوجيه إذا كان المستخدم موجود أو في حالة استعادة الجلسة
+  const redirectAttempted = useRef(false)
+  
   useEffect(() => {
-    if (mounted && !loading && !user) {
-      // Check if we have a refresh token (session might be recovering)
-      const checkRefreshToken = () => {
-        if (typeof window === 'undefined') return false
-        
-        // Check cookies
-        const cookies = document.cookie.split(';')
-        const hasRefreshTokenInCookies = cookies.some(cookie => 
-          cookie.trim().includes('sb-') && cookie.trim().includes('refresh-token')
-        )
-        
-        // Check localStorage
-        try {
-          const keys = Object.keys(localStorage)
-          const hasRefreshTokenInStorage = keys.some(key => 
-            key.includes('sb-') && key.includes('refresh-token')
-          )
-          return hasRefreshTokenInCookies || hasRefreshTokenInStorage
-        } catch {
-          return hasRefreshTokenInCookies
-        }
-      }
-
-      const hasRefreshToken = checkRefreshToken()
+    if (!mounted || loading) return
+    
+    // ✅ إذا كان المستخدم موجود → لا redirect (يبقى على نفس الصفحة)
+    if (user) {
+      redirectAttempted.current = false
+      return
+    }
+    
+    // ✅ إذا كان في حالة loading أو recovering → لا redirect (ينتظر)
+    const state = professionalSessionManager.getState()
+    if (state.isLoading || state.isRecovering) {
+      return
+    }
+    
+    // ✅ فقط إذا لم يكن هناك user ولا loading ولا recovering
+    if (!user && typeof window !== 'undefined' && !redirectAttempted.current) {
+      const hasRefreshToken = professionalSessionManager.hasRefreshToken()
+      const hasCachedSession = state.session !== null
       
-      // If we have refresh token, give more time for recovery (3 seconds)
-      // Otherwise, redirect faster (2 seconds)
-      const timeout = hasRefreshToken ? 3000 : 2000
-      
-      const redirectTimer = setTimeout(() => {
-        // Double-check user state and refresh token before redirecting
-        if (typeof window !== 'undefined' && !user) {
-          const stillHasRefreshToken = checkRefreshToken()
-          
-          // Only redirect if we still don't have user AND no refresh token
-          if (!stillHasRefreshToken) {
+      // ✅ إذا كان له refresh token أو cached session → ينتظر الاستعادة (لا redirect)
+      if (hasRefreshToken || hasCachedSession) {
+        // Give session recovery more time (3 seconds)
+        const recoveryTimer = setTimeout(() => {
+          if (!user && !state.isLoading && !state.isRecovering && !redirectAttempted.current) {
             const currentPath = window.location.pathname
             const protectedRoutes = ['/dashboard', '/projects', '/boq', '/kpi', '/reports', '/settings', '/profile', '/directory', '/hr', '/cost-control', '/procurement']
             const isOnProtectedRoute = protectedRoutes.some(route => currentPath.startsWith(route))
             
             if (isOnProtectedRoute) {
-              console.log('⚠️ Layout: No user and no refresh token, redirecting to login')
-              // Store the current path to return to after login
+              redirectAttempted.current = true
+              console.log('⚠️ Layout: Session recovery timeout - redirecting to login')
               sessionStorage.setItem('redirectAfterLogin', currentPath)
               window.location.href = '/'
             }
-          } else {
-            console.log('🔄 Layout: Still has refresh token, waiting for session recovery...')
-            // Give one more chance - check again after 1 second
-            setTimeout(() => {
-              if (!user && typeof window !== 'undefined') {
-                const finalCheck = checkRefreshToken()
-                if (!finalCheck) {
-                  const currentPath = window.location.pathname
-                  const protectedRoutes = ['/dashboard', '/projects', '/boq', '/kpi', '/reports', '/settings', '/profile', '/directory', '/hr', '/cost-control', '/procurement']
-                  const isOnProtectedRoute = protectedRoutes.some(route => currentPath.startsWith(route))
-                  
-                  if (isOnProtectedRoute) {
-                    console.log('⚠️ Layout: Final check - no user, redirecting to login')
-                    sessionStorage.setItem('redirectAfterLogin', currentPath)
-                    window.location.href = '/'
-                  }
-                }
-              }
-            }, 1000)
           }
-        }
-      }, timeout)
+        }, 3000) // 3 seconds for recovery
+        
+        return () => clearTimeout(recoveryTimer)
+      }
       
-      return () => clearTimeout(redirectTimer)
+      // ✅ إذا لم يكن له refresh token ولا cached session → redirect فوري
+      if (!hasRefreshToken && !hasCachedSession) {
+        const currentPath = window.location.pathname
+        const protectedRoutes = ['/dashboard', '/projects', '/boq', '/kpi', '/reports', '/settings', '/profile', '/directory', '/hr', '/cost-control', '/procurement']
+        const isOnProtectedRoute = protectedRoutes.some(route => currentPath.startsWith(route))
+        
+        if (isOnProtectedRoute && !redirectAttempted.current) {
+          redirectAttempted.current = true
+          console.log('⚠️ Layout: No user, no refresh token, and no cached session - redirecting to login')
+          sessionStorage.setItem('redirectAfterLogin', currentPath)
+          window.location.href = '/'
+        }
+      }
     }
   }, [mounted, loading, user])
 
@@ -436,7 +439,8 @@ export default function AuthenticatedLayout({
     router.push('/directory')
   }
 
-  // Loading state: Show spinner while mounting or loading/recovering
+  // ✅ Loading state: Show spinner only while mounting or loading
+  // محسّن: بدون حلول لا نهائية
   if (!mounted || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
@@ -450,14 +454,15 @@ export default function AuthenticatedLayout({
     )
   }
 
-  // No user state after loading: Only show redirect message if we're actually redirecting
-  // (The redirect logic in useEffect will handle the actual redirect)
+  // ✅ No user state after loading: Redirect immediately (no "Checking session..." loop)
+  // The redirect logic in useEffect will handle the actual redirect
   if (!user && !loading) {
+    // Show minimal loading while redirect happens
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <div className="text-center">
           <LoadingSpinner size="lg" />
-          <p className="mt-4 text-gray-600 dark:text-gray-400">Checking session...</p>
+          <p className="mt-4 text-gray-600 dark:text-gray-400">Redirecting...</p>
         </div>
       </div>
     )
@@ -472,81 +477,117 @@ export default function AuthenticatedLayout({
         onTabChange={handleTabChange}
         userName={appUser?.full_name || user?.email || 'User'}
         userRole={appUser?.role || 'viewer'}
+        userProfilePicture={(appUser as any)?.profile_picture_url}
         onProfileClick={handleProfileClick}
         onCollapseChange={setSidebarCollapsed}
       />
 
       {/* Main Content */}
       <div className={`transition-all duration-300 overflow-visible ${
-        sidebarCollapsed ? 'lg:pl-16' : 'lg:pl-64'
+        sidebarCollapsed ? 'lg:pl-16' : 'lg:pl-72'
       }`}>
-        {/* Top Bar */}
-        <div className="sticky top-0 z-40 bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-700 overflow-visible sticky-header">
-          <div className="flex items-center justify-between px-6 py-4">
-            <div className="flex items-center gap-4">
-              <div className="lg:hidden">
-                {/* Mobile menu button handled by sidebar */}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <ThemeToggle />
-              
-              {/* KPI Notifications */}
-              <div className="relative">
-                <button
-                  ref={(el) => { notificationButtonRef.current = el }}
-                  onClick={() => {
-                    setShowNotifications(!showNotifications)
-                    if (!showNotifications) {
-                      loadNotificationCount()
-                    }
-                  }}
-                  className="relative flex items-center justify-center p-2 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                  title="KPI Notifications"
-                >
-                  <Bell className="h-5 w-5" />
-                  {notificationCount > 0 && (
-                    <span className="absolute -top-1 -right-1 h-5 w-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-semibold">
-                      {notificationCount > 99 ? '99+' : notificationCount}
-                    </span>
+        {/* Top Bar - Enhanced Navbar */}
+        <div className="sticky top-0 z-[100] bg-gradient-to-r from-white via-white to-gray-50/50 dark:from-gray-800 dark:via-gray-800 dark:to-gray-900/50 backdrop-blur-xl border-b-2 border-gray-200/50 dark:border-gray-700/50 shadow-sm overflow-visible sticky-header">
+          <div className="px-6 py-3">
+            {/* Main Navbar */}
+            <div className="flex items-center justify-between mb-2">
+              {/* Left Section - Breadcrumbs */}
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <div className="lg:hidden">
+                  {/* Mobile menu button handled by sidebar */}
+                </div>
+                
+                {/* Breadcrumbs */}
+                <nav className="hidden md:flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                  <button
+                    onClick={() => router.push('/dashboard')}
+                    className="flex items-center gap-1 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                  >
+                    <Home className="h-4 w-4" />
+                    <span className="font-medium">Dashboard</span>
+                  </button>
+                  {pathname !== '/dashboard' && (
+                    <>
+                      <ChevronRight className="h-4 w-4" />
+                      <span className="text-gray-900 dark:text-white font-semibold capitalize">
+                        {pathname.split('/').filter(Boolean).pop()?.replace(/-/g, ' ') || 'Page'}
+                      </span>
+                    </>
                   )}
-                </button>
-                {showNotifications && (
-                  <div data-notification-dropdown>
-                    <KPINotificationsDropdown
-                      onClose={() => {
-                        setShowNotifications(false)
-                        loadNotificationCount()
-                      }}
-                    />
-                  </div>
-                )}
+                </nav>
               </div>
-              
-              {/* Active Users Indicator */}
-              <ActiveUsersIndicator />
-              
-              {/* Directory Button */}
-              <button
-                onClick={handleDirectoryClick}
-                className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                title="Directory"
-              >
-                <Users className="h-4 w-4" />
-                <span className="hidden sm:inline">Directory</span>
-              </button>
-              
-              <UserDropdown
-                userName={appUser?.first_name && appUser?.last_name 
-                  ? `${appUser.first_name} ${appUser.last_name}` 
-                  : appUser?.full_name || user?.email || 'User'
-                }
-                userRole={appUser?.role || 'viewer'}
-                onProfileClick={handleProfileClick}
-                onSettingsClick={handleSettingsClick}
-                onSignOut={handleSignOut}
-              />
+
+              {/* Center Section - Prayer Times */}
+              <div className="hidden lg:flex items-center justify-center flex-1">
+                <PrayerTimesWidget />
+              </div>
+
+              {/* Right Section - Actions */}
+              <div className="flex items-center gap-2">
+                {/* Theme Toggle */}
+                <div className="p-0.5 rounded-xl bg-gray-100 dark:bg-gray-700">
+                  <ThemeToggle />
+                </div>
+                
+                {/* KPI Notifications */}
+                <div className="relative">
+                  <button
+                    ref={(el) => { notificationButtonRef.current = el }}
+                    onClick={() => {
+                      setShowNotifications(!showNotifications)
+                      if (!showNotifications) {
+                        loadNotificationCount()
+                      }
+                    }}
+                    className="relative flex items-center justify-center p-2.5 text-gray-700 dark:text-gray-300 hover:text-orange-600 dark:hover:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded-xl transition-all duration-200 hover:scale-105 border border-transparent hover:border-orange-200 dark:hover:border-orange-800"
+                    title="KPI Notifications"
+                  >
+                    <Bell className="h-5 w-5" />
+                    {notificationCount > 0 && (
+                      <span className="absolute -top-1 -right-1 h-5 w-5 bg-gradient-to-br from-red-500 to-red-600 text-white text-xs rounded-full flex items-center justify-center font-bold shadow-lg animate-pulse">
+                        {notificationCount > 99 ? '99+' : notificationCount}
+                      </span>
+                    )}
+                  </button>
+                  {showNotifications && (
+                    <div data-notification-dropdown>
+                      <KPINotificationsDropdown
+                        onClose={() => {
+                          setShowNotifications(false)
+                          loadNotificationCount()
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+                
+                {/* Active Users Indicator */}
+                <div className="hidden sm:block">
+                  <ActiveUsersIndicator />
+                </div>
+                
+                {/* Directory Button */}
+                <button
+                  onClick={handleDirectoryClick}
+                  className="hidden md:flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:text-purple-600 dark:hover:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-xl transition-all duration-200 hover:scale-105 border border-transparent hover:border-purple-200 dark:hover:border-purple-800"
+                  title="Directory"
+                >
+                  <Users className="h-4 w-4" />
+                  <span className="hidden lg:inline">Directory</span>
+                </button>
+                
+                {/* User Dropdown */}
+                <UserDropdown
+                  userName={appUser?.first_name && appUser?.last_name 
+                    ? `${appUser.first_name} ${appUser.last_name}` 
+                    : appUser?.full_name || user?.email || 'User'
+                  }
+                  userRole={appUser?.role || 'viewer'}
+                  onProfileClick={handleProfileClick}
+                  onSettingsClick={handleSettingsClick}
+                  onSignOut={handleSignOut}
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -561,6 +602,9 @@ export default function AuthenticatedLayout({
       
       {/* Connection Monitor */}
       <ConnectionMonitor />
+      
+      {/* Urgent Message Floating Button */}
+      <UrgentMessageFloatingButton />
     </div>
   )
 }

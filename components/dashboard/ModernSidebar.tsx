@@ -47,6 +47,7 @@ import {
   Wrench,
   Coins,
   Receipt,
+  X,
   type LucideIcon
 } from 'lucide-react'
 
@@ -154,11 +155,12 @@ interface ModernSidebarProps {
   onTabChange: (tab: string) => void
   userName?: string
   userRole?: string
+  userProfilePicture?: string
   onProfileClick?: () => void
   onCollapseChange?: (collapsed: boolean) => void
 }
 
-export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userRole = 'Admin', onProfileClick, onCollapseChange }: ModernSidebarProps) {
+export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userRole = 'Admin', userProfilePicture, onProfileClick, onCollapseChange }: ModernSidebarProps) {
   const guard = usePermissionGuard()
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
@@ -173,20 +175,17 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
     if (tab === 'users') return '/settings?tab=users'
     if (tab === 'directory') return '/directory'
     if (tab === 'search') return '/dashboard?search=true'
-    if (tab === 'planning') return '/boq' // Default to BOQ when clicking Planning
-    if (tab === 'commercial') return '/commercial/boq-items' // Default to BOQ Items when clicking Commercial
-    if (tab === 'forms') return '/boq' // Default to BOQ Form when clicking Forms
+    if (tab === 'planning') return '/boq'
+    if (tab === 'commercial') return '/commercial/boq-items'
+    if (tab === 'forms') return '/boq'
     if (tab === 'activity-log') return '/activity-log'
-    // Commercial sub-items
     if (tab === 'commercial/boq-items') return '/commercial/boq-items'
     if (tab === 'commercial/payments-invoicing') return '/commercial/payments-invoicing'
-    // Forms sub-items - map to actual pages
     if (tab === 'forms/boq') return '/boq'
     if (tab === 'forms/kpi-standard') return '/kpi/add'
     if (tab === 'forms/kpi-smart') return '/kpi/smart-form'
     if (tab === 'forms/project') return '/projects'
     if (tab === 'forms/user') return '/settings?tab=users'
-    // Cost Control
     if (tab === 'cost-control') return '/cost-control'
     if (tab === 'cost-control/manpower') return '/cost-control/manpower'
     if (tab === 'cost-control/designation-rates') return '/cost-control/designation-rates'
@@ -198,13 +197,11 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
     if (tab === 'cost-control/hired-manpower') return '/cost-control/hired-manpower'
     if (tab === 'cost-control/rented-equipment') return '/cost-control/rented-equipment'
     if (tab === 'cost-control/other-cost') return '/cost-control/other-cost'
-    // HR
     if (tab === 'hr') return '/hr'
     if (tab === 'hr/manpower') return '/hr/manpower'
     if (tab === 'hr/attendance') return '/hr/attendance'
     if (tab === 'hr/attendance/check-in-out') return '/hr/attendance/check-in-out'
     if (tab === 'hr/attendance/review') return '/hr/attendance/review'
-    // Procurement
     if (tab === 'procurement') return '/procurement'
     if (tab === 'procurement/vendor-list') return '/procurement/vendor-list'
     return `/${tab}`
@@ -234,77 +231,51 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
     })
   }
 
-  // Auto-expand planning if any sub-item is active
+  // Auto-expand parent items based on active tab
   useEffect(() => {
     if (activeTab === 'boq' || activeTab === 'kpi' || activeTab === 'reports') {
       setExpandedItems(prev => new Set(prev).add('planning'))
     }
-    // Auto-expand commercial if any sub-item is active
     if (activeTab === 'commercial/boq-items' || activeTab === 'commercial/payments-invoicing') {
       setExpandedItems(prev => new Set(prev).add('commercial'))
     }
-    // Auto-expand forms if any form sub-item is active
     if (activeTab === 'forms/boq' || activeTab === 'forms/kpi-standard' || activeTab === 'forms/kpi-smart' || activeTab === 'forms/project' || activeTab === 'forms/user') {
       setExpandedItems(prev => new Set(prev).add('forms'))
     }
-    // Auto-expand cost-control if any sub-item is active
     if (activeTab === 'cost-control/manpower' || activeTab === 'cost-control/attendance' || activeTab === 'cost-control/attendance/check-in-out' || activeTab === 'cost-control/material' || activeTab === 'cost-control/subcontractor' || activeTab === 'cost-control/diesel') {
       setExpandedItems(prev => new Set(prev).add('cost-control'))
     }
-    // Auto-expand hr if any sub-item is active
     if (activeTab === 'hr/manpower' || activeTab === 'hr/attendance' || activeTab === 'hr/attendance/check-in-out' || activeTab === 'hr/attendance/review') {
       setExpandedItems(prev => new Set(prev).add('hr'))
     }
-    // Auto-expand procurement if any sub-item is active
     if (activeTab === 'procurement/vendor-list') {
       setExpandedItems(prev => new Set(prev).add('procurement'))
     }
   }, [activeTab])
 
-  // تحميل إعدادات الشركة من قاعدة البيانات
+  // Load company settings
   useEffect(() => {
     const loadCompanySettings = async () => {
       try {
-        console.log('🔄 Loading company settings for sidebar...')
         const settings = await getCachedCompanySettings()
-        
-        // Ensure we always have values, even if empty
-        const name = settings?.company_name?.trim() || 'AlRabat RPF'
-        const slogan = settings?.company_slogan?.trim() || 'Masters of Foundation Construction'
-        const logo = settings?.company_logo_url?.trim() || ''
-        
-        setCompanyName(name)
-        setCompanySlogan(slogan)
-        setLogoUrl(logo)
-        
-        console.log('✅ Company settings loaded for sidebar:', {
-          company_name: name,
-          company_slogan: slogan,
-          has_logo: !!logo
-        })
+        setCompanyName(settings?.company_name?.trim() || 'AlRabat RPF')
+        setCompanySlogan(settings?.company_slogan?.trim() || 'Masters of Foundation Construction')
+        setLogoUrl(settings?.company_logo_url?.trim() || '')
       } catch (error) {
-        console.error('❌ Error loading company settings for sidebar:', error)
-        // استخدام القيم الافتراضية في حالة الخطأ
+        console.error('Error loading company settings:', error)
         setCompanyName('AlRabat RPF')
         setCompanySlogan('Masters of Foundation Construction')
         setLogoUrl('')
-        console.log('⚠️ Using default company settings due to error')
       }
     }
     
-    // Load immediately
     loadCompanySettings()
     
-    // إضافة مستمع لتحديثات إعدادات الشركة
     const handleStorageChange = () => {
-      console.log('🔄 Company settings update detected, reloading...')
       loadCompanySettings()
     }
     
-    // الاستماع لتغييرات localStorage (إذا تم استخدامه)
     window.addEventListener('storage', handleStorageChange)
-    
-    // الاستماع لتحديثات مخصصة
     window.addEventListener('companySettingsUpdated', handleStorageChange)
     window.addEventListener('companySettingsCacheCleared', handleStorageChange)
     
@@ -315,24 +286,16 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
     }
   }, [])
 
-  // Auto-expand parent items based on active tab
+  // Auto-expand parent items based on pathname
   useEffect(() => {
-    if (pathname === '/commercial/boq-items' || 
-        pathname === '/commercial/payments-invoicing') {
+    if (pathname === '/commercial/boq-items' || pathname === '/commercial/payments-invoicing') {
       setExpandedItems(prev => new Set([...Array.from(prev), 'commercial']))
     }
-    if (pathname === '/cost-control/manpower' || 
-        pathname === '/cost-control/designation-rates' || 
-        pathname === '/cost-control/machine-list' ||
-        pathname === '/cost-control/material' ||
-        pathname === '/cost-control/subcontractor' ||
-        pathname === '/cost-control/diesel') {
+    if (pathname === '/cost-control/manpower' || pathname === '/cost-control/designation-rates' || pathname === '/cost-control/machine-list' ||
+        pathname === '/cost-control/material' || pathname === '/cost-control/subcontractor' || pathname === '/cost-control/diesel') {
       setExpandedItems(prev => new Set([...Array.from(prev), 'cost-control']))
     }
-    if (pathname === '/hr/manpower' || 
-        pathname === '/hr/attendance' || 
-        pathname === '/hr/attendance/check-in-out' || 
-        pathname === '/hr/attendance/review') {
+    if (pathname === '/hr/manpower' || pathname === '/hr/attendance' || pathname === '/hr/attendance/check-in-out' || pathname === '/hr/attendance/review') {
       setExpandedItems(prev => new Set([...Array.from(prev), 'hr']))
     }
     if (pathname === '/procurement/vendor-list') {
@@ -348,7 +311,6 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
       case 'projects':
         return guard.hasAccess('projects.view')
       case 'cost-control':
-        // Show cost-control if user has access to any sub-item
         if (item.subItems) {
           return item.subItems.some(subItem => {
             switch (subItem.tab) {
@@ -381,7 +343,6 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
         }
         return guard.hasAccess('cost_control.view')
       case 'hr':
-        // Show hr if user has access to any sub-item
         if (item.subItems) {
           return item.subItems.some(subItem => {
             switch (subItem.tab) {
@@ -400,7 +361,6 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
         }
         return guard.hasAccess('hr.view')
       case 'planning':
-        // Show planning if user has access to any sub-item
         if (item.subItems) {
           return item.subItems.some(subItem => {
             switch (subItem.tab) {
@@ -417,11 +377,9 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
         }
         return true
       case 'commercial':
-        // ✅ Admin always has access
         if (guard.isAdmin()) {
           return true
         }
-        // Show commercial if user has access to any sub-item
         if (item.subItems) {
           return item.subItems.some(subItem => {
             switch (subItem.tab) {
@@ -434,11 +392,8 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
             }
           })
         }
-        // Fallback: show if user has general commercial access, otherwise show by default
         return guard.hasAccess('commercial.view') || true
       case 'forms':
-        // ✅ Show forms only if user has access to at least one form sub-item
-        // ✅ Admin always has access
         if (guard.isAdmin()) {
           return true
         }
@@ -462,7 +417,6 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
         }
         return false
       case 'procurement':
-        // Show procurement if user has access to any sub-item
         if (item.subItems) {
           return item.subItems.some(subItem => {
             switch (subItem.tab) {
@@ -482,7 +436,6 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
         return true
     }
   }).map(item => {
-    // Filter sub-items based on permissions
     if (item.subItems) {
       return {
         ...item,
@@ -495,10 +448,8 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
             case 'reports':
               return guard.hasAccess('reports.view')
             case 'commercial/boq-items':
-              // ✅ Admin always has access, others need permission
               return guard.isAdmin() || guard.hasAccess('commercial.boq_items.view')
             case 'commercial/payments-invoicing':
-              // ✅ Admin always has access, others need permission
               return guard.isAdmin() || guard.hasAccess('commercial.payments_invoicing.view')
             case 'cost-control/manpower':
               return guard.hasAccess('cost_control.manpower.view')
@@ -531,17 +482,13 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
             case 'hr/attendance/review':
               return guard.hasAccess('hr.attendance.review')
             case 'forms/boq':
-              // ✅ Admin always has access, others need boq.create or boq.edit
               return guard.isAdmin() || guard.hasAccess('boq.create') || guard.hasAccess('boq.edit')
             case 'forms/kpi-standard':
             case 'forms/kpi-smart':
-              // ✅ Admin always has access, others need kpi.create
               return guard.isAdmin() || guard.hasAccess('kpi.create')
             case 'forms/project':
-              // ✅ Admin always has access, others need projects.create or projects.edit
               return guard.isAdmin() || guard.hasAccess('projects.create') || guard.hasAccess('projects.edit')
             case 'forms/user':
-              // ✅ Admin always has access, others need users.create or users.edit
               return guard.isAdmin() || guard.hasAccess('users.create') || guard.hasAccess('users.edit')
             case 'procurement/vendor-list':
               return guard.hasAccess('procurement.vendor_list.view')
@@ -554,7 +501,6 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
     return item
   })
 
-  // Hide sidebar completely if user has no permissions
   if (visibleItems.length === 0 && !guard.hasAccess('system.search')) {
     return null
   }
@@ -564,7 +510,7 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
       {/* Mobile Overlay */}
       {mobileOpen && (
         <div 
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 lg:hidden"
+          className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 lg:hidden transition-opacity duration-300"
           onClick={() => setMobileOpen(false)}
         />
       )}
@@ -572,9 +518,9 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
       {/* Mobile Menu Button */}
       <button
         onClick={() => setMobileOpen(!mobileOpen)}
-        className="fixed top-4 left-4 z-[60] lg:hidden p-2 bg-white dark:bg-gray-800 rounded-lg shadow-lg"
+        className="fixed top-4 left-4 z-[60] lg:hidden p-3 bg-gradient-to-br from-blue-600 to-purple-600 text-white rounded-xl shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105"
       >
-        <Menu className="h-6 w-6 text-gray-700 dark:text-gray-300" />
+        <Menu className="h-6 w-6" />
       </button>
 
       {/* Desktop Toggle Button - When Sidebar is Collapsed */}
@@ -584,139 +530,241 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
             setCollapsed(false)
             onCollapseChange?.(false)
           }}
-          className="hidden lg:flex fixed top-4 left-4 z-40 p-2 bg-white dark:bg-gray-800 rounded-lg shadow-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+          className="hidden lg:flex fixed top-4 left-4 z-40 p-3 bg-gradient-to-br from-blue-600 to-purple-600 text-white rounded-xl shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105"
         >
-          <ChevronRight className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+          <ChevronRight className="h-5 w-5" />
         </button>
       )}
 
       {/* Sidebar */}
       <aside
         className={cn(
-          'fixed left-0 top-0 h-screen sidebar-modern bg-white dark:bg-gray-900 shadow-2xl transition-transform duration-300 z-[80] flex flex-col',
-          collapsed ? 'w-16 lg:w-16' : 'w-64 lg:w-64',
+          'fixed left-0 top-0 h-screen bg-gradient-to-b from-gray-50 via-white to-gray-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 shadow-2xl border-r-2 border-gray-200/50 dark:border-gray-700/50 transition-all duration-300 z-[80] flex flex-col backdrop-blur-sm',
+          collapsed ? 'w-16 lg:w-16' : 'w-72 lg:w-72',
           mobileOpen
             ? 'translate-x-0 opacity-100 pointer-events-auto'
             : '-translate-x-full opacity-0 pointer-events-none lg:opacity-100 lg:pointer-events-auto lg:translate-x-0'
         )}
       >
-        {/* Logo Section */}
-        <div className="py-4 px-4 border-b" style={{ borderColor: 'rgba(0, 0, 0, 0.06)' }}>
-          {!collapsed && (
-            <div className="flex flex-col items-center">
+        {/* Logo Section - Enhanced */}
+        {!collapsed && (
+          <div className="relative py-5 px-4 border-b-2 border-gray-200/50 dark:border-gray-700/50 bg-gradient-to-br from-blue-600 via-purple-600 to-indigo-700 overflow-hidden">
+            <div className="absolute inset-0 bg-grid-white/[0.05] bg-[size:20px_20px]"></div>
+            <div className="absolute inset-0 bg-gradient-to-t from-black/10 to-transparent"></div>
+            
+            <div className="relative flex flex-col items-center z-10">
+              {/* Logo Container - Horizontal/Wide */}
               {logoUrl ? (
-                <div className="w-32 h-32 sm:w-36 sm:h-36 rounded-lg overflow-hidden bg-white flex items-center justify-center -mb-3">
+                <div className="h-16 w-auto max-w-[160px] rounded-xl overflow-hidden bg-white/20 backdrop-blur-sm flex items-center justify-center ring-2 ring-white/20 shadow-xl p-2 mb-3">
                   <img
                     src={logoUrl}
                     alt="Company Logo"
-                    className="w-full h-full object-contain p-2"
+                    className="h-full w-auto object-contain"
+                    style={{ maxHeight: '100%', maxWidth: '100%' }}
                   />
                 </div>
               ) : (
-                <div className="icon-circle cyan flex items-center justify-center -mb-3" style={{ width: '128px', height: '128px' }}>
-                  <LayoutDashboard className="h-16 w-16 text-white" />
+                <div className="h-16 w-16 rounded-xl bg-gradient-to-br from-white/30 to-white/10 backdrop-blur-sm flex items-center justify-center ring-2 ring-white/20 shadow-xl mb-3">
+                  <LayoutDashboard className="h-8 w-8 text-white" />
                 </div>
               )}
-              <div className="text-center">
-                <h1 className="font-bold text-xl sm:text-2xl leading-tight" style={{ color: 'var(--text-primary)' }}>
+              
+              {/* Company Info - Below Logo */}
+              <div className="text-center w-full">
+                <h1 className="font-bold text-lg leading-tight text-white drop-shadow-lg">
                   {companyName}
                 </h1>
-                <p className="text-sm leading-tight mt-1" style={{ color: 'var(--text-secondary)' }}>
+                <p className="text-xs leading-tight mt-1 text-white/90 drop-shadow">
                   {companySlogan}
                 </p>
               </div>
             </div>
-          )}
-          
-          {/* Toggle Button - Always Visible */}
-          <button
-            onClick={() => {
-              const newCollapsed = !collapsed
-              setCollapsed(newCollapsed)
-              onCollapseChange?.(newCollapsed)
-            }}
-            className="absolute top-4 right-4 p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors z-10"
-          >
-            {collapsed ? (
-              <ChevronRight className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-            ) : (
-              <ChevronLeft className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-            )}
-          </button>
-        </div>
-
-        {/* User Profile */}
-        {!collapsed && (
-          <div className="p-4 border-b" style={{ borderColor: 'rgba(0, 0, 0, 0.06)' }}>
+            
+            {/* Toggle Button - Enhanced - Top Right */}
             <button
-              onClick={onProfileClick}
-              className="w-full flex items-center gap-3 p-3 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-gray-700 dark:to-gray-700 rounded-lg hover:from-blue-100 hover:to-purple-100 dark:hover:from-gray-600 dark:hover:to-gray-600 transition-all duration-200 cursor-pointer mb-3"
-              title="View Profile"
+              onClick={() => {
+                const newCollapsed = !collapsed
+                setCollapsed(newCollapsed)
+                onCollapseChange?.(newCollapsed)
+              }}
+              className="absolute top-3 right-3 p-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-lg transition-all duration-300 z-20 hover:scale-110 text-white shadow-lg"
             >
-              <div className="h-8 w-8 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center text-white font-bold text-sm">
-                {userName.charAt(0).toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0 text-left">
-                <p className="font-semibold text-sm text-gray-900 dark:text-white truncate">
-                  {userName}
-                </p>
-                <p className="text-xs text-gray-600 dark:text-gray-400">
-                  {userRole}
-                </p>
-              </div>
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+        
+        {/* Toggle Button - When Collapsed - Top of Sidebar */}
+        {collapsed && (
+          <div className="p-2 border-b-2 border-gray-200/50 dark:border-gray-700/50 bg-white dark:bg-gray-800">
+            <button
+              onClick={() => {
+                const newCollapsed = !collapsed
+                setCollapsed(newCollapsed)
+                onCollapseChange?.(newCollapsed)
+              }}
+              className="w-full p-2.5 bg-gradient-to-br from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 rounded-lg transition-all duration-300 text-white shadow-lg hover:shadow-xl flex items-center justify-center"
+            >
+              <ChevronRight className="h-4 w-4" />
             </button>
           </div>
         )}
 
-        {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-2 min-h-0" style={{ scrollbarWidth: 'thin' }}>
+        {/* User Profile - Enhanced */}
+        <div className={cn(
+          "border-b-2 border-gray-200/50 dark:border-gray-700/50 bg-white dark:bg-gray-800",
+          collapsed ? "p-2" : "p-4"
+        )}>
+          <button
+            onClick={onProfileClick}
+            className={cn(
+              "w-full bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-all duration-300 cursor-pointer border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-md group relative",
+              collapsed ? "flex items-center justify-center p-2" : "flex items-center gap-3 p-3 rounded-xl"
+            )}
+            title={collapsed ? `${userName} - ${userRole}` : "View Profile"}
+          >
+            <div className="relative bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold shadow-md ring-1 ring-gray-200 dark:ring-gray-700 group-hover:scale-105 transition-transform duration-300 overflow-hidden"
+              style={collapsed ? { width: '36px', height: '36px', fontSize: '14px', borderRadius: '8px' } : { width: '48px', height: '48px', fontSize: '18px', borderRadius: '10px' }}
+            >
+              {userProfilePicture ? (
+                <img
+                  src={userProfilePicture}
+                  alt="Profile"
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement
+                    target.style.display = 'none'
+                    const parent = target.parentElement
+                    if (parent) {
+                      const initial = userName.charAt(0).toUpperCase()
+                      parent.innerHTML = `<span style="font-size: ${collapsed ? '14px' : '18px'}; font-weight: bold;">${initial}</span>`
+                    }
+                  }}
+                />
+              ) : (
+                <span style={{ fontSize: collapsed ? '14px' : '18px' }}>
+                  {userName.charAt(0).toUpperCase()}
+                </span>
+              )}
+              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-white dark:border-gray-800 shadow-sm"></div>
+            </div>
+            {!collapsed && (
+              <div className="flex-1 min-w-0 text-left">
+                <p className="font-bold text-sm text-gray-900 dark:text-white truncate">
+                  {userName}
+                </p>
+                <p className="text-xs text-gray-600 dark:text-gray-400 font-medium">
+                  {userRole}
+                </p>
+              </div>
+            )}
+            {/* Tooltip for collapsed state */}
+            {collapsed && (
+              <div className="absolute left-full ml-2 px-3 py-2 bg-gray-900 dark:bg-gray-800 text-white text-sm rounded-lg shadow-xl opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-300 whitespace-nowrap z-50">
+                <p className="font-bold">{userName}</p>
+                <p className="text-xs text-gray-300">{userRole}</p>
+                <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1 w-2 h-2 bg-gray-900 dark:bg-gray-800 rotate-45"></div>
+              </div>
+            )}
+          </button>
+        </div>
+
+        {/* Navigation - Enhanced */}
+        <nav className={cn(
+          "flex-1 overflow-y-auto overflow-x-hidden min-h-0 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 scrollbar-track-transparent",
+          collapsed ? "p-2 space-y-1.5" : "p-4 space-y-2"
+        )}>
           {visibleItems.map((item) => {
             const Icon = item.icon
             const hasSubItems = item.subItems && item.subItems.length > 0
             const isExpanded = expandedItems.has(item.tab)
             const isActive = isTabActive(item)
 
-            if (hasSubItems && !collapsed) {
-              // Item with submenu
+            if (hasSubItems) {
+              if (collapsed) {
+                // Collapsed state - show only icon with tooltip
+                return (
+                  <div key={item.tab} className="relative group">
+                    <button
+                      onClick={(e) => toggleSubmenu(e, item.tab)}
+                      className={cn(
+                        'w-full flex items-center justify-center rounded-lg font-medium text-xs transition-all duration-300 relative overflow-hidden mb-3',
+                        isActive 
+                          ? 'bg-gradient-to-br from-violet-600 via-purple-600 to-fuchsia-600 text-white shadow-lg shadow-violet-500/50 scale-105 ring-2 ring-violet-400/40' 
+                          : 'text-gray-700 dark:text-gray-300 hover:bg-gradient-to-br hover:from-violet-50 hover:via-purple-50 hover:to-fuchsia-50 dark:hover:from-violet-900/25 dark:hover:via-purple-900/25 dark:hover:to-fuchsia-900/25 hover:text-violet-700 dark:hover:text-violet-300 hover:shadow-md hover:shadow-violet-200/60 dark:hover:shadow-violet-900/40 hover:scale-110 active:scale-95',
+                        'px-2 py-2'
+                      )}
+                      title={item.label}
+                    >
+                      <div className={cn(
+                        'p-1.5 rounded-lg transition-all duration-300 w-8 h-8 flex items-center justify-center',
+                        isActive 
+                          ? 'bg-white/30 shadow-inner ring-1 ring-white/20' 
+                          : 'bg-gradient-to-br from-gray-100 to-gray-50 dark:from-gray-700 dark:to-gray-800 group-hover:from-violet-100 group-hover:to-purple-100 dark:group-hover:from-violet-800/40 dark:group-hover:to-purple-800/40 group-hover:shadow-md group-hover:scale-110'
+                      )}>
+                        <Icon className={cn(
+                          'h-4 w-4 transition-all duration-300',
+                          isActive 
+                            ? 'text-white drop-shadow-sm' 
+                            : 'text-gray-600 dark:text-gray-400 group-hover:text-violet-600 dark:group-hover:text-violet-400 group-hover:scale-110'
+                        )} />
+                      </div>
+                    </button>
+                    {/* Tooltip */}
+                    <div className="absolute left-full ml-2 px-3 py-2 bg-gray-900 dark:bg-gray-800 text-white text-sm rounded-lg shadow-xl opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-300 whitespace-nowrap z-50">
+                      {item.label}
+                      <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1 w-2 h-2 bg-gray-900 dark:bg-gray-800 rotate-45"></div>
+                    </div>
+                  </div>
+                )
+              }
+              
+              // Expanded state - show full menu
               return (
-                <div key={item.tab} className="space-y-1">
+                <div key={item.tab} className="space-y-1 mb-3">
                   <button
                     onClick={(e) => toggleSubmenu(e, item.tab)}
                     className={cn(
-                      'nav-item w-full transition-all duration-200',
-                      isActive ? 'active' : '',
-                      'hover:bg-opacity-90'
+                      'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg font-medium text-xs transition-all duration-300 group relative overflow-hidden',
+                      isActive 
+                        ? 'bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 text-white shadow-lg shadow-violet-500/50 scale-[1.02] ring-2 ring-violet-400/40' 
+                        : 'text-gray-700 dark:text-gray-300 hover:bg-gradient-to-r hover:from-violet-50 hover:via-purple-50 hover:to-fuchsia-50 dark:hover:from-violet-900/25 dark:hover:via-purple-900/25 dark:hover:to-fuchsia-900/25 hover:text-violet-700 dark:hover:text-violet-300 hover:shadow-md hover:shadow-violet-200/60 dark:hover:shadow-violet-900/40 hover:scale-[1.01] hover:-translate-y-0.5 active:scale-[0.98]'
                     )}
                     title={item.label}
                   >
-                    <Icon className={cn(
-                      'h-4 w-4 flex-shrink-0',
-                      isActive ? 'text-white' : 'text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-300'
-                    )} />
-                    <span className="flex-1 text-left font-medium text-sm">
-                      {item.label}
-                    </span>
-                    <span className={cn(
-                      "transition-transform duration-200",
-                      isExpanded ? "rotate-0" : "rotate-180"
+                    <div className={cn(
+                      'p-1.5 rounded-lg transition-all duration-300',
+                      isActive 
+                        ? 'bg-white/30 shadow-inner ring-1 ring-white/20' 
+                        : 'bg-gradient-to-br from-gray-100 to-gray-50 dark:from-gray-700 dark:to-gray-800 group-hover:from-violet-100 group-hover:to-purple-100 dark:group-hover:from-violet-800/40 dark:group-hover:to-purple-800/40 group-hover:shadow-md group-hover:scale-110'
                     )}>
-                      {isExpanded ? (
-                        <ChevronUp className="h-4 w-4 flex-shrink-0" />
-                      ) : (
-                        <ChevronDown className="h-4 w-4 flex-shrink-0" />
-                      )}
-                    </span>
+                      <Icon className={cn(
+                        'h-4 w-4 transition-all duration-300',
+                        isActive 
+                          ? 'text-white drop-shadow-sm' 
+                          : 'text-gray-600 dark:text-gray-400 group-hover:text-violet-600 dark:group-hover:text-violet-400 group-hover:scale-110'
+                      )} />
+                    </div>
+                    <span className="flex-1 text-left">{item.label}</span>
+                    <div className={cn(
+                      "transition-all duration-300",
+                      isExpanded ? "rotate-180 scale-110" : "rotate-0 scale-100 group-hover:scale-110"
+                    )}>
+                      <ChevronDown className={cn(
+                        "h-3.5 w-3.5 transition-all duration-300",
+                        isActive 
+                          ? "text-white drop-shadow-sm" 
+                          : "text-gray-500 dark:text-gray-400 group-hover:text-violet-600 dark:group-hover:text-violet-400 group-hover:scale-110"
+                      )} />
+                    </div>
                   </button>
                   
-                  {/* Submenu */}
+                  {/* Submenu - Enhanced */}
                   <div 
                     className={cn(
-                      "ml-4 space-y-1 border-l-2 border-gray-200 dark:border-gray-700 pl-2 transition-all duration-300 ease-in-out",
-                      isExpanded ? "max-h-[800px] opacity-100 overflow-y-auto" : "max-h-0 opacity-0 overflow-hidden"
+                      "ml-6 space-y-1 border-l-2 border-violet-200 dark:border-violet-700 pl-3 transition-all duration-300 ease-in-out mt-1",
+                      isExpanded ? "max-h-[800px] opacity-100" : "max-h-0 opacity-0 overflow-hidden"
                     )}
-                    style={{
-                      animation: isExpanded ? 'slideDown 0.3s ease-out' : 'slideUp 0.3s ease-in'
-                    }}
                   >
                     {isExpanded && item.subItems && item.subItems.map((subItem, index) => {
                       const SubIcon = subItem.icon
@@ -734,33 +782,40 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
                             }
                           }}
                           className={cn(
-                            'nav-item text-sm py-2 transition-all duration-200 transform',
-                            isSubActive ? 'active scale-[1.02]' : 'opacity-80 hover:opacity-100 hover:scale-[1.01]',
-                            'hover:translate-x-1'
+                            'flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-all duration-300 group mb-2',
+                            isSubActive 
+                              ? 'bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 text-white shadow-lg shadow-violet-500/50 scale-[1.03] ring-2 ring-violet-400/40 translate-x-1' 
+                              : 'text-gray-700 dark:text-gray-300 hover:bg-gradient-to-r hover:from-violet-50 hover:via-purple-50 hover:to-fuchsia-50 dark:hover:from-violet-900/25 dark:hover:via-purple-900/25 dark:hover:to-fuchsia-900/25 hover:text-violet-700 dark:hover:text-violet-300 hover:shadow-md hover:shadow-violet-200/60 dark:hover:shadow-violet-900/40 hover:translate-x-2 hover:scale-[1.02] active:scale-[0.98] active:translate-x-1'
                           )}
                           title={subItem.label}
                           style={{
-                            animationDelay: `${index * 50}ms`,
-                            animation: isExpanded ? 'fadeInSlide 0.3s ease-out forwards' : 'none'
+                            animationDelay: `${index * 30}ms`,
                           }}
                         >
-                          <SubIcon className={cn(
-                            'h-3.5 w-3.5 flex-shrink-0',
-                            isSubActive ? 'text-white' : 'text-gray-500 dark:text-gray-400'
-                          )} />
-                          <span className="flex-1 text-left font-medium text-xs">
-                            {subItem.label}
-                          </span>
+                          <div className={cn(
+                            'p-1 rounded-md transition-all duration-300',
+                            isSubActive 
+                              ? 'bg-white/30 shadow-inner ring-1 ring-white/20' 
+                              : 'bg-gradient-to-br from-gray-100 to-gray-50 dark:from-gray-700 dark:to-gray-800 group-hover:from-violet-100 group-hover:to-purple-100 dark:group-hover:from-violet-800/40 dark:group-hover:to-purple-800/40 group-hover:shadow-md group-hover:scale-110'
+                          )}>
+                            <SubIcon className={cn(
+                              'h-3.5 w-3.5 transition-all duration-300',
+                              isSubActive 
+                                ? 'text-white drop-shadow-sm' 
+                                : 'text-gray-600 dark:text-gray-400 group-hover:text-violet-600 dark:group-hover:text-violet-400 group-hover:scale-110'
+                            )} />
+                          </div>
+                          <span className="flex-1 text-left">{subItem.label}</span>
                           {subItem.badgeIcon && (
                             <span className={cn(
-                              'flex items-center justify-center w-5 h-5 rounded-full shadow-sm transition-all duration-200',
+                              'flex items-center justify-center w-6 h-6 rounded-lg shadow-sm transition-all duration-300',
                               isSubActive 
                                 ? 'bg-white/20 text-white'
                                 : `${subItem.badgeColor} text-white`
                             )}>
                               {(() => {
                                 const BadgeIcon = subItem.badgeIcon!
-                                return <BadgeIcon className="h-3 w-3" />
+                                return <BadgeIcon className="h-3.5 w-3.5" />
                               })()}
                             </span>
                           )}
@@ -785,36 +840,55 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
                   }
                 }}
                 className={cn(
-                  'nav-item',
-                  isActive ? 'active' : '',
-                  collapsed && 'justify-center px-3'
+                  'flex items-center rounded-lg font-medium text-xs transition-all duration-300 group relative overflow-hidden mb-3',
+                  isActive 
+                    ? 'bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 text-white shadow-lg shadow-violet-500/50 scale-[1.02] ring-2 ring-violet-400/40' 
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gradient-to-r hover:from-violet-50 hover:via-purple-50 hover:to-fuchsia-50 dark:hover:from-violet-900/25 dark:hover:via-purple-900/25 dark:hover:to-fuchsia-900/25 hover:text-violet-700 dark:hover:text-violet-300 hover:shadow-md hover:shadow-violet-200/60 dark:hover:shadow-violet-900/40 hover:scale-[1.01] hover:-translate-y-0.5 active:scale-[0.98]',
+                  collapsed ? 'justify-center px-2 py-2 w-full' : 'gap-2.5 px-3 py-2 rounded-lg'
                 )}
                 title={item.label}
               >
-                <Icon className={cn(
-                  'h-4 w-4 flex-shrink-0',
-                  isActive ? 'text-white' : 'text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-300'
-                )} />
+                <div className={cn(
+                  'rounded-lg transition-all duration-300 flex items-center justify-center',
+                  isActive 
+                    ? 'bg-white/30 shadow-inner ring-1 ring-white/20' 
+                    : 'bg-gradient-to-br from-gray-100 to-gray-50 dark:from-gray-700 dark:to-gray-800 group-hover:from-violet-100 group-hover:to-purple-100 dark:group-hover:from-violet-800/40 dark:group-hover:to-purple-800/40 group-hover:shadow-md group-hover:scale-110',
+                  collapsed ? 'p-1.5 w-8 h-8' : 'p-1.5'
+                )}>
+                  <Icon className={cn(
+                    'transition-all duration-300',
+                    isActive 
+                      ? 'text-white drop-shadow-sm' 
+                      : 'text-gray-600 dark:text-gray-400 group-hover:text-violet-600 dark:group-hover:text-violet-400 group-hover:scale-110',
+                    collapsed ? 'h-4 w-4' : 'h-4 w-4'
+                  )} />
+                </div>
                 
                 {!collapsed && (
                   <>
-                    <span className="flex-1 text-left font-medium text-sm">
-                      {item.label}
-                    </span>
+                    <span className="flex-1 text-left">{item.label}</span>
                     {item.badgeIcon && (
                       <span className={cn(
-                        'flex items-center justify-center w-6 h-6 rounded-full shadow-sm transition-all duration-200',
+                        'flex items-center justify-center w-7 h-7 rounded-lg shadow-sm transition-all duration-300',
                         isActive 
                           ? 'bg-white/20 text-white'
                           : `${item.badgeColor} text-white`
                       )}>
                         {(() => {
                           const BadgeIcon = item.badgeIcon!
-                          return <BadgeIcon className="h-3.5 w-3.5" />
+                          return <BadgeIcon className="h-4 w-4" />
                         })()}
                       </span>
                     )}
                   </>
+                )}
+                
+                {/* Tooltip for collapsed state */}
+                {collapsed && (
+                  <div className="absolute left-full ml-2 px-2.5 py-1.5 bg-gray-900 dark:bg-gray-800 text-white text-xs font-medium rounded-md shadow-xl opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-200 whitespace-nowrap z-50">
+                    {item.label}
+                    <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1 w-1.5 h-1.5 bg-gray-900 dark:bg-gray-800 rotate-45"></div>
+                  </div>
                 )}
               </Link>
             )
@@ -822,10 +896,8 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
         </nav>
 
         {/* Search (if not collapsed) */}
-
-        {/* Search */}
         {!collapsed && guard.hasAccess('system.search') && (
-          <div className="p-4">
+          <div className="p-4 border-t-2 border-gray-200/50 dark:border-gray-700/50 bg-gradient-to-br from-gray-50 to-white dark:from-gray-800 dark:to-gray-900">
             <Link
               href="/dashboard?search=true"
               onClick={(e) => {
@@ -833,21 +905,20 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
                   onTabChange('search')
                 }
               }}
-              className="nav-item w-full"
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg font-medium text-xs transition-all duration-300 group bg-gradient-to-r from-gray-100 to-gray-50 dark:from-gray-700 dark:to-gray-800 hover:from-violet-50 hover:via-purple-50 hover:to-fuchsia-50 dark:hover:from-violet-900/25 dark:hover:via-purple-900/25 dark:hover:to-fuchsia-900/25 text-gray-700 dark:text-gray-300 hover:text-violet-700 dark:hover:text-violet-300 border-2 border-gray-200 dark:border-gray-700 hover:border-violet-400 dark:hover:border-violet-500 hover:shadow-lg hover:shadow-violet-200/60 dark:hover:shadow-violet-900/40 hover:scale-[1.02] hover:-translate-y-0.5 active:scale-[0.98] active:translate-y-0 mb-3"
               title="Search"
             >
-              <Search className="h-4 w-4" />
-              <span className="font-medium text-sm">Search</span>
-              <kbd className="ml-auto px-2 py-1 text-xs bg-white border border-gray-300 rounded">
+              <div className="p-1.5 rounded-lg bg-gray-200 dark:bg-gray-600 group-hover:bg-blue-100 dark:group-hover:bg-blue-900/30 transition-all duration-300">
+                <Search className="h-4 w-4 text-gray-600 dark:text-gray-400 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
+              </div>
+              <span className="flex-1 text-left">Search</span>
+              <kbd className="px-2.5 py-1 text-xs font-semibold bg-white dark:bg-gray-700 border-2 border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300">
                 ⌘K
               </kbd>
             </Link>
           </div>
         )}
-
       </aside>
     </>
   )
 }
-
-

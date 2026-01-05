@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { getCachedCompanySettings } from '@/lib/companySettings'
+import { loginSecuritySettingsManager, LoginSecuritySettings, DEFAULT_LOGIN_SECURITY_SETTINGS } from '@/lib/loginSecuritySettings'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card } from '@/components/ui/Card'
@@ -29,6 +30,45 @@ export function LoginForm() {
   const [isSubmitting, setIsSubmitting] = useState(false) // ✅ حماية من الطلبات المتعددة
   const [rateLimitCooldown, setRateLimitCooldown] = useState(0) // ✅ Cooldown timer
   const [lastAttemptTime, setLastAttemptTime] = useState(0) // ✅ Track last attempt time
+  const [cooldownManuallyCleared, setCooldownManuallyCleared] = useState(false) // ✅ Track if user manually cleared cooldown
+  
+  // ✅ Load rate limit cooldown from localStorage on mount
+  useEffect(() => {
+    try {
+      const savedCooldown = localStorage.getItem('login_rate_limit_cooldown')
+      const savedCooldownTime = localStorage.getItem('login_rate_limit_time')
+      const manuallyCleared = localStorage.getItem('cooldown_manually_cleared')
+      const clearedTime = localStorage.getItem('cooldown_cleared_time')
+      
+      // Check if cooldown was manually cleared recently (within last 5 minutes)
+      if (manuallyCleared === 'true' && clearedTime) {
+        const timeSinceCleared = Date.now() - parseInt(clearedTime)
+        if (timeSinceCleared < 5 * 60 * 1000) { // 5 minutes
+          setCooldownManuallyCleared(true)
+          // Don't restore cooldown if it was manually cleared
+          return
+        } else {
+          // Clear expired manual clear flag
+          localStorage.removeItem('cooldown_manually_cleared')
+          localStorage.removeItem('cooldown_cleared_time')
+        }
+      }
+      
+      if (savedCooldown && savedCooldownTime) {
+        const elapsed = Math.floor((Date.now() - parseInt(savedCooldownTime)) / 1000)
+        const remaining = Math.max(0, parseInt(savedCooldown) - elapsed)
+        if (remaining > 0) {
+          setRateLimitCooldown(remaining)
+        } else {
+          // Clear expired cooldown
+          localStorage.removeItem('login_rate_limit_cooldown')
+          localStorage.removeItem('login_rate_limit_time')
+        }
+      }
+    } catch (e) {
+      console.warn('⚠️ Failed to load rate limit from localStorage:', e)
+    }
+  }, [])
   
   // ✅ OTP States
   const [useOTP, setUseOTP] = useState(false)
@@ -40,6 +80,9 @@ export function LoginForm() {
   const [companyName, setCompanyName] = useState('AlRabat RPF')
   const [companySlogan, setCompanySlogan] = useState('Masters of Foundation Construction')
   const [logoUrl, setLogoUrl] = useState('')
+  
+  // ✅ Login Security Settings
+  const [securitySettings, setSecuritySettings] = useState<LoginSecuritySettings>(DEFAULT_LOGIN_SECURITY_SETTINGS)
   
   const supabase = getSupabaseClient()
   const router = useRouter()
@@ -83,19 +126,76 @@ export function LoginForm() {
     }
   }, [])
 
+  // ✅ Load login security settings
+  useEffect(() => {
+    const loadSecuritySettings = async () => {
+      try {
+        console.log('🔄 Loading login security settings...')
+        const settings = await loginSecuritySettingsManager.getSettings()
+        setSecuritySettings(settings)
+        console.log('✅ Login security settings loaded:', settings)
+      } catch (error) {
+        console.error('❌ Error loading login security settings:', error)
+        // Use defaults on error
+        setSecuritySettings(DEFAULT_LOGIN_SECURITY_SETTINGS)
+      }
+    }
+    
+    loadSecuritySettings()
+    
+    // Listen for settings updates
+    const handleSecuritySettingsUpdate = () => {
+      loadSecuritySettings()
+    }
+    window.addEventListener('loginSecuritySettingsUpdated', handleSecuritySettingsUpdate)
+    
+    return () => {
+      window.removeEventListener('loginSecuritySettingsUpdated', handleSecuritySettingsUpdate)
+    }
+  }, [])
+
   // ✅ Rate limiting cooldown timer
   useEffect(() => {
     if (rateLimitCooldown > 0) {
+      // Save to localStorage
+      try {
+        localStorage.setItem('login_rate_limit_cooldown', rateLimitCooldown.toString())
+        localStorage.setItem('login_rate_limit_time', Date.now().toString())
+      } catch (e) {
+        console.warn('⚠️ Failed to save rate limit to localStorage:', e)
+      }
+      
       const timer = setInterval(() => {
         setRateLimitCooldown(prev => {
           if (prev <= 1) {
             clearInterval(timer)
+            // Clear from localStorage
+            try {
+              localStorage.removeItem('login_rate_limit_cooldown')
+              localStorage.removeItem('login_rate_limit_time')
+            } catch (e) {
+              console.warn('⚠️ Failed to clear rate limit from localStorage:', e)
+            }
             return 0
+          }
+          // Update localStorage
+          try {
+            localStorage.setItem('login_rate_limit_cooldown', (prev - 1).toString())
+          } catch (e) {
+            // Ignore
           }
           return prev - 1
         })
       }, 1000)
       return () => clearInterval(timer)
+    } else {
+      // Clear from localStorage when cooldown is 0
+      try {
+        localStorage.removeItem('login_rate_limit_cooldown')
+        localStorage.removeItem('login_rate_limit_time')
+      } catch (e) {
+        // Ignore
+      }
     }
   }, [rateLimitCooldown])
 
@@ -115,26 +215,45 @@ export function LoginForm() {
     }
   }, [otpTimer])
 
+  // ✅ Initialize default security settings in database if needed
+  useEffect(() => {
+    loginSecuritySettingsManager.initializeDefaults().catch(err => {
+      console.warn('⚠️ Failed to initialize default security settings:', err)
+    })
+  }, [])
+
+  // ✅ Update rate limit cooldown when settings change
+  useEffect(() => {
+    if (securitySettings.enableRateLimiting && rateLimitCooldown > securitySettings.rateLimitCooldownSeconds) {
+      // If cooldown is longer than new setting, adjust it
+      setRateLimitCooldown(securitySettings.rateLimitCooldownSeconds)
+    }
+  }, [securitySettings.rateLimitCooldownSeconds, securitySettings.enableRateLimiting])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    // ✅ منع الطلبات المتعددة
-    if (isSubmitting || loading) {
+    // ✅ منع الطلبات المتعددة (if enabled)
+    if (securitySettings.enableMultipleSubmissionProtection && (isSubmitting || loading)) {
       console.log('⚠️ Login request already in progress, ignoring duplicate submission')
       return
     }
 
-    // ✅ Check rate limit cooldown
-    if (rateLimitCooldown > 0) {
+    // ✅ Check rate limit cooldown (if enabled)
+    // Allow login if cooldown was manually cleared
+    if (securitySettings.enableRateLimiting && rateLimitCooldown > 0 && !cooldownManuallyCleared) {
       setError(`Too many login attempts. Please wait ${rateLimitCooldown} seconds before trying again.`)
       return
     }
 
-    // ✅ Local rate limiting: Prevent requests faster than 2 seconds
+    // ✅ Local rate limiting: Prevent requests faster than configured time (if enabled)
     const now = Date.now()
-    if (lastAttemptTime > 0 && (now - lastAttemptTime) < 2000) {
-      setError('Please wait a moment before trying again.')
-      return
+    if (securitySettings.enableLocalRateLimiting) {
+      const minTime = securitySettings.localRateLimitSeconds * 1000
+      if (lastAttemptTime > 0 && (now - lastAttemptTime) < minTime) {
+        setError(`Please wait ${securitySettings.localRateLimitSeconds} seconds before trying again.`)
+        return
+      }
     }
     
     setIsSubmitting(true)
@@ -154,8 +273,16 @@ export function LoginForm() {
         setSuccess('Password reset email sent! Check your inbox.')
         setForgotPassword(false)
       } else if (isSignUp) {
-        // ✅ Validate company email for sign up
-        if (!validateCompanyEmail(email)) {
+        // ✅ Check if sign up is enabled
+        if (!securitySettings.enableSignUp) {
+          setError('Sign up is currently disabled. Please contact administrator.')
+          setIsSubmitting(false)
+          setLoading(false)
+          return
+        }
+        
+        // ✅ Validate company email for sign up (if enabled)
+        if (securitySettings.enableCompanyEmailValidation && !validateCompanyEmail(email)) {
           setError('Company email required / يلزم إيميل الشركة')
           setIsSubmitting(false)
           setLoading(false)
@@ -179,66 +306,141 @@ export function LoginForm() {
         setIsSignUp(false)
       } else {
         // ✅ LOGIN: Allow any email (including old emails) to login
-        // Only new registrations require @rabatpfc.com email
-        // ✅ Retry logic with exponential backoff for rate limit errors
+        // Only new registrations require @rabatpfc.com email (if enabled)
+        // ✅ Retry logic with exponential backoff for rate limit errors (if enabled)
         let retries = 0
-        const maxRetries = 2
+        const maxRetries = securitySettings.enableRetryLogic ? securitySettings.maxRetries : 0
         let lastError: any = null
 
-        while (retries <= maxRetries) {
-          try {
-            const { error } = await supabase.auth.signInWithPassword({
-              email,
-              password,
-            })
-            
-            if (error) throw error
-            
-            // Success - redirect
-            router.push('/dashboard')
-            return
-          } catch (err: any) {
-            lastError = err
-            
-            // ✅ Check if it's a rate limit error
-            if (err.status === 429 || err.message?.includes('429') || err.message?.includes('Too Many Requests') || err.message?.includes('rate limit')) {
-              if (retries < maxRetries) {
-                // Exponential backoff: wait 2^retries seconds
-                const waitTime = Math.pow(2, retries) * 1000
-                console.log(`⚠️ Rate limit hit, retrying after ${waitTime}ms (attempt ${retries + 1}/${maxRetries + 1})`)
-                await new Promise(resolve => setTimeout(resolve, waitTime))
-                retries++
-                continue
+        if (maxRetries > 0) {
+          while (retries <= maxRetries) {
+            try {
+              const { error } = await supabase.auth.signInWithPassword({
+                email,
+                password,
+              })
+              
+              if (error) throw error
+              
+              // Success - reset manual clear flag and redirect
+              setCooldownManuallyCleared(false)
+              try {
+                localStorage.removeItem('cooldown_manually_cleared')
+                localStorage.removeItem('cooldown_cleared_time')
+              } catch (e) {
+                // Ignore
+              }
+              router.push('/dashboard')
+              return
+            } catch (err: any) {
+              lastError = err
+              
+              // ✅ Check if it's a rate limit error
+              if (err.status === 429 || err.message?.includes('429') || err.message?.includes('Too Many Requests') || err.message?.includes('rate limit')) {
+                if (retries < maxRetries) {
+                  // Exponential backoff: wait 2^retries seconds (if enabled)
+                  const waitTime = securitySettings.enableExponentialBackoff 
+                    ? Math.pow(2, retries) * 1000 
+                    : 1000
+                  console.log(`⚠️ Rate limit hit, retrying after ${waitTime}ms (attempt ${retries + 1}/${maxRetries + 1})`)
+                  await new Promise(resolve => setTimeout(resolve, waitTime))
+                  retries++
+                  continue
               } else {
-                // Max retries reached, set cooldown
-                setRateLimitCooldown(300) // 5 minutes cooldown
+                // Max retries reached, set cooldown only if not manually cleared
+                if (securitySettings.enableRateLimiting && !cooldownManuallyCleared) {
+                  setRateLimitCooldown(securitySettings.rateLimitCooldownSeconds)
+                  try {
+                    localStorage.setItem('login_rate_limit_cooldown', securitySettings.rateLimitCooldownSeconds.toString())
+                    localStorage.setItem('login_rate_limit_time', Date.now().toString())
+                  } catch (e) {
+                    console.warn('⚠️ Failed to save rate limit to localStorage:', e)
+                  }
+                }
                 throw err
               }
-            } else {
-              // Not a rate limit error, throw immediately
-              throw err
+              } else {
+                // Not a rate limit error, throw immediately
+                throw err
+              }
             }
           }
+          
+          // If we get here, all retries failed
+          throw lastError
+        } else {
+          // No retry logic, direct attempt
+          const { error } = await supabase.auth.signInWithPassword({
+            email,
+            password,
+          })
+          
+          if (error) throw error
+          
+          // Success - reset manual clear flag and redirect
+          setCooldownManuallyCleared(false)
+          try {
+            localStorage.removeItem('cooldown_manually_cleared')
+            localStorage.removeItem('cooldown_cleared_time')
+          } catch (e) {
+            // Ignore
+          }
+          router.push('/dashboard')
+          return
         }
-        
-        // If we get here, all retries failed
-        throw lastError
       }
     } catch (error: any) {
       // ✅ معالجة خاصة لخطأ 429 (Too Many Requests)
       if (error.status === 429 || error.message?.includes('429') || error.message?.includes('Too Many Requests') || error.message?.includes('rate limit')) {
-        const cooldownMinutes = Math.ceil(rateLimitCooldown / 60)
-        setError(`Too many login attempts. Please wait ${cooldownMinutes} minute${cooldownMinutes > 1 ? 's' : ''} before trying again.`)
-        console.error('❌ Rate limit exceeded:', error)
-        
-        // Set cooldown if not already set
-        if (rateLimitCooldown === 0) {
-          setRateLimitCooldown(300) // 5 minutes
+        // Only set cooldown if enabled, not already set, and not manually cleared
+        if (securitySettings.enableRateLimiting && rateLimitCooldown === 0 && !cooldownManuallyCleared) {
+          setRateLimitCooldown(securitySettings.rateLimitCooldownSeconds)
+          try {
+            localStorage.setItem('login_rate_limit_cooldown', securitySettings.rateLimitCooldownSeconds.toString())
+            localStorage.setItem('login_rate_limit_time', Date.now().toString())
+          } catch (e) {
+            console.warn('⚠️ Failed to save rate limit to localStorage:', e)
+          }
         }
+        
+        // If cooldown was manually cleared, show a different message
+        if (cooldownManuallyCleared) {
+          setError('Server is still rate limiting. Please wait a moment and try again, or contact support if the issue persists.')
+          // Reset the flag after showing the error (user can try again)
+          setTimeout(() => {
+            setCooldownManuallyCleared(false)
+            try {
+              localStorage.removeItem('cooldown_manually_cleared')
+              localStorage.removeItem('cooldown_cleared_time')
+            } catch (e) {
+              // Ignore
+            }
+          }, 30000) // Reset after 30 seconds
+        } else {
+          const cooldownMinutes = Math.ceil(rateLimitCooldown / 60)
+          setError(`Too many login attempts. Please wait ${cooldownMinutes} minute${cooldownMinutes > 1 ? 's' : ''} before trying again.`)
+        }
+        console.error('❌ Rate limit exceeded:', error)
       } else if (error.message?.includes('Invalid login credentials')) {
         setError('Invalid email or password. Please check your credentials and try again.')
+        // Reset manual clear flag on successful error handling (non-rate-limit error)
+        setCooldownManuallyCleared(false)
+        try {
+          localStorage.removeItem('cooldown_manually_cleared')
+          localStorage.removeItem('cooldown_cleared_time')
+        } catch (e) {
+          // Ignore
+        }
       } else {
         setError(error.message || 'An error occurred. Please try again.')
+        // Reset manual clear flag on successful error handling (non-rate-limit error)
+        setCooldownManuallyCleared(false)
+        try {
+          localStorage.removeItem('cooldown_manually_cleared')
+          localStorage.removeItem('cooldown_cleared_time')
+        } catch (e) {
+          // Ignore
+        }
       }
     } finally {
       setLoading(false)
@@ -257,17 +459,51 @@ export function LoginForm() {
 
   // ✅ Validate company email domain
   const validateCompanyEmail = (email: string) => {
+    if (!securitySettings.enableCompanyEmailValidation) {
+      return true // Skip validation if disabled
+    }
+    
     const emailLower = email.toLowerCase().trim()
-    // Only allow emails ending with @rabatpfc.com
-    return emailLower.endsWith('@rabatpfc.com')
+    // Check against allowed domains
+    return securitySettings.allowedEmailDomains.some(domain => 
+      emailLower.endsWith(domain.toLowerCase())
+    )
   }
 
   const validatePassword = (password: string) => {
-    return password.length >= 6
+    if (!securitySettings.enablePasswordValidation) {
+      return password.length > 0 // Just check it's not empty
+    }
+    
+    // Check minimum length
+    if (password.length < securitySettings.passwordMinLength) {
+      return false
+    }
+    
+    // Check requirements
+    if (securitySettings.passwordRequireUppercase && !/[A-Z]/.test(password)) {
+      return false
+    }
+    if (securitySettings.passwordRequireLowercase && !/[a-z]/.test(password)) {
+      return false
+    }
+    if (securitySettings.passwordRequireNumbers && !/[0-9]/.test(password)) {
+      return false
+    }
+    if (securitySettings.passwordRequireSpecialChars && !/[^A-Za-z0-9]/.test(password)) {
+      return false
+    }
+    
+    return true
   }
 
   // ✅ Handle OTP Send
   const handleSendOTP = async () => {
+    if (!securitySettings.enableOTPLogin) {
+      setError('OTP login is currently disabled.')
+      return
+    }
+    
     if (!validateEmail(email)) {
       setError('Please enter a valid email address')
       return
@@ -288,7 +524,7 @@ export function LoginForm() {
       if (error) throw error
 
       setOtpSent(true)
-      setOtpTimer(60) // 60 seconds cooldown
+      setOtpTimer(securitySettings.otpCooldownSeconds)
       setSuccess('Verification code sent! Please check your email.')
     } catch (error: any) {
       console.error('OTP send error:', error)
@@ -346,6 +582,11 @@ export function LoginForm() {
 
   // Handle Google Sign In
   const handleGoogleSignIn = async () => {
+    if (!securitySettings.enableGoogleOAuth) {
+      setError('Google OAuth login is currently disabled.')
+      return
+    }
+    
     try {
       setLoading(true)
       setError('')
@@ -541,8 +782,34 @@ export function LoginForm() {
                 <div className="flex-1">
                   <span>{error}</span>
                   {rateLimitCooldown > 0 && (
-                    <div className="mt-2 text-xs text-red-300/80">
-                      Cooldown: {Math.floor(rateLimitCooldown / 60)}:{(rateLimitCooldown % 60).toString().padStart(2, '0')}
+                    <div className="mt-2 flex items-center justify-between">
+                      <span className="text-xs text-red-300/80">
+                        Cooldown: {Math.floor(rateLimitCooldown / 60)}:{(rateLimitCooldown % 60).toString().padStart(2, '0')}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // Clear local state
+                          setRateLimitCooldown(0)
+                          setError('')
+                          setLastAttemptTime(0) // Reset last attempt time
+                          setCooldownManuallyCleared(true) // Mark as manually cleared
+                          // Clear from localStorage
+                          try {
+                            localStorage.removeItem('login_rate_limit_cooldown')
+                            localStorage.removeItem('login_rate_limit_time')
+                            localStorage.setItem('cooldown_manually_cleared', 'true')
+                            localStorage.setItem('cooldown_cleared_time', Date.now().toString())
+                          } catch (e) {
+                            console.warn('⚠️ Failed to clear rate limit from localStorage:', e)
+                          }
+                          console.log('✅ Cooldown manually cleared - user can try again')
+                        }}
+                        className="ml-2 px-2 py-1 text-xs bg-red-600/50 hover:bg-red-600/70 text-white rounded transition-colors"
+                        title="Clear cooldown and allow login attempt"
+                      >
+                        Clear
+                      </button>
                     </div>
                   )}
                 </div>
@@ -660,7 +927,7 @@ export function LoginForm() {
                   <Lock className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-blue-400" />
                   <Input
                     id="password"
-                    type={showPassword ? "text" : "password"}
+                    type={securitySettings.enableShowPasswordToggle && showPassword ? "text" : "password"}
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -669,28 +936,57 @@ export function LoginForm() {
                     className={`pl-12 pr-12 bg-white/10 dark:bg-gray-800/50 border-white/20 dark:border-gray-700/50 text-white placeholder:text-white/50 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/50 backdrop-blur-sm transition-all ${password && !validatePassword(password) ? 'border-red-400 ring-2 ring-red-500/50' : ''}`}
                     placeholder="Enter your password"
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 transform -translate-y-1/2 text-blue-400 hover:text-blue-300 transition-colors"
-                  >
-                    {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                  </button>
+                  {securitySettings.enableShowPasswordToggle && (
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-4 top-1/2 transform -translate-y-1/2 text-blue-400 hover:text-blue-300 transition-colors"
+                    >
+                      {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                    </button>
+                  )}
                   {password && validatePassword(password) && (
-                    <CheckCircle className="absolute right-12 top-1/2 transform -translate-y-1/2 h-5 w-5 text-green-400" />
+                    <CheckCircle className={`absolute ${securitySettings.enableShowPasswordToggle ? 'right-12' : 'right-4'} top-1/2 transform -translate-y-1/2 h-5 w-5 text-green-400`} />
                   )}
                 </div>
-                {password && !validatePassword(password) && (
-                  <p className="mt-2 text-xs text-red-400 flex items-center gap-1">
-                    <AlertCircle className="h-3 w-3" />
-                    Password must be at least 6 characters
-                  </p>
+                {password && !validatePassword(password) && securitySettings.enablePasswordValidation && (
+                  <div className="mt-2 text-xs text-red-400">
+                    <p className="flex items-center gap-1 mb-1">
+                      <AlertCircle className="h-3 w-3" />
+                      Password requirements:
+                    </p>
+                    <ul className="list-disc list-inside ml-4 space-y-0.5">
+                      <li className={password.length >= securitySettings.passwordMinLength ? 'text-green-400' : ''}>
+                        At least {securitySettings.passwordMinLength} characters
+                      </li>
+                      {securitySettings.passwordRequireUppercase && (
+                        <li className={/[A-Z]/.test(password) ? 'text-green-400' : ''}>
+                          One uppercase letter
+                        </li>
+                      )}
+                      {securitySettings.passwordRequireLowercase && (
+                        <li className={/[a-z]/.test(password) ? 'text-green-400' : ''}>
+                          One lowercase letter
+                        </li>
+                      )}
+                      {securitySettings.passwordRequireNumbers && (
+                        <li className={/[0-9]/.test(password) ? 'text-green-400' : ''}>
+                          One number
+                        </li>
+                      )}
+                      {securitySettings.passwordRequireSpecialChars && (
+                        <li className={/[^A-Za-z0-9]/.test(password) ? 'text-green-400' : ''}>
+                          One special character
+                        </li>
+                      )}
+                    </ul>
+                  </div>
                 )}
               </div>
             )}
 
             {/* OTP Section */}
-            {!forgotPassword && useOTP && (
+            {!forgotPassword && useOTP && securitySettings.enableOTPLogin && (
               <div>
                 {!otpSent ? (
                   <div>
@@ -794,29 +1090,33 @@ export function LoginForm() {
 
             {!isSignUp && !forgotPassword && (
               <div className="flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={() => setForgotPassword(true)}
-                  className="text-sm text-blue-300 hover:text-blue-200 font-medium transition-colors flex items-center gap-2"
-                >
-                  <Shield className="h-3.5 w-3.5" />
-                  Forgot your password?
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUseOTP(!useOTP)
-                    setOtpSent(false)
-                    setOtpCode('')
-                    setOtpTimer(0)
-                    setError('')
-                    setSuccess('')
-                  }}
-                  className="text-sm text-blue-300 hover:text-blue-200 font-medium transition-colors flex items-center gap-2"
-                >
-                  <KeyRound className="h-3.5 w-3.5" />
-                  {useOTP ? 'Use Password' : 'Use OTP'}
-                </button>
+                {securitySettings.enableForgotPassword && (
+                  <button
+                    type="button"
+                    onClick={() => setForgotPassword(true)}
+                    className="text-sm text-blue-300 hover:text-blue-200 font-medium transition-colors flex items-center gap-2"
+                  >
+                    <Shield className="h-3.5 w-3.5" />
+                    Forgot your password?
+                  </button>
+                )}
+                {securitySettings.enableOTPLogin && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUseOTP(!useOTP)
+                      setOtpSent(false)
+                      setOtpCode('')
+                      setOtpTimer(0)
+                      setError('')
+                      setSuccess('')
+                    }}
+                    className="text-sm text-blue-300 hover:text-blue-200 font-medium transition-colors flex items-center gap-2"
+                  >
+                    <KeyRound className="h-3.5 w-3.5" />
+                    {useOTP ? 'Use Password' : 'Use OTP'}
+                  </button>
+                )}
               </div>
             )}
 
@@ -841,7 +1141,7 @@ export function LoginForm() {
             )}
 
             {/* Google Sign In Button */}
-            {!forgotPassword && (
+            {!forgotPassword && securitySettings.enableGoogleOAuth && (
               <div className="mt-4">
                 <div className="relative">
                   <div className="absolute inset-0 flex items-center">
@@ -857,34 +1157,34 @@ export function LoginForm() {
                   type="button"
                   onClick={handleGoogleSignIn}
                   disabled={loading}
-                  className="w-full mt-4 bg-white hover:bg-gray-50 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-900 dark:text-white font-semibold py-3 px-6 rounded-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-3 border border-gray-300 dark:border-gray-600"
+                  className="w-full mt-4 bg-white hover:bg-gray-50 dark:bg-white dark:hover:bg-gray-50 text-gray-900 font-semibold py-3 px-6 rounded-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-3 border-2 border-gray-200 dark:border-gray-200"
                 >
                   {loading ? (
                     <>
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                      <span>Connecting...</span>
+                      <Loader2 className="h-5 w-5 animate-spin text-gray-900" />
+                      <span className="text-gray-900">Connecting...</span>
                     </>
                   ) : (
                     <>
                       <svg className="h-5 w-5" viewBox="0 0 24 24">
                         <path
-                          fill="currentColor"
+                          fill="#4285F4"
                           d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
                         />
                         <path
-                          fill="currentColor"
+                          fill="#34A853"
                           d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
                         />
                         <path
-                          fill="currentColor"
+                          fill="#FBBC05"
                           d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
                         />
                         <path
-                          fill="currentColor"
+                          fill="#EA4335"
                           d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
                         />
                       </svg>
-                      <span>{isSignUp ? 'Sign up with Google' : 'Sign in with Google'}</span>
+                      <span className="text-gray-900">{isSignUp ? 'Sign up with Google' : 'Sign in with Google'}</span>
                     </>
                   )}
                 </Button>
@@ -895,7 +1195,7 @@ export function LoginForm() {
 
         {/* Footer Links */}
         <div className="text-center space-y-4">
-          {!forgotPassword && (
+          {!forgotPassword && securitySettings.enableSignUp && (
             <div className="flex items-center justify-center">
               <button
                 type="button"

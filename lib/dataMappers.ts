@@ -150,21 +150,23 @@ export function mapProjectFromDB(row: any): Project {
     project_start_date: row['Project Start Date'] || '',
     project_completion_date: row['Project Completion Date'] || '',
     project_duration: (() => {
-      const duration = row['Project Duration']
+      // ✅ CRITICAL: Check multiple possible column names for Project Duration
+      const duration = row['Project Duration'] || row['project_duration'] || row.project_duration
       const projectCode = row['Project Code'] || row['project_code'] || row.project_code || row.id
       
-      // ✅ DEBUG: Only log Project Duration for specific projects (reduced noise)
-      // Only log for specific projects or very rarely (0.01 = 1% of projects)
-      if (process.env.NODE_ENV === 'development' && (projectCode.includes('P9999') || projectCode.includes('P10001') || Math.random() < 0.01)) {
-        console.log('🔍 mapProjectFromDB: Checking Project Duration for', projectCode, ':', {
-          rawValue: duration,
-          type: typeof duration,
-          isNull: duration === null,
-          isUndefined: duration === undefined,
-          isEmpty: duration === '',
-          rowKeys: Object.keys(row).filter(k => k.toLowerCase().includes('duration'))
-        })
-      }
+      // ✅ DEBUG: Always log for debugging (can be removed later)
+      console.log('🔍 mapProjectFromDB: Checking Project Duration for', projectCode, ':', {
+        rawValue: duration,
+        type: typeof duration,
+        isNull: duration === null,
+        isUndefined: duration === undefined,
+        isEmpty: duration === '',
+        fromProjectDuration: row['Project Duration'],
+        fromproject_duration: row['project_duration'],
+        fromproject_duration_direct: row.project_duration,
+        rowKeys: Object.keys(row).filter(k => k.toLowerCase().includes('duration')),
+        allRowKeys: Object.keys(row)
+      })
       
       if (duration !== undefined && duration !== null && duration !== '') {
         // Convert to number - handle both string and number types
@@ -179,22 +181,16 @@ export function mapProjectFromDB(row: any): Project {
         
         // ✅ Validate parsed value
         if (parsed !== undefined && parsed !== null && !isNaN(parsed) && parsed > 0) {
-          // Only log success for specific projects (reduced noise)
-          if (process.env.NODE_ENV === 'development' && (projectCode.includes('P9999') || projectCode.includes('P10001') || Math.random() < 0.01)) {
-            console.log('✅ mapProjectFromDB: Successfully parsed Project Duration =', parsed, 'for project:', projectCode, '(raw:', duration, ', type:', typeof duration, ')')
-          }
+          console.log('✅ mapProjectFromDB: Successfully parsed Project Duration =', parsed, 'for project:', projectCode, '(raw:', duration, ', type:', typeof duration, ')')
           return parsed
         } else {
-          // Only warn for specific projects (reduced noise)
-          if (process.env.NODE_ENV === 'development' && (projectCode.includes('P9999') || projectCode.includes('P10001') || Math.random() < 0.01)) {
-            console.warn('⚠️ mapProjectFromDB: Failed to parse Project Duration. Raw:', duration, 'Parsed:', parsed, 'for project:', projectCode)
-          }
+          console.warn('⚠️ mapProjectFromDB: Failed to parse Project Duration. Raw:', duration, 'Parsed:', parsed, 'for project:', projectCode)
         }
       } else {
-        // Only warn for specific projects (reduced noise)
-        if (process.env.NODE_ENV === 'development' && (projectCode.includes('P9999') || projectCode.includes('P10001') || Math.random() < 0.01)) {
-          console.warn('⚠️ mapProjectFromDB: Project Duration is missing (undefined/null/empty) for project:', projectCode)
-        }
+        console.warn('⚠️ mapProjectFromDB: Project Duration is missing (undefined/null/empty) for project:', projectCode, {
+          rowKeys: Object.keys(row),
+          durationKeys: Object.keys(row).filter(k => k.toLowerCase().includes('duration'))
+        })
       }
       return undefined
     })(),

@@ -14,6 +14,7 @@ import { User } from '@/lib/supabase'
 import { EnhancedPermissionsManager } from './EnhancedPermissionsManager'
 import { IntegratedUserManager } from './IntegratedUserManager'
 import { RolesManagement } from './RolesManagement'
+import { getProfileUrl } from '@/lib/userUtils'
 import { 
   UserWithPermissions,
   getUserPermissions,
@@ -100,6 +101,7 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
   const [showAuditLog, setShowAuditLog] = useState(false)
   const [showAnalytics, setShowAnalytics] = useState(false)
   const [customRoles, setCustomRoles] = useState<any[]>([])
+  const [defaultRoleOverrides, setDefaultRoleOverrides] = useState<Record<string, string[]>>({})
   const [advancedFilters, setAdvancedFilters] = useState({
     isActive: '',
     role: '',
@@ -291,7 +293,7 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
     }
   }, [userRole, canManageUsers])
   
-  // Load custom roles from database
+  // Load custom roles and default role overrides from database
   const loadCustomRoles = async () => {
     try {
       const { data, error } = await (supabase as any)
@@ -301,9 +303,34 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
       
       if (error) throw error
       setCustomRoles(data || [])
+      
+      // Extract default role overrides (roles with __default_override__ prefix)
+      const overrides: Record<string, string[]> = {}
+      if (data) {
+        data.forEach((role: any) => {
+          if (role.role_key?.startsWith('__default_override__')) {
+            const originalKey = role.role_key.replace('__default_override__', '')
+            if (DEFAULT_ROLE_PERMISSIONS[originalKey]) {
+              overrides[originalKey] = role.permissions || []
+            }
+          }
+        })
+      }
+      setDefaultRoleOverrides(overrides)
+      console.log('✅ Loaded default role overrides:', Object.keys(overrides))
     } catch (err: any) {
       console.error('Error loading custom roles:', err)
     }
+  }
+  
+  // Get permissions count for a role (from database override or default)
+  const getRolePermissionsCount = (role: string): number => {
+    // Check if there's a database override for this role
+    if (defaultRoleOverrides[role] && defaultRoleOverrides[role].length > 0) {
+      return defaultRoleOverrides[role].length
+    }
+    // Otherwise use default from code
+    return getPermissionsCount(role)
   }
 
          const fetchUsers = async () => {
@@ -1088,10 +1115,12 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
                   {filteredUsers.map((user) => {
                     const RoleIcon = getRoleIcon(user.role)
                     const userWithPerms = user as UserWithPermissions
-                    // Always use user.permissions if available, regardless of custom_permissions_enabled
-                    const permissionsCount = userWithPerms.permissions && userWithPerms.permissions.length > 0
+                    // Use role-based permissions count if custom_permissions_enabled is false
+                    // Get from database override if exists, otherwise use default
+                    // Otherwise use the actual permissions array length
+                    const permissionsCount = userWithPerms.custom_permissions_enabled && userWithPerms.permissions && userWithPerms.permissions.length > 0
                       ? userWithPerms.permissions.length 
-                      : getPermissionsCount(user.role)
+                      : getRolePermissionsCount(user.role)
                     
                     // Debug logging for permission counts
                     if (user.email === 'hajeta4728@aupvs.com') {
@@ -1178,7 +1207,7 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => window.open(`/profile/${user.id}`, '_blank')}
+                              onClick={() => window.open(getProfileUrl(user), '_blank')}
                               title="View Profile"
                             >
                               <Eye className="h-4 w-4" />

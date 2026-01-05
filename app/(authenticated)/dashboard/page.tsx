@@ -1,6 +1,6 @@
 'use client'
 
-import { IntegratedDashboard } from '@/components/dashboard/IntegratedDashboard'
+import { ModernProfessionalDashboard } from '@/components/dashboard/ModernProfessionalDashboard'
 import { PermissionPage } from '@/components/ui/PermissionPage'
 import { DynamicTitle } from '@/components/ui/DynamicTitle'
 
@@ -12,7 +12,7 @@ export default function DashboardPage() {
       accessDeniedMessage="You need permission to view the dashboard. Please contact your administrator."
     >
       <DynamicTitle pageTitle="Dashboard" />
-      <IntegratedDashboard />
+      <ModernProfessionalDashboard />
     </PermissionPage>
   )
 }

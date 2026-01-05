@@ -93,25 +93,58 @@ class SettingsManager {
   private readonly CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
 
   // System Settings
-  async getSystemSetting(key: string): Promise<any> {
+  async getSystemSetting(key: string, forceReload: boolean = false): Promise<any> {
     const cacheKey = `system_${key}`
-    const cached = this.cache.get(cacheKey)
     
-    if (cached && Date.now() - cached.timestamp < this.CACHE_DURATION) {
-      return cached.data
+    // Clear cache if force reload
+    if (forceReload) {
+      this.cache.delete(cacheKey)
+    } else {
+      const cached = this.cache.get(cacheKey)
+      if (cached && Date.now() - cached.timestamp < this.CACHE_DURATION) {
+        return cached.data
+      }
     }
 
     try {
+      // Try using the safe function first (if it exists)
+      try {
+        const { data: functionResult, error: functionError } = await (this.supabase as any)
+          .rpc('get_system_setting_safe', {
+            p_setting_key: key
+          })
+
+        if (!functionError && functionResult !== null) {
+          // Function exists and worked
+          const value = functionResult
+          if (value !== null && value !== undefined) {
+            this.cache.set(cacheKey, { data: value, timestamp: Date.now() })
+            console.log(`✅ Loaded system setting "${key}" from database using function:`, value)
+          }
+          return value
+        }
+      } catch (funcErr) {
+        // Function might not exist, continue to fallback
+        console.log('Function get_system_setting_safe not available, using direct query:', funcErr)
+      }
+
+      // Fallback to direct query (if function doesn't exist or failed)
       const { data, error } = await this.supabase
         .from('system_settings')
         .select('*')
         .eq('setting_key', key)
         .single()
 
-      if (error && error.code !== 'PGRST116') throw error
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error getting system setting:', error)
+        return null
+      }
 
       const value = (data as any)?.setting_value
-      this.cache.set(cacheKey, { data: value, timestamp: Date.now() })
+      if (value !== null && value !== undefined) {
+        this.cache.set(cacheKey, { data: value, timestamp: Date.now() })
+        console.log(`✅ Loaded system setting "${key}" from database:`, value)
+      }
       return value
     } catch (error) {
       console.error('Error getting system setting:', error)
@@ -128,6 +161,34 @@ class SettingsManager {
     isPublic: boolean = false
   ): Promise<boolean> {
     try {
+      // Try using the safe function first (if it exists)
+      try {
+        const { data: functionResult, error: functionError } = await (this.supabase as any)
+          .rpc('set_system_setting_safe', {
+            p_setting_key: key,
+            p_setting_value: value,
+            p_setting_type: type,
+            p_description: description || null,
+            p_category: category,
+            p_is_public: isPublic
+          })
+
+        if (!functionError && functionResult === true) {
+          // Function exists and worked
+          this.cache.delete(`system_${key}`)
+          return true
+        }
+      } catch (funcErr) {
+        // Function might not exist, continue to fallback
+        console.log('Function not available, using direct upsert:', funcErr)
+      }
+
+      // Fallback to direct upsert (if function doesn't exist or failed)
+      const { data: { user } } = await this.supabase.auth.getUser()
+      if (!user) {
+        throw new Error('User not authenticated')
+      }
+
       const { error } = await (this.supabase
         .from('system_settings') as any)
         .upsert({
@@ -137,13 +198,19 @@ class SettingsManager {
           description,
           category,
           is_public: isPublic,
-          updated_by: (await this.supabase.auth.getUser()).data.user?.id
+          updated_by: user.id
+        }, {
+          onConflict: 'setting_key'
         })
 
-      if (error) throw error
+      if (error) {
+        console.error('❌ Error in setSystemSetting upsert:', error)
+        throw error
+      }
 
-      // Clear cache
+      // Clear cache to force reload on next get
       this.cache.delete(`system_${key}`)
+      console.log(`✅ Settings saved directly, cache cleared for "${key}"`)
       return true
     } catch (error) {
       console.error('Error setting system setting:', error)
