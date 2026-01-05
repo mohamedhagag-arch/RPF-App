@@ -71,10 +71,12 @@ export const Pagination = memo(function Pagination({
             onChange={(e) => onItemsPerPageChange(Number(e.target.value))}
             className="ml-2 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
           >
+            <option value={10}>10 per page</option>
             <option value={25}>25 per page</option>
             <option value={50}>50 per page</option>
             <option value={100}>100 per page</option>
             <option value={200}>200 per page</option>
+            <option value={500}>500 per page</option>
           </select>
         )}
       </div>

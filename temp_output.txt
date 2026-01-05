@@ -1,0 +1,2751 @@
+﻿                      <tr key={projectId} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                              if (!(kpiDate >= normalizedPeriodStart && kpiDate <= normalizedPeriodEnd)) {
+                                return false
+                              }
+                            } catch {
+                              return false
+                            }
+                            
+                            // Match activity (same logic as activity rows)
+                            const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
+                            const kpiProjectFullCodeRaw = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim()
+                            const kpiProjectCodeRaw = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim()
+                            const kpiProjectFullCode = kpiProjectFullCodeRaw.toLowerCase().trim()
+                            const kpiProjectCode = kpiProjectCodeRaw.toLowerCase().trim()
+                            
+                            const kpiZoneRaw = (kpi.zone || rawKPI['Zone'] || rawKPI['Zone Ref'] || rawKPI['Zone Number'] || '').toString().trim()
+                            let kpiZone = kpiZoneRaw.toLowerCase().trim()
+                            if (kpiZone && kpiProjectCode) {
+                              const projectCodeUpper = kpiProjectCode.toUpperCase()
+                              kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+                              kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
+                              kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
+                            }
+                            if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
+                            
+                            const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+                            const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toLowerCase()
+                            const activityProjectCode = (activity.project_code || '').toString().trim().toLowerCase()
+                            const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+                            
+                            // Try multiple matching strategies
+                            if (kpiActivityName && kpiProjectFullCode && kpiZone && activityZone) {
+                              if (activityName === kpiActivityName && 
+                                  activityProjectFullCode === kpiProjectFullCode &&
+                                  (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))) {
+                                return true
+                              }
+                            }
+                            if (kpiActivityName && kpiProjectFullCode) {
+                              if (activityName === kpiActivityName && activityProjectFullCode === kpiProjectFullCode) {
+                                return true
+                              }
+                            }
+                            if (kpiActivityName && kpiProjectCode && kpiZone && activityZone) {
+                              if (activityName === kpiActivityName && 
+                                  activityProjectCode === kpiProjectCode &&
+                                  (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))) {
+                                return true
+                              }
+                            }
+                            if (kpiActivityName && kpiProjectCode) {
+                              if (activityName === kpiActivityName && activityProjectCode === kpiProjectCode) {
+                                return true
+                              }
+                            }
+                            if (kpiActivityName) {
+                              const projectMatch = (
+                                (kpiProjectFullCode && activityProjectFullCode && kpiProjectFullCode === activityProjectFullCode) ||
+                                (kpiProjectCode && activityProjectCode && kpiProjectCode === activityProjectCode) ||
+                                (kpiProjectFullCode && activityProjectCode && kpiProjectFullCode === activityProjectCode) ||
+                                (kpiProjectCode && activityProjectFullCode && kpiProjectCode === activityProjectFullCode)
+                              )
+                              if (projectMatch && (activityName === kpiActivityName || 
+                                  activityName.includes(kpiActivityName) || 
+                                  kpiActivityName.includes(activityName))) {
+                                return true
+                              }
+                            }
+                            
+                            return false
+                          })
+                          
+                          // Calculate Virtual Material Amount for this activity in this period
+                          actualKPIs.forEach((kpi: any) => {
+                            const rawKpi = (kpi as any).raw || {}
+                            const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
+                            
+                            const totalValue = activity.total_value || parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 0
+                            const totalUnits = activity.total_units || activity.planned_units || parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 0
+                            
+                            let rate = 0
+                            if (totalUnits > 0 && totalValue > 0) {
+                              rate = totalValue / totalUnits
+                            } else {
+                              rate = activity.rate || parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
+                            }
+                            
+                            let baseValue = 0
+                            if (rate > 0 && quantity > 0) {
+                              baseValue = rate * quantity
+                            } else {
+                              const kpiValue = parseFloat(String(kpi.value || rawKpi['Value'] || '0').replace(/,/g, '')) || 0
+                              if (kpiValue > 0) {
+                                baseValue = kpiValue
+                              }
+                            }
+                            
+                            if (baseValue > 0) {
+                              sum += baseValue * (virtualMaterialPercentage / 100)
+                            }
+                          })
+                        })
+                      })
+                      return sum
+                    })
+                  : periods.map(() => 0)
+                
+                // âœ… Calculate period Planned Virtual Material Amount totals for chart
+                // âœ… Use allAnalytics instead of projectsWithWorkInRange so chart values don't change when hideZeroProjects is toggled
+                const periodPlannedVirtualMaterialAmountTotals = useVirtualValueInChart && viewPlannedValue
+                  ? periods.map((_, periodIndex) => {
+                      let sum = 0
+                      allAnalytics.forEach((analytics: any) => {
+                        const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
+                        const plannedVirtualMaterialAmounts = cachedValues?.plannedVirtualMaterialAmount || []
+                        sum += plannedVirtualMaterialAmounts[periodIndex] || 0
+                      })
+                      // Sum from expanded activities
+                      allAnalytics.forEach((analytics: any) => {
+                        if (!expandedProjects.has(analytics.project.id)) return
+                        
+                        const project = analytics.project
+                        const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+                        const projectActivities = activities.filter((activity: BOQActivity) => {
+                          const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+                          return activityFullCode === projectFullCode || activity.project_id === project.id
+                        })
+                        
+                        projectActivities.forEach((activity: BOQActivity) => {
+                          if (!activity.use_virtual_material) return
+                          
+                          const rawActivity = (activity as any).raw || {}
+                          const period = periods[periodIndex]
+                          const periodStart = period.start
+                          const periodEnd = period.end
+                          const effectivePeriodEnd = periodEnd > today ? today : periodEnd
+                          
+                          // Get Virtual Material Percentage from project
+                          let virtualMaterialPercentage = 0
+                          const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
+                          
+                          if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
+                            let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
+                            const parsedValue = parseFloat(cleanedValue)
+                            if (!isNaN(parsedValue)) {
+                              if (parsedValue > 0 && parsedValue <= 1) {
+                                virtualMaterialPercentage = parsedValue * 100
+                              } else {
+                                virtualMaterialPercentage = parsedValue
+                              }
+                            }
+                          }
+                          
+                          if (virtualMaterialPercentage === 0) return
+                          
+                          // Get Planned KPIs for this activity in this period (same logic as activity rows)
+                          const plannedKPIs = kpis.filter((kpi: any) => {
+                            const rawKPI = (kpi as any).raw || {}
+                            const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+                            const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+                            const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
+                            const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+                            const kpiZone = (kpi.zone || rawKPI['Zone'] || rawKPI['Zone Ref'] || rawKPI['Zone Number'] || '').toString().toLowerCase().trim()
+                            
+                            if (kpiProjectFullCode !== projectFullCode && kpiProjectCode !== projectFullCode) return false
+                            if (!kpiActivityName || !activityName || 
+                                (kpiActivityName !== activityName && 
+                                 !kpiActivityName.includes(activityName) && 
+                                 !activityName.includes(kpiActivityName))) {
+                              return false
+                            }
+                            
+                            const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+                            if (activityZone && kpiZone && activityZone !== kpiZone && !activityZone.includes(kpiZone) && !kpiZone.includes(activityZone)) {
+                              return false
+                            }
+                            
+                            const inputType = String(kpi.input_type || rawKPI['Input Type'] || '').trim().toLowerCase()
+                            if (inputType !== 'planned') return false
+                            
+                            const kpiDate = kpi.target_date || rawKPI['Target Date'] || ''
+                            if (!kpiDate) return false
+                            
+                            try {
+                              const date = new Date(kpiDate)
+                              if (isNaN(date.getTime())) return false
+                              date.setHours(0, 0, 0, 0)
+                              const normalizedPeriodStart = new Date(periodStart)
+                              normalizedPeriodStart.setHours(0, 0, 0, 0)
+                              const normalizedPeriodEnd = new Date(effectivePeriodEnd)
+                              normalizedPeriodEnd.setHours(23, 59, 59, 999)
+                              return date >= normalizedPeriodStart && date <= normalizedPeriodEnd
+                            } catch {
+                              return false
+                            }
+                          })
+                          
+                          // Calculate Planned Virtual Material Amount for this activity in this period
+                          plannedKPIs.forEach((kpi: any) => {
+                            const rawKpi = (kpi as any).raw || {}
+                            const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
+                            
+                            const totalValue = activity.total_value || parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 0
+                            const totalUnits = activity.total_units || activity.planned_units || parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 0
+                            
+                            let rate = 0
+                            if (totalUnits > 0 && totalValue > 0) {
+                              rate = totalValue / totalUnits
+                            } else {
+                              rate = activity.rate || parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
+                            }
+                            
+                            let baseValue = 0
+                            if (rate > 0 && quantity > 0) {
+                              baseValue = rate * quantity
+                            } else {
+                              const kpiValue = parseFloat(String(kpi.value || rawKpi['Value'] || '0').replace(/,/g, '')) || 0
+                              if (kpiValue > 0) {
+                                baseValue = kpiValue
+                              }
+                            }
+                            
+                            if (baseValue > 0) {
+                              sum += baseValue * (virtualMaterialPercentage / 100)
+                            }
+                          })
+                        })
+                      })
+                      return sum
+                    })
+                  : periods.map(() => 0)
+                
+                // âœ… Calculate cumulative values (running total) for line chart
+                // Bars will show individual period values, line will show cumulative values
+                let cumulativeEarned = 0
+                let cumulativePlanned = 0
+                
+                const chartData = periods.map((period, index) => {
+                  let periodShort = period.label
+                  if (periodType === 'month') {
+                    periodShort = period.start.toLocaleDateString('en-US', { month: 'short' })
+                  } else if (periodType === 'quarterly') {
+                    periodShort = period.label
+                  } else if (periodType === 'yearly') {
+                    periodShort = period.start.getFullYear().toString()
+                  }
+                  
+                  // Calculate earned value: base value + virtual material amount (if useVirtualValueInChart is enabled)
+                  const baseEarned = totals.periodEarnedValueTotals[index] || 0
+                  const virtualMaterialAmount = periodVirtualMaterialAmountTotals[index] || 0
+                  const periodEarned = useVirtualValueInChart 
+                    ? baseEarned + virtualMaterialAmount 
+                    : baseEarned
+                  
+                  // Calculate planned value: base value + planned virtual material amount (if useVirtualValueInChart is enabled)
+                  const basePlanned = viewPlannedValue ? (totals.periodPlannedValueTotals[index] || 0) : 0
+                  const plannedVirtualMaterialAmount = periodPlannedVirtualMaterialAmountTotals[index] || 0
+                  const periodPlanned = viewPlannedValue && useVirtualValueInChart
+                    ? basePlanned + plannedVirtualMaterialAmount
+                    : basePlanned
+                  
+                  // âœ… Calculate cumulative values (running total) for line chart
+                  cumulativeEarned += periodEarned
+                  cumulativePlanned += periodPlanned
+                  
+                  return {
+                    period: period.label,
+                    periodShort: periodShort,
+                    // Bars: individual period values
+                    earnedBar: periodEarned,
+                    plannedBar: viewPlannedValue ? periodPlanned : undefined,
+                    // Line: cumulative values (running sum)
+                    earnedLine: cumulativeEarned,
+                    plannedLine: viewPlannedValue ? cumulativePlanned : undefined
+                  }
+                })
+
+                // âœ… Common chart props
+                const commonProps = {
+                  data: chartData,
+                  margin: { top: 5, right: 30, left: 20, bottom: 5 }
+                }
+
+                // âœ… Common axis and tooltip components
+                const commonAxis = (
+                  <>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-gray-300 dark:stroke-gray-700" />
+                    <XAxis 
+                      dataKey="periodShort" 
+                      className="text-xs"
+                      tick={{ fill: 'currentColor' }}
+                      angle={0}
+                      textAnchor="middle"
+                      height={30}
+                    />
+                    <YAxis 
+                      className="text-xs"
+                      tick={{ fill: 'currentColor' }}
+                      tickFormatter={(value) => {
+                        if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`
+                        if (value >= 1000) return `${(value / 1000).toFixed(1)}K`
+                        return value.toString()
+                      }}
+                    />
+                    <Tooltip 
+                      contentStyle={{
+                        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '8px',
+                        padding: '12px'
+                      }}
+                      formatter={(value: number, name: string) => {
+                        const currency = projectsWithWorkInRange.length > 0 
+                          ? (projectsWithWorkInRange[0]?.project?.currency || 'AED')
+                          : 'AED'
+                        if (name === 'earnedBar' || name === 'earned-bar') {
+                          return [formatCurrency(value, currency), 'Earned Value (Period)']
+                        }
+                        if (name === 'earnedLine' || name === 'earned-line' || name === 'earned') {
+                          return [formatCurrency(value, currency), 'Earned Value (Cumulative)']
+                        }
+                        if (name === 'plannedBar' || name === 'planned-bar') {
+                          return [formatCurrency(value, currency), 'Planned Value (Period)']
+                        }
+                        if (name === 'plannedLine' || name === 'planned-line' || name === 'planned') {
+                          return [formatCurrency(value, currency), 'Planned Value (Cumulative)']
+                        }
+                        return [formatCurrency(value, currency), name]
+                      }}
+                      labelFormatter={(label) => {
+                        if (periodType === 'month') return `Month: ${label}`
+                        if (periodType === 'quarterly') return `Quarter: ${label}`
+                        if (periodType === 'yearly') return `Year: ${label}`
+                        return label
+                      }}
+                    />
+                    <Legend 
+                      formatter={(value) => {
+                        if (value === 'earnedBar' || value === 'earned-bar') return 'Earned Value (Period)'
+                        if (value === 'earnedLine' || value === 'earned-line' || value === 'earned') return 'Earned Value (Cumulative)'
+                        if (value === 'plannedBar' || value === 'planned-bar') return 'Planned Value (Period)'
+                        if (value === 'plannedLine' || value === 'planned-line' || value === 'planned') return 'Planned Value (Cumulative)'
+                        return value
+                      }}
+                    />
+                  </>
+                )
+
+                // âœ… Render chart based on type - all use cumulative values
+                if (chartType === 'line') {
+                  return (
+                    <LineChart {...commonProps}>
+                      {commonAxis}
+                      <Line 
+                        type="monotone" 
+                        dataKey="earnedLine" 
+                        stroke="#10b981" 
+                        strokeWidth={3}
+                        dot={{ fill: '#10b981', r: 5 }}
+                        activeDot={{ r: 7 }}
+                        name="earnedLine"
+                      />
+                      {viewPlannedValue && (
+                        <Line 
+                          type="monotone" 
+                          dataKey="plannedLine" 
+                          stroke="#3b82f6" 
+                          strokeWidth={3}
+                          dot={{ fill: '#3b82f6', r: 5 }}
+                          activeDot={{ r: 7 }}
+                          name="plannedLine"
+                        />
+                      )}
+                    </LineChart>
+                  )
+                }
+
+                if (chartType === 'bar') {
+                  return (
+                    <BarChart {...commonProps}>
+                      {commonAxis}
+                      <Bar 
+                        dataKey="earnedBar" 
+                        fill="#10b981" 
+                        name="earnedBar"
+                        radius={[4, 4, 0, 0]}
+                      />
+                      {viewPlannedValue && (
+                        <Bar 
+                          dataKey="plannedBar" 
+                          fill="#3b82f6" 
+                          name="plannedBar"
+                          radius={[4, 4, 0, 0]}
+                        />
+                      )}
+                    </BarChart>
+                  )
+                }
+
+                if (chartType === 'area') {
+                  return (
+                    <AreaChart {...commonProps}>
+                      {commonAxis}
+                      <Area 
+                        type="monotone" 
+                        dataKey="earnedLine" 
+                        stroke="#10b981" 
+                        fill="#10b981"
+                        fillOpacity={0.6}
+                        strokeWidth={3}
+                        name="earnedLine"
+                      />
+                      {viewPlannedValue && (
+                        <Area 
+                          type="monotone" 
+                          dataKey="plannedLine" 
+                          stroke="#3b82f6" 
+                          fill="#3b82f6"
+                          fillOpacity={0.4}
+                          strokeWidth={3}
+                          name="plannedLine"
+                        />
+                      )}
+                    </AreaChart>
+                  )
+                }
+
+                if (chartType === 'composed') {
+                  return (
+                    <ComposedChart {...commonProps}>
+                      {commonAxis}
+                      {/* Earned Value - Bar (Period Value) */}
+                      <Bar 
+                        dataKey="earnedBar" 
+                        fill="#10b981" 
+                        name="earnedBar"
+                        radius={[4, 4, 0, 0]}
+                        opacity={0.7}
+                      />
+                      {/* Earned Value - Line (Cumulative Value) */}
+                      <Line 
+                        type="monotone" 
+                        dataKey="earnedLine" 
+                        stroke="#10b981" 
+                        strokeWidth={3}
+                        dot={{ fill: '#10b981', r: 5 }}
+                        activeDot={{ r: 7 }}
+                        name="earnedLine"
+                      />
+                      {viewPlannedValue && (
+                        <>
+                          {/* Planned Value - Bar (Period Value) */}
+                          <Bar 
+                            dataKey="plannedBar" 
+                            fill="#3b82f6" 
+                            name="plannedBar"
+                            radius={[4, 4, 0, 0]}
+                            opacity={0.5}
+                          />
+                          {/* Planned Value - Line (Cumulative Value) */}
+                          <Line 
+                            type="monotone" 
+                            dataKey="plannedLine" 
+                            stroke="#3b82f6" 
+                            strokeWidth={3}
+                            dot={{ fill: '#3b82f6', r: 5 }}
+                            activeDot={{ r: 7 }}
+                            name="plannedLine"
+                          />
+                        </>
+                      )}
+                    </ComposedChart>
+                  )
+                }
+
+                // Default to LineChart if unknown type
+                return (
+                  <LineChart {...commonProps}>
+                    {commonAxis}
+                    <Line 
+                      type="monotone" 
+                      dataKey="earnedLine" 
+                      stroke="#10b981" 
+                      strokeWidth={3}
+                      dot={{ fill: '#10b981', r: 5 }}
+                      activeDot={{ r: 7 }}
+                      name="earnedLine"
+                    />
+                    {viewPlannedValue && (
+                      <Line 
+                        type="monotone" 
+                        dataKey="plannedLine" 
+                        stroke="#3b82f6" 
+                        strokeWidth={3}
+                        dot={{ fill: '#3b82f6', r: 5 }}
+                        activeDot={{ r: 7 }}
+                        name="plannedLine"
+                      />
+                    )}
+                  </LineChart>
+                )
+              })()}
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-blue-600 dark:text-blue-400">Total Contract Value</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{formatCurrency(totals.totalContractValue)}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{filteredProjects.length} projects</p>
+              </div>
+              <DollarSign className="h-12 w-12 text-blue-500 dark:text-blue-400 opacity-50" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+                    <div>
+                <p className="text-sm font-medium text-green-600 dark:text-green-400">Total Earned Value</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{formatCurrency(totals.totalEarnedValue)}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  {totals.totalContractValue > 0 ? ((totals.totalEarnedValue / totals.totalContractValue) * 100).toFixed(1) : 0}% completed
+                </p>
+                    </div>
+              <CheckCircle className="h-12 w-12 text-green-500 dark:text-green-400 opacity-50" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+          <CardTitle className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5 text-blue-500" />
+            Weekly Work Revenue by Project
+          </CardTitle>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Revenue earned per week based on KPI Actual values</p>
+            </div>
+            <Button
+              onClick={handleExportPeriodRevenue}
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2"
+            >
+              <Download className="h-4 w-4" />
+              Export to Excel
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {/* Color Legend */}
+          {showVirtualMaterialValues && (
+            <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+              <div className="flex flex-wrap items-center gap-4 text-sm">
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 bg-green-600 rounded"></div>
+                  <span className="text-gray-700 dark:text-gray-300">Actual Value</span>
+                </div>
+                {viewPlannedValue && (
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 bg-blue-600 rounded"></div>
+                    <span className="text-gray-700 dark:text-gray-300">Planned Value</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 bg-purple-600 rounded"></div>
+                  <span className="text-gray-700 dark:text-gray-300">Virtual Material</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 bg-gray-900 dark:bg-gray-100 rounded"></div>
+                  <span className="text-gray-700 dark:text-gray-300">Total (Base + VM)</span>
+                </div>
+              </div>
+            </div>
+          )}
+      <div className="overflow-x-auto overflow-y-auto print-table-container" style={{ maxHeight: '70vh' }}>
+            <table className="border-collapse text-sm print-table" style={{ tableLayout: 'fixed', minWidth: '100%', width: `${200 + (hideDivisionsColumn ? 0 : 180) + 120 + (hideTotalContractColumn ? 0 : 180) + 220 + (hideVirtualMaterialColumn ? 0 : 180) + (showOuterRangeColumn && outerRangeStart ? (viewPlannedValue ? 320 : 160) : 0) + (periods.length * (viewPlannedValue ? 280 : 140)) + (viewPlannedValue ? 300 : 150)}px` }}>
+              <thead className="sticky top-0 z-20">
+                {/* First row: Main headers with period headers spanning sub-columns */}
+                <tr className="bg-gray-100 dark:bg-gray-800 border-b-2 border-gray-300 dark:border-gray-600">
+                  <th rowSpan={viewPlannedValue ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: '50px' }}>
+                    <div className="text-xs">Details</div>
+                  </th>
+                  <th rowSpan={viewPlannedValue ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold sticky left-0 z-30 bg-gray-100 dark:bg-gray-800" style={{ width: '200px' }}>Project Full Name</th>
+                  {!hideDivisionsColumn && (
+                    <th rowSpan={viewPlannedValue ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold" style={{ width: '180px' }}>Scope</th>
+                  )}
+                  <th rowSpan={viewPlannedValue ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: '120px' }}>Workmanship?</th>
+                  {!hideTotalContractColumn && (
+                    <th rowSpan={viewPlannedValue ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '180px' }}>Total Contract Amount</th>
+                  )}
+                  <th rowSpan={viewPlannedValue ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '220px' }}>Division Contract Amount</th>
+                  {!hideVirtualMaterialColumn && (
+                    <th rowSpan={viewPlannedValue ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '180px' }}>Virtual Material</th>
+                  )}
+                  {showOuterRangeColumn && outerRangeStart && (
+                    viewPlannedValue ? (
+                      <th colSpan={2} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: '320px' }}>
+                      <div className="font-bold text-blue-700 dark:text-blue-300">Outer Range</div>
+                      <div className="text-xs font-normal text-gray-500 dark:text-gray-400 mt-1">
+                        {outerRangeStart && dateRange.start ? (
+                          <>
+                            {new Date(outerRangeStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(dateRange.start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          </>
+                        ) : (
+                          <span>Before Period</span>
+                        )}
+                      </div>
+                    </th>
+                    ) : (
+                      <th rowSpan={1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}>
+                        <div className="font-bold text-blue-700 dark:text-blue-300">Outer Range</div>
+                        <div className="text-xs font-normal text-gray-500 dark:text-gray-400 mt-1">
+                          {outerRangeStart && dateRange.start ? (
+                            <>
+                              {new Date(outerRangeStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(dateRange.start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            </>
+                          ) : (
+                            <span>Before Period</span>
+                          )}
+                        </div>
+                      </th>
+                    )
+                  )}
+                  {periods.map((period, index) => {
+                    if (viewPlannedValue) {
+                      // When viewPlannedValue is enabled, show period header spanning two columns
+                      return (
+                        <th key={index} colSpan={2} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: '280px' }}>
+                          <div className="font-bold text-gray-900 dark:text-white">{period.label}</div>
+                          <div className="text-xs font-normal text-gray-500 dark:text-gray-400">
+                            {period.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {period.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          </div>
+                        </th>
+                      )
+                    } else {
+                      // When viewPlannedValue is disabled, show single column per period
+                      return (
+                    <th key={index} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '140px' }}>
+                      <div>{period.label}</div>
+                      <div className="text-xs font-normal text-gray-500 dark:text-gray-400">
+                        {period.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {period.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </div>
+                    </th>
+                      )
+                    }
+                  })}
+                  {viewPlannedValue ? (
+                    <th colSpan={2} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: '300px' }}>
+                      <div className="font-bold text-gray-900 dark:text-white">Grand Total</div>
+                    </th>
+                  ) : (
+                  <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '150px' }}>Grand Total</th>
+                  )}
+            </tr>
+                {/* Second row: Sub-headers for Actual and Planned (only when viewPlannedValue is enabled) */}
+                {viewPlannedValue && (
+                  <tr className="bg-gray-100 dark:bg-gray-800 border-b-2 border-gray-300 dark:border-gray-600">
+                    {showOuterRangeColumn && outerRangeStart && (
+                      <>
+                        <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-green-50 dark:bg-green-900/20" style={{ width: '160px' }}>
+                          <div className="text-xs font-medium text-green-600 dark:text-green-400">Actual</div>
+                        </th>
+                        <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}>
+                          <div className="text-xs font-medium text-blue-600 dark:text-blue-400">Planned</div>
+                        </th>
+                      </>
+                    )}
+                    {periods.map((period, index) => (
+                      <>
+                        <th key={`${index}-actual`} className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-green-50 dark:bg-green-900/20" style={{ width: '140px' }}>
+                          <div className="text-xs font-medium text-green-600 dark:text-green-400">Actual</div>
+                        </th>
+                        <th key={`${index}-planned`} className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: '140px' }}>
+                          <div className="text-xs font-medium text-blue-600 dark:text-blue-400">Planned</div>
+                        </th>
+                      </>
+                    ))}
+                    <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-green-50 dark:bg-green-900/20" style={{ width: '150px' }}>
+                      <div className="text-xs font-medium text-green-600 dark:text-green-400">Actual</div>
+                    </th>
+                    <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: '150px' }}>
+                      <div className="text-xs font-medium text-blue-600 dark:text-blue-400">Planned</div>
+                    </th>
+                  </tr>
+                )}
+          </thead>
+              <tbody>
+                {projectsWithWorkInRange.length === 0 ? (
+                  <tr>
+                    <td colSpan={1 + 1 + (hideDivisionsColumn ? 0 : 1) + 1 + (hideTotalContractColumn ? 0 : 1) + 1 + (hideVirtualMaterialColumn ? 0 : 1) + (showOuterRangeColumn && outerRangeStart ? (viewPlannedValue ? 2 : 1) : 0) + (periods.length * (viewPlannedValue ? 2 : 1)) + (viewPlannedValue ? 2 : 1)} className="border border-gray-300 dark:border-gray-600 px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                      <div className="flex flex-col items-center gap-2">
+                        <AlertTriangle className="h-8 w-8 text-gray-400" />
+                        <p>No projects with work in the selected date range</p>
+                        <p className="text-xs">Please select a different date range or check if there are KPIs Actual for this period</p>
+                  </div>
+                </td>
+                  </tr>
+                ) : !isChangingPage && (
+                  paginatedProjects.map((analytics: any) => {
+                    const project = analytics.project
+                    
+                    // Calculate Total Contract Amount (Contract Amount + Variations)
+                    const contractAmt = analytics.totalContractValue || 
+                                      parseFloat(String(project.contract_amount || '0').replace(/,/g, '')) || 0
+                    const variationsAmt = parseFloat(String(
+                      (project as any).raw?.['Variations Amount'] || 
+                      (project as any).raw?.['Variations'] || 
+                      '0'
+                    ).replace(/,/g, '')) || 0
+                    const totalContractAmount = contractAmt + variationsAmt
+                    
+                    // Get Division Contract Amount data (same format as ProjectsTableWithCustomization)
+                    const divisionsData = divisionsDataMap.get(project.id)
+                    const divisionAmounts = divisionsData?.divisionAmounts || {}
+                    const divisionNames = divisionsData?.divisionNames || {}
+                    
+                    // Build divisions list sorted by amount (descending)
+                    let divisionsList = Object.keys(divisionAmounts)
+                      .map(key => ({
+                        key: key.toLowerCase().trim(),
+                        name: divisionNames[key] || key,
+                        amount: divisionAmounts[key] || 0
+                      }))
+                      .sort((a, b) => b.amount - a.amount)
+                    
+                    // âœ… FIX: Filter divisions by selected divisions if filter is applied
+                    if (selectedDivisions.length > 0) {
+                      divisionsList = divisionsList.filter(div => {
+                        const normalizedDivName = div.name.trim().toLowerCase()
+                        return selectedDivisions.some(selectedDiv => 
+                          selectedDiv.trim().toLowerCase() === normalizedDivName
+                        )
+                      })
+                    }
+                    
+                    // Calculate total (only for selected divisions if filter is applied)
+                    const divisionContractAmount = divisionsList.reduce((sum, div) => sum + div.amount, 0)
+                    
+                    // Get Workmanship
+                    const workmanship = project.workmanship_only || 
+                                      (project as any).raw?.['Workmanship only?'] || 
+                                      (project as any).raw?.['Workmanship?'] || 
+                                      'No'
+                    const isWorkmanship = workmanship === 'Yes' || workmanship === 'TRUE' || workmanship === true
+                    
+                    const isExpanded = expandedProjects.has(project.id)
+                    
+                    // Get project activities
+                    const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+                    let projectActivities = activities.filter((activity: BOQActivity) => {
+                      const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+                      return activityFullCode === projectFullCode || activity.project_id === project.id
+                    })
+                    
+                    // âœ… FIX: Filter activities by selected divisions if filter is applied
+                    if (selectedDivisions.length > 0) {
+                      projectActivities = projectActivities.filter((activity: BOQActivity) => {
+                        const rawActivity = (activity as any).raw || {}
+                        const division = activity.activity_division || 
+                                       (activity as any)['Activity Division'] || 
+                                       rawActivity['Activity Division'] || 
+                                       rawActivity['activity_division'] || ''
+                        
+                        if (!division || division.trim() === '') {
+                          return false
+                        }
+                        
+                        // Check if activity division matches any selected division (case-insensitive)
+                        const normalizedDivision = division.trim().toLowerCase()
+                        return selectedDivisions.some(selectedDiv => 
+                          selectedDiv.trim().toLowerCase() === normalizedDivision
+                        )
+                      })
+                    }
+                    
+                    // âœ… FIX: Always calculate values from activities (same logic for expanded and collapsed)
+                    // This ensures consistency between expanded and collapsed states
+                    let periodValues: number[] = []
+                    let periodPlannedValues: number[] = []
+                    let periodVirtualMaterialAmounts: number[] = []
+                    let periodPlannedVirtualMaterialAmounts: number[] = []
+                    
+                    if (projectActivities.length > 0) {
+                      // Initialize arrays with zeros
+                      periodValues = new Array(periods.length).fill(0)
+                      periodPlannedValues = viewPlannedValue ? new Array(periods.length).fill(0) : []
+                      periodVirtualMaterialAmounts = showVirtualMaterialValues ? new Array(periods.length).fill(0) : []
+                      periodPlannedVirtualMaterialAmounts = showVirtualMaterialValues && viewPlannedValue ? new Array(periods.length).fill(0) : []
+                      
+                      // âœ… CRITICAL: Calculate activity values BEFORE rendering project row
+                      // This ensures collapsed and expanded states show the same values
+                      projectActivities.forEach((activity: BOQActivity) => {
+                        const rawActivity = (activity as any).raw || {}
+                        
+                        // Calculate Actual period values for this activity
+                        periods.forEach((period, periodIndex) => {
+                          const periodStart = period.start
+                          const periodEnd = period.end
+                          const effectivePeriodEnd = periodEnd > today ? today : periodEnd
+                          
+                          // âœ… Get Actual KPIs for this activity in this period (using improved matching logic)
+                          const actualKPIs = kpis.filter((kpi: any) => {
+                            const rawKPI = (kpi as any).raw || {}
+                            
+                            // âœ… CRITICAL: First verify KPI belongs to this project (prevent cross-project matching)
+                            const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+                            const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+                            const kpiProjectId = (kpi as any).project_id || ''
+                            
+                            // Must match project first (exact match required)
+                            let projectMatches = false
+                            if (kpiProjectFullCode && projectFullCode && kpiProjectFullCode === projectFullCode) {
+                              projectMatches = true
+                            } else if (project.id && kpiProjectId && project.id === kpiProjectId) {
+                              projectMatches = true
+                            } else if (kpiProjectCode && projectFullCode.includes(kpiProjectCode)) {
+                              // Only match if project code is part of project full code (strict check)
+                              const projectCode = (project.project_code || '').toString().trim().toUpperCase()
+                              if (kpiProjectCode === projectCode) {
+                                projectMatches = true
+                              }
+                            }
+                            
+                            if (!projectMatches) return false
+                            
+                            // 1. Match input type (Actual only)
+                            const inputType = String(kpi.input_type || rawKPI['Input Type'] || '').trim().toLowerCase()
+                            if (inputType !== 'actual') return false
+                            
+                            // 2. Match activity and zone using helper function
+                            if (!kpiMatchesActivity(kpi, activity)) {
+                              return false
+                            }
+                            
+                            // 3. Match date (must be within period)
+                            const rawKPIDate = (kpi as any).raw || {}
+                            const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
+                            const actualDateValue = (kpi as any).actual_date || rawKPIDate['Actual Date'] || ''
+                            const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
+                            
+                            let kpiDateStr = ''
+                            if (kpi.input_type === 'Actual' && actualDateValue) {
+                              kpiDateStr = actualDateValue
+                            } else if (dayValue) {
+                              kpiDateStr = activityDateValue || dayValue
+                            } else {
+                              kpiDateStr = activityDateValue || actualDateValue
+                            }
+                            
+                            if (!kpiDateStr) return false
+                            
+                            try {
+                              const kpiDate = new Date(kpiDateStr)
+                              if (isNaN(kpiDate.getTime())) return false
+                              kpiDate.setHours(0, 0, 0, 0)
+                              const normalizedPeriodStart = new Date(periodStart)
+                              normalizedPeriodStart.setHours(0, 0, 0, 0)
+                              const normalizedPeriodEnd = new Date(effectivePeriodEnd)
+                              normalizedPeriodEnd.setHours(23, 59, 59, 999)
+                              return kpiDate >= normalizedPeriodStart && kpiDate <= normalizedPeriodEnd
+                            } catch {
+                              return false
+                            }
+                          })
+                          
+                          // Calculate earned value for this period
+                          const periodValue = actualKPIs.reduce((sum: number, kpi: any) => {
+                            try {
+                              const rawKpi = (kpi as any).raw || {}
+                              const quantityValue = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
+                              
+                              let financialValue = 0
+                              const totalValueFromActivity = activity.total_value || parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 0
+                              const totalUnits = activity.total_units || activity.planned_units || parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 0
+                              let rate = 0
+                              if (totalUnits > 0 && totalValueFromActivity > 0) {
+                                rate = totalValueFromActivity / totalUnits
+                              } else {
+                                rate = activity.rate || parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
+                              }
+                              
+                              if (rate > 0 && quantityValue > 0) {
+                                financialValue = quantityValue * rate
+                                if (financialValue > 0) return sum + financialValue
+                              }
+                              
+                              let kpiValue = 0
+                              if (rawKpi['Value'] !== undefined && rawKpi['Value'] !== null) {
+                                const val = rawKpi['Value']
+                                kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+                              }
+                              if (kpiValue === 0 && rawKpi.value !== undefined && rawKpi.value !== null) {
+                                const val = rawKpi.value
+                                kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+                              }
+                              if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
+                                const val = kpi.value
+                                kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
+                              }
+                              if (kpiValue > 0) return sum + kpiValue
+                              
+                              const actualValue = kpi.actual_value || parseFloat(String(rawKpi['Actual Value'] || '0').replace(/,/g, '')) || 0
+                              if (actualValue > 0) return sum + actualValue
+                              
+                              return sum
+                            } catch {
+                              return sum
+                            }
+                          }, 0)
+                          
+                          periodValues[periodIndex] += periodValue
+                          
+                          // âœ… Calculate Planned values (if viewPlannedValue is enabled)
+                          if (viewPlannedValue) {
+                            const plannedKPIs = kpis.filter((kpi: any) => {
+                              const rawKPI = (kpi as any).raw || {}
+                              
+                              // âœ… CRITICAL: First verify KPI belongs to this project (prevent cross-project matching)
+                              const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+                              const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+                              const kpiProjectId = (kpi as any).project_id || ''
+                              
+                              // Must match project first (exact match required)
+                              let projectMatches = false
+                              if (kpiProjectFullCode && projectFullCode && kpiProjectFullCode === projectFullCode) {
+                                projectMatches = true
+                              } else if (project.id && kpiProjectId && project.id === kpiProjectId) {
+                                projectMatches = true
+                              } else if (kpiProjectCode && projectFullCode.includes(kpiProjectCode)) {
+                                // Only match if project code is part of project full code (strict check)
+                                const projectCode = (project.project_code || '').toString().trim().toUpperCase()
+                                if (kpiProjectCode === projectCode) {
+                                  projectMatches = true
+                                }
+                              }
+                              
+                              if (!projectMatches) return false
+                              
+                              // 1. Match input type (Planned only)
+                              const inputType = String(kpi.input_type || rawKPI['Input Type'] || '').trim().toLowerCase()
+                              if (inputType !== 'planned') return false
+                              
+                              // 2. Match activity and zone using helper function
+                              if (!kpiMatchesActivity(kpi, activity)) {
+                                return false
+                              }
+                              
+                              // 3. Match date (must be within period)
+                              const kpiDate = kpi.target_date || rawKPI['Target Date'] || ''
+                              if (!kpiDate) return false
+                              
+                              try {
+                                const date = new Date(kpiDate)
+                                if (isNaN(date.getTime())) return false
+                                date.setHours(0, 0, 0, 0)
+                                const normalizedPeriodStart = new Date(periodStart)
+                                normalizedPeriodStart.setHours(0, 0, 0, 0)
+                                const normalizedPeriodEnd = new Date(effectivePeriodEnd)
+                                normalizedPeriodEnd.setHours(23, 59, 59, 999)
+                                return date >= normalizedPeriodStart && date <= normalizedPeriodEnd
+                              } catch {
+                                return false
+                              }
+                            })
+                            
+                            // Calculate planned value for this period
+                            let plannedValue = 0
+                            plannedKPIs.forEach((kpi: any) => {
+                              const rawKpi = (kpi as any).raw || {}
+                              const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
+                              
+                              const totalValue = activity.total_value || parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 0
+                              const totalUnits = activity.total_units || activity.planned_units || parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 0
+                              
+                              let rate = 0
+                              if (totalUnits > 0 && totalValue > 0) {
+                                rate = totalValue / totalUnits
+                              } else {
+                                rate = activity.rate || parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
+                              }
+                              
+                              if (rate > 0 && quantity > 0) {
+                                plannedValue += rate * quantity
+                              } else {
+                                const kpiValue = parseFloat(String(kpi.value || rawKpi['Value'] || '0').replace(/,/g, '')) || 0
+                                if (kpiValue > 0) {
+                                  plannedValue += kpiValue
+                                }
+                              }
+                            })
+                            
+                            periodPlannedValues[periodIndex] += plannedValue
+                            
+                            // Calculate Planned Virtual Material (if enabled)
+                            // âœ… CRITICAL: Calculate VM ONLY for activities with use_virtual_material === true
+                            if (showVirtualMaterialValues) {
+                              // âœ… CRITICAL: Only calculate VM if activity has use_virtual_material === true
+                              if (!activity.use_virtual_material) {
+                                // Skip this activity - no VM calculation
+                              } else {
+                                let virtualMaterialPercentage = 0
+                                const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
+                                
+                                if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
+                                  let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
+                                  const parsedValue = parseFloat(cleanedValue)
+                                  if (!isNaN(parsedValue)) {
+                                    if (parsedValue > 0 && parsedValue <= 1) {
+                                      virtualMaterialPercentage = parsedValue * 100
+                                    } else {
+                                      virtualMaterialPercentage = parsedValue
+                                    }
+                                  }
+                                }
+                                
+                                // Calculate VM only if activity uses VM
+                                if (virtualMaterialPercentage > 0 && plannedValue > 0) {
+                                  periodPlannedVirtualMaterialAmounts[periodIndex] += plannedValue * (virtualMaterialPercentage / 100)
+                                }
+                              }
+                            }
+                          }
+                          
+                          // Calculate Actual Virtual Material (if enabled)
+                          // âœ… CRITICAL: Calculate VM ONLY for activities with use_virtual_material === true
+                          if (showVirtualMaterialValues) {
+                            // âœ… CRITICAL: Only calculate VM if activity has use_virtual_material === true
+                            if (!activity.use_virtual_material) {
+                              // Skip this activity - no VM calculation
+                            } else {
+                              let virtualMaterialPercentage = 0
+                              const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
+                              
+                              if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
+                                let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
+                                const parsedValue = parseFloat(cleanedValue)
+                                if (!isNaN(parsedValue)) {
+                                  if (parsedValue > 0 && parsedValue <= 1) {
+                                    virtualMaterialPercentage = parsedValue * 100
+                                  } else {
+                                    virtualMaterialPercentage = parsedValue
+                                  }
+                                }
+                              }
+                              
+                              // Calculate VM only if activity uses VM
+                              if (virtualMaterialPercentage > 0 && periodValue > 0) {
+                                periodVirtualMaterialAmounts[periodIndex] += periodValue * (virtualMaterialPercentage / 100)
+                              }
+                            }
+                          }
+                        })
+                      })
+                    } else {
+                      // âœ… FIX: If no activities, use cache values as fallback
+                      // This should rarely happen if filtering is correct
+                      const cachedValues = getCachedPeriodValues(project.id, analytics)
+                      periodValues = cachedValues?.earned || []
+                      periodPlannedValues = viewPlannedValue ? (cachedValues?.planned || []) : []
+                      periodVirtualMaterialAmounts = showVirtualMaterialValues ? (cachedValues?.virtualMaterialAmount || []) : []
+                      periodPlannedVirtualMaterialAmounts = showVirtualMaterialValues && viewPlannedValue ? (cachedValues?.plannedVirtualMaterialAmount || []) : []
+                    }
+                    
+                    // Calculate grand totals
+                    // âœ… FIX: Include outerRangeValue in grandTotal (same as Monthly Work Revenue)
+                    const cachedValues = getCachedPeriodValues(project.id, analytics)
+                    const outerRangeValue = cachedValues?.outerRangeValue || 0
+                    const outerRangePlannedValue = viewPlannedValue ? (cachedValues?.outerRangePlannedValue || 0) : 0
+                    
+                    let grandTotal = periodValues.reduce((sum: number, val: number) => sum + val, 0) + outerRangeValue
+                    let grandTotalPlanned = viewPlannedValue ? (periodPlannedValues.reduce((sum: number, val: number) => sum + val, 0) + outerRangePlannedValue) : 0
+                    
+                    return (
+                      <>
+                      <tr key={project.id} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                          <td className="border border-gray-300 dark:border-gray-600 px-2 py-3 text-center" style={{ width: '50px' }}>
+                            {projectActivities.length > 0 && (
+                              <button
+                                onClick={() => {
+                                  const newExpanded = new Set(expandedProjects)
+                                  if (isExpanded) {
+                                    newExpanded.delete(project.id)
+                                  } else {
+                                    newExpanded.add(project.id)
+                                  }
+                                  setExpandedProjects(newExpanded)
+                                }}
+                                className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                                title={isExpanded ? 'Hide activities' : 'Show activities'}
+                              >
+                                {isExpanded ? (
+                                  <Minus className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+                                ) : (
+                                  <Plus className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+                                )}
+                              </button>
+                            )}
+                          </td>
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 sticky left-0 z-10 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800" style={{ width: '200px', overflow: 'hidden' }}>
+                          <div className="min-w-0">
+                            <p className="font-semibold text-gray-900 dark:text-white truncate">
+                              {project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">{project.project_name}</p>
+                  </div>
+                </td>
+                        {!hideDivisionsColumn && (
+                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-3" style={{ width: '180px', overflow: 'hidden' }}>
+                            {divisionsList.length === 0 ? (
+                              <span className="text-sm text-gray-400 dark:text-gray-500 truncate block">{project.responsible_division || 'N/A'}</span>
+                            ) : (
+                              <div className="space-y-1 min-w-0">
+                                {divisionsList.map((division, index) => (
+                                  <div 
+                                    key={`${project.id}-div-${division.key}-${index}`} 
+                                    className="text-xs text-gray-700 dark:text-gray-300 truncate"
+                                  >
+                                    {division.name}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                        )}
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center" style={{ width: '120px' }}>
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${
+                            isWorkmanship 
+                              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' 
+                              : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                          }`}>
+                            {isWorkmanship ? 'Yes' : 'No'}
+                          </span>
+                        </td>
+                        {!hideTotalContractColumn && (
+                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '180px' }}>
+                            <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(totalContractAmount, project.currency)}</span>
+                          </td>
+                        )}
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3" style={{ width: '220px', overflow: 'hidden' }}>
+                          {divisionsList.length === 0 ? (
+                            <span className="text-xs text-gray-400 dark:text-gray-500 italic">No data available</span>
+                          ) : (
+                            <div className="space-y-1.5">
+                              {/* Show all divisions with their amounts */}
+                              {divisionsList.map((division, index) => (
+                                <div 
+                                  key={`${project.id}-${division.key}-${index}`} 
+                                  className="flex items-center justify-between text-xs py-0.5"
+                                >
+                                  <span className="text-gray-600 dark:text-gray-400 truncate flex-1 min-w-0 mr-2">
+                                    {division.name}:
+                                  </span>
+                                  <span className="font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                                    {formatCurrency(division.amount, project.currency)}
+                                  </span>
+                                </div>
+                              ))}
+                              {/* Show total */}
+                              {divisionsList.length > 1 && (
+                                <div className="flex items-center justify-between text-xs font-semibold pt-1 border-t border-gray-200 dark:border-gray-700 mt-1">
+                                  <span className="text-gray-900 dark:text-white">Total:</span>
+                                  <span className="text-gray-900 dark:text-white">
+                                    {formatCurrency(divisionContractAmount, project.currency)}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                </td>
+                        {!hideVirtualMaterialColumn && (
+                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '180px' }}>
+                            {(() => {
+                              // Get Virtual Material Value from project (as PERCENTAGE)
+                              let virtualMaterialPercentage = 0
+                              const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
+                              
+                              if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
+                                // Clean the value (remove %, commas, spaces)
+                                let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
+                                
+                                // Parse as number
+                                const parsedValue = parseFloat(cleanedValue)
+                                if (!isNaN(parsedValue)) {
+                                  // If value is between 0 and 1, treat as decimal (0.15 = 15%)
+                                  // Otherwise, treat as percentage (15 = 15%)
+                                  if (parsedValue > 0 && parsedValue <= 1) {
+                                    virtualMaterialPercentage = parsedValue * 100
+                                  } else {
+                                    virtualMaterialPercentage = parsedValue
+                                  }
+                                }
+                              }
+                              
+                              // âœ… CRITICAL FIX: Calculate Virtual Material Amount from periodVirtualMaterialAmounts
+                              // When expanded, periodVirtualMaterialAmounts is calculated from ALL activities (not just use_virtual_material)
+                              // This ensures project row VM = sum of all activity row VMs
+                              const virtualMaterialAmount = showVirtualMaterialValues 
+                                ? periodVirtualMaterialAmounts.reduce((sum: number, val: number) => sum + val, 0)
+                                : (grandTotal > 0 && virtualMaterialPercentage > 0
+                                ? grandTotal * (virtualMaterialPercentage / 100)
+                                  : 0)
+                              
+                              return (
+                                <div className="space-y-1">
+                                  {virtualMaterialPercentage > 0 ? (
+                                    <>
+                                      <div className="text-xs text-gray-600 dark:text-gray-400">
+                                        {virtualMaterialPercentage.toFixed(1)}%
+                                      </div>
+                                      <div className="font-medium text-purple-600 dark:text-purple-400">
+                                        {formatCurrency(virtualMaterialAmount, project.currency)}
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <span className="text-sm text-gray-400 dark:text-gray-500">N/A</span>
+                                  )}
+                                </div>
+                              )
+                            })()}
+                          </td>
+                        )}
+                        {showOuterRangeColumn && outerRangeStart && (
+                          <>
+                            {viewPlannedValue ? (
+                              <>
+                                {/* Actual Column */}
+                                <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-green-50/30 dark:bg-green-900/10" style={{ width: '160px' }}>
+                                  {(() => {
+                                    const cachedValues = getCachedPeriodValues(project.id, analytics)
+                                    const outerRangeValue = cachedValues?.outerRangeValue || 0
+                                    const outerRangeVirtualMaterial = cachedValues?.outerRangeVirtualMaterialAmount || 0
+                                    const totalOuterRange = outerRangeValue + outerRangeVirtualMaterial
+                                    
+                                    return (
+                                      <div className="space-y-1">
+                                        {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
+                                          <>
+                                            {outerRangeValue > 0 ? (
+                                              <div className="text-sm text-green-600 dark:text-green-400">{formatCurrency(outerRangeValue, project.currency)}</div>
+                                            ) : (
+                                              <div className="text-gray-400">-</div>
+                                            )}
+                                            {outerRangeVirtualMaterial > 0 && (
+                                              <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                                {formatCurrency(outerRangeVirtualMaterial, project.currency)}
+                                              </div>
+                                            )}
+                                            {outerRangeVirtualMaterial > 0 && totalOuterRange > 0 && (
+                                              <div className="text-xs font-bold text-gray-900 dark:text-white">
+                                                {formatCurrency(totalOuterRange, project.currency)}
+                                              </div>
+                                            )}
+                                          </>
+                                        ) : (
+                                          outerRangeValue > 0 ? (
+                                            <div className="text-sm text-green-600 dark:text-green-400">{formatCurrency(outerRangeValue, project.currency)}</div>
+                                          ) : (
+                                            <div className="text-gray-400">-</div>
+                                          )
+                                        )}
+                                      </div>
+                                    )
+                                  })()}
+                                </td>
+                                {/* Planned Column */}
+                                <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50/30 dark:bg-blue-900/10" style={{ width: '160px' }}>
+                                  {(() => {
+                                    const cachedValues = getCachedPeriodValues(project.id, analytics)
+                                    const outerRangePlannedValue = cachedValues?.outerRangePlannedValue || 0
+                                    const outerRangePlannedVirtualMaterial = cachedValues?.outerRangePlannedVirtualMaterialAmount || 0
+                                    const totalOuterRangePlanned = outerRangePlannedValue + outerRangePlannedVirtualMaterial
+                                    
+                                    return (
+                                      <div className="space-y-1">
+                                        {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
+                                          <>
+                                            {outerRangePlannedValue > 0 ? (
+                                              <div className="text-sm text-blue-600 dark:text-blue-400">{formatCurrency(outerRangePlannedValue, project.currency)}</div>
+                                            ) : (
+                                              <div className="text-gray-400">-</div>
+                                            )}
+                                            {outerRangePlannedVirtualMaterial > 0 && (
+                                              <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                                {formatCurrency(outerRangePlannedVirtualMaterial, project.currency)}
+                                              </div>
+                                            )}
+                                            {outerRangePlannedVirtualMaterial > 0 && totalOuterRangePlanned > 0 && (
+                                              <div className="text-xs font-bold text-gray-900 dark:text-white">
+                                                {formatCurrency(totalOuterRangePlanned, project.currency)}
+                                              </div>
+                                            )}
+                                          </>
+                                        ) : (
+                                          outerRangePlannedValue > 0 ? (
+                                            <div className="text-sm text-blue-600 dark:text-blue-400">{formatCurrency(outerRangePlannedValue, project.currency)}</div>
+                                          ) : (
+                                            <div className="text-gray-400">-</div>
+                                          )
+                                        )}
+                                      </div>
+                                    )
+                                  })()}
+                                </td>
+                              </>
+                            ) : (
+                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}>
+                            {(() => {
+                              const cachedValues = getCachedPeriodValues(project.id, analytics)
+                              const outerRangeValue = cachedValues?.outerRangeValue || 0
+                                  const outerRangeVirtualMaterial = cachedValues?.outerRangeVirtualMaterialAmount || 0
+                                  const totalOuterRange = outerRangeValue + outerRangeVirtualMaterial
+                                  
+                                  return (
+                                    <div className="space-y-1">
+                                      {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
+                                        <>
+                                          {outerRangeValue > 0 ? (
+                                            <div className="text-sm text-green-600 dark:text-green-400">{formatCurrency(outerRangeValue, project.currency)}</div>
+                                          ) : (
+                                            <div className="text-gray-400">-</div>
+                                          )}
+                                          {outerRangeVirtualMaterial > 0 && (
+                                            <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                              {formatCurrency(outerRangeVirtualMaterial, project.currency)}
+                                            </div>
+                                          )}
+                                          {outerRangeVirtualMaterial > 0 && totalOuterRange > 0 && (
+                                            <div className="text-xs font-bold text-gray-900 dark:text-white">
+                                              {formatCurrency(totalOuterRange, project.currency)}
+                                            </div>
+                                          )}
+                                        </>
+                                      ) : (
+                                        outerRangeValue > 0 ? (
+                                          <div className="text-sm text-green-600 dark:text-green-400">{formatCurrency(outerRangeValue, project.currency)}</div>
+                                        ) : (
+                                          <div className="text-gray-400">-</div>
+                                        )
+                                      )}
+                                    </div>
+                              )
+                            })()}
+                          </td>
+                            )}
+                          </>
+                        )}
+                        {periodValues.map((value: number, index: number) => {
+                          const plannedValue = viewPlannedValue ? (periodPlannedValues[index] || 0) : 0
+                          const periodVirtualMaterial = showVirtualMaterialValues ? (periodVirtualMaterialAmounts[index] || 0) : 0
+                          const periodPlannedVirtualMaterial = showVirtualMaterialValues && viewPlannedValue ? (periodPlannedVirtualMaterialAmounts[index] || 0) : 0
+                          
+                          if (viewPlannedValue) {
+                            // When viewPlannedValue is enabled, show two separate cells: Actual and Planned
+                          return (
+                              <>
+                                {/* Actual Column */}
+                                <td key={`${index}-actual`} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-green-50/30 dark:bg-green-900/10" style={{ width: '140px' }}>
+                                <div className="space-y-1">
+                                    {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
+                                      <>
+                                        {(() => {
+                                          const totalValue = value + periodVirtualMaterial
+                                          return (
+                                            <>
+                                              {/* 1. Ø§Ù„Ù‚ÙŠÙ…Ø© Ø§Ù„Ø£Ø³Ø§Ø³ÙŠØ© (Actual) */}
+                                  {value > 0 ? (
+                                                <div className="font-medium text-green-600 dark:text-green-400">
+                                                  {formatCurrency(value, project.currency)}
+                                                </div>
+                                              ) : (
+                                                <div className="text-gray-400">-</div>
+                                              )}
+                                              {/* 2. Virtual Material ÙÙ‚Ø· */}
+                                              {periodVirtualMaterial > 0 && (
+                                                <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                                  {formatCurrency(periodVirtualMaterial, project.currency)}
+                                                </div>
+                                              )}
+                                              {/* 3. Total (Base + VM) - ÙÙ‚Ø· Ø¥Ø°Ø§ ÙƒØ§Ù† Ù‡Ù†Ø§Ùƒ VM */}
+                                              {periodVirtualMaterial > 0 && totalValue > 0 && (
+                                                <div className="text-xs font-bold text-gray-900 dark:text-white">
+                                                  {formatCurrency(totalValue, project.currency)}
+                                                </div>
+                                              )}
+                                            </>
+                                          )
+                                        })()}
+                                      </>
+                                    ) : (
+                                      value > 0 ? (
+                                    <div className="font-medium text-green-600 dark:text-green-400">{formatCurrency(value, project.currency)}</div>
+                                  ) : (
+                                    <div className="text-gray-400">-</div>
+                                      )
+                                    )}
+                                  </div>
+                                </td>
+                                {/* Planned Column */}
+                                <td key={`${index}-planned`} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50/30 dark:bg-blue-900/10" style={{ width: '140px' }}>
+                                  <div className="space-y-1">
+                                    {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
+                                      <>
+                                        {(() => {
+                                          const totalPlannedValue = plannedValue + periodPlannedVirtualMaterial
+                                          return (
+                                            <>
+                                              {/* 1. Ø§Ù„Ù‚ÙŠÙ…Ø© Ø§Ù„Ø£Ø³Ø§Ø³ÙŠØ© (Planned) */}
+                                  {plannedValue > 0 ? (
+                                                <div className="font-medium text-blue-600 dark:text-blue-400">
+                                                  {formatCurrency(plannedValue, project.currency)}
+                                                </div>
+                                  ) : (
+                                                <div className="text-gray-400">-</div>
+                                  )}
+                                              {/* 2. Virtual Material ÙÙ‚Ø· */}
+                                              {periodPlannedVirtualMaterial > 0 && (
+                                    <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                                  {formatCurrency(periodPlannedVirtualMaterial, project.currency)}
+                                    </div>
+                                  )}
+                                              {/* 3. Total (Base + VM) - ÙÙ‚Ø· Ø¥Ø°Ø§ ÙƒØ§Ù† Ù‡Ù†Ø§Ùƒ VM */}
+                                              {periodPlannedVirtualMaterial > 0 && totalPlannedValue > 0 && (
+                                                <div className="text-xs font-bold text-gray-900 dark:text-white">
+                                                  {formatCurrency(totalPlannedValue, project.currency)}
+                                </div>
+                                              )}
+                                            </>
+                                          )
+                                        })()}
+                                      </>
+                                    ) : (
+                                      plannedValue > 0 ? (
+                                        <div className="font-medium text-blue-600 dark:text-blue-400">{formatCurrency(plannedValue, project.currency)}</div>
+                                      ) : (
+                                        <div className="text-gray-400">-</div>
+                                      )
+                                    )}
+                                  </div>
+                                </td>
+                              </>
+                            )
+                          } else {
+                            // When viewPlannedValue is disabled, show single cell
+                            return (
+                              <td key={index} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '140px' }}>
+                                <div className="space-y-1">
+                                  {value > 0 ? (
+                                    <div className="font-medium text-green-600 dark:text-green-400">{formatCurrency(value, project.currency)}</div>
+                                  ) : (
+                                    <div className="text-gray-400">-</div>
+                                  )}
+                                  {!hideVirtualMaterialColumn && showVirtualMaterialValues && periodVirtualMaterial > 0 && (
+                                    <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                      {formatCurrency(periodVirtualMaterial, project.currency)}
+                                    </div>
+                                  )}
+                                </div>
+                            </td>
+                          )
+                          }
+                        })}
+                        {viewPlannedValue ? (
+                          <>
+                            {/* Actual Grand Total Column */}
+                            <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-green-50/30 dark:bg-green-900/10" style={{ width: '150px' }}>
+                              {(() => {
+                                // Calculate Virtual Material Total from periodVirtualMaterialAmounts
+                                const grandTotalVirtualMaterial = showVirtualMaterialValues 
+                                  ? periodVirtualMaterialAmounts.reduce((sum: number, val: number) => sum + val, 0)
+                                  : 0
+                                
+                                return (
+                                  <div className="space-y-1">
+                                    {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
+                                      <>
+                                        {(() => {
+                                          const totalGrandTotal = grandTotal + grandTotalVirtualMaterial
+                                          return (
+                                            <>
+                                              {/* 1. Ø§Ù„Ù‚ÙŠÙ…Ø© Ø§Ù„Ø£Ø³Ø§Ø³ÙŠØ© (Actual) */}
+                                              {grandTotal > 0 ? (
+                                                <div className="font-bold text-green-600 dark:text-green-400">
+                                                  {formatCurrency(grandTotal, project.currency)}
+                                                </div>
+                                              ) : (
+                                                <div className="text-gray-400">-</div>
+                                              )}
+                                              {/* 2. Virtual Material ÙÙ‚Ø· */}
+                                              {grandTotalVirtualMaterial > 0 && (
+                                                <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                                  {formatCurrency(grandTotalVirtualMaterial, project.currency)}
+                                                </div>
+                                              )}
+                                              {/* 3. Total (Base + VM) - ÙÙ‚Ø· Ø¥Ø°Ø§ ÙƒØ§Ù† Ù‡Ù†Ø§Ùƒ VM */}
+                                              {grandTotalVirtualMaterial > 0 && totalGrandTotal > 0 && (
+                                                <div className="text-xs font-bold text-gray-900 dark:text-white">
+                                                  {formatCurrency(totalGrandTotal, project.currency)}
+                                                </div>
+                                              )}
+                                            </>
+                                          )
+                                        })()}
+                                      </>
+                                    ) : (
+                                      <div className="font-bold text-gray-900 dark:text-white">{formatCurrency(grandTotal, project.currency)}</div>
+                                    )}
+                                  </div>
+                                )
+                              })()}
+                            </td>
+                            {/* Planned Grand Total Column */}
+                            <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50/30 dark:bg-blue-900/10" style={{ width: '150px' }}>
+                              {(() => {
+                                // Calculate Virtual Material Total from periodPlannedVirtualMaterialAmounts
+                                const grandTotalPlannedVirtualMaterial = showVirtualMaterialValues 
+                                  ? periodPlannedVirtualMaterialAmounts.reduce((sum: number, val: number) => sum + val, 0)
+                                  : 0
+                                
+                                return (
+                                  <div className="space-y-1">
+                                    {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
+                                      <>
+                                        {(() => {
+                                          const totalPlannedGrandTotal = grandTotalPlanned + grandTotalPlannedVirtualMaterial
+                                          return (
+                                            <>
+                                              {/* 1. Ø§Ù„Ù‚ÙŠÙ…Ø© Ø§Ù„Ø£Ø³Ø§Ø³ÙŠØ© (Planned) */}
+                                              {grandTotalPlanned > 0 ? (
+                                                <div className="font-bold text-blue-600 dark:text-blue-400">
+                                                  {formatCurrency(grandTotalPlanned, project.currency)}
+                                                </div>
+                                              ) : (
+                                                <div className="text-gray-400">-</div>
+                                              )}
+                                              {/* 2. Virtual Material ÙÙ‚Ø· */}
+                                              {grandTotalPlannedVirtualMaterial > 0 && (
+                                                <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                                  {formatCurrency(grandTotalPlannedVirtualMaterial, project.currency)}
+                                                </div>
+                                              )}
+                                              {/* 3. Total (Base + VM) - ÙÙ‚Ø· Ø¥Ø°Ø§ ÙƒØ§Ù† Ù‡Ù†Ø§Ùƒ VM */}
+                                              {grandTotalPlannedVirtualMaterial > 0 && totalPlannedGrandTotal > 0 && (
+                                                <div className="text-xs font-bold text-gray-900 dark:text-white">
+                                                  {formatCurrency(totalPlannedGrandTotal, project.currency)}
+                                                </div>
+                                              )}
+                                            </>
+                                          )
+                                        })()}
+                                      </>
+                                    ) : (
+                                      grandTotalPlanned > 0 ? (
+                                        <div className="font-bold text-blue-600 dark:text-blue-400">{formatCurrency(grandTotalPlanned, project.currency)}</div>
+                                      ) : (
+                                        <div className="text-gray-400">-</div>
+                                      )
+                                    )}
+                                  </div>
+                                )
+                              })()}
+                            </td>
+                          </>
+                        ) : (
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '150px' }}>
+                          {(() => {
+                              // Calculate Virtual Material Total from periodVirtualMaterialAmounts
+                              const grandTotalVirtualMaterial = showVirtualMaterialValues 
+                                ? periodVirtualMaterialAmounts.reduce((sum: number, val: number) => sum + val, 0)
+                                : 0
+                              
+                              return (
+                                <div className="space-y-1">
+                                  <div className="font-bold text-gray-900 dark:text-white">{formatCurrency(grandTotal, project.currency)}</div>
+                                  {!hideVirtualMaterialColumn && showVirtualMaterialValues && grandTotalVirtualMaterial > 0 && (
+                                    <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                      {formatCurrency(grandTotalVirtualMaterial, project.currency)}
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })()}
+                          </td>
+                        )}
+                        </tr>
+                        {/* Activity Details Rows */}
+                        {isExpanded && (() => {
+                          // âœ… CRITICAL: Calculate Virtual Material totals from all activities for project row
+                          // This ensures project row VM = sum of all activity row VMs
+                          const allActivityVirtualMaterialTotals = new Array(periods.length).fill(0)
+                          const allActivityPlannedVirtualMaterialTotals = viewPlannedValue ? new Array(periods.length).fill(0) : []
+                          
+                          // âœ… Group activities by zone first (show ALL activities, even without KPIs)
+                          const activitiesByZone = new Map<string, BOQActivity[]>()
+                          projectActivities.forEach((activity: BOQActivity) => {
+                            const rawActivity = (activity as any).raw || {}
+                            // Use helper function to get normalized zone
+                            const activityZone = getActivityZone(activity, projectFullCode)
+                            const zoneKey = activityZone || '0' // Default to '0' if no zone
+                            if (!activitiesByZone.has(zoneKey)) {
+                              activitiesByZone.set(zoneKey, [])
+                            }
+                            activitiesByZone.get(zoneKey)!.push(activity)
+                          })
+                          
+                          // Sort zones for consistent display
+                          const sortedZones = Array.from(activitiesByZone.entries()).sort(([zoneA], [zoneB]) => {
+                            // Extract numeric part for sorting
+                            const numA = parseInt(zoneA.replace(/\D/g, '')) || 0
+                            const numB = parseInt(zoneB.replace(/\D/g, '')) || 0
+                            return numA - numB
+                          })
+                          
+                          // Render activities grouped by zone
+                          return sortedZones.flatMap(([zoneKey, zoneActivities]) => {
+                            // Sort activities within zone by name
+                            const sortedActivities = zoneActivities.sort((a, b) => {
+                              const nameA = (a.activity_name || a.activity || '').toLowerCase().trim()
+                              const nameB = (b.activity_name || b.activity || '').toLowerCase().trim()
+                              return nameA.localeCompare(nameB)
+                            })
+                            
+                            // Return all activities for this zone
+                            return sortedActivities.map((activity: BOQActivity) => {
+                              const rawActivity = (activity as any).raw || {}
+                              
+                              // âœ… PERFORMANCE: Use cached activity period values instead of recalculating
+                              const activityId = activity.id || `${project.id}-${activity.activity_name}-${activity.zone_ref || '0'}`
+                              const cachedActivityValues = getCachedActivityPeriodValues(activityId, activity, project, projectFullCode)
+                              
+                              const activityPeriodValues = cachedActivityValues.earned
+                              const activityPlannedValues = cachedActivityValues.planned
+                              const activityVirtualMaterialValues = cachedActivityValues.virtualMaterial
+                              const activityPlannedVirtualMaterialValues = cachedActivityValues.plannedVirtualMaterial
+                          
+                          const activityGrandTotal = activityPeriodValues.reduce((sum, val) => sum + val, 0)
+                          const activityPlannedGrandTotal = viewPlannedValue ? activityPlannedValues.reduce((sum, val) => sum + val, 0) : 0
+                          const activityVirtualMaterialTotal = showVirtualMaterialValues ? activityVirtualMaterialValues.reduce((sum, val) => sum + val, 0) : 0
+                          const activityPlannedVirtualMaterialTotal = showVirtualMaterialValues && viewPlannedValue ? activityPlannedVirtualMaterialValues.reduce((sum, val) => sum + val, 0) : 0
+                          
+                          // âœ… CRITICAL: Add this activity's Virtual Material to project totals
+                          // This ensures project row VM = sum of all activity row VMs
+                          if (showVirtualMaterialValues) {
+                            activityVirtualMaterialValues.forEach((vmValue: number, periodIndex: number) => {
+                              allActivityVirtualMaterialTotals[periodIndex] += vmValue
+                            })
+                            if (viewPlannedValue) {
+                              activityPlannedVirtualMaterialValues.forEach((vmValue: number, periodIndex: number) => {
+                                allActivityPlannedVirtualMaterialTotals[periodIndex] += vmValue
+                              })
+                            }
+                          }
+                          
+                          // Note: Activity values are already calculated and added to periodValues, periodPlannedValues, etc.
+                          // before the project row is rendered (see calculation above)
+                          
+                          // Get activity division contract amount (same as project logic)
+                          const activityDivision = activity.activity_division || rawActivity['Activity Division'] || ''
+                          const activityTotalValue = activity.total_value || parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 0
+                          
+                          // âœ… Check if activity has actual value > 0 to show Scope instead of Divisions
+                          const hasActualValue = activityGrandTotal > 0
+                          const activityScopeStr = hasActualValue ? getActivityScope(activity) : ''
+                          const activityScope = activityScopeStr ? (Array.isArray(activityScopeStr) ? activityScopeStr : activityScopeStr.split(',').map(s => s.trim()).filter(s => s)) : []
+                          
+                          // Activities inherit workmanship from project
+                          // isWorkmanship is already defined in the parent scope
+                          
+                          return (
+                            <tr key={`${project.id}-activity-${activity.id}`} className="bg-gray-50 dark:bg-gray-900/50">
+                              <td className="border border-gray-300 dark:border-gray-600 px-2 py-2"></td>
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 sticky left-0 z-10 bg-gray-50 dark:bg-gray-900/50" style={{ width: '200px', overflow: 'hidden' }}>
+                                <div className="pl-4 min-w-0">
+                                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">
+                                    {activity.activity_name || activity.activity || 'Unknown Activity'}
+                                  </p>
+                                  {activity.zone_ref || activity.zone_number ? (
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                      Zone: {activity.zone_ref || activity.zone_number}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              </td>
+                              {!hideDivisionsColumn && (
+                                <td className="border border-gray-300 dark:border-gray-600 px-4 py-2" style={{ width: '180px' }}>
+                                  {hasActualValue ? (
+                                    activityScope.length > 0 && activityScope[0] !== 'N/A' ? (
+                                      <div className="flex flex-wrap gap-1 items-center">
+                                        {activityScope.map((scope, index) => {
+                                          const scopeLower = scope.toLowerCase()
+                                          let scopeColor = 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300'
+                                          
+                                          if (scopeLower.includes('infrastructure') || scopeLower.includes('enabling')) {
+                                            scopeColor = 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
+                                          } else if (scopeLower.includes('construction') || scopeLower.includes('excavation')) {
+                                            scopeColor = 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300'
+                                          }
+                                          
+                                          return (
+                                            <span key={index} className={`px-2 py-0.5 text-xs font-medium rounded-full ${scopeColor}`}>
+                                              {scope}
+                                            </span>
+                                          )
+                                        })}
+                                      </div>
+                                    ) : (
+                                      // âœ… If actual value > 0 but no scope found, show nothing (empty)
+                                      <span className="text-xs text-gray-400 dark:text-gray-500"></span>
+                                    )
+                                  ) : (
+                                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                                      {activity.activity_division || 'N/A'}
+                                    </span>
+                                  )}
+                                </td>
+                              )}
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center" style={{ width: '120px' }}>
+                                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                  isWorkmanship 
+                                    ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' 
+                                    : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                                }`}>
+                                  {isWorkmanship ? 'Yes' : 'No'}
+                                </span>
+                              </td>
+                              {!hideTotalContractColumn && (
+                                <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right" style={{ width: '180px' }}>
+                                  <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                                    {formatCurrency(activityTotalValue, project.currency)}
+                                  </span>
+                                </td>
+                              )}
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2" style={{ width: '220px' }}>
+                                {activityDivision ? (
+                                  <div className="text-xs">
+                                    <div className="text-gray-600 dark:text-gray-400 truncate">{activityDivision}:</div>
+                                    <div className="font-medium text-gray-900 dark:text-white">{formatCurrency(activityTotalValue, project.currency)}</div>
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-gray-400 dark:text-gray-500 italic">No data available</span>
+                                )}
+                              </td>
+                              {!hideVirtualMaterialColumn && (
+                                <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right" style={{ width: '180px' }}>
+                                  {project.virtual_material_value ? (
+                              <div className="space-y-1">
+                                      {(() => {
+                                        let virtualMaterialPercentage = 0
+                                        const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
+                                        if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
+                                          let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
+                                          const parsedValue = parseFloat(cleanedValue)
+                                          if (!isNaN(parsedValue)) {
+                                            if (parsedValue > 0 && parsedValue <= 1) {
+                                              virtualMaterialPercentage = parsedValue * 100
+                                            } else {
+                                              virtualMaterialPercentage = parsedValue
+                                            }
+                                          }
+                                        }
+                                        // âœ… FIX: Use activityVirtualMaterialTotal which is calculated for all activities if project has VM
+                                        const activityVirtualMaterialAmount = activityVirtualMaterialTotal
+                                        return (
+                                          <>
+                                            <div className="text-xs text-gray-600 dark:text-gray-400">
+                                              {virtualMaterialPercentage > 0 ? `${virtualMaterialPercentage.toFixed(1)}%` : 'N/A'}
+                                            </div>
+                                            {activityVirtualMaterialAmount > 0 && (
+                                              <div className="text-xs font-medium text-purple-600 dark:text-purple-400">
+                                                {formatCurrency(activityVirtualMaterialAmount, project.currency)}
+                                              </div>
+                                            )}
+                                          </>
+                                        )
+                                      })()}
+                                    </div>
+                                  ) : (
+                                    <span className="text-xs text-gray-400 dark:text-gray-500">N/A</span>
+                                  )}
+                                </td>
+                              )}
+                              {showOuterRangeColumn && outerRangeStart && (
+                                viewPlannedValue ? (
+                                  <>
+                                    {/* Actual Column */}
+                                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-green-50/30 dark:bg-green-900/10" style={{ width: '160px' }}>
+                                      <div className="space-y-1">
+                                        <div className="text-xs text-gray-400">-</div>
+                                      </div>
+                                    </td>
+                                    {/* Planned Column */}
+                                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-blue-50/30 dark:bg-blue-900/10" style={{ width: '160px' }}>
+                                      <div className="space-y-1">
+                                        <div className="text-xs text-gray-400">-</div>
+                                      </div>
+                                    </td>
+                                  </>
+                                ) : (
+                                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}>
+                                    <div className="space-y-1">
+                                      <div className="text-xs text-gray-400">-</div>
+                                    </div>
+                                  </td>
+                                )
+                              )}
+                              {activityPeriodValues.map((value: number, index: number) => {
+                                const plannedValue = viewPlannedValue ? (activityPlannedValues[index] || 0) : 0
+                                const periodVirtualMaterial = showVirtualMaterialValues ? (activityVirtualMaterialValues[index] || 0) : 0
+                                const periodPlannedVirtualMaterial = showVirtualMaterialValues && viewPlannedValue ? (activityPlannedVirtualMaterialValues[index] || 0) : 0
+                                
+                                if (viewPlannedValue) {
+                                  return (
+                                    <>
+                                      <td key={`${index}-actual`} className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-green-50/30 dark:bg-green-900/10" style={{ width: '140px' }}>
+                                        <div className="space-y-1">
+                                          {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
+                                            <>
+                                              {(() => {
+                                                const totalValue = value + periodVirtualMaterial
+                                                return (
+                                                  <>
+                                                    {value > 0 ? (
+                                                      <div className="text-sm text-green-600 dark:text-green-400">{formatCurrency(value, project.currency)}</div>
+                                                    ) : (
+                                                      <div className="text-gray-400">-</div>
+                                                    )}
+                                                    {periodVirtualMaterial > 0 && (
+                                  <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                                        {formatCurrency(periodVirtualMaterial, project.currency)}
+                                  </div>
+                                )}
+                                                    {periodVirtualMaterial > 0 && totalValue > 0 && (
+                                                      <div className="text-xs font-bold text-gray-900 dark:text-white">
+                                                        {formatCurrency(totalValue, project.currency)}
+                              </div>
+                                                    )}
+                                                  </>
+                                                )
+                                              })()}
+                                            </>
+                                          ) : (
+                                            value > 0 ? (
+                                              <div className="text-sm text-green-600 dark:text-green-400">{formatCurrency(value, project.currency)}</div>
+                                            ) : (
+                                              <div className="text-gray-400">-</div>
+                                            )
+                                          )}
+                                        </div>
+                                      </td>
+                                      <td key={`${index}-planned`} className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-blue-50/30 dark:bg-blue-900/10" style={{ width: '140px' }}>
+                              <div className="space-y-1">
+                                          {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
+                                            <>
+                                              {(() => {
+                                                const totalPlannedValue = plannedValue + periodPlannedVirtualMaterial
+                                                return (
+                                                  <>
+                                                    {plannedValue > 0 ? (
+                                                      <div className="text-sm text-blue-600 dark:text-blue-400">{formatCurrency(plannedValue, project.currency)}</div>
+                                                    ) : (
+                                                      <div className="text-gray-400">-</div>
+                                                    )}
+                                                    {periodPlannedVirtualMaterial > 0 && (
+                                  <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                                        {formatCurrency(periodPlannedVirtualMaterial, project.currency)}
+                                  </div>
+                                )}
+                                                    {periodPlannedVirtualMaterial > 0 && totalPlannedValue > 0 && (
+                                                      <div className="text-xs font-bold text-gray-900 dark:text-white">
+                                                        {formatCurrency(totalPlannedValue, project.currency)}
+                              </div>
+                                                    )}
+                                                  </>
+                            )
+                          })()}
+                                            </>
+                                          ) : (
+                                            plannedValue > 0 ? (
+                                              <div className="text-sm text-blue-600 dark:text-blue-400">{formatCurrency(plannedValue, project.currency)}</div>
+                                            ) : (
+                                              <div className="text-gray-400">-</div>
+                                            )
+                                          )}
+                                        </div>
+                        </td>
+                                    </>
+                                  )
+                                } else {
+                                  return (
+                                    <td key={index} className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right" style={{ width: '140px' }}>
+                                      <div className="space-y-1">
+                                        {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
+                                          <>
+                                            {(() => {
+                                              const totalValue = value + periodVirtualMaterial
+                                              return (
+                                                <>
+                                                  {value > 0 ? (
+                                                    <div className="text-sm text-green-600 dark:text-green-400">{formatCurrency(value, project.currency)}</div>
+                                                  ) : (
+                                                    <div className="text-gray-400">-</div>
+                                                  )}
+                                                  {periodVirtualMaterial > 0 && (
+                                                    <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                                      {formatCurrency(periodVirtualMaterial, project.currency)}
+                                                    </div>
+                                                  )}
+                                                  {periodVirtualMaterial > 0 && totalValue > 0 && (
+                                                    <div className="text-xs font-bold text-gray-900 dark:text-white">
+                                                      {formatCurrency(totalValue, project.currency)}
+                                                    </div>
+                                                  )}
+                                                </>
+                                              )
+                                            })()}
+                                          </>
+                                        ) : (
+                                          value > 0 ? (
+                                            <div className="text-sm text-green-600 dark:text-green-400">{formatCurrency(value, project.currency)}</div>
+                                          ) : (
+                                            <div className="text-gray-400">-</div>
+                                          )
+                                        )}
+                                      </div>
+                                    </td>
+                                  )
+                                }
+                              })}
+                              {viewPlannedValue ? (
+                                <>
+                                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-green-50/30 dark:bg-green-900/10" style={{ width: '150px' }}>
+                                    <div className="space-y-1">
+                                      {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
+                                        <>
+                                          {(() => {
+                                            const totalGrandTotal = activityGrandTotal + activityVirtualMaterialTotal
+                                            return (
+                                              <>
+                                                {activityGrandTotal > 0 ? (
+                                                  <div className="text-sm font-bold text-green-600 dark:text-green-400">{formatCurrency(activityGrandTotal, project.currency)}</div>
+                                                ) : (
+                                                  <div className="text-gray-400">-</div>
+                                                )}
+                                                {activityVirtualMaterialTotal > 0 && (
+                                                  <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                                    {formatCurrency(activityVirtualMaterialTotal, project.currency)}
+                                                  </div>
+                                                )}
+                                                {activityVirtualMaterialTotal > 0 && totalGrandTotal > 0 && (
+                                                  <div className="text-xs font-bold text-gray-900 dark:text-white">
+                                                    {formatCurrency(totalGrandTotal, project.currency)}
+                                                  </div>
+                                                )}
+                                              </>
+                                            )
+                                          })()}
+                                        </>
+                                      ) : (
+                                        activityGrandTotal > 0 ? (
+                                          <div className="text-sm font-bold text-green-600 dark:text-green-400">{formatCurrency(activityGrandTotal, project.currency)}</div>
+                                        ) : (
+                                          <div className="text-gray-400">-</div>
+                                        )
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-blue-50/30 dark:bg-blue-900/10" style={{ width: '150px' }}>
+                                    <div className="space-y-1">
+                                      {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
+                                        <>
+                                          {(() => {
+                                            const totalPlannedGrandTotal = activityPlannedGrandTotal + activityPlannedVirtualMaterialTotal
+                                            return (
+                                              <>
+                                                {activityPlannedGrandTotal > 0 ? (
+                                                  <div className="text-sm font-bold text-blue-600 dark:text-blue-400">{formatCurrency(activityPlannedGrandTotal, project.currency)}</div>
+                                                ) : (
+                                                  <div className="text-gray-400">-</div>
+                                                )}
+                                                {activityPlannedVirtualMaterialTotal > 0 && (
+                                                  <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                                    {formatCurrency(activityPlannedVirtualMaterialTotal, project.currency)}
+                                                  </div>
+                                                )}
+                                                {activityPlannedVirtualMaterialTotal > 0 && totalPlannedGrandTotal > 0 && (
+                                                  <div className="text-xs font-bold text-gray-900 dark:text-white">
+                                                    {formatCurrency(totalPlannedGrandTotal, project.currency)}
+                                                  </div>
+                                                )}
+                                              </>
+                                            )
+                                          })()}
+                                        </>
+                                      ) : (
+                                        activityPlannedGrandTotal > 0 ? (
+                                          <div className="text-sm font-bold text-blue-600 dark:text-blue-400">{formatCurrency(activityPlannedGrandTotal, project.currency)}</div>
+                                        ) : (
+                                          <div className="text-gray-400">-</div>
+                                        )
+                                      )}
+                                    </div>
+                                  </td>
+                                </>
+                              ) : (
+                                <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right" style={{ width: '150px' }}>
+                                  <div className="space-y-1">
+                                    {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
+                                      <>
+                                        {(() => {
+                                          const totalGrandTotal = activityGrandTotal + activityVirtualMaterialTotal
+                                          return (
+                                            <>
+                                              {activityGrandTotal > 0 ? (
+                                                <div className="text-sm font-medium text-gray-900 dark:text-white">{formatCurrency(activityGrandTotal, project.currency)}</div>
+                                              ) : (
+                                                <div className="text-gray-400">-</div>
+                                              )}
+                                              {activityVirtualMaterialTotal > 0 && (
+                                                <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                                  {formatCurrency(activityVirtualMaterialTotal, project.currency)}
+                                                </div>
+                                              )}
+                                              {activityVirtualMaterialTotal > 0 && totalGrandTotal > 0 && (
+                                                <div className="text-xs font-bold text-gray-900 dark:text-white">
+                                                  {formatCurrency(totalGrandTotal, project.currency)}
+                                                </div>
+                                              )}
+                                            </>
+                                          )
+                                        })()}
+                                      </>
+                                    ) : (
+                                      <div className="text-sm font-medium text-gray-900 dark:text-white">{formatCurrency(activityGrandTotal, project.currency)}</div>
+                                    )}
+                                  </div>
+                                </td>
+                              )}
+              </tr>
+                            )
+                          })
+                        })
+                      })()}
+                      </>
+                    )
+                  })
+                )}
+          </tbody>
+              {projectsWithWorkInRange.length > 0 && (
+                <tfoot>
+                  <tr className="bg-gray-100 dark:bg-gray-800 font-bold border-t-2 border-gray-300 dark:border-gray-600">
+                    <td colSpan={1 + 1 + (hideDivisionsColumn ? 0 : 1) + 1 + (hideTotalContractColumn ? 0 : 1) + 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-gray-100 dark:bg-gray-800">Total:</td>
+                    {!hideVirtualMaterialColumn && (
+                      <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '180px' }}>
+                        {totals.totalVirtualMaterialAmount > 0 ? (
+                          <div className="space-y-1">
+                            <div className="font-medium text-purple-600 dark:text-purple-400">
+                              {formatCurrency(totals.totalVirtualMaterialAmount)}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-sm text-gray-400 dark:text-gray-500">N/A</span>
+                        )}
+                      </td>
+                    )}
+                    {showOuterRangeColumn && outerRangeStart && (
+                      viewPlannedValue ? (
+                        <>
+                          {/* Actual Outer Range Column */}
+                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-green-50/30 dark:bg-green-900/10" style={{ width: '160px' }}>
+                            <div className="space-y-1">
+                              {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
+                                <>
+                                  {(() => {
+                                    const totalOuterRangeValue = projectsWithWorkInRange.reduce((sum: number, analytics: any) => {
+                                      const cachedValues = periodValuesCache.get(analytics.project.id)
+                                      return sum + (cachedValues?.outerRangeValue || 0)
+                                    }, 0)
+                                    const totalOuterRangeVirtualMaterial = projectsWithWorkInRange.reduce((sum: number, analytics: any) => {
+                                      const cachedValues = periodValuesCache.get(analytics.project.id)
+                                      return sum + (cachedValues?.outerRangeVirtualMaterialAmount || 0)
+                                    }, 0)
+                                    const totalOuterRangeTotal = totalOuterRangeValue + totalOuterRangeVirtualMaterial
+                                    return (
+                                      <>
+                                        {totalOuterRangeValue > 0 ? (
+                                          <span className="text-green-600 dark:text-green-400 font-bold">
+                                            {formatCurrency(totalOuterRangeValue)}
+                                          </span>
+                                        ) : (
+                                          <span className="text-gray-400">-</span>
+                                        )}
+                                        {totalOuterRangeVirtualMaterial > 0 && (
+                                          <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                            {formatCurrency(totalOuterRangeVirtualMaterial)}
+                                          </div>
+                                        )}
+                                        {totalOuterRangeVirtualMaterial > 0 && totalOuterRangeTotal > 0 && (
+                                          <div className="text-xs font-bold text-gray-900 dark:text-white">
+                                            {formatCurrency(totalOuterRangeTotal)}
+                                          </div>
+                                        )}
+                                      </>
+                                    )
+                                  })()}
+                                </>
+                              ) : (
+                                (() => {
+                                  const totalOuterRangeValue = projectsWithWorkInRange.reduce((sum: number, analytics: any) => {
+                                    const cachedValues = periodValuesCache.get(analytics.project.id)
+                                    return sum + (cachedValues?.outerRangeValue || 0)
+                                  }, 0)
+                                  return totalOuterRangeValue > 0 ? (
+                                    <span className="font-bold text-green-600 dark:text-green-400">{formatCurrency(totalOuterRangeValue)}</span>
+                                  ) : (
+                                    <span className="text-gray-400">-</span>
+                                  )
+                                })()
+                              )}
+                            </div>
+                          </td>
+                          {/* Planned Outer Range Column */}
+                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50/30 dark:bg-blue-900/10" style={{ width: '160px' }}>
+                            <div className="space-y-1">
+                              {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
+                                <>
+                                  {(() => {
+                                    const totalOuterRangePlannedValue = projectsWithWorkInRange.reduce((sum: number, analytics: any) => {
+                                      const cachedValues = periodValuesCache.get(analytics.project.id)
+                                      return sum + (cachedValues?.outerRangePlannedValue || 0)
+                                    }, 0)
+                                    const totalOuterRangePlannedVirtualMaterial = projectsWithWorkInRange.reduce((sum: number, analytics: any) => {
+                                      const cachedValues = periodValuesCache.get(analytics.project.id)
+                                      return sum + (cachedValues?.outerRangePlannedVirtualMaterialAmount || 0)
+                                    }, 0)
+                                    const totalOuterRangePlannedTotal = totalOuterRangePlannedValue + totalOuterRangePlannedVirtualMaterial
+                                    return (
+                                      <>
+                                        {totalOuterRangePlannedValue > 0 ? (
+                                          <span className="text-blue-600 dark:text-blue-400 font-bold">
+                                            {formatCurrency(totalOuterRangePlannedValue)}
+                                          </span>
+                                        ) : (
+                                          <span className="text-gray-400">-</span>
+                                        )}
+                                        {totalOuterRangePlannedVirtualMaterial > 0 && (
+                                          <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                            {formatCurrency(totalOuterRangePlannedVirtualMaterial)}
+                                          </div>
+                                        )}
+                                        {totalOuterRangePlannedVirtualMaterial > 0 && totalOuterRangePlannedTotal > 0 && (
+                                          <div className="text-xs font-bold text-gray-900 dark:text-white">
+                                            {formatCurrency(totalOuterRangePlannedTotal)}
+                                          </div>
+                                        )}
+                                      </>
+                                    )
+                                  })()}
+                                </>
+                              ) : (
+                                (() => {
+                                  const totalOuterRangePlannedValue = projectsWithWorkInRange.reduce((sum: number, analytics: any) => {
+                                    const cachedValues = periodValuesCache.get(analytics.project.id)
+                                    return sum + (cachedValues?.outerRangePlannedValue || 0)
+                                  }, 0)
+                                  return totalOuterRangePlannedValue > 0 ? (
+                                    <span className="font-bold text-blue-600 dark:text-blue-400">{formatCurrency(totalOuterRangePlannedValue)}</span>
+                                  ) : (
+                                    <span className="text-gray-400">-</span>
+                                  )
+                                })()
+                              )}
+                            </div>
+                          </td>
+                        </>
+                      ) : (
+                      <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}>
+                        {(() => {
+                          const totalOuterRangeValue = projectsWithWorkInRange.reduce((sum: number, analytics: any) => {
+                            const cachedValues = periodValuesCache.get(analytics.project.id)
+                            return sum + (cachedValues?.outerRangeValue || 0)
+                          }, 0)
+                          return totalOuterRangeValue > 0 ? (
+                            <span className="font-bold text-blue-700 dark:text-blue-300">{formatCurrency(totalOuterRangeValue)}</span>
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )
+                        })()}
+                      </td>
+                      )
+                    )}
+                    {totals.periodEarnedValueTotals.map((value: number, index: number) => {
+                      const plannedValue = viewPlannedValue ? (totals.periodPlannedValueTotals[index] || 0) : 0
+                      
+                      // âœ… Calculate Virtual Material for this period from ALL visible rows (projects + expanded activities)
+                      const periodVirtualMaterial = showVirtualMaterialValues
+                        ? (() => {
+                            let sum = 0
+                            // Sum from projects
+                            projectsWithWorkInRange.forEach((analytics: any) => {
+                              const cachedValues = periodValuesCache.get(analytics.project.id)
+                              const virtualMaterialAmounts = cachedValues?.virtualMaterialAmount || []
+                              sum += virtualMaterialAmounts[index] || 0
+                            })
+                            // Sum from expanded activities
+                            projectsWithWorkInRange.forEach((analytics: any) => {
+                              if (!expandedProjects.has(analytics.project.id)) return
+                              
+                              const project = analytics.project
+                              const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+                              const projectActivities = activities.filter((activity: BOQActivity) => {
+                                const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+                                return activityFullCode === projectFullCode || activity.project_id === project.id
+                              })
+                              
+                              projectActivities.forEach((activity: BOQActivity) => {
+                                if (!activity.use_virtual_material) return
+                                
+                                const rawActivity = (activity as any).raw || {}
+                                const period = periods[index]
+                                const periodStart = period.start
+                                const periodEnd = period.end
+                                const effectivePeriodEnd = periodEnd > today ? today : periodEnd
+                                
+                                // Get Virtual Material Percentage from project
+                                let virtualMaterialPercentage = 0
+                                const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
+                                
+                                if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
+                                  let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
+                                  const parsedValue = parseFloat(cleanedValue)
+                                  if (!isNaN(parsedValue)) {
+                                    if (parsedValue > 0 && parsedValue <= 1) {
+                                      virtualMaterialPercentage = parsedValue * 100
+                                    } else {
+                                      virtualMaterialPercentage = parsedValue
+                                    }
+                                  }
+                                }
+                                
+                                if (virtualMaterialPercentage === 0) return
+                                
+                                // Get Actual KPIs for this activity in this period (same logic as activity rows)
+                                const actualKPIs = kpis.filter((kpi: any) => {
+                                  const rawKPI = (kpi as any).raw || {}
+                                  const inputType = String(kpi.input_type || rawKPI['Input Type'] || '').trim().toLowerCase()
+                                  if (inputType !== 'actual') return false
+                                  
+                                  const rawKPIDate = (kpi as any).raw || {}
+                                  const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
+                                  const actualDateValue = (kpi as any).actual_date || rawKPIDate['Actual Date'] || ''
+                                  const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
+                                  
+                                  let kpiDateStr = ''
+                                  if (kpi.input_type === 'Actual' && actualDateValue) {
+                                    kpiDateStr = actualDateValue
+                                  } else if (dayValue) {
+                                    kpiDateStr = activityDateValue || dayValue
+                                  } else {
+                                    kpiDateStr = activityDateValue || actualDateValue
+                                  }
+                                  
+                                  if (!kpiDateStr) return false
+                                  
+                                  try {
+                                    const kpiDate = new Date(kpiDateStr)
+                                    if (isNaN(kpiDate.getTime())) return false
+                                    kpiDate.setHours(0, 0, 0, 0)
+                                    const normalizedPeriodStart = new Date(periodStart)
+                                    normalizedPeriodStart.setHours(0, 0, 0, 0)
+                                    const normalizedPeriodEnd = new Date(effectivePeriodEnd)
+                                    normalizedPeriodEnd.setHours(23, 59, 59, 999)
+                                    if (!(kpiDate >= normalizedPeriodStart && kpiDate <= normalizedPeriodEnd)) {
+                                      return false
+                                    }
+                                  } catch {
+                                    return false
+                                  }
+                                  
+                                  // Match activity (same logic as activity rows)
+                                  const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
+                                  const kpiProjectFullCodeRaw = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim()
+                                  const kpiProjectCodeRaw = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim()
+                                  const kpiProjectFullCode = kpiProjectFullCodeRaw.toLowerCase().trim()
+                                  const kpiProjectCode = kpiProjectCodeRaw.toLowerCase().trim()
+                                  
+                                  const kpiZoneRaw = (kpi.zone || rawKPI['Zone'] || rawKPI['Zone Ref'] || rawKPI['Zone Number'] || '').toString().trim()
+                                  let kpiZone = kpiZoneRaw.toLowerCase().trim()
+                                  if (kpiZone && kpiProjectCode) {
+                                    const projectCodeUpper = kpiProjectCode.toUpperCase()
+                                    kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
+                                    kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
+                                    kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
+                                  }
+                                  if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
+                                  
+                                  const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+                                  const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toLowerCase()
+                                  const activityProjectCode = (activity.project_code || '').toString().trim().toLowerCase()
+                                  const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+                                  
+                                  // Try multiple matching strategies
+                                  if (kpiActivityName && kpiProjectFullCode && kpiZone && activityZone) {
+                                    if (activityName === kpiActivityName && 
+                                        activityProjectFullCode === kpiProjectFullCode &&
+                                        (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))) {
+                                      return true
+                                    }
+                                  }
+                                  if (kpiActivityName && kpiProjectFullCode) {
+                                    if (activityName === kpiActivityName && activityProjectFullCode === kpiProjectFullCode) {
+                                      return true
+                                    }
+                                  }
+                                  if (kpiActivityName && kpiProjectCode && kpiZone && activityZone) {
+                                    if (activityName === kpiActivityName && 
+                                        activityProjectCode === kpiProjectCode &&
+                                        (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))) {
+                                      return true
+                                    }
+                                  }
+                                  if (kpiActivityName && kpiProjectCode) {
+                                    if (activityName === kpiActivityName && activityProjectCode === kpiProjectCode) {
+                                      return true
+                                    }
+                                  }
+                                  if (kpiActivityName) {
+                                    const projectMatch = (
+                                      (kpiProjectFullCode && activityProjectFullCode && kpiProjectFullCode === activityProjectFullCode) ||
+                                      (kpiProjectCode && activityProjectCode && kpiProjectCode === activityProjectCode) ||
+                                      (kpiProjectFullCode && activityProjectCode && kpiProjectFullCode === activityProjectCode) ||
+                                      (kpiProjectCode && activityProjectFullCode && kpiProjectCode === activityProjectFullCode)
+                                    )
+                                    if (projectMatch && (activityName === kpiActivityName || 
+                                        activityName.includes(kpiActivityName) || 
+                                        kpiActivityName.includes(activityName))) {
+                                      return true
+                                    }
+                                  }
+                                  
+                                  return false
+                                })
+                                
+                                // Calculate Virtual Material Amount for this activity in this period
+                                actualKPIs.forEach((kpi: any) => {
+                                  const rawKpi = (kpi as any).raw || {}
+                                  const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
+                                  
+                                  const totalValue = activity.total_value || parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 0
+                                  const totalUnits = activity.total_units || activity.planned_units || parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 0
+                                  
+                                  let rate = 0
+                                  if (totalUnits > 0 && totalValue > 0) {
+                                    rate = totalValue / totalUnits
+                                  } else {
+                                    rate = activity.rate || parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
+                                  }
+                                  
+                                  let baseValue = 0
+                                  if (rate > 0 && quantity > 0) {
+                                    baseValue = rate * quantity
+                                  } else {
+                                    const kpiValue = parseFloat(String(kpi.value || rawKpi['Value'] || '0').replace(/,/g, '')) || 0
+                                    if (kpiValue > 0) {
+                                      baseValue = kpiValue
+                                    }
+                                  }
+                                  
+                                  if (baseValue > 0) {
+                                    sum += baseValue * (virtualMaterialPercentage / 100)
+                                  }
+                                })
+                              })
+                            })
+                            return sum
+                          })()
+                        : 0
+                      
+                      const periodPlannedVirtualMaterial = showVirtualMaterialValues && viewPlannedValue
+                        ? (() => {
+                            let sum = 0
+                            // Sum from projects
+                            projectsWithWorkInRange.forEach((analytics: any) => {
+                              const cachedValues = periodValuesCache.get(analytics.project.id)
+                              const plannedVirtualMaterialAmounts = cachedValues?.plannedVirtualMaterialAmount || []
+                              sum += plannedVirtualMaterialAmounts[index] || 0
+                            })
+                            // Sum from expanded activities
+                            projectsWithWorkInRange.forEach((analytics: any) => {
+                              if (!expandedProjects.has(analytics.project.id)) return
+                              
+                              const project = analytics.project
+                              const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+                              const projectActivities = activities.filter((activity: BOQActivity) => {
+                                const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+                                return activityFullCode === projectFullCode || activity.project_id === project.id
+                              })
+                              
+                              projectActivities.forEach((activity: BOQActivity) => {
+                                if (!activity.use_virtual_material) return
+                                
+                                const rawActivity = (activity as any).raw || {}
+                                const period = periods[index]
+                                const periodStart = period.start
+                                const periodEnd = period.end
+                                const effectivePeriodEnd = periodEnd > today ? today : periodEnd
+                                
+                                // Get Virtual Material Percentage from project
+                                let virtualMaterialPercentage = 0
+                                const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
+                                
+                                if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
+                                  let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
+                                  const parsedValue = parseFloat(cleanedValue)
+                                  if (!isNaN(parsedValue)) {
+                                    if (parsedValue > 0 && parsedValue <= 1) {
+                                      virtualMaterialPercentage = parsedValue * 100
+                                    } else {
+                                      virtualMaterialPercentage = parsedValue
+                                    }
+                                  }
+                                }
+                                
+                                if (virtualMaterialPercentage === 0) return
+                                
+                                // Get Planned KPIs for this activity in this period (same logic as activity rows)
+                                const plannedKPIs = kpis.filter((kpi: any) => {
+                                  const rawKPI = (kpi as any).raw || {}
+                                  const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+                                  const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+                                  const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
+                                  const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+                                  const kpiZone = (kpi.zone || rawKPI['Zone'] || rawKPI['Zone Ref'] || rawKPI['Zone Number'] || '').toString().toLowerCase().trim()
+                                  
+                                  if (kpiProjectFullCode !== projectFullCode && kpiProjectCode !== projectFullCode) return false
+                                  if (!kpiActivityName || !activityName || 
+                                      (kpiActivityName !== activityName && 
+                                       !kpiActivityName.includes(activityName) && 
+                                       !activityName.includes(kpiActivityName))) {
+                                    return false
+                                  }
+                                  
+                                  const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+                                  if (activityZone && kpiZone && activityZone !== kpiZone && !activityZone.includes(kpiZone) && !kpiZone.includes(activityZone)) {
+                                    return false
+                                  }
+                                  
+                                  const inputType = String(kpi.input_type || rawKPI['Input Type'] || '').trim().toLowerCase()
+                                  if (inputType !== 'planned') return false
+                                  
+                                  const kpiDate = kpi.target_date || rawKPI['Target Date'] || ''
+                                  if (!kpiDate) return false
+                                  
+                                  try {
+                                    const date = new Date(kpiDate)
+                                    if (isNaN(date.getTime())) return false
+                                    date.setHours(0, 0, 0, 0)
+                                    const normalizedPeriodStart = new Date(periodStart)
+                                    normalizedPeriodStart.setHours(0, 0, 0, 0)
+                                    const normalizedPeriodEnd = new Date(effectivePeriodEnd)
+                                    normalizedPeriodEnd.setHours(23, 59, 59, 999)
+                                    return date >= normalizedPeriodStart && date <= normalizedPeriodEnd
+                                  } catch {
+                                    return false
+                                  }
+                                })
+                                
+                                // Calculate Planned Virtual Material Amount for this activity in this period
+                                plannedKPIs.forEach((kpi: any) => {
+                                  const rawKpi = (kpi as any).raw || {}
+                                  const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
+                                  
+                                  const totalValue = activity.total_value || parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 0
+                                  const totalUnits = activity.total_units || activity.planned_units || parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 0
+                                  
+                                  let rate = 0
+                                  if (totalUnits > 0 && totalValue > 0) {
+                                    rate = totalValue / totalUnits
+                                  } else {
+                                    rate = activity.rate || parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
+                                  }
+                                  
+                                  let baseValue = 0
+                                  if (rate > 0 && quantity > 0) {
+                                    baseValue = rate * quantity
+                                  } else {
+                                    const kpiValue = parseFloat(String(kpi.value || rawKpi['Value'] || '0').replace(/,/g, '')) || 0
+                                    if (kpiValue > 0) {
+                                      baseValue = kpiValue
+                                    }
+                                  }
+                                  
+                                  if (baseValue > 0) {
+                                    sum += baseValue * (virtualMaterialPercentage / 100)
+                                  }
+                                })
+                              })
+                            })
+                            return sum
+                          })()
+                        : 0
+                      
+                      if (viewPlannedValue) {
+                        // When viewPlannedValue is enabled, show two separate cells: Actual and Planned
+                      return (
+                          <>
+                            {/* Actual Column */}
+                            <td key={`${index}-actual`} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-green-50/30 dark:bg-green-900/10" style={{ width: '140px' }}>
+                            <div className="space-y-1">
+                                {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
+                                  <>
+                                    {(() => {
+                                      const totalValue = value + periodVirtualMaterial
+                                      return (
+                                        <>
+                                          {/* 1. Ø§Ù„Ù‚ÙŠÙ…Ø© Ø§Ù„Ø£Ø³Ø§Ø³ÙŠØ© (Actual) */}
+                                          {value > 0 ? (
+                                            <span className="text-green-600 dark:text-green-400 font-bold">
+                                              {formatCurrency(value)}
+                                            </span>
+                                          ) : (
+                                            <span className="text-gray-400">-</span>
+                                          )}
+                                          {/* 2. Virtual Material ÙÙ‚Ø· */}
+                                          {periodVirtualMaterial > 0 && (
+                                            <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                              {formatCurrency(periodVirtualMaterial)}
+                            </div>
+                                          )}
+                                          {/* 3. Total (Base + VM) - ÙÙ‚Ø· Ø¥Ø°Ø§ ÙƒØ§Ù† Ù‡Ù†Ø§Ùƒ VM */}
+                                          {periodVirtualMaterial > 0 && totalValue > 0 && (
+                                            <div className="text-xs font-bold text-gray-900 dark:text-white">
+                                              {formatCurrency(totalValue)}
+                                            </div>
+                                          )}
+                                        </>
+                                      )
+                                    })()}
+                                  </>
+                                ) : (
+                                  <span className="text-green-600 dark:text-green-400 font-bold">{formatCurrency(value)}</span>
+                                )}
+                              </div>
+                            </td>
+                            {/* Planned Column */}
+                            <td key={`${index}-planned`} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50/30 dark:bg-blue-900/10" style={{ width: '140px' }}>
+                              <div className="space-y-1">
+                                {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
+                                  <>
+                                    {(() => {
+                                      const totalPlannedValue = plannedValue + periodPlannedVirtualMaterial
+                                      return (
+                                        <>
+                                          {/* 1. Ø§Ù„Ù‚ÙŠÙ…Ø© Ø§Ù„Ø£Ø³Ø§Ø³ÙŠØ© (Planned) */}
+                                          {plannedValue > 0 ? (
+                                            <span className="text-blue-600 dark:text-blue-400 font-bold">
+                                              {formatCurrency(plannedValue)}
+                                            </span>
+                                          ) : (
+                                            <span className="text-gray-400">-</span>
+                                          )}
+                                          {/* 2. Virtual Material ÙÙ‚Ø· */}
+                                          {periodPlannedVirtualMaterial > 0 && (
+                                            <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                              {formatCurrency(periodPlannedVirtualMaterial)}
+                                            </div>
+                                          )}
+                                          {/* 3. Total (Base + VM) - ÙÙ‚Ø· Ø¥Ø°Ø§ ÙƒØ§Ù† Ù‡Ù†Ø§Ùƒ VM */}
+                                          {periodPlannedVirtualMaterial > 0 && totalPlannedValue > 0 && (
+                                            <div className="text-xs font-bold text-gray-900 dark:text-white">
+                                              {formatCurrency(totalPlannedValue)}
+                                            </div>
+                                          )}
+                                        </>
+                                      )
+                                    })()}
+                                  </>
+                                ) : (
+                                  plannedValue > 0 ? (
+                                    <span className="text-blue-600 dark:text-blue-400 font-bold">{formatCurrency(plannedValue)}</span>
+                                  ) : (
+                                    <span className="text-gray-400">-</span>
+                                  )
+                                )}
+                              </div>
+                            </td>
+                          </>
+                        )
+                      } else {
+                        // When viewPlannedValue is disabled, show single cell
+                        return (
+                          <td key={index} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '140px' }}>
+                            {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
+                              <>
+                                {(() => {
+                                  const totalValue = value + periodVirtualMaterial
+                                  return totalValue > 0 ? (
+                                    <>
+                                      <span className="text-green-600 dark:text-green-400 font-bold">
+                                        {formatCurrency(totalValue)}
+                                      </span>
+                                      {periodVirtualMaterial > 0 && (
+                                        <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                          {formatCurrency(periodVirtualMaterial)}
+                                        </div>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <span className="text-gray-400">-</span>
+                                  )
+                                })()}
+                              </>
+                          ) : (
+                        <span className="text-green-600 dark:text-green-400">{formatCurrency(value)}</span>
+                          )}
+                      </td>
+                      )
+                      }
+                    })}
+                      {viewPlannedValue ? (
+                      <>
+                        {/* Actual Grand Total Column */}
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-green-50/30 dark:bg-green-900/10" style={{ width: '150px' }}>
+                        <div className="space-y-1">
+                            {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
+                              <>
+                                {(() => {
+                                  const totalGrandTotal = totals.grandTotalEarnedValue + totals.totalVirtualMaterialAmount
+                                  return (
+                                    <>
+                                      {/* 1. Ø§Ù„Ù‚ÙŠÙ…Ø© Ø§Ù„Ø£Ø³Ø§Ø³ÙŠØ© (Actual) */}
+                                      {totals.grandTotalEarnedValue > 0 ? (
+                                        <span className="text-green-600 dark:text-green-400 font-bold">
+                                          {formatCurrency(totals.grandTotalEarnedValue)}
+                                        </span>
+                                      ) : (
+                                        <span className="text-gray-400">-</span>
+                                      )}
+                                      {/* 2. Virtual Material ÙÙ‚Ø· */}
+                                      {totals.totalVirtualMaterialAmount > 0 && (
+                                        <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                          {formatCurrency(totals.totalVirtualMaterialAmount)}
+                        </div>
+                                      )}
+                                      {/* 3. Total (Base + VM) - ÙÙ‚Ø· Ø¥Ø°Ø§ ÙƒØ§Ù† Ù‡Ù†Ø§Ùƒ VM */}
+                                      {totals.totalVirtualMaterialAmount > 0 && totalGrandTotal > 0 && (
+                                        <div className="text-xs font-bold text-gray-900 dark:text-white">
+                                          {formatCurrency(totalGrandTotal)}
+                                        </div>
+                                      )}
+                                    </>
+                                  )
+                                })()}
+                              </>
+                            ) : (
+                              <span className="text-gray-900 dark:text-white font-bold">{formatCurrency(totals.grandTotalEarnedValue)}</span>
+                            )}
+                          </div>
+                    </td>
+                        {/* Planned Grand Total Column */}
+                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50/30 dark:bg-blue-900/10" style={{ width: '150px' }}>
+                          <div className="space-y-1">
+                            {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
+                              <>
+                                {(() => {
+                                  const totalPlannedGrandTotal = totals.grandTotalPlannedValue + totals.totalPlannedVirtualMaterialAmount
+                                  return (
+                                    <>
+                                      {/* 1. Ø§Ù„Ù‚ÙŠÙ…Ø© Ø§Ù„Ø£Ø³Ø§Ø³ÙŠØ© (Planned) */}
+                                      {totals.grandTotalPlannedValue > 0 ? (
+                                        <span className="text-blue-600 dark:text-blue-400 font-bold">
+                                          {formatCurrency(totals.grandTotalPlannedValue)}
+                                        </span>
+                                      ) : (
+                                        <span className="text-gray-400">-</span>
+                                      )}
+                                      {/* 2. Virtual Material ÙÙ‚Ø· */}
+                                      {totals.totalPlannedVirtualMaterialAmount > 0 && (
+                                        <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                          {formatCurrency(totals.totalPlannedVirtualMaterialAmount)}
+                                        </div>
+                                      )}
+                                      {/* 3. Total (Base + VM) - ÙÙ‚Ø· Ø¥Ø°Ø§ ÙƒØ§Ù† Ù‡Ù†Ø§Ùƒ VM */}
+                                      {totals.totalPlannedVirtualMaterialAmount > 0 && totalPlannedGrandTotal > 0 && (
+                                        <div className="text-xs font-bold text-gray-900 dark:text-white">
+                                          {formatCurrency(totalPlannedGrandTotal)}
+                                        </div>
+                                      )}
+                                    </>
+                                  )
+                                })()}
+                              </>
+                            ) : (
+                              totals.grandTotalPlannedValue > 0 ? (
+                                <span className="text-blue-600 dark:text-blue-400 font-bold">{formatCurrency(totals.grandTotalPlannedValue)}</span>
+                              ) : (
+                                <span className="text-gray-400">-</span>
+                              )
+                            )}
+                          </div>
+                        </td>
+                      </>
+                    ) : (
+                      <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '150px' }}>
+                        <div className="space-y-1">
+                          <span className="text-gray-900 dark:text-white font-bold">{formatCurrency(totals.grandTotalEarnedValue)}</span>
+                          {!hideVirtualMaterialColumn && showVirtualMaterialValues && totals.totalVirtualMaterialAmount > 0 && (
+                            <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                              {formatCurrency(totals.totalVirtualMaterialAmount)}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                </tfoot>
+              )}
+        </table>
+      </div>
+      
+      {/* âœ… PERFORMANCE: Add pagination to limit rendered rows */}
+      {projectsWithWorkInRange.length > 0 && (
+        <div className="mt-4">
+          {isChangingPage && (
+            <div className="mb-2 text-sm text-gray-500 dark:text-gray-400 text-center">
+              Loading...
+            </div>
+          )}
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={handlePageChange}
+            itemsPerPage={itemsPerPage}
+            totalItems={projectsWithWorkInRange.length}
+            onItemsPerPageChange={handleItemsPerPageChange}
+          />
+        </div>
+      )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+})
