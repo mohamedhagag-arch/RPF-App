@@ -153,17 +153,29 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
       
       // Helper function to safely parse numeric values (defined outside map for reuse)
       const parseNumeric = (value: any, defaultValue: number = 0): number => {
-        if (value === null || value === undefined || value === '') {
+        if (value === null || value === undefined) {
+          return defaultValue
+        }
+        // Handle empty string
+        if (value === '' || (typeof value === 'string' && value.trim() === '')) {
           return defaultValue
         }
         // If it's already a number, return it
         if (typeof value === 'number') {
-          return isNaN(value) ? defaultValue : value
+          return isNaN(value) || !isFinite(value) ? defaultValue : value
         }
-        // Try to parse as string
-        const str = String(value).replace(/,/g, '').trim()
+        // Try to parse as string - Supabase NUMERIC values are often returned as strings
+        const str = String(value).replace(/,/g, '').replace(/\s+/g, '').trim()
+        if (str === '' || str === 'null' || str === 'undefined') {
+          return defaultValue
+        }
         const parsed = parseFloat(str)
-        return isNaN(parsed) ? defaultValue : parsed
+        // Check if parsing was successful
+        if (isNaN(parsed) || !isFinite(parsed)) {
+          console.warn(`⚠️ Failed to parse numeric value: "${value}" (type: ${typeof value})`)
+          return defaultValue
+        }
+        return parsed
       }
       
       // Get all actual column names from first row for better matching
@@ -193,32 +205,71 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
         }
         
         // Helper to get numeric value trying all possible column name variations
+        // Enhanced to also try case-insensitive matching with actual column names
         const getNumericValue = (possibleNames: string[]): number => {
           for (const name of possibleNames) {
             // Try bracket notation first (works with spaces in column names)
-            const rawValue = row[name]
+            let rawValue = row[name]
             if (rawValue !== undefined && rawValue !== null) {
+              // Handle empty string explicitly
+              if (rawValue === '' || (typeof rawValue === 'string' && rawValue.trim() === '')) {
+                continue // Try next name variation
+              }
               // If it's already a number, return it (including 0)
               if (typeof rawValue === 'number') {
-                return isNaN(rawValue) ? 0 : rawValue
+                const numValue = isNaN(rawValue) || !isFinite(rawValue) ? NaN : rawValue
+                if (!isNaN(numValue)) {
+                  return numValue
+                }
               }
-              // If it's a string, try to parse it
-              if (typeof rawValue === 'string' && rawValue.trim() !== '') {
+              // If it's a string, try to parse it (Supabase NUMERIC values are often strings)
+              if (typeof rawValue === 'string') {
                 const parsed = parseNumeric(rawValue, NaN)
-                if (!isNaN(parsed)) {
+                if (!isNaN(parsed) && isFinite(parsed)) {
                   return parsed
+                }
+              }
+            }
+            // Try case-insensitive match from actual column names
+            for (const actualKey of actualColumnNames) {
+              if (actualKey.toLowerCase() === name.toLowerCase()) {
+                rawValue = row[actualKey]
+                if (rawValue !== undefined && rawValue !== null) {
+                  // Handle empty string explicitly
+                  if (rawValue === '' || (typeof rawValue === 'string' && rawValue.trim() === '')) {
+                    continue
+                  }
+                  if (typeof rawValue === 'number') {
+                    const numValue = isNaN(rawValue) || !isFinite(rawValue) ? NaN : rawValue
+                    if (!isNaN(numValue)) {
+                      return numValue
+                    }
+                  }
+                  if (typeof rawValue === 'string') {
+                    const parsed = parseNumeric(rawValue, NaN)
+                    if (!isNaN(parsed) && isFinite(parsed)) {
+                      return parsed
+                    }
+                  }
                 }
               }
             }
             // Try dot notation as fallback
             const dotValue = (row as any)[name]
             if (dotValue !== undefined && dotValue !== null) {
-              if (typeof dotValue === 'number') {
-                return isNaN(dotValue) ? 0 : dotValue
+              // Handle empty string explicitly
+              if (dotValue === '' || (typeof dotValue === 'string' && dotValue.trim() === '')) {
+                continue
               }
-              if (typeof dotValue === 'string' && dotValue.trim() !== '') {
+              if (typeof dotValue === 'number') {
+                const numValue = isNaN(dotValue) || !isFinite(dotValue) ? NaN : dotValue
+                if (!isNaN(numValue)) {
+                  return numValue
+                }
+              }
+              if (typeof dotValue === 'string') {
                 const parsed = parseNumeric(dotValue, NaN)
-                if (!isNaN(parsed)) {
+                if (!isNaN(parsed) && isFinite(parsed)) {
                   return parsed
                 }
               }
@@ -247,34 +298,17 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
             'item_description'
           ]) || '',
           unit: getValue(['Unit', 'unit']) || '',
-          // Direct access using exact column names from Supabase (as shown in console logs)
-          quantity: (() => {
-            const val = row['Quantity']
-            return (val !== undefined && val !== null) ? (typeof val === 'number' ? val : parseNumeric(val, 0)) : 0
-          })(),
-          rate: (() => {
-            const val = row['Rate']
-            return (val !== undefined && val !== null) ? (typeof val === 'number' ? val : parseNumeric(val, 0)) : 0
-          })(),
-          total_value: (() => {
-            const val = row['Total Value']
-            return (val !== undefined && val !== null) ? (typeof val === 'number' ? val : parseNumeric(val, 0)) : 0
-          })(),
+          // Use enhanced getNumericValue with multiple column name variations
+          // Explicitly convert to Number to ensure proper type
+          quantity: Number(getNumericValue(['Quantity', 'quantity'])),
+          rate: Number(getNumericValue(['Rate', 'rate'])),
+          total_value: Number(getNumericValue(['Total Value', 'total_value', 'TotalValue', 'totalValue'])),
           remeasurable: (row['Remeasurable?'] === true || 
                         row['Remeasurable?'] === 'true' ||
                         String(getValue(['Remeasurable?', 'remeasurable'])).toLowerCase() === 'true'),
-          planning_assigned_amount: (() => {
-            const val = row['Planning Assigned Amount']
-            return (val !== undefined && val !== null) ? (typeof val === 'number' ? val : parseNumeric(val, 0)) : 0
-          })(),
-          variations: (() => {
-            const val = row['Variations']
-            return (val !== undefined && val !== null) ? (typeof val === 'number' ? val : parseNumeric(val, 0)) : 0
-          })(),
-          total_including_variations: (() => {
-            const val = row['Total Including Variations']
-            return (val !== undefined && val !== null) ? (typeof val === 'number' ? val : parseNumeric(val, 0)) : 0
-          })(),
+          planning_assigned_amount: Number(getNumericValue(['Planning Assigned Amount', 'planning_assigned_amount', 'PlanningAssignedAmount', 'planningAssignedAmount'])),
+          variations: Number(getNumericValue(['Variations', 'variations'])),
+          total_including_variations: Number(getNumericValue(['Total Including Variations', 'total_including_variations', 'TotalIncludingVariations', 'totalIncludingVariations'])),
           created_at: row.created_at || '',
           updated_at: row.updated_at || '',
         }
@@ -284,16 +318,26 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
           console.log('🔍 First item mapping debug:', {
             rawRow: row,
             rawRate: row['Rate'],
+            rawRateType: typeof row['Rate'],
             rawTotalValue: row['Total Value'],
+            rawTotalValueType: typeof row['Total Value'],
             rawVariations: row['Variations'],
+            rawVariationsType: typeof row['Variations'],
             rawPlanningAmount: row['Planning Assigned Amount'],
+            rawPlanningAmountType: typeof row['Planning Assigned Amount'],
             rawTotalIncludingVariations: row['Total Including Variations'],
+            rawTotalIncludingVariationsType: typeof row['Total Including Variations'],
             allRowKeys: Object.keys(row),
             mappedRate: item.rate,
+            mappedRateType: typeof item.rate,
             mappedTotalValue: item.total_value,
+            mappedTotalValueType: typeof item.total_value,
             mappedVariations: item.variations,
+            mappedVariationsType: typeof item.variations,
             mappedPlanningAmount: item.planning_assigned_amount,
+            mappedPlanningAmountType: typeof item.planning_assigned_amount,
             mappedTotalIncludingVariations: item.total_including_variations,
+            mappedTotalIncludingVariationsType: typeof item.total_including_variations,
             finalItem: item,
           })
         }
@@ -468,6 +512,19 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
   const totalPages = Math.ceil(filteredItems.length / itemsPerPage)
   const startIndex = (currentPage - 1) * itemsPerPage
   const paginatedItems = filteredItems.slice(startIndex, startIndex + itemsPerPage)
+  
+  // Helper function to safely get numeric value for display
+  const getDisplayValue = (value: any): number => {
+    if (value === null || value === undefined) return 0
+    if (typeof value === 'number') {
+      return isNaN(value) || !isFinite(value) ? 0 : value
+    }
+    if (typeof value === 'string') {
+      const parsed = parseFloat(value.replace(/,/g, '').trim())
+      return isNaN(parsed) || !isFinite(parsed) ? 0 : parsed
+    }
+    return 0
+  }
   
   // Handle edit
   const handleEdit = (item: CommercialBOQItem) => {
@@ -705,7 +762,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
               <div>
                 <p className="text-sm text-gray-600 dark:text-gray-400">Total Value</p>
                 <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {formatCurrencyByCodeSync('AED', summaryStats.totalValue)}
+                  {formatCurrencyByCodeSync(summaryStats.totalValue, 'AED')}
                 </p>
               </div>
             </div>
@@ -721,7 +778,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
               <div>
                 <p className="text-sm text-gray-600 dark:text-gray-400">Total Variations</p>
                 <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {formatCurrencyByCodeSync('AED', summaryStats.totalVariations)}
+                  {formatCurrencyByCodeSync(summaryStats.totalVariations, 'AED')}
                 </p>
               </div>
             </div>
@@ -737,7 +794,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
               <div>
                 <p className="text-sm text-gray-600 dark:text-gray-400">Total Including Variations</p>
                 <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {formatCurrencyByCodeSync('AED', summaryStats.totalIncludingVariations)}
+                  {formatCurrencyByCodeSync(summaryStats.totalIncludingVariations, 'AED')}
                 </p>
               </div>
             </div>
@@ -993,9 +1050,32 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                 </tr>
               </thead>
               <tbody>
-                {paginatedItems.map((item) => {
+                {paginatedItems.map((item, index) => {
                   const isEditing = editingId === item.id
                   const isSelected = selectedIds.has(item.id)
+                  
+                  // Debug: Log values for first item on first render
+                  if (index === 0) {
+                    const displayRate = getDisplayValue(item.rate)
+                    const displayTotalValue = getDisplayValue(item.total_value)
+                    console.log('🎨 Render debug - First item values:', {
+                      itemId: item.id,
+                      rawRate: item.rate,
+                      rawRateType: typeof item.rate,
+                      displayRate: displayRate,
+                      formattedRate: formatCurrencyByCodeSync(displayRate, 'AED'),
+                      rawTotalValue: item.total_value,
+                      rawTotalValueType: typeof item.total_value,
+                      displayTotalValue: displayTotalValue,
+                      formattedTotalValue: formatCurrencyByCodeSync(displayTotalValue, 'AED'),
+                      rawVariations: item.variations,
+                      rawVariationsType: typeof item.variations,
+                      displayVariations: getDisplayValue(item.variations),
+                      rawPlanningAmount: item.planning_assigned_amount,
+                      rawPlanningAmountType: typeof item.planning_assigned_amount,
+                      displayPlanningAmount: getDisplayValue(item.planning_assigned_amount),
+                    })
+                  }
                   
                   return (
                     <tr key={item.id} className="border-b hover:bg-gray-50 dark:hover:bg-gray-800">
@@ -1075,16 +1155,16 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                             className="w-full"
                           />
                         ) : (
-                          formatCurrencyByCodeSync('AED', item.rate)
+                          formatCurrencyByCodeSync(getDisplayValue(item.rate), 'AED')
                         )}
                       </td>
                       <td className="p-2">
                         {isEditing ? (
                           <span className="text-gray-500">
-                            {formatCurrencyByCodeSync('AED', (editingData.quantity || 0) * (editingData.rate || 0))}
+                            {formatCurrencyByCodeSync((editingData.quantity || 0) * (editingData.rate || 0), 'AED')}
                           </span>
                         ) : (
-                          formatCurrencyByCodeSync('AED', item.total_value)
+                          formatCurrencyByCodeSync(getDisplayValue(item.total_value), 'AED')
                         )}
                       </td>
                       <td className="p-2">
@@ -1108,7 +1188,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                             className="w-full"
                           />
                         ) : (
-                          formatCurrencyByCodeSync('AED', item.planning_assigned_amount)
+                          formatCurrencyByCodeSync(getDisplayValue(item.planning_assigned_amount), 'AED')
                         )}
                       </td>
                       <td className="p-2">
@@ -1121,18 +1201,19 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                             className="w-full"
                           />
                         ) : (
-                          formatCurrencyByCodeSync('AED', item.variations)
+                          formatCurrencyByCodeSync(getDisplayValue(item.variations), 'AED')
                         )}
                       </td>
                       <td className="p-2">
                         {isEditing ? (
                           <span className="text-gray-500">
-                            {formatCurrencyByCodeSync('AED', 
-                              ((editingData.quantity || 0) * (editingData.rate || 0)) + (editingData.variations || 0)
+                            {formatCurrencyByCodeSync(
+                              ((editingData.quantity || 0) * (editingData.rate || 0)) + (editingData.variations || 0),
+                              'AED'
                             )}
                           </span>
                         ) : (
-                          formatCurrencyByCodeSync('AED', item.total_including_variations)
+                          formatCurrencyByCodeSync(getDisplayValue(item.total_including_variations), 'AED')
                         )}
                       </td>
                       <td className="p-2">
