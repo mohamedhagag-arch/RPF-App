@@ -3422,7 +3422,8 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     
     return { 
       totalContractValue, 
-      totalEarnedValue, 
+      totalEarnedValue,
+      totalPlannedValue: grandTotalPlannedValue,
       periodEarnedValueTotals, 
       periodPlannedValueTotals,
       grandTotalEarnedValue,
@@ -5118,7 +5119,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       </Card>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20">
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
@@ -5142,6 +5143,20 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                 </p>
               </div>
               <CheckCircle className="h-12 w-12 text-green-500 dark:text-green-400 opacity-50" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-purple-600 dark:text-purple-400">Total Planned Value</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{formatCurrency(totals.totalPlannedValue)}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  {totals.totalContractValue > 0 ? ((totals.totalPlannedValue / totals.totalContractValue) * 100).toFixed(1) : 0}% planned
+                </p>
+              </div>
+              <TrendingUp className="h-12 w-12 text-purple-500 dark:text-purple-400 opacity-50" />
             </div>
           </CardContent>
         </Card>
