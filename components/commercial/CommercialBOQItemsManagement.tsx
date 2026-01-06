@@ -30,6 +30,7 @@ import {
   Square
 } from 'lucide-react'
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
+import { buildProjectFullCode } from '@/lib/projectDataFetcher'
 import { BulkEditBOQItemsModal } from './BulkEditBOQItemsModal'
 import { AddBOQItemForm } from './AddBOQItemForm'
 
@@ -384,13 +385,18 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
       
       if (fetchError) throw fetchError
       
-      const mappedProjects = (data || []).map((row: any) => ({
-        id: row.id,
-        project_code: row['Project Code'] || '',
-        project_sub_code: row['Project Sub-Code'] || '',
-        project_name: row['Project Name'] || '',
-        project_full_code: `${row['Project Code'] || ''}${row['Project Sub-Code'] ? '-' + row['Project Sub-Code'] : ''}`,
-      } as Project))
+      const mappedProjects = (data || []).map((row: any) => {
+        const project: Project = {
+          id: row.id,
+          project_code: row['Project Code'] || '',
+          project_sub_code: row['Project Sub-Code'] || '',
+          project_name: row['Project Name'] || '',
+          project_full_code: '', // Will be set below
+        }
+        // Use buildProjectFullCode to properly construct the full code
+        project.project_full_code = buildProjectFullCode(project)
+        return project
+      })
       
       setProjects(mappedProjects)
     } catch (err: any) {

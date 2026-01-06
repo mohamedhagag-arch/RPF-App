@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { CommercialBOQItem, Project, TABLES } from '@/lib/supabase'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
+import { buildProjectFullCode } from '@/lib/projectDataFetcher'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Alert } from '@/components/ui/Alert'
@@ -59,11 +60,13 @@ export function AddBOQItemForm({
   
   // Auto-fill project name when project code is selected
   const handleProjectCodeChange = (code: string) => {
+    // Use the code directly as it's already the correct full code from the dropdown
     setProjectFullCode(code)
-    const selectedProject = projects.find(p => 
-      p.project_full_code === code || 
-      `${p.project_code}${p.project_sub_code ? '-' + p.project_sub_code : ''}` === code
-    )
+    // Find the project by matching the full code (always use buildProjectFullCode for comparison)
+    const selectedProject = projects.find(p => {
+      const projectFullCode = p.project_full_code || buildProjectFullCode(p)
+      return projectFullCode === code
+    })
     if (selectedProject) {
       setProjectName(selectedProject.project_name)
     }
@@ -212,8 +215,9 @@ export function AddBOQItemForm({
                 >
                   <option value="">Select Project...</option>
                   {projects.map((project) => {
-                    const fullCode = project.project_full_code || 
-                      `${project.project_code}${project.project_sub_code ? '-' + project.project_sub_code : ''}`
+                    // Always use buildProjectFullCode to ensure consistent formatting
+                    // This prevents duplication issues when project_full_code might be incorrectly set
+                    const fullCode = buildProjectFullCode(project)
                     return (
                       <option key={project.id} value={fullCode}>
                         {fullCode} - {project.project_name}
