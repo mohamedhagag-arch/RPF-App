@@ -527,6 +527,34 @@ class KPINotificationService {
         // Ignore auth errors
       }
 
+      // ✅ PERFORMANCE: Fetch all existing notifications in one batch query
+      console.log('📝 Fetching existing notifications in batch...')
+      const kpiIds = (pendingKPIs || []).map((kpi: any) => kpi.id).filter(Boolean)
+      
+      let existingNotificationsMap = new Map<string, boolean>()
+      
+      if (kpiIds.length > 0) {
+        // Fetch all existing notifications for these KPIs and recipients in one query
+        const { data: existingNotifications, error: checkError } = await this.supabase
+          .from('kpi_notifications')
+          .select('kpi_id, recipient_id')
+          .in('kpi_id', kpiIds)
+          .in('recipient_id', recipients)
+          .eq('notification_type', 'kpi_created')
+
+        if (checkError) {
+          console.error('❌ Error fetching existing notifications:', checkError)
+          // Continue anyway - we'll just skip duplicates if they exist
+        } else if (existingNotifications && existingNotifications.length > 0) {
+          // Create a map for fast lookup: "kpi_id|recipient_id" -> true
+          for (const notif of existingNotifications as any[]) {
+            const key = `${notif.kpi_id}|${notif.recipient_id}`
+            existingNotificationsMap.set(key, true)
+          }
+          console.log(`✅ Found ${existingNotifications.length} existing notifications`)
+        }
+      }
+
       // Create notifications for each pending KPI
       console.log('📝 Creating notifications for pending KPIs...')
       const notifications: KPINotification[] = []
@@ -538,53 +566,35 @@ class KPINotificationService {
           continue
         }
 
-        // Check if notification already exists for this KPI AND for current recipients
-        // We need to check for each recipient separately
-        const notificationsForThisKPI: KPINotification[] = []
-        
-        for (const recipientId of recipients) {
-          const { data: existingNotifications, error: checkError } = await this.supabase
-            .from('kpi_notifications')
-            .select('id, recipient_id, is_read')
-            .eq('kpi_id', kpi.id)
-            .eq('recipient_id', recipientId)
-            .eq('notification_type', 'kpi_created')
-            .limit(1)
+        const title = `KPI Needs Approval - ${kpi['Activity Name'] || 'Activity'}`
+        const message = `A ${kpi['Input Type'] || 'Actual'} KPI for project ${kpi['Project Code'] || kpi['Project Full Code'] || 'N/A'} needs your approval`
 
-          if (checkError) {
-            console.error(`Error checking existing notification for KPI ${kpi.id} and recipient ${recipientId}:`, checkError)
+        // Check for each recipient
+        for (const recipientId of recipients) {
+          const key = `${kpi.id}|${recipientId}`
+          
+          // Skip if notification already exists
+          if (existingNotificationsMap.has(key)) {
+            skippedCount++
             continue
           }
 
-          // Only create notification if it doesn't exist for this recipient
-          if (!existingNotifications || existingNotifications.length === 0) {
-            const title = `KPI Needs Approval - ${kpi['Activity Name'] || 'Activity'}`
-            const message = `A ${kpi['Input Type'] || 'Actual'} KPI for project ${kpi['Project Code'] || kpi['Project Full Code'] || 'N/A'} needs your approval`
-
-            notificationsForThisKPI.push({
-              kpi_id: kpi.id,
-              recipient_id: recipientId,
-              notification_type: 'kpi_created',
-              title,
-              message,
-              metadata: {
-                project_code: kpi['Project Code'] || kpi['Project Full Code'],
-                activity_name: kpi['Activity Name'],
-                quantity: kpi['Quantity'],
-                input_type: kpi['Input Type'],
-                approval_status: kpi['Approval Status'] || 'pending'
-              }
-            })
-          } else {
-            // Notification exists for this recipient
-            const existing = existingNotifications[0] as any
-            console.log(`ℹ️ Notification already exists for KPI ${kpi.id} and recipient ${recipientId} (is_read: ${existing.is_read})`)
-            skippedCount++
-          }
+          // Create new notification
+          notifications.push({
+            kpi_id: kpi.id,
+            recipient_id: recipientId,
+            notification_type: 'kpi_created',
+            title,
+            message,
+            metadata: {
+              project_code: kpi['Project Code'] || kpi['Project Full Code'],
+              activity_name: kpi['Activity Name'],
+              quantity: kpi['Quantity'],
+              input_type: kpi['Input Type'],
+              approval_status: kpi['Approval Status'] || 'pending'
+            }
+          })
         }
-        
-        // Add all notifications for this KPI
-        notifications.push(...notificationsForThisKPI)
       }
 
       console.log(`📊 Summary: ${notifications.length} new notifications to create, ${skippedCount} KPIs already have notifications`)

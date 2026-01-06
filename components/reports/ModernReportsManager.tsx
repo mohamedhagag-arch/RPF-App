@@ -115,6 +115,28 @@ export function ModernReportsManager() {
 
   // All data management is now in useReportsData hook
 
+  // ✅ DEBUG: Log data availability in development
+  if (process.env.NODE_ENV === 'development') {
+    console.log('📊 ModernReportsManager render:', {
+      loading,
+      error,
+      projectsCount: projects.length,
+      filteredDataCount: filteredData ? {
+        projects: filteredData.filteredProjects.length,
+        activities: filteredData.filteredActivities.length,
+        kpis: filteredData.filteredKPIs.length
+      } : null,
+      stats: stats ? {
+        totalProjects: stats.totalProjects,
+        totalActivities: stats.totalActivities,
+        totalKPIs: stats.totalKPIs,
+        totalValue: stats.totalValue,
+        earnedValue: stats.earnedValue,
+        plannedValue: stats.plannedValue
+      } : null
+    })
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">

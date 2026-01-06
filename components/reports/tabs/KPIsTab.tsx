@@ -85,13 +85,29 @@ export const KPIsTab = memo(function KPIsTab({ kpis, formatCurrency }: KPIsTabPr
                 </tr>
               </thead>
               <tbody>
-                {displayedKPIs.map((kpi: ProcessedKPI) => (
+                {displayedKPIs.map((kpi: ProcessedKPI) => {
+                  // ✅ FIX: Get activity name and project code from multiple sources
+                  const activityName = kpi.activity_name || 
+                                      (kpi as any).activity || 
+                                      (kpi as any).kpi_name || 
+                                      (kpi as any).raw?.['Activity Name'] ||
+                                      (kpi as any).raw?.['Activity'] ||
+                                      'N/A'
+                  
+                  const projectCode = kpi.project_full_code || 
+                                     (kpi as any).project_code ||
+                                     (kpi as any)['Project Full Code'] ||
+                                     (kpi as any).raw?.['Project Full Code'] ||
+                                     (kpi as any).raw?.['Project Code'] ||
+                                     'N/A'
+                  
+                  return (
                   <tr key={kpi.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
                     <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">
-                      {kpi.activity_name}
+                      {activityName}
                     </td>
                     <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">
-                      {kpi.project_full_code || (kpi as any)['Project Full Code'] || 'N/A'}
+                      {projectCode}
                     </td>
                     <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">
                       <span className={`px-2 py-1 rounded text-xs ${
@@ -108,7 +124,8 @@ export const KPIsTab = memo(function KPIsTab({ kpis, formatCurrency }: KPIsTabPr
                       {kpi.activity_date ? new Date(kpi.activity_date).toLocaleDateString() : 'N/A'}
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>

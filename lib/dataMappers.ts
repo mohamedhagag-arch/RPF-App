@@ -654,17 +654,58 @@ export function mapKPIFromDB(row: any): any {
     projectFullCode = projectCode
   }
   
+  // ✅ FIX: Try multiple sources for Activity Name
+  const activityName = (
+    row['Activity Name'] || 
+    row['Activity'] || 
+    row.activity_name || 
+    row.activity ||
+    (row as any)?.raw?.['Activity Name'] ||
+    (row as any)?.raw?.['Activity'] ||
+    ''
+  ).toString().trim()
+
+  // ✅ DEBUG: Log KPIs with missing data (first 10 only to avoid spam)
+  if (!activityName || !projectFullCode) {
+    const logCount = (globalThis as any).__kpiMissingDataLogCount || 0
+    if (logCount < 10) {
+      (globalThis as any).__kpiMissingDataLogCount = logCount + 1
+      console.warn('⚠️ KPI with missing data:', {
+        id: row.id,
+        hasActivityName: !!activityName,
+        activityName: activityName || 'MISSING',
+        hasProjectCode: !!projectCode,
+        projectCode: projectCode || 'MISSING',
+        hasProjectFullCode: !!projectFullCode,
+        projectFullCode: projectFullCode || 'MISSING',
+        rawRowKeys: Object.keys(row).slice(0, 20), // First 20 keys
+        activityNameSources: {
+          'Activity Name': row['Activity Name'],
+          'Activity': row['Activity'],
+          activity_name: row.activity_name,
+          activity: row.activity
+        },
+        projectCodeSources: {
+          'Project Code': row['Project Code'],
+          'Project Full Code': row['Project Full Code'],
+          project_code: row.project_code,
+          project_full_code: row.project_full_code
+        }
+      })
+    }
+  }
+
   const mapped = {
     id: row.id,
     project_id: row.project_id || '',
     activity_id: row.activity_id || '',
-    project_full_code: projectFullCode || projectCode,
-    project_code: projectCode,
+    project_full_code: projectFullCode || projectCode || 'N/A',
+    project_code: projectCode || 'N/A',
     project_sub_code: projectSubCode,
-    activity_name: row['Activity Name'] || '',
-    activity: row['Activity'] || row['Activity Name'] || '',
+    activity_name: activityName || 'N/A',
+    activity: activityName || 'N/A',
     activity_division: row['Activity Division'] || '', // ✅ Activity Division field
-    kpi_name: row['Activity Name'] || '', // Using activity name as KPI name
+    kpi_name: activityName || 'N/A', // Using activity name as KPI name
     quantity: quantity,
     input_type: inputType,
     section: row['Section'] || '',

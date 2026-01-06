@@ -151,6 +151,21 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   
   const today = useMemo(() => new Date(), [])
   
+  // ✅ PERFORMANCE: Pre-build map of project ID to activities for O(1) lookup
+  const projectActivitiesMap = useMemo(() => {
+    const map = new Map<string, BOQActivity[]>()
+    projects.forEach((project: Project) => {
+      const projectId = project.id
+      const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+      const projectActivities = activities.filter((activity: BOQActivity) => {
+        const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+        return activityFullCode === projectFullCode || activity.project_id === project.id
+      })
+      map.set(projectId, projectActivities)
+    })
+    return map
+  }, [projects, activities])
+  
   // ✅ PERFORMANCE: Pre-build map of division to project IDs for O(1) lookup
   const divisionToProjectIdsMap = useMemo(() => {
     const map = new Map<string, Set<string>>()
@@ -244,30 +259,99 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   
   // ✅ PERFORMANCE: Use provided analytics if available, otherwise calculate only for filtered projects
   const allAnalytics = useMemo(() => {
+    // ✅ DEBUG: Log analytics calculation
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔍 MonthlyWorkRevenueTab allAnalytics calculation:', {
+        _providedAnalyticsCount: _providedAnalytics?.length || 0,
+        filteredProjectsCount: filteredProjects.length,
+        projectsCount: projects.length,
+        activitiesCount: activities.length,
+        kpisCount: kpis.length,
+        debouncedSelectedDivisionsCount: debouncedSelectedDivisions.length
+      })
+    }
+    
+    // ✅ FIX: If _providedAnalytics exists and has data, use it (respecting division filter)
     if (_providedAnalytics && _providedAnalytics.length > 0) {
+      // If no division filter is applied, return all provided analytics
+      if (debouncedSelectedDivisions.length === 0) {
+        return _providedAnalytics
+      }
+      // Otherwise, filter by selected divisions
+      // ✅ FIX: Use projects (not filteredProjects) to get all project IDs, then filter analytics
+      const allProjectIds = new Set(projects.map((p: any) => p.id))
       const filteredProjectIds = new Set(filteredProjects.map((p: any) => p.id))
-      const filteredAnalytics = _providedAnalytics.filter((a: any) => filteredProjectIds.has(a.project.id))
+      const filteredAnalytics = _providedAnalytics.filter((a: any) => {
+        // Include if project is in filteredProjects OR if no division filter matches
+        return filteredProjectIds.has(a.project.id) || (filteredProjectIds.size === 0 && allProjectIds.has(a.project.id))
+      })
+      // ✅ FIX: Return filtered analytics, or calculate new if filter results in empty but we have projects
       if (filteredAnalytics.length > 0) {
         return filteredAnalytics
       }
+      // ✅ FIX: If filtered analytics is empty but we have projects, calculate new analytics
+      if (filteredProjects.length > 0) {
+        console.log('⚠️ Provided analytics filtered to empty, calculating new analytics...')
+        return getAllProjectsAnalytics(filteredProjects, activities, kpis)
+      }
+      return _providedAnalytics
     }
+    // ✅ FIX: If no provided analytics, calculate from filtered projects or all projects
     if (filteredProjects.length === 0) {
+      // ✅ FIX: If no division filter, use all projects
+      if (debouncedSelectedDivisions.length === 0 && projects.length > 0) {
+        console.log('⚠️ No filtered projects but have projects, calculating analytics from all projects...')
+        return getAllProjectsAnalytics(projects, activities, kpis)
+      }
       return []
     }
+    console.log('⚠️ Calculating analytics from filtered projects...')
     return getAllProjectsAnalytics(filteredProjects, activities, kpis)
-  }, [_providedAnalytics, filteredProjects, activities, kpis])
+  }, [_providedAnalytics, filteredProjects, projects, activities, kpis, debouncedSelectedDivisions])
   
   // Pre-filter KPIs by project for performance
+  // ✅ FIX: Use exact matching with project_full_code to differentiate similar projects
   const projectKPIsMap = useMemo(() => {
     const map = new Map<string, { actual: any[]; planned: any[] }>()
     projects.forEach((project: Project) => {
+      // ✅ Build project_full_code exactly as it should be
+      const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+      const projectCode = (project.project_code || '').toString().trim().toUpperCase()
+      const projectSubCode = (project.project_sub_code || '').toString().trim().toUpperCase()
+      const projectId = project.id
+      
       const projectKPIs = kpis.filter((kpi: any) => {
-        const kpiProjectCode = (kpi.project_code || '').toLowerCase().trim()
-        const kpiProjectFullCode = (kpi.project_full_code || kpi.project_code || '').toLowerCase().trim()
-        const projectCode = (project.project_code || '').toLowerCase().trim()
-        const projectFullCode = (project.project_full_code || project.project_code || '').toLowerCase().trim()
-        return kpiProjectCode === projectCode || kpiProjectFullCode === projectFullCode
+        const rawKPI = (kpi as any).raw || {}
+        const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+        const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+        const kpiProjectSubCode = (kpi.project_sub_code || rawKPI['Project Sub Code'] || '').toString().trim().toUpperCase()
+        const kpiProjectId = (kpi as any).project_id || ''
+        
+        // ✅ PRIORITY 1: Exact match by project_full_code (most accurate)
+        if (kpiProjectFullCode && projectFullCode && kpiProjectFullCode === projectFullCode) {
+          return true
+        }
+        
+        // ✅ PRIORITY 2: Match by project_id (if available)
+        if (projectId && kpiProjectId && projectId === kpiProjectId) {
+          return true
+        }
+        
+        // ✅ PRIORITY 3: Match by project_code + project_sub_code (for projects with sub codes)
+        if (projectSubCode && kpiProjectSubCode) {
+          if (kpiProjectCode === projectCode && kpiProjectSubCode === projectSubCode) {
+            return true
+          }
+        }
+        
+        // ✅ PRIORITY 4: Match by project_code only (fallback for projects without sub codes)
+        if (!projectSubCode && kpiProjectCode === projectCode && !kpiProjectSubCode) {
+          return true
+        }
+        
+        return false
       })
+      
       const actualKPIs = projectKPIs.filter((kpi: any) => {
         const inputType = String(kpi.input_type || (kpi as any).raw?.['Input Type'] || '').trim().toLowerCase()
         return inputType === 'actual'
@@ -407,12 +491,28 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
            ''
   }, [])
   
-  // Divisions data map
+  // Divisions data map - using unique key (project_full_code + project_name) to differentiate similar projects
+  // ✅ FIX: Use projectActivitiesMap instead of analytics.activities for accurate activity matching
   const divisionsDataMap = useMemo(() => {
     const map = new Map<string, { divisionAmounts: Record<string, number>, divisionNames: Record<string, string> }>()
-    allAnalytics.forEach((analytics: any) => {
-      const project = analytics.project
-      const projectActivities = analytics.activities || []
+    
+    // Use projects directly and match activities using projectActivitiesMap
+    projects.forEach((project: Project) => {
+      const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+      const projectName = (project.project_name || '').toString().trim()
+      // ✅ Use unique key combining project_full_code and project_name for exact matching
+      const uniqueKey = `${projectFullCode}|${projectName}`
+      
+      // ✅ FIX: Get activities from projectActivitiesMap using project.id for accurate matching
+      // Also verify activity matches project_full_code to ensure correct matching
+      const projectActivitiesFromMap = projectActivitiesMap.get(project.id) || []
+      
+      // ✅ DOUBLE CHECK: Filter activities to ensure they match this specific project's full code
+      const projectActivities = projectActivitiesFromMap.filter((activity: BOQActivity) => {
+        const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+        return activityFullCode === projectFullCode || activity.project_id === project.id
+      })
+      
       const divisionAmounts: Record<string, number> = {}
       const divisionNames: Record<string, string> = {}
       
@@ -434,10 +534,10 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         }
       })
       
-      map.set(project.id, { divisionAmounts, divisionNames })
+      map.set(uniqueKey, { divisionAmounts, divisionNames })
     })
     return map
-  }, [allAnalytics])
+  }, [projects, projectActivitiesMap])
   
   // Weeks data (for weekly period type)
   const weeks = useMemo(() => {
@@ -467,8 +567,43 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   // ✅ FIX: analytics.activities is already filtered by divisions in getCachedPeriodValues
   // So we should use analytics.activities directly without filtering again
   const calculatePeriodEarnedValue = useCallback((project: Project, analytics: any): number[] => {
+    // ✅ FIX: Get KPIs from projectKPIsMap, but also verify they match this specific project
     const projectKPIs = projectKPIsMap.get(project.id)
-    const allProjectKPIs = projectKPIs?.actual || []
+    let allProjectKPIs = projectKPIs?.actual || []
+    
+    // ✅ DOUBLE CHECK: Filter KPIs to ensure they match this specific project's full code
+    const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+    const projectCode = (project.project_code || '').toString().trim().toUpperCase()
+    const projectSubCode = (project.project_sub_code || '').toString().trim().toUpperCase()
+    const projectId = project.id
+    
+    allProjectKPIs = allProjectKPIs.filter((kpi: any) => {
+      const rawKPI = (kpi as any).raw || {}
+      const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+      const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+      const kpiProjectSubCode = (kpi.project_sub_code || rawKPI['Project Sub Code'] || '').toString().trim().toUpperCase()
+      const kpiProjectId = (kpi as any).project_id || ''
+      
+      // ✅ PRIORITY 1: Exact match by project_full_code
+      if (kpiProjectFullCode && projectFullCode && kpiProjectFullCode === projectFullCode) {
+        return true
+      }
+      
+      // ✅ PRIORITY 2: Match by project_id
+      if (projectId && kpiProjectId && projectId === kpiProjectId) {
+        return true
+      }
+      
+      // ✅ PRIORITY 3: Match by project_code + project_sub_code
+      if (projectSubCode && kpiProjectSubCode) {
+        if (kpiProjectCode === projectCode && kpiProjectSubCode === projectSubCode) {
+          return true
+        }
+      }
+      
+      return false
+    })
+    
     // ✅ FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
     const projectActivities = analytics.activities || []
     
@@ -652,8 +787,42 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   // ✅ FIX: analytics.activities is already filtered by divisions in getCachedPeriodValues
   // So we should use analytics.activities directly without filtering again
   const calculatePeriodVirtualMaterialAmount = useCallback((project: Project, analytics: any): number[] => {
+    // ✅ FIX: Get KPIs from projectKPIsMap, but also verify they match this specific project
     const projectKPIs = projectKPIsMap.get(project.id)
-    const allProjectKPIs = projectKPIs?.actual || []
+    let allProjectKPIs = projectKPIs?.actual || []
+    
+    // ✅ DOUBLE CHECK: Filter KPIs to ensure they match this specific project's full code
+    const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+    const projectCode = (project.project_code || '').toString().trim().toUpperCase()
+    const projectSubCode = (project.project_sub_code || '').toString().trim().toUpperCase()
+    const projectId = project.id
+    
+    allProjectKPIs = allProjectKPIs.filter((kpi: any) => {
+      const rawKPI = (kpi as any).raw || {}
+      const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+      const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+      const kpiProjectSubCode = (kpi.project_sub_code || rawKPI['Project Sub Code'] || '').toString().trim().toUpperCase()
+      const kpiProjectId = (kpi as any).project_id || ''
+      
+      // ✅ PRIORITY 1: Exact match by project_full_code
+      if (kpiProjectFullCode && projectFullCode && kpiProjectFullCode === projectFullCode) {
+        return true
+      }
+      
+      // ✅ PRIORITY 2: Match by project_id
+      if (projectId && kpiProjectId && projectId === kpiProjectId) {
+        return true
+      }
+      
+      // ✅ PRIORITY 3: Match by project_code + project_sub_code
+      if (projectSubCode && kpiProjectSubCode) {
+        if (kpiProjectCode === projectCode && kpiProjectSubCode === projectSubCode) {
+          return true
+        }
+      }
+      
+      return false
+    })
     // ✅ FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
     const projectActivities = analytics.activities || []
     
@@ -869,8 +1038,43 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   // ✅ FIX: analytics.activities is already filtered by divisions in getCachedPeriodValues
   // So we should use analytics.activities directly without filtering again
   const calculatePeriodPlannedValue = useCallback((project: Project, analytics: any): number[] => {
+    // ✅ FIX: Get KPIs from projectKPIsMap, but also verify they match this specific project
     const projectKPIs = projectKPIsMap.get(project.id)
-    const allProjectKPIs = projectKPIs?.planned || []
+    let allProjectKPIs = projectKPIs?.planned || []
+    
+    // ✅ DOUBLE CHECK: Filter KPIs to ensure they match this specific project's full code
+    const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+    const projectCode = (project.project_code || '').toString().trim().toUpperCase()
+    const projectSubCode = (project.project_sub_code || '').toString().trim().toUpperCase()
+    const projectId = project.id
+    
+    allProjectKPIs = allProjectKPIs.filter((kpi: any) => {
+      const rawKPI = (kpi as any).raw || {}
+      const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+      const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+      const kpiProjectSubCode = (kpi.project_sub_code || rawKPI['Project Sub Code'] || '').toString().trim().toUpperCase()
+      const kpiProjectId = (kpi as any).project_id || ''
+      
+      // ✅ PRIORITY 1: Exact match by project_full_code
+      if (kpiProjectFullCode && projectFullCode && kpiProjectFullCode === projectFullCode) {
+        return true
+      }
+      
+      // ✅ PRIORITY 2: Match by project_id
+      if (projectId && kpiProjectId && projectId === kpiProjectId) {
+        return true
+      }
+      
+      // ✅ PRIORITY 3: Match by project_code + project_sub_code
+      if (projectSubCode && kpiProjectSubCode) {
+        if (kpiProjectCode === projectCode && kpiProjectSubCode === projectSubCode) {
+          return true
+        }
+      }
+      
+      return false
+    })
+    
     // ✅ FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
     const projectActivities = analytics.activities || []
     
@@ -1075,7 +1279,40 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     
     // ✅ PERFORMANCE: Use pre-filtered KPIs instead of filtering every time
     const projectKPIs = projectKPIsMap.get(project.id)
-    const allProjectKPIs = projectKPIs?.actual || []
+    let allProjectKPIs = projectKPIs?.actual || []
+    
+    // ✅ DOUBLE CHECK: Filter KPIs to ensure they match this specific project's full code
+    const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+    const projectCode = (project.project_code || '').toString().trim().toUpperCase()
+    const projectSubCode = (project.project_sub_code || '').toString().trim().toUpperCase()
+    const projectId = project.id
+    
+    allProjectKPIs = allProjectKPIs.filter((kpi: any) => {
+      const rawKPI = (kpi as any).raw || {}
+      const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+      const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+      const kpiProjectSubCode = (kpi.project_sub_code || rawKPI['Project Sub Code'] || '').toString().trim().toUpperCase()
+      const kpiProjectId = (kpi as any).project_id || ''
+      
+      // ✅ PRIORITY 1: Exact match by project_full_code
+      if (kpiProjectFullCode && projectFullCode && kpiProjectFullCode === projectFullCode) {
+        return true
+      }
+      
+      // ✅ PRIORITY 2: Match by project_id
+      if (projectId && kpiProjectId && projectId === kpiProjectId) {
+        return true
+      }
+      
+      // ✅ PRIORITY 3: Match by project_code + project_sub_code
+      if (projectSubCode && kpiProjectSubCode) {
+        if (kpiProjectCode === projectCode && kpiProjectSubCode === projectSubCode) {
+          return true
+        }
+      }
+      
+      return false
+    })
     
     try {
       const outerStart = new Date(outerRangeStart)
@@ -1290,7 +1527,40 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     
     // ✅ PERFORMANCE: Use pre-filtered KPIs instead of filtering every time
     const projectKPIs = projectKPIsMap.get(project.id)
-    const allProjectKPIs = projectKPIs?.planned || []
+    let allProjectKPIs = projectKPIs?.planned || []
+    
+    // ✅ DOUBLE CHECK: Filter KPIs to ensure they match this specific project's full code
+    const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+    const projectCode = (project.project_code || '').toString().trim().toUpperCase()
+    const projectSubCode = (project.project_sub_code || '').toString().trim().toUpperCase()
+    const projectId = project.id
+    
+    allProjectKPIs = allProjectKPIs.filter((kpi: any) => {
+      const rawKPI = (kpi as any).raw || {}
+      const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+      const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+      const kpiProjectSubCode = (kpi.project_sub_code || rawKPI['Project Sub Code'] || '').toString().trim().toUpperCase()
+      const kpiProjectId = (kpi as any).project_id || ''
+      
+      // ✅ PRIORITY 1: Exact match by project_full_code
+      if (kpiProjectFullCode && projectFullCode && kpiProjectFullCode === projectFullCode) {
+        return true
+      }
+      
+      // ✅ PRIORITY 2: Match by project_id
+      if (projectId && kpiProjectId && projectId === kpiProjectId) {
+        return true
+      }
+      
+      // ✅ PRIORITY 3: Match by project_code + project_sub_code
+      if (projectSubCode && kpiProjectSubCode) {
+        if (kpiProjectCode === projectCode && kpiProjectSubCode === projectSubCode) {
+          return true
+        }
+      }
+      
+      return false
+    })
     
     try {
       const outerStart = new Date(outerRangeStart)
@@ -1944,8 +2214,42 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   // ✅ FIX: analytics.activities is already filtered by divisions in getCachedPeriodValues
   // So we should use analytics.activities directly without filtering again
   const calculatePeriodPlannedVirtualMaterialAmount = useCallback((project: Project, analytics: any): number[] => {
+    // ✅ FIX: Get KPIs from projectKPIsMap, but also verify they match this specific project
     const projectKPIs = projectKPIsMap.get(project.id)
-    const allProjectKPIs = projectKPIs?.planned || []
+    let allProjectKPIs = projectKPIs?.planned || []
+    
+    // ✅ DOUBLE CHECK: Filter KPIs to ensure they match this specific project's full code
+    const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+    const projectCode = (project.project_code || '').toString().trim().toUpperCase()
+    const projectSubCode = (project.project_sub_code || '').toString().trim().toUpperCase()
+    const projectId = project.id
+    
+    allProjectKPIs = allProjectKPIs.filter((kpi: any) => {
+      const rawKPI = (kpi as any).raw || {}
+      const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
+      const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
+      const kpiProjectSubCode = (kpi.project_sub_code || rawKPI['Project Sub Code'] || '').toString().trim().toUpperCase()
+      const kpiProjectId = (kpi as any).project_id || ''
+      
+      // ✅ PRIORITY 1: Exact match by project_full_code
+      if (kpiProjectFullCode && projectFullCode && kpiProjectFullCode === projectFullCode) {
+        return true
+      }
+      
+      // ✅ PRIORITY 2: Match by project_id
+      if (projectId && kpiProjectId && projectId === kpiProjectId) {
+        return true
+      }
+      
+      // ✅ PRIORITY 3: Match by project_code + project_sub_code
+      if (projectSubCode && kpiProjectSubCode) {
+        if (kpiProjectCode === projectCode && kpiProjectSubCode === projectSubCode) {
+          return true
+        }
+      }
+      
+      return false
+    })
     // ✅ FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
     const projectActivities = analytics.activities || []
     
@@ -2432,18 +2736,37 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   
   // ✅ PERFORMANCE: Calculate values lazily only for projects that need to be displayed
   // This function is called when we need a project's values
+  // ✅ FIX: Use unique key (project_full_code + project_name) instead of projectId for exact matching
   const getCachedPeriodValues = useCallback((projectId: string, analytics: any): { earned: number[], planned: number[], outerRangeValue: number, outerRangePlannedValue: number, outerRangeVirtualMaterialAmount: number, outerRangePlannedVirtualMaterialAmount: number, virtualMaterialAmount: number[], plannedVirtualMaterialAmount: number[] } => {
+    const project = analytics.project
+    // ✅ FIX: Use unique key combining project_full_code and project_name for exact matching
+    const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+    const projectName = (project.project_name || '').toString().trim()
+    const uniqueProjectKey = `${projectFullCode}|${projectName}`
+    
     // ✅ PERFORMANCE: Include debouncedSelectedDivisions in cache key
-    const periodCacheKey = `${projectId}-${debouncedSelectedDivisions.sort().join(',')}`
+    const periodCacheKey = `${uniqueProjectKey}-${debouncedSelectedDivisions.sort().join(',')}`
     // Check if already cached
     if (periodValuesCache.current.has(periodCacheKey)) {
       return periodValuesCache.current.get(periodCacheKey)!
     }
     
     // ✅ PERFORMANCE: Calculate and cache with debounced divisions
-    let filteredAnalytics = analytics
+    // ✅ FIX: Use projectActivitiesMap to get accurate activities for this specific project
+    const projectActivities = projectActivitiesMap.get(project.id) || []
+    // ✅ DOUBLE CHECK: Filter activities to ensure they match this specific project's full code
+    const filteredProjectActivities = projectActivities.filter((activity: BOQActivity) => {
+      const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+      return activityFullCode === projectFullCode || activity.project_id === project.id
+    })
+    
+    let filteredAnalytics = {
+      ...analytics,
+      activities: filteredProjectActivities
+    }
+    
     if (debouncedSelectedDivisions.length > 0) {
-      const filteredActivities = (analytics.activities || []).filter((activity: BOQActivity) => {
+      const filteredActivities = filteredProjectActivities.filter((activity: BOQActivity) => {
         const rawActivity = (activity as any).raw || {}
         const division = activity.activity_division || 
                        (activity as any)['Activity Division'] || 
@@ -2477,10 +2800,10 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     
     const values = { earned: earnedValues, planned: plannedValues, outerRangeValue, outerRangePlannedValue, outerRangeVirtualMaterialAmount, outerRangePlannedVirtualMaterialAmount, virtualMaterialAmount, plannedVirtualMaterialAmount }
     // ✅ PERFORMANCE: Include debouncedSelectedDivisions in cache key
-    const periodCacheKeyFinal = `${projectId}-${debouncedSelectedDivisions.sort().join(',')}`
+    const periodCacheKeyFinal = `${uniqueProjectKey}-${debouncedSelectedDivisions.sort().join(',')}`
     periodValuesCache.current.set(periodCacheKeyFinal, values)
     return values
-  }, [debouncedSelectedDivisions, calculatePeriodEarnedValue, calculatePeriodPlannedValue, viewPlannedValue, showOuterRangeColumn, calculateOuterRangeValue, calculateOuterRangePlannedValue, calculateOuterRangeVirtualMaterialAmount, calculateOuterRangePlannedVirtualMaterialAmount, showVirtualMaterialValues, calculatePeriodVirtualMaterialAmount, calculatePeriodPlannedVirtualMaterialAmount])
+  }, [debouncedSelectedDivisions, calculatePeriodEarnedValue, calculatePeriodPlannedValue, viewPlannedValue, showOuterRangeColumn, calculateOuterRangeValue, calculateOuterRangePlannedValue, calculateOuterRangeVirtualMaterialAmount, calculateOuterRangePlannedVirtualMaterialAmount, showVirtualMaterialValues, calculatePeriodVirtualMaterialAmount, calculatePeriodPlannedVirtualMaterialAmount, projectActivitiesMap])
 
   // ✅ PERFORMANCE: Show ALL projects from allAnalytics, regardless of date range or KPIs
   // The date range filter only affects which periods show data in the table, not which projects are displayed
@@ -2789,12 +3112,10 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
             
             if (isExpanded) {
               // ✅ Project is expanded: calculate sum of activities' VM (which is what the project row displays)
-      const project = analytics.project
-              const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
-              const projectActivities = activities.filter((activity: BOQActivity) => {
-                const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
-                return activityFullCode === projectFullCode || activity.project_id === project.id
-              })
+              const project = analytics.project
+              const projectId = project.id
+              // ✅ PERFORMANCE: Use pre-computed map instead of filtering activities repeatedly
+              const projectActivities = projectActivitiesMap.get(projectId) || []
               
               // Calculate sum of activities' VM for all periods
               projectActivities.forEach((activity: BOQActivity) => {
@@ -2981,11 +3302,10 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
             if (isExpanded) {
               // ✅ Project is expanded: calculate sum of activities' Planned VM (which is what the project row displays)
               const project = analytics.project
+              const projectId = project.id
+              // ✅ PERFORMANCE: Use pre-computed map instead of filtering activities repeatedly
+              const projectActivities = projectActivitiesMap.get(projectId) || []
               const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
-              const projectActivities = activities.filter((activity: BOQActivity) => {
-                const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
-                return activityFullCode === projectFullCode || activity.project_id === project.id
-              })
               
               // Calculate sum of activities' Planned VM for all periods
               projectActivities.forEach((activity: BOQActivity) => {
@@ -3114,7 +3434,18 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
 
   // Export to Excel function with advanced formatting
   const handleExportPeriodRevenue = useCallback(async () => {
-    if (projectsWithWorkInRange.length === 0) {
+    // ✅ FIX: Filter projects based on hideZeroProjects setting
+    let projectsToExport = projectsWithWorkInRange
+    if (hideZeroProjects) {
+      projectsToExport = projectsWithWorkInRange.filter((analytics: any) => {
+        const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
+        const periodValues = cachedValues?.earned || []
+        const grandTotal = periodValues.reduce((sum: number, val: number) => sum + val, 0)
+        return grandTotal > 0
+      })
+    }
+    
+    if (projectsToExport.length === 0) {
       alert('No data to export')
       return
     }
@@ -3126,38 +3457,115 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       // Prepare data for Excel export
       const exportData: any[] = []
 
-      // Add header row
-      const headerRow: any = {
-        'Project Full Name': 'Project Full Name',
-        'Scope': 'Scope',
-        'Workmanship?': 'Workmanship?',
-        'Total Contract Amount': 'Total Contract Amount',
-        'Division Contract Amount': 'Division Contract Amount',
-        'Virtual Material': 'Virtual Material'
+      // Build header row array for manual header setting (to avoid double headers)
+      // ✅ FIX: Apply column visibility settings
+      const headerValues: string[] = [
+        'Project Full Name'
+      ]
+      
+      // Add Scope column only if not hidden
+      if (!hideDivisionsColumn) {
+        headerValues.push('Scope')
       }
       
-      // ✅ Add Outer Range column if enabled
+      headerValues.push('Workmanship?')
+      
+      // Add Total Contract Amount column only if not hidden
+      if (!hideTotalContractColumn) {
+        headerValues.push('Total Contract Amount')
+      }
+      
+      headerValues.push('Division Contract Amount')
+      
+      // Add Virtual Material column only if not hidden
+      if (!hideVirtualMaterialColumn) {
+        headerValues.push('Virtual Material')
+      }
+      
+      // ✅ Add Outer Range column(s) if enabled
       if (showOuterRangeColumn && outerRangeStart) {
         const outerRangeEndDate = dateRange.start || (periods.length > 0 ? periods[0].start.toISOString().split('T')[0] : null)
         const outerRangeLabel = outerRangeEndDate 
           ? `Outer Range (${new Date(outerRangeStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${new Date(outerRangeEndDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
           : 'Outer Range (Before Period)'
-        headerRow['Outer Range'] = outerRangeLabel
+        if (viewPlannedValue) {
+          headerValues.push(`${outerRangeLabel} - Actual`)
+          headerValues.push(`${outerRangeLabel} - Planned`)
+        } else {
+          headerValues.push(outerRangeLabel)
+        }
       }
       
-      // Add period columns
+      // Add period columns (Actual and Planned if viewPlannedValue is enabled)
       const periodHeaders: string[] = []
       periods.forEach((period, index) => {
         const periodLabel = period.label || `${periodType.charAt(0).toUpperCase() + periodType.slice(1)} ${index + 1} (${period.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${period.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })})`
         periodHeaders.push(periodLabel)
-        headerRow[periodLabel] = period.label || `${periodType.charAt(0).toUpperCase() + periodType.slice(1)} ${index + 1}`
+        if (viewPlannedValue) {
+          headerValues.push(`${periodLabel} - Actual`)
+          headerValues.push(`${periodLabel} - Planned`)
+        } else {
+          headerValues.push(periodLabel)
+        }
       })
       
-      headerRow['Grand Total'] = 'Grand Total'
-      exportData.push(headerRow)
+      // Add Grand Total column(s)
+      if (viewPlannedValue) {
+        headerValues.push('Grand Total - Actual')
+        headerValues.push('Grand Total - Planned')
+      } else {
+        headerValues.push('Grand Total')
+      }
+      
+      // Build header keys object for data rows (to match column order)
+      // ✅ FIX: Apply column visibility settings
+      const headerKeys: string[] = [
+        'Project Full Name'
+      ]
+      
+      // Add Scope column only if not hidden
+      if (!hideDivisionsColumn) {
+        headerKeys.push('Scope')
+      }
+      
+      headerKeys.push('Workmanship?')
+      
+      // Add Total Contract Amount column only if not hidden
+      if (!hideTotalContractColumn) {
+        headerKeys.push('Total Contract Amount')
+      }
+      
+      headerKeys.push('Division Contract Amount')
+      
+      // Add Virtual Material column only if not hidden
+      if (!hideVirtualMaterialColumn) {
+        headerKeys.push('Virtual Material')
+      }
+      if (showOuterRangeColumn && outerRangeStart) {
+        if (viewPlannedValue) {
+          headerKeys.push('Outer Range - Actual')
+          headerKeys.push('Outer Range - Planned')
+        } else {
+          headerKeys.push('Outer Range')
+        }
+      }
+      periodHeaders.forEach(periodLabel => {
+        if (viewPlannedValue) {
+          headerKeys.push(`${periodLabel} - Actual`)
+          headerKeys.push(`${periodLabel} - Planned`)
+        } else {
+          headerKeys.push(periodLabel)
+        }
+      })
+      if (viewPlannedValue) {
+        headerKeys.push('Grand Total - Actual')
+        headerKeys.push('Grand Total - Planned')
+      } else {
+        headerKeys.push('Grand Total')
+      }
 
-      // Add data rows
-      projectsWithWorkInRange.forEach((analytics: any) => {
+      // Add data rows - use filtered projects based on hideZeroProjects
+      projectsToExport.forEach((analytics: any) => {
         const project = analytics.project
         
         // Calculate Total Contract Amount
@@ -3170,8 +3578,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         ).replace(/,/g, '')) || 0
         const totalContractAmount = contractAmt + variationsAmt
         
-        // Get Division Contract Amount data
-        const divisionsData = divisionsDataMap.get(project.id)
+        // Get Division Contract Amount data - using unique key for exact matching
+        const projectFullCodeUpper = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+        const projectName = (project.project_name || '').toString().trim()
+        const uniqueKey = `${projectFullCodeUpper}|${projectName}`
+        const divisionsData = divisionsDataMap.get(uniqueKey)
         const divisionAmounts = divisionsData?.divisionAmounts || {}
         const divisionNames = divisionsData?.divisionNames || {}
         
@@ -3209,12 +3620,28 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         // ✅ PERFORMANCE: Get period values from cache
         const cachedValues = getCachedPeriodValues(project.id, analytics)
         const periodValues = cachedValues?.earned || []
-        const grandTotal = periodValues.reduce((sum: number, val: number) => sum + val, 0)
+        const periodPlannedValues = viewPlannedValue ? (cachedValues?.planned || []) : []
+        const virtualMaterialAmounts = showVirtualMaterialValues ? (cachedValues?.virtualMaterialAmount || []) : []
+        const plannedVirtualMaterialAmounts = showVirtualMaterialValues && viewPlannedValue ? (cachedValues?.plannedVirtualMaterialAmount || []) : []
         
+        // ✅ FIX: Calculate Grand Total with Virtual Material if showVirtualMaterialValues is enabled
+        let grandTotal = periodValues.reduce((sum: number, val: number) => sum + val, 0)
+        if (showVirtualMaterialValues) {
+          const totalVirtualMaterial = virtualMaterialAmounts.reduce((sum: number, val: number) => sum + val, 0)
+          grandTotal = grandTotal + totalVirtualMaterial
+        }
+        
+        let grandTotalPlanned = viewPlannedValue ? periodPlannedValues.reduce((sum: number, val: number) => sum + val, 0) : 0
+        if (showVirtualMaterialValues && viewPlannedValue) {
+          const totalPlannedVirtualMaterial = plannedVirtualMaterialAmounts.reduce((sum: number, val: number) => sum + val, 0)
+          grandTotalPlanned = grandTotalPlanned + totalPlannedVirtualMaterial
+        }
+        
+        // Get project full code for display (without uppercase)
         const projectFullCode = project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`
         const projectDisplayName = `${projectFullCode} - ${project.project_name}`
         
-        // Calculate Virtual Material
+        // Calculate Virtual Material (for Virtual Material column if not hidden)
         let virtualMaterialPercentage = 0
         const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
         
@@ -3234,64 +3661,232 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           ? grandTotal * (virtualMaterialPercentage / 100)
           : 0
         
-        // Create row object
-        const row: any = {
-          'Project Full Name': projectDisplayName,
-          'Scope': divisionsText, // Changed from 'Divisions' to 'Scope' for consistency
-          'Workmanship?': isWorkmanship ? 'Yes' : 'No',
-          'Total Contract Amount': totalContractAmount,
-          'Division Contract Amount': divisionContractAmount,
-          'Virtual Material': virtualMaterialAmount
+        // Create row object using headerKeys to maintain column order
+        const row: any = {}
+        row['Project Full Name'] = projectDisplayName
+        
+        // Add Scope column only if not hidden
+        if (!hideDivisionsColumn) {
+          row['Scope'] = divisionsText
         }
         
-        // ✅ Add Outer Range value if enabled
+        row['Workmanship?'] = isWorkmanship ? 'Yes' : 'No'
+        
+        // Add Total Contract Amount column only if not hidden
+        if (!hideTotalContractColumn) {
+          row['Total Contract Amount'] = totalContractAmount
+        }
+        
+        row['Division Contract Amount'] = divisionContractAmount
+        
+        // Add Virtual Material column only if not hidden
+        if (!hideVirtualMaterialColumn) {
+          row['Virtual Material'] = virtualMaterialAmount
+        }
+        
+        // ✅ Add Outer Range value(s) if enabled
         if (showOuterRangeColumn && outerRangeStart) {
           const outerRangeValue = cachedValues?.outerRangeValue || 0
-          row['Outer Range'] = outerRangeValue
+          const outerRangePlannedValue = viewPlannedValue ? (cachedValues?.outerRangePlannedValue || 0) : 0
+          if (viewPlannedValue) {
+            row['Outer Range - Actual'] = outerRangeValue
+            row['Outer Range - Planned'] = outerRangePlannedValue
+          } else {
+            row['Outer Range'] = outerRangeValue
+          }
         }
         
-        // Add period values
+        // Add period values (Actual and Planned if enabled)
+        // ✅ FIX: Add Virtual Material values if showVirtualMaterialValues is enabled
         periodHeaders.forEach((periodLabel, index) => {
-          row[periodLabel] = periodValues[index] || 0
+          if (viewPlannedValue) {
+            let actualValue = periodValues[index] || 0
+            let plannedValue = periodPlannedValues[index] || 0
+            
+            // Add Virtual Material values if enabled
+            if (showVirtualMaterialValues) {
+              actualValue += (virtualMaterialAmounts[index] || 0)
+              plannedValue += (plannedVirtualMaterialAmounts[index] || 0)
+            }
+            
+            row[`${periodLabel} - Actual`] = actualValue
+            row[`${periodLabel} - Planned`] = plannedValue
+          } else {
+            let actualValue = periodValues[index] || 0
+            
+            // Add Virtual Material values if enabled
+            if (showVirtualMaterialValues) {
+              actualValue += (virtualMaterialAmounts[index] || 0)
+            }
+            
+            row[periodLabel] = actualValue
+          }
         })
         
-        row['Grand Total'] = grandTotal
+        // Add Grand Total
+        if (viewPlannedValue) {
+          row['Grand Total - Actual'] = grandTotal
+          row['Grand Total - Planned'] = grandTotalPlanned
+        } else {
+          row['Grand Total'] = grandTotal
+        }
         exportData.push(row)
       })
 
-      // Add totals row (will be replaced with formulas later)
-      const totalsRow: any = {
-        'Project Full Name': 'TOTAL',
-        'Scope': '', // Changed from 'Divisions' to 'Scope' for consistency
-        'Workmanship?': '',
-        'Total Contract Amount': 0, // Will be replaced with formula
-        'Division Contract Amount': 0, // Will be replaced with formula
-        'Virtual Material': totals.totalVirtualMaterialAmount
+      // ✅ FIX: Add totals row with correct values from totals object
+      const totalsRow: any = {}
+      totalsRow['Project Full Name'] = 'GRAND TOTAL'
+      
+      // Add Scope column only if not hidden
+      if (!hideDivisionsColumn) {
+        totalsRow['Scope'] = ''
       }
       
-      // ✅ Add Outer Range total if enabled
+      totalsRow['Workmanship?'] = ''
+      
+      // Add Total Contract Amount column only if not hidden
+      if (!hideTotalContractColumn) {
+        totalsRow['Total Contract Amount'] = totals.totalContractValue
+      }
+      
+      totalsRow['Division Contract Amount'] = 0 // Will be replaced with formula
+      
+      // Add Virtual Material column only if not hidden
+      if (!hideVirtualMaterialColumn) {
+        totalsRow['Virtual Material'] = totals.totalVirtualMaterialAmount
+      }
+      
+      // ✅ Add Outer Range total(s) if enabled
       if (showOuterRangeColumn && outerRangeStart) {
-        const totalOuterRangeValue = projectsWithWorkInRange.reduce((sum: number, analytics: any) => {
+        const totalOuterRangeValue = projectsToExport.reduce((sum: number, analytics: any) => {
           const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
-          return sum + (cachedValues?.outerRangeValue || 0)
+          let outerRangeValue = cachedValues?.outerRangeValue || 0
+          // Add Virtual Material if enabled
+          if (showVirtualMaterialValues) {
+            outerRangeValue += (cachedValues?.outerRangeVirtualMaterialAmount || 0)
+          }
+          return sum + outerRangeValue
         }, 0)
-        totalsRow['Outer Range'] = totalOuterRangeValue // Will be replaced with formula
+        const totalOuterRangePlannedValue = viewPlannedValue ? projectsToExport.reduce((sum: number, analytics: any) => {
+          const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
+          let outerRangePlannedValue = cachedValues?.outerRangePlannedValue || 0
+          // Add Virtual Material if enabled
+          if (showVirtualMaterialValues) {
+            outerRangePlannedValue += (cachedValues?.outerRangePlannedVirtualMaterialAmount || 0)
+          }
+          return sum + outerRangePlannedValue
+        }, 0) : 0
+        if (viewPlannedValue) {
+          totalsRow['Outer Range - Actual'] = totalOuterRangeValue // Will be replaced with formula
+          totalsRow['Outer Range - Planned'] = totalOuterRangePlannedValue // Will be replaced with formula
+        } else {
+          totalsRow['Outer Range'] = totalOuterRangeValue // Will be replaced with formula
+        }
       }
       
+      // ✅ FIX: Use period totals from totals object (Actual and Planned if enabled)
+      // ✅ FIX: Add Virtual Material values if showVirtualMaterialValues is enabled
       periodHeaders.forEach((periodLabel, index) => {
-        totalsRow[periodLabel] = 0 // Will be replaced with formula
+        if (viewPlannedValue) {
+          let actualTotal = totals.periodEarnedValueTotals[index] || 0
+          let plannedTotal = totals.periodPlannedValueTotals?.[index] || 0
+          
+          // Add Virtual Material totals if enabled
+          if (showVirtualMaterialValues) {
+            const periodVirtualMaterialTotal = projectsToExport.reduce((sum: number, analytics: any) => {
+              const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
+              return sum + (cachedValues?.virtualMaterialAmount?.[index] || 0)
+            }, 0)
+            const periodPlannedVirtualMaterialTotal = projectsToExport.reduce((sum: number, analytics: any) => {
+              const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
+              return sum + (cachedValues?.plannedVirtualMaterialAmount?.[index] || 0)
+            }, 0)
+            actualTotal += periodVirtualMaterialTotal
+            plannedTotal += periodPlannedVirtualMaterialTotal
+          }
+          
+          totalsRow[`${periodLabel} - Actual`] = actualTotal
+          totalsRow[`${periodLabel} - Planned`] = plannedTotal
+        } else {
+          let actualTotal = totals.periodEarnedValueTotals[index] || 0
+          
+          // Add Virtual Material totals if enabled
+          if (showVirtualMaterialValues) {
+            const periodVirtualMaterialTotal = projectsToExport.reduce((sum: number, analytics: any) => {
+              const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
+              return sum + (cachedValues?.virtualMaterialAmount?.[index] || 0)
+            }, 0)
+            actualTotal += periodVirtualMaterialTotal
+          }
+          
+          totalsRow[periodLabel] = actualTotal
+        }
       })
       
-      totalsRow['Grand Total'] = 0 // Will be replaced with formula
+      // Add Grand Total(s) - with Virtual Material if enabled
+      if (viewPlannedValue) {
+        let grandTotalActual = totals.grandTotalEarnedValue
+        let grandTotalPlanned = totals.grandTotalPlannedValue || 0
+        
+        // Add Virtual Material totals if enabled
+        if (showVirtualMaterialValues) {
+          const totalVirtualMaterial = projectsToExport.reduce((sum: number, analytics: any) => {
+            const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
+            const virtualMaterialAmounts = cachedValues?.virtualMaterialAmount || []
+            return sum + virtualMaterialAmounts.reduce((s: number, v: number) => s + v, 0)
+          }, 0)
+          const totalPlannedVirtualMaterial = projectsToExport.reduce((sum: number, analytics: any) => {
+            const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
+            const plannedVirtualMaterialAmounts = cachedValues?.plannedVirtualMaterialAmount || []
+            return sum + plannedVirtualMaterialAmounts.reduce((s: number, v: number) => s + v, 0)
+          }, 0)
+          grandTotalActual += totalVirtualMaterial
+          grandTotalPlanned += totalPlannedVirtualMaterial
+        }
+        
+        totalsRow['Grand Total - Actual'] = grandTotalActual
+        totalsRow['Grand Total - Planned'] = grandTotalPlanned
+      } else {
+        let grandTotalActual = totals.grandTotalEarnedValue
+        
+        // Add Virtual Material totals if enabled
+        if (showVirtualMaterialValues) {
+          const totalVirtualMaterial = projectsToExport.reduce((sum: number, analytics: any) => {
+            const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
+            const virtualMaterialAmounts = cachedValues?.virtualMaterialAmount || []
+            return sum + virtualMaterialAmounts.reduce((s: number, v: number) => s + v, 0)
+          }, 0)
+          grandTotalActual += totalVirtualMaterial
+        }
+        
+        totalsRow['Grand Total'] = grandTotalActual
+      }
       exportData.push(totalsRow)
 
-      // Create worksheet
+      // Create worksheet from data only (no header row in data)
       const ws = XLSX.utils.json_to_sheet(exportData)
       
-      // Calculate row numbers (1-based, row 0 is header, last row is totals)
-      const dataStartRow = 2 // Row 2 (after header row 1)
-      const dataEndRow = dataStartRow + projectsWithWorkInRange.length - 1
+      // ✅ FIX: Manually set header row to avoid double headers
+      // Replace the auto-generated header row (row 0) with our custom headers
+      headerValues.forEach((headerValue, colIndex) => {
+        const cellAddress = XLSX.utils.encode_cell({ r: 0, c: colIndex })
+        if (!ws[cellAddress]) {
+          ws[cellAddress] = { t: 's', v: headerValue }
+        } else {
+          ws[cellAddress].v = headerValue
+          ws[cellAddress].t = 's'
+        }
+      })
+      
+      // Calculate row numbers (0-based: row 0 is header, row 1+ are data rows)
+      const dataStartRow = 1 // Row 1 is first data row (after header row 0)
+      const dataEndRow = dataStartRow + projectsToExport.length - 1
       const totalsRowNum = dataEndRow + 1
+      
+      // Excel uses 1-based row numbers in formulas, so add 1 to 0-based row numbers
+      const excelDataStartRow = dataStartRow + 1
+      const excelDataEndRow = dataEndRow + 1
+      const excelTotalsRowNum = totalsRowNum + 1
       
       // Get column letters (A, B, ..., Z, AA, AB, ...)
       const getColumnLetter = (colIndex: number): string => {
@@ -3313,124 +3908,314 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         }
       }
       
-      // Add formulas to totals row
-      // Column 3: Total Contract Amount (D column)
-      const totalContractCol = getColLetter(3)
-      const totalContractCell = `${totalContractCol}${totalsRowNum}`
-      if (ws[totalContractCell]) {
-        ws[totalContractCell] = {
-          ...ws[totalContractCell],
-          f: `SUM(${totalContractCol}${dataStartRow}:${totalContractCol}${dataEndRow})`,
-          t: 'n'
+      // ✅ FIX: Calculate column indices dynamically based on visible columns
+      let currentColIndex = 0
+      const colIndices: { [key: string]: number } = {}
+      
+      // Project Full Name (always visible)
+      colIndices['Project Full Name'] = currentColIndex++
+      
+      // Scope (conditional)
+      if (!hideDivisionsColumn) {
+        colIndices['Scope'] = currentColIndex++
+      }
+      
+      // Workmanship? (always visible)
+      colIndices['Workmanship?'] = currentColIndex++
+      
+      // Total Contract Amount (conditional)
+      if (!hideTotalContractColumn) {
+        colIndices['Total Contract Amount'] = currentColIndex++
+      }
+      
+      // Division Contract Amount (always visible)
+      colIndices['Division Contract Amount'] = currentColIndex++
+      
+      // Virtual Material (conditional)
+      if (!hideVirtualMaterialColumn) {
+        colIndices['Virtual Material'] = currentColIndex++
+      }
+      
+      // ✅ FIX: Add formulas to totals row (formulas ensure Excel calculates correctly)
+      // Total Contract Amount - only if visible
+      if (!hideTotalContractColumn && colIndices['Total Contract Amount'] !== undefined) {
+        const totalContractCol = getColLetter(colIndices['Total Contract Amount'])
+        const totalContractCell = XLSX.utils.encode_cell({ r: totalsRowNum, c: colIndices['Total Contract Amount'] })
+        if (ws[totalContractCell]) {
+          ws[totalContractCell] = {
+            ...ws[totalContractCell],
+            v: totals.totalContractValue,
+            f: `SUM(${totalContractCol}${excelDataStartRow}:${totalContractCol}${excelDataEndRow})`,
+            t: 'n'
+          }
         }
       }
       
-      // Column 4: Division Contract Amount (E column)
-      const divisionContractCol = getColLetter(4)
-      const divisionContractCell = `${divisionContractCol}${totalsRowNum}`
-      if (ws[divisionContractCell]) {
-        ws[divisionContractCell] = {
-          ...ws[divisionContractCell],
-          f: `SUM(${divisionContractCol}${dataStartRow}:${divisionContractCol}${dataEndRow})`,
-          t: 'n'
+      // Division Contract Amount
+      if (colIndices['Division Contract Amount'] !== undefined) {
+        const divisionContractCol = getColLetter(colIndices['Division Contract Amount'])
+        const divisionContractCell = XLSX.utils.encode_cell({ r: totalsRowNum, c: colIndices['Division Contract Amount'] })
+        if (ws[divisionContractCell]) {
+          ws[divisionContractCell] = {
+            ...ws[divisionContractCell],
+            f: `SUM(${divisionContractCol}${excelDataStartRow}:${divisionContractCol}${excelDataEndRow})`,
+            t: 'n'
+          }
         }
       }
       
-      // Column 5: Virtual Material (F column)
-      const virtualMaterialCol = getColLetter(5)
-      const virtualMaterialCell = `${virtualMaterialCol}${totalsRowNum}`
-      if (ws[virtualMaterialCell]) {
-        ws[virtualMaterialCell] = {
-          ...ws[virtualMaterialCell],
-          f: `SUM(${virtualMaterialCol}${dataStartRow}:${virtualMaterialCol}${dataEndRow})`,
-          t: 'n'
+      // Virtual Material - only if visible
+      if (!hideVirtualMaterialColumn && colIndices['Virtual Material'] !== undefined) {
+        const virtualMaterialCol = getColLetter(colIndices['Virtual Material'])
+        const virtualMaterialCell = XLSX.utils.encode_cell({ r: totalsRowNum, c: colIndices['Virtual Material'] })
+        if (ws[virtualMaterialCell]) {
+          ws[virtualMaterialCell] = {
+            ...ws[virtualMaterialCell],
+            v: totals.totalVirtualMaterialAmount,
+            f: `SUM(${virtualMaterialCol}${excelDataStartRow}:${virtualMaterialCol}${excelDataEndRow})`,
+            t: 'n'
+          }
         }
       }
       
-      // ✅ Column 6: Outer Range (G column) - if enabled
-      let periodStartCol = 6 // Default: G column (after Virtual Material)
+      // ✅ Column: Outer Range - if enabled
+      let periodStartCol = currentColIndex // Start after all base columns
       if (showOuterRangeColumn && outerRangeStart) {
-        const outerRangeCol = getColLetter(6)
-        const outerRangeCell = `${outerRangeCol}${totalsRowNum}`
-        if (ws[outerRangeCell]) {
-          ws[outerRangeCell] = {
-            ...ws[outerRangeCell],
-            f: `SUM(${outerRangeCol}${dataStartRow}:${outerRangeCol}${dataEndRow})`,
-            t: 'n'
+        if (viewPlannedValue) {
+          // Outer Range - Actual
+          const outerRangeActualColIndex = currentColIndex
+          const outerRangeActualCol = getColLetter(outerRangeActualColIndex)
+          const outerRangeActualCell = XLSX.utils.encode_cell({ r: totalsRowNum, c: outerRangeActualColIndex })
+          if (ws[outerRangeActualCell]) {
+            ws[outerRangeActualCell] = {
+              ...ws[outerRangeActualCell],
+              f: `SUM(${outerRangeActualCol}${excelDataStartRow}:${outerRangeActualCol}${excelDataEndRow})`,
+              t: 'n'
+            }
           }
+          // Outer Range - Planned
+          const outerRangePlannedColIndex = currentColIndex + 1
+          const outerRangePlannedCol = getColLetter(outerRangePlannedColIndex)
+          const outerRangePlannedCell = XLSX.utils.encode_cell({ r: totalsRowNum, c: outerRangePlannedColIndex })
+          if (ws[outerRangePlannedCell]) {
+            ws[outerRangePlannedCell] = {
+              ...ws[outerRangePlannedCell],
+              v: totals.periodPlannedValueTotals ? (totalsRow['Outer Range - Planned'] || 0) : 0,
+              f: `SUM(${outerRangePlannedCol}${excelDataStartRow}:${outerRangePlannedCol}${excelDataEndRow})`,
+              t: 'n'
+            }
+          }
+          periodStartCol = currentColIndex + 2 // Period columns start after Outer Range columns
+        } else {
+          const outerRangeColIndex = currentColIndex
+          const outerRangeCol = getColLetter(outerRangeColIndex)
+          const outerRangeCell = XLSX.utils.encode_cell({ r: totalsRowNum, c: outerRangeColIndex })
+          if (ws[outerRangeCell]) {
+            ws[outerRangeCell] = {
+              ...ws[outerRangeCell],
+              f: `SUM(${outerRangeCol}${excelDataStartRow}:${outerRangeCol}${excelDataEndRow})`,
+              t: 'n'
+            }
+          }
+          periodStartCol = currentColIndex + 1 // Period columns start after Outer Range column
         }
-        periodStartCol = 7 // Period columns start from H column
       }
       
-      // Period columns (starting from column 6 or 7 depending on Outer Range)
+      // ✅ FIX: Period columns (Actual and Planned if enabled)
       periodHeaders.forEach((_, periodIndex) => {
-        const periodCol = getColLetter(periodStartCol + periodIndex)
-        const periodCell = `${periodCol}${totalsRowNum}`
-        if (ws[periodCell]) {
-          ws[periodCell] = {
-            ...ws[periodCell],
-            f: `SUM(${periodCol}${dataStartRow}:${periodCol}${dataEndRow})`,
-            t: 'n'
+        if (viewPlannedValue) {
+          // Actual column
+          const actualColIndex = periodStartCol + (periodIndex * 2)
+          const actualCol = getColLetter(actualColIndex)
+          const actualCell = XLSX.utils.encode_cell({ r: totalsRowNum, c: actualColIndex })
+          if (ws[actualCell]) {
+            ws[actualCell] = {
+              ...ws[actualCell],
+              v: totals.periodEarnedValueTotals[periodIndex] || 0,
+              f: `SUM(${actualCol}${excelDataStartRow}:${actualCol}${excelDataEndRow})`,
+              t: 'n'
+            }
+          }
+          // Planned column
+          const plannedColIndex = periodStartCol + (periodIndex * 2) + 1
+          const plannedCol = getColLetter(plannedColIndex)
+          const plannedCell = XLSX.utils.encode_cell({ r: totalsRowNum, c: plannedColIndex })
+          if (ws[plannedCell]) {
+            ws[plannedCell] = {
+              ...ws[plannedCell],
+              v: totals.periodPlannedValueTotals?.[periodIndex] || 0,
+              f: `SUM(${plannedCol}${excelDataStartRow}:${plannedCol}${excelDataEndRow})`,
+              t: 'n'
+            }
+          }
+        } else {
+          const colIndex = periodStartCol + periodIndex
+          const periodCol = getColLetter(colIndex)
+          const periodCell = XLSX.utils.encode_cell({ r: totalsRowNum, c: colIndex })
+          if (ws[periodCell]) {
+            ws[periodCell] = {
+              ...ws[periodCell],
+              v: totals.periodEarnedValueTotals[periodIndex] || 0,
+              f: `SUM(${periodCol}${excelDataStartRow}:${periodCol}${excelDataEndRow})`,
+              t: 'n'
+            }
           }
         }
       })
       
-      // Grand Total column (last column)
-      const grandTotalCol = getColLetter(periodStartCol + periodHeaders.length)
-      const grandTotalCell = `${grandTotalCol}${totalsRowNum}`
-      if (ws[grandTotalCell]) {
-        ws[grandTotalCell] = {
-          ...ws[grandTotalCell],
-          f: `SUM(${grandTotalCol}${dataStartRow}:${grandTotalCol}${dataEndRow})`,
-          t: 'n'
+      // ✅ FIX: Grand Total column(s) - Use actual value from totals
+      if (viewPlannedValue) {
+        // Grand Total - Actual
+        const grandTotalActualColIndex = periodStartCol + (periodHeaders.length * 2)
+        const grandTotalActualCol = getColLetter(grandTotalActualColIndex)
+        const grandTotalActualCell = XLSX.utils.encode_cell({ r: totalsRowNum, c: grandTotalActualColIndex })
+        if (ws[grandTotalActualCell]) {
+          ws[grandTotalActualCell] = {
+            ...ws[grandTotalActualCell],
+            v: totals.grandTotalEarnedValue,
+            f: `SUM(${grandTotalActualCol}${excelDataStartRow}:${grandTotalActualCol}${excelDataEndRow})`,
+            t: 'n'
+          }
+        }
+        // Grand Total - Planned
+        const grandTotalPlannedColIndex = periodStartCol + (periodHeaders.length * 2) + 1
+        const grandTotalPlannedCol = getColLetter(grandTotalPlannedColIndex)
+        const grandTotalPlannedCell = XLSX.utils.encode_cell({ r: totalsRowNum, c: grandTotalPlannedColIndex })
+        if (ws[grandTotalPlannedCell]) {
+          ws[grandTotalPlannedCell] = {
+            ...ws[grandTotalPlannedCell],
+            v: totals.grandTotalPlannedValue || 0,
+            f: `SUM(${grandTotalPlannedCol}${excelDataStartRow}:${grandTotalPlannedCol}${excelDataEndRow})`,
+            t: 'n'
+          }
+        }
+        
+        // Also add formulas for Grand Total in each data row (Actual and Planned)
+        projectsToExport.forEach((_: any, projectIndex: number) => {
+          const rowNum = dataStartRow + projectIndex
+          const excelRowNum = rowNum + 1 // Convert to 1-based for Excel formula
+          
+          // Grand Total - Actual
+          const grandTotalActualCellAddr = XLSX.utils.encode_cell({ r: rowNum, c: grandTotalActualColIndex })
+          if (ws[grandTotalActualCellAddr]) {
+            const firstPeriodCol = getColLetter(periodStartCol)
+            const lastPeriodActualCol = getColLetter(periodStartCol + (periodHeaders.length * 2) - 2)
+            ws[grandTotalActualCellAddr] = {
+              ...ws[grandTotalActualCellAddr],
+              f: `SUM(${firstPeriodCol}${excelRowNum}:${lastPeriodActualCol}${excelRowNum})`,
+              t: 'n'
+            }
+          }
+          
+          // Grand Total - Planned
+          const grandTotalPlannedCellAddr = XLSX.utils.encode_cell({ r: rowNum, c: grandTotalPlannedColIndex })
+          if (ws[grandTotalPlannedCellAddr]) {
+            const firstPeriodPlannedCol = getColLetter(periodStartCol + 1)
+            const lastPeriodPlannedCol = getColLetter(periodStartCol + (periodHeaders.length * 2) - 1)
+            ws[grandTotalPlannedCellAddr] = {
+              ...ws[grandTotalPlannedCellAddr],
+              f: `SUM(${firstPeriodPlannedCol}${excelRowNum}:${lastPeriodPlannedCol}${excelRowNum})`,
+              t: 'n'
+            }
+          }
+        })
+      } else {
+        const grandTotalColIndex = periodStartCol + periodHeaders.length
+        const grandTotalCol = getColLetter(grandTotalColIndex)
+        const grandTotalCell = XLSX.utils.encode_cell({ r: totalsRowNum, c: grandTotalColIndex })
+        if (ws[grandTotalCell]) {
+          ws[grandTotalCell] = {
+            ...ws[grandTotalCell],
+            v: totals.grandTotalEarnedValue,
+            f: `SUM(${grandTotalCol}${excelDataStartRow}:${grandTotalCol}${excelDataEndRow})`,
+            t: 'n'
+          }
+        }
+        
+        // Also add formulas for Grand Total in each data row
+        projectsToExport.forEach((_: any, projectIndex: number) => {
+          const rowNum = dataStartRow + projectIndex
+          const excelRowNum = rowNum + 1 // Convert to 1-based for Excel formula
+          const grandTotalCellAddr = XLSX.utils.encode_cell({ r: rowNum, c: grandTotalColIndex })
+          
+          if (ws[grandTotalCellAddr]) {
+            const firstPeriodCol = getColLetter(periodStartCol)
+            const lastPeriodCol = getColLetter(periodStartCol + periodHeaders.length - 1)
+            ws[grandTotalCellAddr] = {
+              ...ws[grandTotalCellAddr],
+              f: `SUM(${firstPeriodCol}${excelRowNum}:${lastPeriodCol}${excelRowNum})`,
+              t: 'n'
+            }
+          }
+        })
+      }
+      
+      // ✅ FIX: Define column widths (including Planned columns if enabled, respecting hidden columns)
+      const colWidths: Array<{ wch: number }> = [
+        { wch: 35 }, // Project Full Name (always visible)
+      ]
+      
+      // Add Scope column width only if not hidden
+      if (!hideDivisionsColumn) {
+        colWidths.push({ wch: 30 })
+      }
+      
+      colWidths.push({ wch: 12 }) // Workmanship? (always visible)
+      
+      // Add Total Contract Amount column width only if not hidden
+      if (!hideTotalContractColumn) {
+        colWidths.push({ wch: 20 })
+      }
+      
+      colWidths.push({ wch: 25 }) // Division Contract Amount (always visible)
+      
+      // Add Virtual Material column width only if not hidden
+      if (!hideVirtualMaterialColumn) {
+        colWidths.push({ wch: 20 })
+      }
+      
+      // Outer Range column(s)
+      if (showOuterRangeColumn && outerRangeStart) {
+        if (viewPlannedValue) {
+          colWidths.push({ wch: 20 }, { wch: 20 })
+        } else {
+          colWidths.push({ wch: 20 })
         }
       }
       
-      // Also add formulas for Grand Total in each data row
-      projectsWithWorkInRange.forEach((_: any, projectIndex: number) => {
-        const rowNum = dataStartRow + projectIndex
-        const grandTotalCellAddr = `${grandTotalCol}${rowNum}`
-        
-        if (ws[grandTotalCellAddr]) {
-          // Build SUM formula for all period columns in this row
-          const firstPeriodCol = getColLetter(periodStartCol)
-          const lastPeriodCol = getColLetter(periodStartCol + periodHeaders.length - 1)
-          
-          ws[grandTotalCellAddr] = {
-            ...ws[grandTotalCellAddr],
-            f: `SUM(${firstPeriodCol}${rowNum}:${lastPeriodCol}${rowNum})`,
-            t: 'n'
-          }
-        }
-      })
+      // Period columns
+      if (viewPlannedValue) {
+        periodHeaders.forEach(() => {
+          colWidths.push({ wch: 18 }, { wch: 18 })
+        })
+      } else {
+        periodHeaders.forEach(() => {
+          colWidths.push({ wch: 18 })
+        })
+      }
       
-      // Define column widths
-      const colWidths = [
-        { wch: 35 }, // Project Full Name
-        { wch: 30 }, // Scope
-        { wch: 12 }, // Workmanship?
-        { wch: 20 }, // Total Contract Amount
-        { wch: 25 }, // Division Contract Amount
-        { wch: 20 }, // Virtual Material
-        ...(showOuterRangeColumn && outerRangeStart ? [{ wch: 20 }] : []), // Outer Range column
-        ...weeks.map(() => ({ wch: 18 })), // Week columns
-        { wch: 18 }  // Grand Total
-      ]
+      // Grand Total column(s)
+      if (viewPlannedValue) {
+        colWidths.push({ wch: 18 }, { wch: 18 })
+      } else {
+        colWidths.push({ wch: 18 })
+      }
+      
       ws['!cols'] = colWidths
       
-      // Freeze first row
-      ws['!freeze'] = { xSplit: 0, ySplit: 1, topLeftCell: 'A2', activePane: 'bottomLeft', state: 'frozen' }
+      // ✅ FIX: Freeze first row and first 3 columns for better navigation
+      ws['!freeze'] = { xSplit: 3, ySplit: 1, topLeftCell: 'D2', activePane: 'bottomRight', state: 'frozen' }
       
-      // Define styles
+      // ✅ FIX: Define styles with improved appearance
       const headerStyle = {
-        font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 11 },
+        font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 12 }, // ✅ Increased font size
         fill: { fgColor: { rgb: '4472C4' } }, // Blue background
         alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
         border: {
-          top: { style: 'thin', color: { rgb: '000000' } },
-          bottom: { style: 'thin', color: { rgb: '000000' } },
-          left: { style: 'thin', color: { rgb: '000000' } },
-          right: { style: 'thin', color: { rgb: '000000' } }
+          top: { style: 'medium', color: { rgb: '000000' } }, // ✅ Medium border for better visibility
+          bottom: { style: 'medium', color: { rgb: '000000' } },
+          left: { style: 'thin', color: { rgb: 'FFFFFF' } }, // ✅ White border for better contrast
+          right: { style: 'thin', color: { rgb: 'FFFFFF' } }
         }
       }
       
@@ -3456,27 +4241,27 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       }
       
       const totalsStyle = {
-        font: { bold: true, sz: 11 },
+        font: { bold: true, sz: 12, color: { rgb: '000000' } }, // ✅ Increased font size and black color
         fill: { fgColor: { rgb: 'D9E1F2' } }, // Light blue background
         alignment: { horizontal: 'right', vertical: 'center' },
-        numFmt: '#,##0.00',
+        numFmt: '#,##0.00', // ✅ Currency format with 2 decimal places
         border: {
-          top: { style: 'medium', color: { rgb: '000000' } },
-          bottom: { style: 'medium', color: { rgb: '000000' } },
-          left: { style: 'thin', color: { rgb: 'CCCCCC' } },
-          right: { style: 'thin', color: { rgb: 'CCCCCC' } }
+          top: { style: 'thick', color: { rgb: '000000' } }, // ✅ Thick border for totals row
+          bottom: { style: 'thick', color: { rgb: '000000' } },
+          left: { style: 'thin', color: { rgb: '000000' } }, // ✅ Black border for better visibility
+          right: { style: 'thin', color: { rgb: '000000' } }
         }
       }
       
       const totalsTextStyle = {
-        font: { bold: true, sz: 11 },
+        font: { bold: true, sz: 12, color: { rgb: '000000' } }, // ✅ Increased font size and black color
         fill: { fgColor: { rgb: 'D9E1F2' } },
         alignment: { horizontal: 'left', vertical: 'center' },
         border: {
-          top: { style: 'medium', color: { rgb: '000000' } },
-          bottom: { style: 'medium', color: { rgb: '000000' } },
-          left: { style: 'thin', color: { rgb: 'CCCCCC' } },
-          right: { style: 'thin', color: { rgb: 'CCCCCC' } }
+          top: { style: 'thick', color: { rgb: '000000' } }, // ✅ Thick border for totals row
+          bottom: { style: 'thick', color: { rgb: '000000' } },
+          left: { style: 'thin', color: { rgb: '000000' } }, // ✅ Black border for better visibility
+          right: { style: 'thin', color: { rgb: '000000' } }
         }
       }
       
@@ -3498,12 +4283,23 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           if (!ws[cellAddress]) continue
           
           const colIndex = col
-          // Columns: 0=Project, 1=Scope, 2=Workmanship, 3=Total Contract, 4=Division Contract, 5=Virtual Material, 6=Outer Range (if enabled), 6/7+ = Weeks, last = Grand Total
-          const outerRangeOffset = (showOuterRangeColumn && outerRangeStart) ? 1 : 0
-          const isNumberColumn = colIndex === 3 || colIndex === 4 || colIndex === 5 || 
-                                 (showOuterRangeColumn && outerRangeStart && colIndex === 6) ||
-                                 (colIndex >= 5 + outerRangeOffset && colIndex < 5 + outerRangeOffset + weeks.length) || 
-                                 colIndex === 5 + outerRangeOffset + weeks.length
+          // ✅ FIX: Determine if column is numeric based on header name (respects hidden columns)
+          const headerName = headerValues[colIndex] || ''
+          const isNumberColumn = 
+            headerName === 'Total Contract Amount' ||
+            headerName === 'Division Contract Amount' ||
+            headerName === 'Virtual Material' ||
+            headerName.includes('Outer Range') ||
+            headerName.includes('Actual') ||
+            headerName.includes('Planned') ||
+            headerName === 'Grand Total' ||
+            headerName === 'Grand Total - Actual' ||
+            headerName === 'Grand Total - Planned' ||
+            (periodHeaders.some(periodLabel => 
+              headerName === periodLabel || 
+              headerName === `${periodLabel} - Actual` || 
+              headerName === `${periodLabel} - Planned`
+            ))
           
           if (isTotalsRow) {
             if (colIndex === 0) {
@@ -3530,24 +4326,31 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         }
       }
       
-      // Create workbook
+      // ✅ FIX: Create workbook with dynamic sheet name based on period type
       const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, ws, 'Weekly Work Revenue')
+      const periodTypeLabel = periodType === 'daily' ? 'Daily' : 
+                             periodType === 'weekly' ? 'Weekly' : 
+                             periodType === 'month' ? 'Monthly' : 
+                             periodType === 'quarterly' ? 'Quarterly' : 
+                             periodType === 'yearly' ? 'Yearly' : 'Period'
+      const sheetName = `${periodTypeLabel} Work Revenue`
+      XLSX.utils.book_append_sheet(wb, ws, sheetName)
       
-      // Generate filename with date range
+      // ✅ FIX: Generate filename with period type and date range
       const dateStr = dateRange.start && dateRange.end
         ? `${dateRange.start}_to_${dateRange.end}`
         : new Date().toISOString().split('T')[0]
+      const filename = `${periodTypeLabel}_Work_Revenue_${dateStr}.xlsx`
       
       // Write file
-      XLSX.writeFile(wb, `Weekly_Work_Revenue_${dateStr}.xlsx`)
+      XLSX.writeFile(wb, filename)
       
-      console.log(`✅ Downloaded formatted Excel: Weekly_Work_Revenue_${dateStr}.xlsx`)
+      console.log(`✅ Downloaded formatted Excel: ${filename}`)
     } catch (error) {
       console.error('Error exporting to Excel:', error)
       alert('Failed to export data. Please try again.')
     }
-  }, [projectsWithWorkInRange, periods, totals, divisionsDataMap, dateRange, formatCurrency, kpis, calculatePeriodEarnedValue, calculatePeriodPlannedValue, viewPlannedValue, periodType, showOuterRangeColumn, outerRangeStart, periodValuesCache])
+  }, [projectsWithWorkInRange, periods, totals, divisionsDataMap, dateRange, formatCurrency, periodType, showOuterRangeColumn, outerRangeStart, getCachedPeriodValues, selectedDivisions, viewPlannedValue, hideZeroProjects, hideDivisionsColumn, hideTotalContractColumn, hideVirtualMaterialColumn, showVirtualMaterialValues])
 
   // ✅ Calculate chart data using useMemo (moved from IIFE in JSX)
   const chartData = useMemo(() => {
@@ -3562,16 +4365,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
             const virtualMaterialAmounts = cachedValues?.virtualMaterialAmount || []
             sum += virtualMaterialAmounts[periodIndex] || 0
           })
-          // Sum from expanded activities
+          // ✅ PERFORMANCE: Sum from expanded activities using projectActivitiesMap
           allAnalytics.forEach((analytics: any) => {
             if (!expandedProjects.has(analytics.project.id)) return
             
             const project = analytics.project
-            const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
-            const projectActivities = activities.filter((activity: BOQActivity) => {
-              const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
-              return activityFullCode === projectFullCode || activity.project_id === project.id
-            })
+            const projectId = project.id
+            // ✅ PERFORMANCE: Use pre-computed map instead of filtering activities repeatedly
+            const projectActivities = projectActivitiesMap.get(projectId) || []
             
             projectActivities.forEach((activity: BOQActivity) => {
               if (!activity.use_virtual_material) return
@@ -3600,6 +4401,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
               
               if (virtualMaterialPercentage === 0) return
               
+              // ✅ PERFORMANCE: Pre-filter KPIs by date range once per period, then match activities
+              // This reduces the number of kpiMatchesActivity calls
+              const periodStartTime = periodStart.getTime()
+              const periodEndTime = effectivePeriodEnd.getTime()
+              
               // Get Actual KPIs for this activity in this period
               const actualKPIs = kpis.filter((kpi: any) => {
                 const rawKPI = (kpi as any).raw || {}
@@ -3626,11 +4432,9 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                   const kpiDate = new Date(kpiDateStr)
                   if (isNaN(kpiDate.getTime())) return false
                   kpiDate.setHours(0, 0, 0, 0)
-                  const normalizedPeriodStart = new Date(periodStart)
-                  normalizedPeriodStart.setHours(0, 0, 0, 0)
-                  const normalizedPeriodEnd = new Date(effectivePeriodEnd)
-                  normalizedPeriodEnd.setHours(23, 59, 59, 999)
-                  if (!(kpiDate >= normalizedPeriodStart && kpiDate <= normalizedPeriodEnd)) {
+                  const kpiDateTime = kpiDate.getTime()
+                  // ✅ PERFORMANCE: Use numeric comparison instead of Date objects
+                  if (kpiDateTime < periodStartTime || kpiDateTime > periodEndTime) {
                     return false
                   }
                 } catch {
@@ -3736,7 +4540,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         plannedLine: viewPlannedValue ? cumulativePlanned : undefined
       }
     })
-  }, [periods, periodType, totals, useVirtualValueInChart, viewPlannedValue, allAnalytics, expandedProjects, activities, kpis, today, getCachedPeriodValues, kpiMatchesActivity])
+  }, [periods, periodType, totals, useVirtualValueInChart, viewPlannedValue, allAnalytics, expandedProjects, projectActivitiesMap, kpis, today, getCachedPeriodValues, kpiMatchesActivity])
 
   // ✅ Common chart props
   const commonChartProps = useMemo(() => ({
@@ -4534,13 +5338,8 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                         <tr key={projectId} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                         <td className="border border-gray-300 dark:border-gray-600 px-2 py-3 text-center" style={{ width: '50px' }}>
                           {(() => {
-                            const project = analytics.project
-                            const projectId = project.id
-                            const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
-                            const projectActivities = activities.filter((activity: BOQActivity) => {
-                              const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
-                              return activityFullCode === projectFullCode || activity.project_id === project.id
-                            })
+                            // ✅ PERFORMANCE: Use pre-computed map instead of filtering activities repeatedly
+                            const projectActivities = projectActivitiesMap.get(projectId) || []
                             return projectActivities.length > 0 ? (
                               <button
                                 onClick={() => {
@@ -4575,7 +5374,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                         {!hideDivisionsColumn && (
                           <td className="border border-gray-300 dark:border-gray-600 px-4 py-3" style={{ width: '180px', overflow: 'hidden' }}>
                             {(() => {
-                              const divisionsData = divisionsDataMap.get(project.id)
+                              // ✅ Use unique key (project_full_code + project_name) for exact matching
+                              const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+                              const projectName = (project.project_name || '').toString().trim()
+                              const uniqueKey = `${projectFullCode}|${projectName}`
+                              const divisionsData = divisionsDataMap.get(uniqueKey)
                               const divisionAmounts = divisionsData?.divisionAmounts || {}
                               const divisionNames = divisionsData?.divisionNames || {}
                               const divisionsList = Object.keys(divisionAmounts)
@@ -4649,7 +5452,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                         )}
                         <td className="border border-gray-300 dark:border-gray-600 px-4 py-3" style={{ width: '220px', overflow: 'hidden' }}>
                           {(() => {
-                            const divisionsData = divisionsDataMap.get(project.id)
+                            // ✅ Use unique key (project_full_code + project_name) for exact matching
+                            const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+                            const projectName = (project.project_name || '').toString().trim()
+                            const uniqueKey = `${projectFullCode}|${projectName}`
+                            const divisionsData = divisionsDataMap.get(uniqueKey)
                             const divisionAmounts = divisionsData?.divisionAmounts || {}
                             const divisionNames = divisionsData?.divisionNames || {}
                             const divisionsList = Object.keys(divisionAmounts)
@@ -4962,7 +5769,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                         const project = analytics.project
                         const projectId = project.id
                         const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
-                        let projectActivities = activities.filter((activity: BOQActivity) => {
+                        // ✅ PERFORMANCE: Use pre-computed map instead of filtering activities repeatedly
+                        const projectActivitiesFromMap = projectActivitiesMap.get(projectId) || []
+                        
+                        // ✅ FIX: Filter activities to ensure they match this specific project's full code for exact matching
+                        let projectActivities = projectActivitiesFromMap.filter((activity: BOQActivity) => {
                           const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
                           return activityFullCode === projectFullCode || activity.project_id === project.id
                         })

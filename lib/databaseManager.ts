@@ -296,26 +296,183 @@ export async function clearTableData(tableName: string): Promise<OperationResult
       }
     }
     
-    // حذف كل البيانات (للجداول الأخرى)
-    const { error } = await supabase
-      .from(tableName)
-      .delete()
-      .neq('id', '00000000-0000-0000-0000-000000000000') // حذف كل شيء
+    // ✅ حذف كل البيانات (للجداول الأخرى)
+    // ✅ استخدام Batch Deletion للجداول الكبيرة - محسّن للسرعة
+    const FETCH_BATCH_SIZE = 10000 // جلب 10,000 صف في كل مرة (مضاعف)
+    const DELETE_CHUNK_SIZE = 300 // حذف 300 صف في كل عملية (حجم آمن جداً - UUIDs طويلة تجعل URL طويل)
+    const PARALLEL_CHUNKS = 10 // عدد الـ chunks التي تُحذف بشكل متوازي (زيادة للسرعة)
+    const LARGE_TABLE_THRESHOLD = 50000 // إذا كان الجدول أكبر من 50,000 صف، استخدم batch deletion
     
-    if (error) {
-      console.error(`❌ Error clearing ${tableName}:`, error)
-      return {
-        success: false,
-        message: `Failed to clear table: ${error.message}`,
-        error: error.message
+    if (count && count > LARGE_TABLE_THRESHOLD) {
+      console.log(`📦 Large table detected (${count} rows). Using optimized batch deletion...`)
+      
+      let totalDeleted = 0
+      let batchNumber = 0
+      const maxIterations = Math.ceil(count / DELETE_CHUNK_SIZE) + 100 // حد أقصى للسلامة
+      let iterations = 0
+      let checkRemainingCounter = 0
+      
+      // ✅ استمر في الحذف حتى لا يوجد المزيد من البيانات
+      while (iterations < maxIterations) {
+        iterations++
+        batchNumber++
+        checkRemainingCounter++
+        
+        // التحقق من عدد الصفوف المتبقية كل 10 batches فقط (لتسريع العملية)
+        if (checkRemainingCounter >= 10) {
+          checkRemainingCounter = 0
+          const { count: remainingCount } = await supabase
+            .from(tableName)
+            .select('*', { count: 'exact', head: true })
+          
+          if (!remainingCount || remainingCount === 0) {
+            console.log(`✅ No more rows to delete. All data cleared!`)
+            break
+          }
+          
+          console.log(`📊 Progress: ${totalDeleted}/${count} deleted, ${remainingCount} remaining...`)
+        }
+        
+        console.log(`🗑️ Processing batch ${batchNumber} (${totalDeleted}/${count} deleted)...`)
+        
+        // جلب batch من IDs للحذف
+        const { data: batchData, error: fetchError } = await supabase
+          .from(tableName)
+          .select('id')
+          .limit(FETCH_BATCH_SIZE)
+        
+        if (fetchError) {
+          console.error(`❌ Error fetching batch for deletion:`, fetchError)
+          return {
+            success: false,
+            message: `Failed to fetch batch for deletion: ${fetchError.message}`,
+            error: fetchError.message,
+            affectedRows: totalDeleted
+          }
+        }
+        
+        if (!batchData || batchData.length === 0) {
+          console.log(`✅ No more rows found. All data cleared!`)
+          break
+        }
+        
+        // حذف الـ batch
+        const idsToDelete = (batchData as Array<{ id: string }>)
+          .map(row => row.id)
+          .filter(Boolean) as string[]
+        
+        if (idsToDelete.length > 0) {
+          // ✅ تقسيم الـ IDs إلى chunks أصغر
+          const chunks: string[][] = []
+          for (let i = 0; i < idsToDelete.length; i += DELETE_CHUNK_SIZE) {
+            chunks.push(idsToDelete.slice(i, i + DELETE_CHUNK_SIZE))
+          }
+          
+          console.log(`   📦 Deleting ${idsToDelete.length} rows in ${chunks.length} chunks (parallel: ${PARALLEL_CHUNKS})...`)
+          
+          // ✅ حذف الـ chunks بشكل متوازي (لكن بحذر)
+          for (let chunkGroupIndex = 0; chunkGroupIndex < chunks.length; chunkGroupIndex += PARALLEL_CHUNKS) {
+            const chunkGroup = chunks.slice(chunkGroupIndex, chunkGroupIndex + PARALLEL_CHUNKS)
+            
+            // حذف مجموعة من الـ chunks بشكل متوازي
+            const deletePromises = chunkGroup.map(async (chunk, index) => {
+              const chunkIndex = chunkGroupIndex + index
+              const { error: deleteError } = await supabase
+                .from(tableName)
+                .delete()
+                .in('id', chunk)
+              
+              if (deleteError) {
+                throw { error: deleteError, chunkIndex: chunkIndex + 1, totalChunks: chunks.length }
+              }
+              
+              return chunk.length
+            })
+            
+            try {
+              const deletedCounts = await Promise.all(deletePromises)
+              const groupTotal = deletedCounts.reduce((sum, count) => sum + count, 0)
+              totalDeleted += groupTotal
+              
+              console.log(`   ✅ Chunks ${chunkGroupIndex + 1}-${Math.min(chunkGroupIndex + PARALLEL_CHUNKS, chunks.length)}/${chunks.length} deleted: ${groupTotal} rows (Total: ${totalDeleted}/${count})`)
+            } catch (err: any) {
+              const errorInfo = err as { error: any, chunkIndex: number, totalChunks: number }
+              console.error(`❌ Error deleting chunk ${errorInfo.chunkIndex}/${errorInfo.totalChunks} of batch ${batchNumber}:`, errorInfo.error)
+              
+              // إذا كان الخطأ timeout، نعطي رسالة واضحة
+              if (errorInfo.error.message?.includes('timeout') || errorInfo.error.message?.includes('statement timeout')) {
+                return {
+                  success: false,
+                  message: `Timeout while deleting batch ${batchNumber}, chunk ${errorInfo.chunkIndex}. ${totalDeleted} rows deleted so far. Please try again or contact support.`,
+                  error: errorInfo.error.message,
+                  affectedRows: totalDeleted
+                }
+              }
+              
+              return {
+                success: false,
+                message: `Failed to delete batch ${batchNumber}, chunk ${errorInfo.chunkIndex}: ${errorInfo.error.message}`,
+                error: errorInfo.error.message,
+                affectedRows: totalDeleted
+              }
+            }
+            
+            // تأخير صغير جداً بين مجموعات الـ chunks
+            if (chunkGroupIndex + PARALLEL_CHUNKS < chunks.length) {
+              await new Promise(resolve => setTimeout(resolve, 10))
+            }
+          }
+          
+          console.log(`✅ Batch ${batchNumber} completed: ${idsToDelete.length} rows deleted (Total: ${totalDeleted}/${count})`)
+        }
+        
+        // تأخير صغير جداً بين الـ batches
+        await new Promise(resolve => setTimeout(resolve, 50))
       }
-    }
-    
-    console.log(`✅ Successfully cleared ${count} rows from ${tableName}`)
-    return {
-      success: true,
-      message: `Successfully cleared ${count} rows from ${tableName}`,
-      affectedRows: count
+      
+      // التحقق النهائي من عدد الصفوف المتبقية
+      const { count: finalCount } = await supabase
+        .from(tableName)
+        .select('*', { count: 'exact', head: true })
+      
+      console.log(`✅ Successfully cleared ${totalDeleted} rows from ${tableName} using batch deletion. Remaining: ${finalCount || 0}`)
+      return {
+        success: true,
+        message: `Successfully cleared ${totalDeleted} rows from ${tableName} (deleted in ${batchNumber} batches). ${finalCount || 0} rows remaining.`,
+        affectedRows: totalDeleted
+      }
+    } else {
+      // للجداول الصغيرة، استخدم الحذف العادي
+      const { error } = await supabase
+        .from(tableName)
+        .delete()
+        .neq('id', '00000000-0000-0000-0000-000000000000') // حذف كل شيء
+      
+      if (error) {
+        console.error(`❌ Error clearing ${tableName}:`, error)
+        
+        // إذا كان الخطأ timeout، نعطي رسالة واضحة
+        if (error.message?.includes('timeout') || error.message?.includes('statement timeout')) {
+          return {
+            success: false,
+            message: `Statement timeout. The table is too large for single operation. Please try again - the system will automatically use batch deletion.`,
+            error: error.message
+          }
+        }
+        
+        return {
+          success: false,
+          message: `Failed to clear table: ${error.message}`,
+          error: error.message
+        }
+      }
+      
+      console.log(`✅ Successfully cleared ${count} rows from ${tableName}`)
+      return {
+        success: true,
+        message: `Successfully cleared ${count} rows from ${tableName}`,
+        affectedRows: count
+      }
     }
     
   } catch (error: any) {

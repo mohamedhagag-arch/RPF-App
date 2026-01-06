@@ -74,10 +74,14 @@ export function processKPIRecord(kpi: any): ProcessedKPI & { raw?: any } {
       : 0
   const smartStatus = calculateSmartStatus(quantity, inputType)
   
+  // ✅ FIX: Preserve activity_name and project_full_code even if empty (don't convert to empty string)
+  const activityName = kpi.activity_name || kpi.activity || kpi.kpi_name || ''
+  const projectFullCode = kpi.project_full_code || (kpi as any).project_code || ''
+  
   return {
     id: kpi.id,
-    project_full_code: kpi.project_full_code || '',
-    activity_name: kpi.activity_name || '',
+    project_full_code: projectFullCode,
+    activity_name: activityName,
     section: kpi.section || '',
     zone: kpi.zone || '',
     quantity: quantity,
