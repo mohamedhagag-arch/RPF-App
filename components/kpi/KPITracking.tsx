@@ -3907,8 +3907,8 @@ export function KPITracking({ globalSearchTerm = '', globalFilters = { project: 
         onProjectsChange={(projectCodes) => {
           setSelectedProjects(projectCodes)
           setCurrentPage(1) // Reset to page 1
-          // ✅ Fetch data when filters are applied
-          fetchData(projectCodes)
+          // ✅ Fetch data when filters are applied - call fetchKPIPage directly with page 1
+          fetchKPIPage(1, projectCodes, '', sortColumn, sortDirection)
         }}
         onActivitiesChange={setSelectedActivities}
         onTypesChange={setSelectedTypes}

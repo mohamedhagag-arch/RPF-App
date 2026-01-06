@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Button } from './Button'
 import { X, Filter, ChevronDown, Search } from 'lucide-react'
 import { PROJECT_STATUSES } from '@/lib/projectTemplates'
@@ -139,6 +139,7 @@ export function SmartFilter({
   const dateRangeModalRef = useRef<HTMLDivElement>(null)
   const valueRangeModalRef = useRef<HTMLDivElement>(null)
   const quantityRangeModalRef = useRef<HTMLDivElement>(null)
+  const selectAllCheckboxRef = useRef<HTMLInputElement>(null)
   
   // 🔧 FIX: Close dropdowns when clicking outside
   useEffect(() => {
@@ -420,16 +421,20 @@ export function SmartFilter({
       .map(k => k.section).filter(Boolean) as string[]
   )).filter(section => section && section.trim() !== '' && section !== 'N/A') : []
   
-  // Get unique divisions from KPIs and activities (only for selected projects)
-  const uniqueDivisions = selectedProjects.length > 0 ? Array.from(new Set([
+  // Get unique divisions from KPIs and activities
+  // ✅ Show all divisions even when no projects are selected
+  const uniqueDivisions = Array.from(new Set([
     ...kpis.map(k => k.activity_division).filter(Boolean) as string[],
-    ...activities.filter(a => {
-      const activityFullCode = ((a as any).project_full_code || '').toString().trim()
-      return selectedProjects.some(selectedFullCode => 
-        activityFullCode.toUpperCase() === selectedFullCode.toUpperCase()
-      )
-    }).map(a => a.activity_division).filter(Boolean) as string[]
-  ])).filter(division => division && division.trim() !== '') : []
+    ...(selectedProjects.length > 0 
+      ? activities.filter(a => {
+          const activityFullCode = ((a as any).project_full_code || '').toString().trim()
+          return selectedProjects.some(selectedFullCode => 
+            activityFullCode.toUpperCase() === selectedFullCode.toUpperCase()
+          )
+        }).map(a => a.activity_division).filter(Boolean) as string[]
+      : activities.map(a => a.activity_division).filter(Boolean) as string[]
+    )
+  ])).filter(division => division && division.trim() !== '')
   
   // Get unique scopes from KPIs (only for selected projects)
   // ✅ Scope comes from activity_scope field in KPIs or from project_type_activities table
@@ -443,6 +448,7 @@ export function SmartFilter({
   )).filter(timing => timing && timing.trim() !== '' && timing !== 'N/A') : []
   
   const types = ['Planned', 'Actual']
+  
   // Filter zones, units, divisions, and scopes by search
   const filteredZones = uniqueZones.filter(zone =>
     zone.toLowerCase().includes(zoneSearch.toLowerCase())
@@ -534,6 +540,23 @@ export function SmartFilter({
     // ✅ CRITICAL: Always use project_full_code for display
     return getProjectFullCode(project)
   }
+  
+  // Calculate filtered project codes for Select All functionality
+  // ✅ Moved here after getProjectFullCode is defined
+  const filteredProjectFullCodes = useMemo(() => {
+    return filteredProjects.map(p => getProjectFullCode(p))
+  }, [filteredProjects])
+  
+  const allFilteredProjectsSelected = filteredProjectFullCodes.length > 0 && 
+    filteredProjectFullCodes.every(code => selectedProjects.includes(code))
+  const someFilteredProjectsSelected = filteredProjectFullCodes.some(code => selectedProjects.includes(code))
+  
+  // Set indeterminate state for Select All checkbox
+  useEffect(() => {
+    if (selectAllCheckboxRef.current) {
+      selectAllCheckboxRef.current.indeterminate = someFilteredProjectsSelected && !allFilteredProjectsSelected
+    }
+  }, [someFilteredProjectsSelected, allFilteredProjectsSelected])
   
   const toggleActivity = (activityName: string) => {
     if (selectedActivities.includes(activityName)) {
@@ -787,7 +810,38 @@ export function SmartFilter({
               </div>
               <div className="max-h-64 overflow-y-auto">
                 {filteredProjects.length > 0 ? (
-                  filteredProjects.map((project, idx) => {
+                  <>
+                    {/* Select All Option */}
+                    <label
+                      className="flex items-center space-x-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer transition-colors border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50"
+                    >
+                      <input
+                        ref={selectAllCheckboxRef}
+                        type="checkbox"
+                        checked={allFilteredProjectsSelected}
+                        onChange={() => {
+                          if (allFilteredProjectsSelected) {
+                            // Deselect all filtered projects
+                            const newSelected = selectedProjects.filter(p => !filteredProjectFullCodes.includes(p))
+                            onProjectsChange(newSelected)
+                          } else {
+                            // Select all filtered projects (merge with existing selections)
+                            const newSelected = Array.from(new Set([...selectedProjects, ...filteredProjectFullCodes]))
+                            onProjectsChange(newSelected)
+                          }
+                        }}
+                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                          {allFilteredProjectsSelected ? 'Deselect All' : 'Select All'}
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
+                          {filteredProjectFullCodes.length} {filteredProjectFullCodes.length === 1 ? 'project' : 'projects'}
+                        </div>
+                      </div>
+                    </label>
+                    {filteredProjects.map((project, idx) => {
                     const projectFullCode = getProjectFullCode(project)
                     const displayCode = getProjectDisplayCode(project)
                     
@@ -823,7 +877,8 @@ export function SmartFilter({
                       </div>
                     </label>
                     )
-                  })
+                  })}
+                  </>
                 ) : (
                   <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400 text-center">
                     No projects found
@@ -1251,8 +1306,8 @@ export function SmartFilter({
         )}
         
         {/* Division Filter */}
-        {uniqueDivisions.length > 0 && (
-          <div className="relative" ref={divisionDropdownRef}>
+        {/* ✅ Always show Activity Division filter, even when no projects are selected */}
+        <div className="relative" ref={divisionDropdownRef}>
             <button
               onClick={(e) => {
                 e.stopPropagation()
@@ -1275,7 +1330,7 @@ export function SmartFilter({
                   : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-gray-400 dark:hover:border-gray-500'
               } ${showDivisionDropdown ? 'ring-2 ring-teal-500 ring-opacity-50' : ''}`}
             >
-              <span>Division</span>
+              <span>Activity Division</span>
               {(selectedDivisions?.length || 0) > 0 && (
                 <span className="px-1.5 py-0.5 bg-teal-500 text-white rounded-full text-xs font-bold">
                   {selectedDivisions?.length || 0}
@@ -1296,7 +1351,7 @@ export function SmartFilter({
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                     <input
                       type="text"
-                      placeholder="Search divisions..."
+                      placeholder="Search activity divisions..."
                       value={divisionSearch}
                       onChange={(e) => setDivisionSearch(e.target.value)}
                       className="w-full pl-10 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-teal-500 focus:border-transparent"
@@ -1324,14 +1379,13 @@ export function SmartFilter({
                     ))
                   ) : (
                     <div className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400 text-center">
-                      No divisions found
+                      No activity divisions found
                     </div>
                   )}
                 </div>
               </div>
             )}
           </div>
-        )}
         
         {/* Scope Filter */}
         {uniqueScopes.length > 0 && onScopesChange && (
