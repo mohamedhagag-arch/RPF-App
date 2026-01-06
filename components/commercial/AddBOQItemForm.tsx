@@ -189,7 +189,7 @@ export function AddBOQItemForm({
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
-              <Alert variant="destructive" onClose={() => setError('')}>
+              <Alert variant="error" onClose={() => setError('')}>
                 {error}
               </Alert>
             )}
