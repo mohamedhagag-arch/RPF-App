@@ -669,8 +669,9 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
         updated_at: new Date().toISOString(),
       }
       
-      const { error: updateError } = await supabase
+      const { error: updateError } = await (supabase as any)
         .from(TABLES.COMMERCIAL_BOQ_ITEMS)
+        // @ts-ignore - Database column names with spaces require type bypass
         .update(updateData)
         .eq('id', id)
       
@@ -729,8 +730,9 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
             'Total Including Variations': newTotalIncludingVariations
           }
           
-          const { error: updateError } = await supabase
+          const { error: updateError } = await (supabase as any)
             .from(TABLES.COMMERCIAL_BOQ_ITEMS)
+            // @ts-ignore - Database column names with spaces require type bypass
             .update(updateData)
             .eq('id', item.id)
           
@@ -738,9 +740,10 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
         }
       } else {
         // No variations update, can do bulk update
-        const { error: updateError } = await supabase
+        const { error: updateError } = await (supabase as any)
           .from(TABLES.COMMERCIAL_BOQ_ITEMS)
-          .update(data as any)
+          // @ts-ignore - Database column names with spaces require type bypass
+          .update(data)
           .in('id', ids)
         
         if (updateError) throw updateError
