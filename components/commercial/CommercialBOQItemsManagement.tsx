@@ -65,20 +65,26 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
   const [showFilters, setShowFilters] = useState(false)
   const [filters, setFilters] = useState({
     search: '',
-    projectFullCode: '',
-    projectName: '',
-    itemDescription: '',
-    unit: '',
-    remeasurable: '' as '' | 'true' | 'false',
-    minQuantity: '',
-    maxQuantity: '',
-    minRate: '',
-    maxRate: '',
-    minTotalValue: '',
-    maxTotalValue: '',
-    minVariations: '',
-    maxVariations: '',
+    project: new Set<string>(), // Combined project full code and name
+    itemDescription: new Set<string>(),
+    unit: new Set<string>(),
+    remeasurable: new Set<string>(),
+    quantityRange: { min: undefined as number | undefined, max: undefined as number | undefined },
+    rateRange: { min: undefined as number | undefined, max: undefined as number | undefined },
+    totalValueRange: { min: undefined as number | undefined, max: undefined as number | undefined },
+    variationsRange: { min: undefined as number | undefined, max: undefined as number | undefined },
   })
+  
+  // Multiselect dropdown states
+  const [showUnitDropdown, setShowUnitDropdown] = useState(false)
+  const [showProjectDropdown, setShowProjectDropdown] = useState(false)
+  const [showItemDescriptionDropdown, setShowItemDescriptionDropdown] = useState(false)
+  const [showRemeasurableDropdown, setShowRemeasurableDropdown] = useState(false)
+  
+  // Search terms for multiselect filters
+  const [unitSearch, setUnitSearch] = useState('')
+  const [projectSearch, setProjectSearch] = useState('')
+  const [itemDescriptionSearch, setItemDescriptionSearch] = useState('')
   
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
@@ -409,6 +415,97 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
     fetchProjects()
   }, [fetchItems, fetchProjects])
   
+  // Extract unique values for multiselect filters and calculate ranges
+  const uniqueValues = useMemo(() => {
+    const units = new Set<string>()
+    const projects = new Map<string, { code: string; name: string }>() // Map to store unique project combinations
+    const itemDescriptions = new Set<string>()
+    
+    // Calculate min/max for ranges
+    let minQuantity = Infinity
+    let maxQuantity = -Infinity
+    let minRate = Infinity
+    let maxRate = -Infinity
+    let minTotalValue = Infinity
+    let maxTotalValue = -Infinity
+    let minVariations = Infinity
+    let maxVariations = -Infinity
+    
+    items.forEach(item => {
+      if (item.unit) units.add(item.unit)
+      // Create a unique key for each project (code + name combination)
+      if (item.project_full_code || item.project_name) {
+        const key = `${item.project_full_code || ''}|${item.project_name || ''}`
+        if (!projects.has(key)) {
+          projects.set(key, {
+            code: item.project_full_code || '',
+            name: item.project_name || ''
+          })
+        }
+      }
+      if (item.item_description) itemDescriptions.add(item.item_description)
+      
+      // Calculate ranges
+      if (item.quantity !== undefined && !isNaN(item.quantity)) {
+        minQuantity = Math.min(minQuantity, item.quantity)
+        maxQuantity = Math.max(maxQuantity, item.quantity)
+      }
+      if (item.rate !== undefined && !isNaN(item.rate)) {
+        minRate = Math.min(minRate, item.rate)
+        maxRate = Math.max(maxRate, item.rate)
+      }
+      if (item.total_value !== undefined && !isNaN(item.total_value)) {
+        minTotalValue = Math.min(minTotalValue, item.total_value)
+        maxTotalValue = Math.max(maxTotalValue, item.total_value)
+      }
+      if (item.variations !== undefined && !isNaN(item.variations)) {
+        minVariations = Math.min(minVariations, item.variations)
+        maxVariations = Math.max(maxVariations, item.variations)
+      }
+    })
+    
+    // Sort alphabetically (case-insensitive)
+    const sortAlphabetically = (a: string, b: string) => 
+      a.localeCompare(b, undefined, { sensitivity: 'base' })
+    
+    // Convert projects map to array and sort by code, then name
+    const projectsArray = Array.from(projects.entries()).map(([key, value]) => {
+      // Create display string: "Code - Name" or just "Code" or just "Name"
+      let display = ''
+      if (value.code && value.name) {
+        display = `${value.code} - ${value.name}`
+      } else if (value.code) {
+        display = value.code
+      } else if (value.name) {
+        display = value.name
+      }
+      
+      return {
+        key,
+        code: value.code,
+        name: value.name,
+        display: display || 'Unknown Project'
+      }
+    }).sort((a, b) => {
+      // Sort by code first, then by name
+      const codeCompare = sortAlphabetically(a.code, b.code)
+      if (codeCompare !== 0) return codeCompare
+      return sortAlphabetically(a.name, b.name)
+    })
+    
+    return {
+      units: Array.from(units).sort(sortAlphabetically),
+      projects: projectsArray,
+      itemDescriptions: Array.from(itemDescriptions).sort(sortAlphabetically),
+      ranges: {
+        quantity: { min: isFinite(minQuantity) ? minQuantity : 0, max: isFinite(maxQuantity) ? maxQuantity : 100 },
+        rate: { min: isFinite(minRate) ? minRate : 0, max: isFinite(maxRate) ? maxRate : 1000000 },
+        totalValue: { min: isFinite(minTotalValue) ? minTotalValue : 0, max: isFinite(maxTotalValue) ? maxTotalValue : 10000000 },
+        variations: { min: isFinite(minVariations) ? minVariations : 0, max: isFinite(maxVariations) ? maxVariations : 1000000 },
+      }
+    }
+  }, [items])
+  
   // Filtered items
   const filteredItems = useMemo(() => {
     let filtered = [...items]
@@ -425,61 +522,58 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
       )
     }
     
-    // Column filters
-    if (filters.projectFullCode) {
+    // Column filters - multiselect
+    if (filters.project.size > 0) {
+      filtered = filtered.filter(item => {
+        // Match if the project key (code|name) is in the selected filters
+        const projectKey = `${item.project_full_code || ''}|${item.project_name || ''}`
+        return filters.project.has(projectKey)
+      })
+    }
+    
+    if (filters.itemDescription.size > 0) {
       filtered = filtered.filter(item => 
-        item.project_full_code.toLowerCase().includes(filters.projectFullCode.toLowerCase())
+        filters.itemDescription.has(item.item_description)
       )
     }
     
-    if (filters.projectName) {
+    if (filters.unit.size > 0) {
       filtered = filtered.filter(item => 
-        item.project_name.toLowerCase().includes(filters.projectName.toLowerCase())
+        item.unit && filters.unit.has(item.unit)
       )
     }
     
-    if (filters.itemDescription) {
-      filtered = filtered.filter(item => 
-        item.item_description.toLowerCase().includes(filters.itemDescription.toLowerCase())
-      )
+    if (filters.remeasurable.size > 0) {
+      filtered = filtered.filter(item => {
+        const remeasurableValue = item.remeasurable ? 'true' : 'false'
+        return filters.remeasurable.has(remeasurableValue)
+      })
     }
     
-    if (filters.unit) {
-      filtered = filtered.filter(item => 
-        item.unit?.toLowerCase().includes(filters.unit.toLowerCase())
-      )
+    // Range filters
+    if (filters.quantityRange.min !== undefined) {
+      filtered = filtered.filter(item => item.quantity >= filters.quantityRange.min!)
     }
-    
-    if (filters.remeasurable !== '') {
-      filtered = filtered.filter(item => 
-        filters.remeasurable === 'true' ? item.remeasurable : !item.remeasurable
-      )
+    if (filters.quantityRange.max !== undefined) {
+      filtered = filtered.filter(item => item.quantity <= filters.quantityRange.max!)
     }
-    
-    // Numeric filters
-    if (filters.minQuantity) {
-      filtered = filtered.filter(item => item.quantity >= parseFloat(filters.minQuantity))
+    if (filters.rateRange.min !== undefined) {
+      filtered = filtered.filter(item => item.rate >= filters.rateRange.min!)
     }
-    if (filters.maxQuantity) {
-      filtered = filtered.filter(item => item.quantity <= parseFloat(filters.maxQuantity))
+    if (filters.rateRange.max !== undefined) {
+      filtered = filtered.filter(item => item.rate <= filters.rateRange.max!)
     }
-    if (filters.minRate) {
-      filtered = filtered.filter(item => item.rate >= parseFloat(filters.minRate))
+    if (filters.totalValueRange.min !== undefined) {
+      filtered = filtered.filter(item => item.total_value >= filters.totalValueRange.min!)
     }
-    if (filters.maxRate) {
-      filtered = filtered.filter(item => item.rate <= parseFloat(filters.maxRate))
+    if (filters.totalValueRange.max !== undefined) {
+      filtered = filtered.filter(item => item.total_value <= filters.totalValueRange.max!)
     }
-    if (filters.minTotalValue) {
-      filtered = filtered.filter(item => item.total_value >= parseFloat(filters.minTotalValue))
+    if (filters.variationsRange.min !== undefined) {
+      filtered = filtered.filter(item => item.variations >= filters.variationsRange.min!)
     }
-    if (filters.maxTotalValue) {
-      filtered = filtered.filter(item => item.total_value <= parseFloat(filters.maxTotalValue))
-    }
-    if (filters.minVariations) {
-      filtered = filtered.filter(item => item.variations >= parseFloat(filters.minVariations))
-    }
-    if (filters.maxVariations) {
-      filtered = filtered.filter(item => item.variations <= parseFloat(filters.maxVariations))
+    if (filters.variationsRange.max !== undefined) {
+      filtered = filtered.filter(item => item.variations <= filters.variationsRange.max!)
     }
     
     // Sorting
@@ -712,24 +806,35 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
     }
   }
   
+  // Toggle filter values
+  const toggleFilter = (filterName: 'project' | 'itemDescription' | 'unit' | 'remeasurable', value: string) => {
+    setFilters(prev => {
+      const newSet = new Set(prev[filterName])
+      if (newSet.has(value)) {
+        newSet.delete(value)
+      } else {
+        newSet.add(value)
+      }
+      return { ...prev, [filterName]: newSet }
+    })
+  }
+  
   // Clear filters
   const clearFilters = () => {
     setFilters({
       search: '',
-      projectFullCode: '',
-      projectName: '',
-      itemDescription: '',
-      unit: '',
-      remeasurable: '',
-      minQuantity: '',
-      maxQuantity: '',
-      minRate: '',
-      maxRate: '',
-      minTotalValue: '',
-      maxTotalValue: '',
-      minVariations: '',
-      maxVariations: '',
+      project: new Set<string>(),
+      itemDescription: new Set<string>(),
+      unit: new Set<string>(),
+      remeasurable: new Set<string>(),
+      quantityRange: { min: undefined, max: undefined },
+      rateRange: { min: undefined, max: undefined },
+      totalValueRange: { min: undefined, max: undefined },
+      variationsRange: { min: undefined, max: undefined },
     })
+    setUnitSearch('')
+    setProjectSearch('')
+    setItemDescriptionSearch('')
   }
   
   if (loading && items.length === 0) {
@@ -893,95 +998,591 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                   className="w-full"
                 />
                 
-                <Input
-                  placeholder="Project Full Code"
-                  value={filters.projectFullCode}
-                  onChange={(e) => setFilters({ ...filters, projectFullCode: e.target.value })}
-                />
+                {/* Unit Filter - Multi-select */}
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
+                    Unit {filters.unit.size > 0 && `(${filters.unit.size} selected)`}
+                  </label>
+                  <div className="relative">
+                    <Input
+                      type="text"
+                      placeholder="Search units..."
+                      value={unitSearch}
+                      onChange={(e) => {
+                        setUnitSearch(e.target.value)
+                        setShowUnitDropdown(true)
+                      }}
+                      onFocus={() => setShowUnitDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowUnitDropdown(false), 200)}
+                      className="w-full"
+                    />
+                    {showUnitDropdown && (
+                      <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                        {uniqueValues.units
+                          .filter(u => !unitSearch || u.toLowerCase().includes(unitSearch.toLowerCase()))
+                          .map((unit, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => toggleFilter('unit', unit)}
+                              className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-white flex items-center gap-2"
+                            >
+                              {filters.unit.has(unit) ? (
+                                <CheckSquare className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                              ) : (
+                                <Square className="h-4 w-4 text-gray-400" />
+                              )}
+                              <span>{unit}</span>
+                            </button>
+                          ))}
+                      </div>
+                    )}
+                    {filters.unit.size > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {Array.from(filters.unit).map((unit) => (
+                          <span
+                            key={unit}
+                            className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded-md text-sm"
+                          >
+                            {unit}
+                            <button
+                              type="button"
+                              onClick={() => toggleFilter('unit', unit)}
+                              className="hover:text-blue-600 dark:hover:text-blue-400"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
                 
-                <Input
-                  placeholder="Project Name"
-                  value={filters.projectName}
-                  onChange={(e) => setFilters({ ...filters, projectName: e.target.value })}
-                />
+                {/* Project Filter - Multi-select (Combined Code and Name) */}
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
+                    Project {filters.project.size > 0 && `(${filters.project.size} selected)`}
+                  </label>
+                  <div className="relative">
+                    <Input
+                      type="text"
+                      placeholder="Search projects..."
+                      value={projectSearch}
+                      onChange={(e) => {
+                        setProjectSearch(e.target.value)
+                        setShowProjectDropdown(true)
+                      }}
+                      onFocus={() => setShowProjectDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowProjectDropdown(false), 200)}
+                      className="w-full"
+                    />
+                    {showProjectDropdown && (
+                      <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                        {uniqueValues.projects
+                          .filter(proj => !projectSearch || 
+                            proj.code.toLowerCase().includes(projectSearch.toLowerCase()) ||
+                            proj.name.toLowerCase().includes(projectSearch.toLowerCase()) ||
+                            proj.display.toLowerCase().includes(projectSearch.toLowerCase())
+                          )
+                          .map((proj, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => toggleFilter('project', proj.key)}
+                              className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-white flex items-center gap-2"
+                            >
+                              {filters.project.has(proj.key) ? (
+                                <CheckSquare className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                              ) : (
+                                <Square className="h-4 w-4 text-gray-400" />
+                              )}
+                              <span>{proj.display}</span>
+                            </button>
+                          ))}
+                      </div>
+                    )}
+                    {filters.project.size > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {Array.from(filters.project).map((projectKey) => {
+                          const project = uniqueValues.projects.find(p => p.key === projectKey)
+                          return project ? (
+                            <span
+                              key={projectKey}
+                              className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded-md text-sm"
+                            >
+                              {project.display}
+                              <button
+                                type="button"
+                                onClick={() => toggleFilter('project', projectKey)}
+                                className="hover:text-blue-600 dark:hover:text-blue-400"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </span>
+                          ) : null
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
                 
-                <Input
-                  placeholder="Item Description"
-                  value={filters.itemDescription}
-                  onChange={(e) => setFilters({ ...filters, itemDescription: e.target.value })}
-                />
+                {/* Item Description Filter - Multi-select */}
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
+                    Item Description {filters.itemDescription.size > 0 && `(${filters.itemDescription.size} selected)`}
+                  </label>
+                  <div className="relative">
+                    <Input
+                      type="text"
+                      placeholder="Search item descriptions..."
+                      value={itemDescriptionSearch}
+                      onChange={(e) => {
+                        setItemDescriptionSearch(e.target.value)
+                        setShowItemDescriptionDropdown(true)
+                      }}
+                      onFocus={() => setShowItemDescriptionDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowItemDescriptionDropdown(false), 200)}
+                      className="w-full"
+                    />
+                    {showItemDescriptionDropdown && (
+                      <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                        {uniqueValues.itemDescriptions
+                          .filter(id => !itemDescriptionSearch || id.toLowerCase().includes(itemDescriptionSearch.toLowerCase()))
+                          .map((id, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => toggleFilter('itemDescription', id)}
+                              className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-white flex items-center gap-2"
+                            >
+                              {filters.itemDescription.has(id) ? (
+                                <CheckSquare className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                              ) : (
+                                <Square className="h-4 w-4 text-gray-400" />
+                              )}
+                              <span>{id}</span>
+                            </button>
+                          ))}
+                      </div>
+                    )}
+                    {filters.itemDescription.size > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {Array.from(filters.itemDescription).map((id) => (
+                          <span
+                            key={id}
+                            className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded-md text-sm"
+                          >
+                            {id}
+                            <button
+                              type="button"
+                              onClick={() => toggleFilter('itemDescription', id)}
+                              className="hover:text-blue-600 dark:hover:text-blue-400"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
                 
-                <Input
-                  placeholder="Unit"
-                  value={filters.unit}
-                  onChange={(e) => setFilters({ ...filters, unit: e.target.value })}
-                />
+                {/* Remeasurable Filter - Multi-select */}
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
+                    Remeasurable {filters.remeasurable.size > 0 && `(${filters.remeasurable.size} selected)`}
+                  </label>
+                  <div className="relative">
+                    <Input
+                      type="text"
+                      placeholder="Select remeasurable..."
+                      value={filters.remeasurable.has('true') && filters.remeasurable.has('false') 
+                        ? 'All selected' 
+                        : filters.remeasurable.has('true') 
+                        ? 'Remeasurable' 
+                        : filters.remeasurable.has('false') 
+                        ? 'Not Remeasurable' 
+                        : ''}
+                      onFocus={() => setShowRemeasurableDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowRemeasurableDropdown(false), 200)}
+                      readOnly
+                      className="w-full cursor-pointer"
+                    />
+                    {showRemeasurableDropdown && (
+                      <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg">
+                        <button
+                          type="button"
+                          onClick={() => toggleFilter('remeasurable', 'true')}
+                          className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-white flex items-center gap-2"
+                        >
+                          {filters.remeasurable.has('true') ? (
+                            <CheckSquare className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                          ) : (
+                            <Square className="h-4 w-4 text-gray-400" />
+                          )}
+                          <span>Remeasurable</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleFilter('remeasurable', 'false')}
+                          className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-white flex items-center gap-2"
+                        >
+                          {filters.remeasurable.has('false') ? (
+                            <CheckSquare className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                          ) : (
+                            <Square className="h-4 w-4 text-gray-400" />
+                          )}
+                          <span>Not Remeasurable</span>
+                        </button>
+                      </div>
+                    )}
+                    {filters.remeasurable.size > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {filters.remeasurable.has('true') && (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded-md text-sm">
+                            Remeasurable
+                            <button
+                              type="button"
+                              onClick={() => toggleFilter('remeasurable', 'true')}
+                              className="hover:text-blue-600 dark:hover:text-blue-400"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </span>
+                        )}
+                        {filters.remeasurable.has('false') && (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded-md text-sm">
+                            Not Remeasurable
+                            <button
+                              type="button"
+                              onClick={() => toggleFilter('remeasurable', 'false')}
+                              className="hover:text-blue-600 dark:hover:text-blue-400"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
                 
-                <select
-                  value={filters.remeasurable}
-                  onChange={(e) => setFilters({ ...filters, remeasurable: e.target.value as '' | 'true' | 'false' })}
-                  className="px-3 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600"
-                >
-                  <option value="">All Remeasurable</option>
-                  <option value="true">Remeasurable</option>
-                  <option value="false">Not Remeasurable</option>
-                </select>
+                {/* Quantity Range Filter */}
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
+                    Quantity Range
+                  </label>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        placeholder="Min"
+                        value={filters.quantityRange.min !== undefined ? filters.quantityRange.min : ''}
+                        onChange={(e) => setFilters({
+                          ...filters,
+                          quantityRange: {
+                            ...filters.quantityRange,
+                            min: e.target.value ? parseFloat(e.target.value) : undefined
+                          }
+                        })}
+                        className="flex-1"
+                        min={uniqueValues.ranges.quantity.min}
+                        max={uniqueValues.ranges.quantity.max}
+                      />
+                      <span className="text-gray-500">-</span>
+                      <Input
+                        type="number"
+                        placeholder="Max"
+                        value={filters.quantityRange.max !== undefined ? filters.quantityRange.max : ''}
+                        onChange={(e) => setFilters({
+                          ...filters,
+                          quantityRange: {
+                            ...filters.quantityRange,
+                            max: e.target.value ? parseFloat(e.target.value) : undefined
+                          }
+                        })}
+                        className="flex-1"
+                        min={uniqueValues.ranges.quantity.min}
+                        max={uniqueValues.ranges.quantity.max}
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={uniqueValues.ranges.quantity.min}
+                        max={uniqueValues.ranges.quantity.max}
+                        value={filters.quantityRange.min !== undefined ? filters.quantityRange.min : uniqueValues.ranges.quantity.min}
+                        onChange={(e) => setFilters({
+                          ...filters,
+                          quantityRange: {
+                            ...filters.quantityRange,
+                            min: parseFloat(e.target.value)
+                          }
+                        })}
+                        className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
+                      />
+                      <input
+                        type="range"
+                        min={uniqueValues.ranges.quantity.min}
+                        max={uniqueValues.ranges.quantity.max}
+                        value={filters.quantityRange.max !== undefined ? filters.quantityRange.max : uniqueValues.ranges.quantity.max}
+                        onChange={(e) => setFilters({
+                          ...filters,
+                          quantityRange: {
+                            ...filters.quantityRange,
+                            max: parseFloat(e.target.value)
+                          }
+                        })}
+                        className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
+                      />
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 flex justify-between">
+                      <span>{uniqueValues.ranges.quantity.min.toLocaleString()}</span>
+                      <span>{uniqueValues.ranges.quantity.max.toLocaleString()}</span>
+                    </div>
+                  </div>
+                </div>
                 
-                <Input
-                  type="number"
-                  placeholder="Min Quantity"
-                  value={filters.minQuantity}
-                  onChange={(e) => setFilters({ ...filters, minQuantity: e.target.value })}
-                />
+                {/* Rate Range Filter */}
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
+                    Rate Range
+                  </label>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        placeholder="Min"
+                        value={filters.rateRange.min !== undefined ? filters.rateRange.min : ''}
+                        onChange={(e) => setFilters({
+                          ...filters,
+                          rateRange: {
+                            ...filters.rateRange,
+                            min: e.target.value ? parseFloat(e.target.value) : undefined
+                          }
+                        })}
+                        className="flex-1"
+                        min={uniqueValues.ranges.rate.min}
+                        max={uniqueValues.ranges.rate.max}
+                        step="0.01"
+                      />
+                      <span className="text-gray-500">-</span>
+                      <Input
+                        type="number"
+                        placeholder="Max"
+                        value={filters.rateRange.max !== undefined ? filters.rateRange.max : ''}
+                        onChange={(e) => setFilters({
+                          ...filters,
+                          rateRange: {
+                            ...filters.rateRange,
+                            max: e.target.value ? parseFloat(e.target.value) : undefined
+                          }
+                        })}
+                        className="flex-1"
+                        min={uniqueValues.ranges.rate.min}
+                        max={uniqueValues.ranges.rate.max}
+                        step="0.01"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={uniqueValues.ranges.rate.min}
+                        max={uniqueValues.ranges.rate.max}
+                        value={filters.rateRange.min !== undefined ? filters.rateRange.min : uniqueValues.ranges.rate.min}
+                        onChange={(e) => setFilters({
+                          ...filters,
+                          rateRange: {
+                            ...filters.rateRange,
+                            min: parseFloat(e.target.value)
+                          }
+                        })}
+                        className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
+                        step={(uniqueValues.ranges.rate.max - uniqueValues.ranges.rate.min) / 100}
+                      />
+                      <input
+                        type="range"
+                        min={uniqueValues.ranges.rate.min}
+                        max={uniqueValues.ranges.rate.max}
+                        value={filters.rateRange.max !== undefined ? filters.rateRange.max : uniqueValues.ranges.rate.max}
+                        onChange={(e) => setFilters({
+                          ...filters,
+                          rateRange: {
+                            ...filters.rateRange,
+                            max: parseFloat(e.target.value)
+                          }
+                        })}
+                        className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
+                        step={(uniqueValues.ranges.rate.max - uniqueValues.ranges.rate.min) / 100}
+                      />
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 flex justify-between">
+                      <span>{formatCurrencyByCodeSync(uniqueValues.ranges.rate.min, 'AED')}</span>
+                      <span>{formatCurrencyByCodeSync(uniqueValues.ranges.rate.max, 'AED')}</span>
+                    </div>
+                  </div>
+                </div>
                 
-                <Input
-                  type="number"
-                  placeholder="Max Quantity"
-                  value={filters.maxQuantity}
-                  onChange={(e) => setFilters({ ...filters, maxQuantity: e.target.value })}
-                />
+                {/* Total Value Range Filter */}
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
+                    Total Value Range
+                  </label>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        placeholder="Min"
+                        value={filters.totalValueRange.min !== undefined ? filters.totalValueRange.min : ''}
+                        onChange={(e) => setFilters({
+                          ...filters,
+                          totalValueRange: {
+                            ...filters.totalValueRange,
+                            min: e.target.value ? parseFloat(e.target.value) : undefined
+                          }
+                        })}
+                        className="flex-1"
+                        min={uniqueValues.ranges.totalValue.min}
+                        max={uniqueValues.ranges.totalValue.max}
+                        step="0.01"
+                      />
+                      <span className="text-gray-500">-</span>
+                      <Input
+                        type="number"
+                        placeholder="Max"
+                        value={filters.totalValueRange.max !== undefined ? filters.totalValueRange.max : ''}
+                        onChange={(e) => setFilters({
+                          ...filters,
+                          totalValueRange: {
+                            ...filters.totalValueRange,
+                            max: e.target.value ? parseFloat(e.target.value) : undefined
+                          }
+                        })}
+                        className="flex-1"
+                        min={uniqueValues.ranges.totalValue.min}
+                        max={uniqueValues.ranges.totalValue.max}
+                        step="0.01"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={uniqueValues.ranges.totalValue.min}
+                        max={uniqueValues.ranges.totalValue.max}
+                        value={filters.totalValueRange.min !== undefined ? filters.totalValueRange.min : uniqueValues.ranges.totalValue.min}
+                        onChange={(e) => setFilters({
+                          ...filters,
+                          totalValueRange: {
+                            ...filters.totalValueRange,
+                            min: parseFloat(e.target.value)
+                          }
+                        })}
+                        className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
+                        step={(uniqueValues.ranges.totalValue.max - uniqueValues.ranges.totalValue.min) / 100}
+                      />
+                      <input
+                        type="range"
+                        min={uniqueValues.ranges.totalValue.min}
+                        max={uniqueValues.ranges.totalValue.max}
+                        value={filters.totalValueRange.max !== undefined ? filters.totalValueRange.max : uniqueValues.ranges.totalValue.max}
+                        onChange={(e) => setFilters({
+                          ...filters,
+                          totalValueRange: {
+                            ...filters.totalValueRange,
+                            max: parseFloat(e.target.value)
+                          }
+                        })}
+                        className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
+                        step={(uniqueValues.ranges.totalValue.max - uniqueValues.ranges.totalValue.min) / 100}
+                      />
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 flex justify-between">
+                      <span>{formatCurrencyByCodeSync(uniqueValues.ranges.totalValue.min, 'AED')}</span>
+                      <span>{formatCurrencyByCodeSync(uniqueValues.ranges.totalValue.max, 'AED')}</span>
+                    </div>
+                  </div>
+                </div>
                 
-                <Input
-                  type="number"
-                  placeholder="Min Rate"
-                  value={filters.minRate}
-                  onChange={(e) => setFilters({ ...filters, minRate: e.target.value })}
-                />
-                
-                <Input
-                  type="number"
-                  placeholder="Max Rate"
-                  value={filters.maxRate}
-                  onChange={(e) => setFilters({ ...filters, maxRate: e.target.value })}
-                />
-                
-                <Input
-                  type="number"
-                  placeholder="Min Total Value"
-                  value={filters.minTotalValue}
-                  onChange={(e) => setFilters({ ...filters, minTotalValue: e.target.value })}
-                />
-                
-                <Input
-                  type="number"
-                  placeholder="Max Total Value"
-                  value={filters.maxTotalValue}
-                  onChange={(e) => setFilters({ ...filters, maxTotalValue: e.target.value })}
-                />
-                
-                <Input
-                  type="number"
-                  placeholder="Min Variations"
-                  value={filters.minVariations}
-                  onChange={(e) => setFilters({ ...filters, minVariations: e.target.value })}
-                />
-                
-                <Input
-                  type="number"
-                  placeholder="Max Variations"
-                  value={filters.maxVariations}
-                  onChange={(e) => setFilters({ ...filters, maxVariations: e.target.value })}
-                />
+                {/* Variations Range Filter */}
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
+                    Variations Range
+                  </label>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        placeholder="Min"
+                        value={filters.variationsRange.min !== undefined ? filters.variationsRange.min : ''}
+                        onChange={(e) => setFilters({
+                          ...filters,
+                          variationsRange: {
+                            ...filters.variationsRange,
+                            min: e.target.value ? parseFloat(e.target.value) : undefined
+                          }
+                        })}
+                        className="flex-1"
+                        min={uniqueValues.ranges.variations.min}
+                        max={uniqueValues.ranges.variations.max}
+                        step="0.01"
+                      />
+                      <span className="text-gray-500">-</span>
+                      <Input
+                        type="number"
+                        placeholder="Max"
+                        value={filters.variationsRange.max !== undefined ? filters.variationsRange.max : ''}
+                        onChange={(e) => setFilters({
+                          ...filters,
+                          variationsRange: {
+                            ...filters.variationsRange,
+                            max: e.target.value ? parseFloat(e.target.value) : undefined
+                          }
+                        })}
+                        className="flex-1"
+                        min={uniqueValues.ranges.variations.min}
+                        max={uniqueValues.ranges.variations.max}
+                        step="0.01"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={uniqueValues.ranges.variations.min}
+                        max={uniqueValues.ranges.variations.max}
+                        value={filters.variationsRange.min !== undefined ? filters.variationsRange.min : uniqueValues.ranges.variations.min}
+                        onChange={(e) => setFilters({
+                          ...filters,
+                          variationsRange: {
+                            ...filters.variationsRange,
+                            min: parseFloat(e.target.value)
+                          }
+                        })}
+                        className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
+                        step={(uniqueValues.ranges.variations.max - uniqueValues.ranges.variations.min) / 100}
+                      />
+                      <input
+                        type="range"
+                        min={uniqueValues.ranges.variations.min}
+                        max={uniqueValues.ranges.variations.max}
+                        value={filters.variationsRange.max !== undefined ? filters.variationsRange.max : uniqueValues.ranges.variations.max}
+                        onChange={(e) => setFilters({
+                          ...filters,
+                          variationsRange: {
+                            ...filters.variationsRange,
+                            max: parseFloat(e.target.value)
+                          }
+                        })}
+                        className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
+                        step={(uniqueValues.ranges.variations.max - uniqueValues.ranges.variations.min) / 100}
+                      />
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 flex justify-between">
+                      <span>{formatCurrencyByCodeSync(uniqueValues.ranges.variations.min, 'AED')}</span>
+                      <span>{formatCurrencyByCodeSync(uniqueValues.ranges.variations.max, 'AED')}</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           )}
