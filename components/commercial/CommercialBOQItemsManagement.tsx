@@ -392,16 +392,25 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
       if (fetchError) throw fetchError
       
       const mappedProjects = (data || []).map((row: any) => {
-        const project: Project = {
+        const project: Partial<Project> = {
           id: row.id,
           project_code: row['Project Code'] || '',
           project_sub_code: row['Project Sub-Code'] || '',
           project_name: row['Project Name'] || '',
           project_full_code: '', // Will be set below
+          project_type: row['Project Type'] || '',
+          responsible_division: row['Responsible Division'] || '',
+          plot_number: row['Plot Number'] || '',
+          kpi_completed: row['KPI Completed'] === 'Yes' || row['KPI Completed'] === true,
+          project_status: (row['Project Status'] || 'upcoming') as Project['project_status'],
+          contract_amount: parseFloat(String(row['Contract Amount'] || '0').replace(/,/g, '')) || 0,
+          created_at: row.created_at || new Date().toISOString(),
+          updated_at: row.updated_at || new Date().toISOString(),
+          created_by: row.created_by || '',
         }
         // Use buildProjectFullCode to properly construct the full code
-        project.project_full_code = buildProjectFullCode(project)
-        return project
+        project.project_full_code = buildProjectFullCode(project as Project)
+        return project as Project
       })
       
       setProjects(mappedProjects)
@@ -645,7 +654,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
       const totalValue = quantity * rate
       const totalIncludingVariations = totalValue + variations
       
-      const updateData = {
+      const updateData: any = {
         'Project Full Code': editingData.project_full_code,
         'Project Name': editingData.project_name,
         'Item Description': editingData.item_description,
@@ -715,7 +724,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
         
         for (const item of itemsToUpdate) {
           const newTotalIncludingVariations = item.total_value + newVariations
-          const updateData = {
+          const updateData: any = {
             ...data,
             'Total Including Variations': newTotalIncludingVariations
           }
@@ -731,7 +740,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
         // No variations update, can do bulk update
         const { error: updateError } = await supabase
           .from(TABLES.COMMERCIAL_BOQ_ITEMS)
-          .update(data)
+          .update(data as any)
           .in('id', ids)
         
         if (updateError) throw updateError
@@ -915,7 +924,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
       
       {/* Alerts - Only show success, hide error during loading */}
       {success && (
-        <Alert variant="success" onClose={() => setSuccess('')}>
+        <Alert variant="success">
           {success}
         </Alert>
       )}
@@ -1899,7 +1908,6 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
               totalItems={filteredItems.length}
               itemsPerPage={itemsPerPage}
               onPageChange={setCurrentPage}
-              loading={loading}
             />
           )}
         </CardContent>

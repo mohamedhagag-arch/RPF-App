@@ -122,7 +122,7 @@ export function BulkEditBOQItemsModal({
         
         <CardContent className="space-y-4">
           {error && (
-            <Alert variant="destructive" onClose={() => setError('')}>
+            <Alert variant="error">
               {error}
             </Alert>
           )}
