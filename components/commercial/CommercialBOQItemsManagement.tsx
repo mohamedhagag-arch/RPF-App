@@ -43,6 +43,8 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
   const { appUser } = useAuth()
   const [items, setItems] = useState<CommercialBOQItem[]>([])
   const [projects, setProjects] = useState<Project[]>([])
+  const [projectSubCodes, setProjectSubCodes] = useState<string[]>([])
+  const [units, setUnits] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -418,11 +420,90 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
       console.error('Error fetching projects:', err)
     }
   }, [supabase])
+
+  // Fetch Project Sub-Codes for dropdown
+  const fetchProjectSubCodes = useCallback(async () => {
+    try {
+      const { data, error: fetchError } = await supabase
+        .from(TABLES.PROJECTS)
+        .select('"Project Sub-Code"')
+        .not('"Project Sub-Code"', 'is', null)
+        .neq('"Project Sub-Code"', '')
+      
+      if (fetchError) {
+        console.error('Error fetching project sub-codes:', fetchError)
+        return
+      }
+      
+      // Extract unique sub-codes
+      const subCodesSet = new Set<string>()
+      if (data && data.length > 0) {
+        data.forEach((row: any) => {
+          const subCode = row['Project Sub-Code']
+          if (subCode && subCode.toString().trim()) {
+            subCodesSet.add(subCode.toString().trim())
+          }
+        })
+      }
+      
+      // Convert to sorted array
+      const uniqueSubCodes = Array.from(subCodesSet).sort((a, b) => {
+        // Sort alphabetically
+        return a.localeCompare(b, undefined, { sensitivity: 'base' })
+      })
+      
+      setProjectSubCodes(uniqueSubCodes)
+      console.log('✅ Loaded project sub-codes:', uniqueSubCodes.length)
+    } catch (err: any) {
+      console.error('Error fetching project sub-codes:', err)
+    }
+  }, [supabase])
+
+  // Fetch Units for dropdown
+  const fetchUnits = useCallback(async () => {
+    try {
+      const { data, error: fetchError } = await supabase
+        .from('units')
+        .select('code')
+        .not('code', 'is', null)
+        .neq('code', '')
+        .order('code', { ascending: true })
+      
+      if (fetchError) {
+        console.error('Error fetching units:', fetchError)
+        return
+      }
+      
+      // Extract unique unit codes
+      const unitsSet = new Set<string>()
+      if (data && data.length > 0) {
+        data.forEach((row: any) => {
+          const unitCode = row.code
+          if (unitCode && unitCode.toString().trim()) {
+            unitsSet.add(unitCode.toString().trim())
+          }
+        })
+      }
+      
+      // Convert to sorted array
+      const uniqueUnits = Array.from(unitsSet).sort((a, b) => {
+        // Sort alphabetically
+        return a.localeCompare(b, undefined, { sensitivity: 'base' })
+      })
+      
+      setUnits(uniqueUnits)
+      console.log('✅ Loaded units:', uniqueUnits.length)
+    } catch (err: any) {
+      console.error('Error fetching units:', err)
+    }
+  }, [supabase])
   
   useEffect(() => {
     fetchItems()
     fetchProjects()
-  }, [fetchItems, fetchProjects])
+    fetchProjectSubCodes()
+    fetchUnits()
+  }, [fetchItems, fetchProjects, fetchProjectSubCodes, fetchUnits])
   
   // Extract unique values for multiselect filters and calculate ranges
   const uniqueValues = useMemo(() => {
@@ -1710,11 +1791,32 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                       <td className="p-2">{item.auto_generated_unique_reference_number}</td>
                       <td className="p-2">
                         {isEditing ? (
-                          <Input
+                          <select
                             value={editingData.project_full_code || ''}
-                            onChange={(e) => setEditingData({ ...editingData, project_full_code: e.target.value })}
-                            className="w-full"
-                          />
+                            onChange={(e) => {
+                              const selectedSubCode = e.target.value
+                              // Find the matching project from the projects list
+                              const matchingProject = projects.find((project) => {
+                                const projectSubCode = (project.project_sub_code || '').toString().trim()
+                                return projectSubCode === selectedSubCode
+                              })
+                              
+                              // Update both project_full_code and project_name
+                              setEditingData({
+                                ...editingData,
+                                project_full_code: selectedSubCode,
+                                project_name: matchingProject?.project_name || editingData.project_name || ''
+                              })
+                            }}
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          >
+                            <option value="">Select Project Sub-Code</option>
+                            {projectSubCodes.map((subCode) => (
+                              <option key={subCode} value={subCode}>
+                                {subCode}
+                              </option>
+                            ))}
+                          </select>
                         ) : (
                           item.project_full_code
                         )}
@@ -1743,11 +1845,18 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                       </td>
                       <td className="p-2">
                         {isEditing ? (
-                          <Input
+                          <select
                             value={editingData.unit || ''}
                             onChange={(e) => setEditingData({ ...editingData, unit: e.target.value })}
-                            className="w-full"
-                          />
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          >
+                            <option value="">Select Unit</option>
+                            {units.map((unit) => (
+                              <option key={unit} value={unit}>
+                                {unit}
+                              </option>
+                            ))}
+                          </select>
                         ) : (
                           item.unit || '-'
                         )}
