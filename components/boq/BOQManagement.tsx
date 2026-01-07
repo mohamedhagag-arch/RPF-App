@@ -3399,8 +3399,19 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
       ? (totalActualValue / totalValue) * 100 
       : 0
     
+    // Total Quantity: Sum of total_units or planned_units from ALL filtered activities
+    const totalQuantity = filteredActivities.reduce((sum, activity) => {
+      const rawActivity = (activity as any).raw || {}
+      const activityQuantity = activity.total_units || 
+                              activity.planned_units ||
+                              parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
+                              0
+      return sum + activityQuantity
+    }, 0)
+    
     return {
       totalRecords,
+      totalQuantity,
       plannedCount,
       totalPlannedQty,
       actualCount,
@@ -3645,7 +3656,10 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
               <div className="flex items-center justify-between">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-purple-600 dark:text-purple-300 mb-2">Total Records</p>
-                  <p className="text-3xl font-bold text-purple-900 dark:text-purple-100">{boqSummaryStats.totalRecords}</p>
+                  <p className="text-3xl font-bold text-purple-900 dark:text-purple-100">{boqSummaryStats.totalQuantity.toLocaleString()}</p>
+                  <p className="text-xs text-purple-600 dark:text-purple-400 mt-2">
+                    {boqSummaryStats.totalRecords} activities
+                  </p>
                 </div>
                 <BarChart3 className="h-12 w-12 text-purple-500 flex-shrink-0 ml-3" />
               </div>
@@ -3657,9 +3671,9 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
               <div className="flex items-center justify-between">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-blue-600 dark:text-blue-300 mb-2">🎯 Planned Targets</p>
-                  <p className="text-3xl font-bold text-blue-900 dark:text-blue-100">{boqSummaryStats.plannedCount}</p>
+                  <p className="text-3xl font-bold text-blue-900 dark:text-blue-100">{boqSummaryStats.totalPlannedQty.toLocaleString()}</p>
                   <p className="text-xs text-blue-600 dark:text-blue-400 mt-2">
-                    {boqSummaryStats.totalPlannedQty.toLocaleString()} total qty
+                    {boqSummaryStats.plannedCount} activities
                   </p>
                 </div>
                 <Target className="h-12 w-12 text-blue-500 flex-shrink-0 ml-3" />
@@ -3672,9 +3686,9 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
               <div className="flex items-center justify-between">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-green-600 dark:text-green-300 mb-2">✓ Actual Achieved</p>
-                  <p className="text-3xl font-bold text-green-900 dark:text-green-100">{boqSummaryStats.actualCount}</p>
+                  <p className="text-3xl font-bold text-green-900 dark:text-green-100">{boqSummaryStats.totalActualQty.toLocaleString()}</p>
                   <p className="text-xs text-green-600 dark:text-green-400 mt-2">
-                    {boqSummaryStats.totalActualQty.toLocaleString()} total qty
+                    {boqSummaryStats.actualCount} activities
                   </p>
                 </div>
                 <CheckCircle className="h-12 w-12 text-green-500 flex-shrink-0 ml-3" />

@@ -16,13 +16,15 @@ import {
   FileSpreadsheet,
   Calculator,
   ChevronDown,
-  Check
+  Check,
+  History,
+  Clock
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { PermissionButton } from '@/components/ui/PermissionButton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Alert } from '@/components/ui/Alert'
-import { supabase, TABLES, MachineryDayRate, Machine } from '@/lib/supabase'
+import { supabase, TABLES, MachineryDayRate, Machine, MachineDailyRateHistory } from '@/lib/supabase'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { useAuth } from '@/app/providers'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
@@ -59,8 +61,23 @@ export default function MachineryDayRates({ machines }: MachineryDayRatesProps) 
     efficiency: '100'
   })
 
+  // Daily Rate Modal state
+  const [showDailyRateModal, setShowDailyRateModal] = useState(false)
+  const [selectedRate, setSelectedRate] = useState<MachineryDayRate | null>(null)
+  const [selectedMachine, setSelectedMachine] = useState<Machine | null>(null)
+  const [editingDailyRate, setEditingDailyRate] = useState<MachineDailyRateHistory | null>(null)
+  const [dailyRateHistory, setDailyRateHistory] = useState<Map<string, MachineDailyRateHistory[]>>(new Map())
+  const [dailyRateFormData, setDailyRateFormData] = useState({
+    daily_rate: '',
+    name: '',
+    start_date: '',
+    end_date: '',
+    is_active: true
+  })
+
   useEffect(() => {
     fetchRates()
+    fetchDailyRateHistory()
   }, [])
 
   // Close dropdown when clicking outside
@@ -105,6 +122,330 @@ export default function MachineryDayRates({ machines }: MachineryDayRatesProps) 
     } catch (err: any) {
       console.error('Error fetching rates:', err)
       setError('Failed to load machinery day rates: ' + err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const fetchDailyRateHistory = async () => {
+    try {
+      const supabaseClient = getSupabaseClient()
+      const { data, error } = await supabaseClient
+        .from(TABLES.MACHINE_DAILY_RATE_HISTORY)
+        // @ts-ignore
+        .select('*')
+        .order('start_date', { ascending: false })
+
+      if (error) {
+        // If table doesn't exist, just log and continue (table will be created by SQL script)
+        if (error.code === '42P01' || error.message?.includes('does not exist')) {
+          console.warn('Daily rate history table does not exist yet. Please run the SQL script first.')
+          setDailyRateHistory(new Map())
+          return
+        }
+        console.error('Error fetching daily rate history:', error)
+        return
+      }
+
+      // Group by machine_id
+      const historyMap = new Map<string, MachineDailyRateHistory[]>()
+      if (data) {
+        data.forEach((item: any) => {
+          const machineId = item.machine_id
+          if (!historyMap.has(machineId)) {
+            historyMap.set(machineId, [])
+          }
+          historyMap.get(machineId)!.push(item as MachineDailyRateHistory)
+        })
+      }
+      setDailyRateHistory(historyMap)
+    } catch (err: any) {
+      console.error('Error fetching daily rate history:', err)
+      // Don't show error to user if table doesn't exist yet
+      if (err?.code !== '42P01' && !err?.message?.includes('does not exist')) {
+        console.error('Unexpected error:', err)
+      }
+    }
+  }
+
+  const getActiveDailyRate = (machineId: string): MachineDailyRateHistory | null => {
+    const history = dailyRateHistory.get(machineId) || []
+    return history.find(rate => rate.is_active) || null
+  }
+
+  const handleManageDailyRate = (rate: MachineryDayRate) => {
+    // Find machine by code
+    const machine = machines.find(m => m.code === rate.code)
+    if (!machine) {
+      setError('Machine not found for code: ' + rate.code)
+      return
+    }
+    
+    setSelectedRate(rate)
+    setSelectedMachine(machine)
+    setEditingDailyRate(null)
+    setDailyRateFormData({
+      daily_rate: rate.rate.toString(),
+      name: '',
+      start_date: new Date().toISOString().split('T')[0],
+      end_date: '',
+      is_active: true
+    })
+    setShowDailyRateModal(true)
+  }
+
+  const handleEditDailyRate = (dailyRate: MachineDailyRateHistory) => {
+    setEditingDailyRate(dailyRate)
+    setDailyRateFormData({
+      daily_rate: dailyRate.daily_rate.toString(),
+      name: dailyRate.name,
+      start_date: dailyRate.start_date,
+      end_date: dailyRate.end_date || '',
+      is_active: dailyRate.is_active
+    })
+    setShowDailyRateModal(true)
+  }
+
+  const handleSaveDailyRate = async () => {
+    try {
+      setError('')
+      setSuccess('')
+      setLoading(true)
+
+      if (!dailyRateFormData.daily_rate || parseFloat(dailyRateFormData.daily_rate) < 0) {
+        setError('Please enter a valid daily rate')
+        setLoading(false)
+        return
+      }
+
+      if (!dailyRateFormData.name.trim()) {
+        setError('Please enter a name for this rate period')
+        setLoading(false)
+        return
+      }
+
+      if (!dailyRateFormData.start_date) {
+        setError('Please enter a start date')
+        setLoading(false)
+        return
+      }
+
+      if (dailyRateFormData.end_date && new Date(dailyRateFormData.end_date) < new Date(dailyRateFormData.start_date)) {
+        setError('End date must be after start date')
+        setLoading(false)
+        return
+      }
+
+      const currentUserId = user?.id || appUser?.id
+      
+      if (!selectedMachine) {
+        setError('No machine selected')
+        setLoading(false)
+        return
+      }
+
+      // Validate machine_id exists
+      if (!selectedMachine.id) {
+        setError('Invalid machine ID. Please refresh the page and try again.')
+        setLoading(false)
+        return
+      }
+
+      // Save to history table
+      const rateData: any = {
+        machine_id: selectedMachine.id,
+        name: dailyRateFormData.name.trim(),
+        daily_rate: parseFloat(dailyRateFormData.daily_rate),
+        start_date: dailyRateFormData.start_date,
+        end_date: dailyRateFormData.end_date || null,
+        is_active: dailyRateFormData.is_active
+      }
+
+      // Only add created_by/updated_by if user is authenticated (these fields are nullable)
+      if (currentUserId) {
+        if (editingDailyRate) {
+          rateData.updated_by = currentUserId
+        } else {
+          rateData.created_by = currentUserId
+        }
+      }
+
+      const supabaseClient = getSupabaseClient()
+      
+      if (editingDailyRate) {
+        rateData.updated_by = currentUserId
+        
+        const { data, error } = await supabaseClient
+          .from(TABLES.MACHINE_DAILY_RATE_HISTORY)
+          // @ts-ignore
+          .update(rateData)
+          .eq('id', editingDailyRate.id)
+          .select()
+
+        if (error) {
+          if (error.code === '42P01' || error.message?.includes('does not exist')) {
+            throw new Error('Table does not exist. Please run the SQL script: Database/machine-daily-rate-history-complete.sql')
+          } else if (error.code === '42501' || error.message?.includes('permission denied')) {
+            throw new Error('Permission denied. Please check RLS policies in Supabase.')
+          } else if (error.code === '23503' || error.message?.includes('foreign key')) {
+            throw new Error('Invalid machine. Please refresh the page and try again.')
+          }
+          
+          throw new Error(error.message || error.details || 'Failed to update daily rate')
+        }
+        
+        setSuccess('Daily rate updated successfully!')
+      } else {
+        const { data, error } = await supabaseClient
+          .from(TABLES.MACHINE_DAILY_RATE_HISTORY)
+          // @ts-ignore
+          .insert([rateData])
+          .select()
+
+        if (error) {
+          if (error.code === '42P01' || error.message?.includes('does not exist')) {
+            throw new Error('Table does not exist. Please run the SQL script: Database/machine-daily-rate-history-complete.sql')
+          } else if (error.code === '42501' || error.message?.includes('permission denied')) {
+            throw new Error('Permission denied. Please check RLS policies in Supabase.')
+          } else if (error.code === '23503' || error.message?.includes('foreign key')) {
+            throw new Error('Invalid machine. Please refresh the page and try again.')
+          } else if (error.code === '23505' || error.message?.includes('unique constraint')) {
+            throw new Error('A rate with this name already exists for this machine.')
+          }
+          
+          throw new Error(error.message || error.details || 'Failed to insert daily rate')
+        }
+        
+        setSuccess('Daily rate added successfully!')
+      }
+
+      // If this is the active rate, update rate in machinery_day_rates table
+      if (dailyRateFormData.is_active && selectedRate) {
+        const newDailyRate = parseFloat(dailyRateFormData.daily_rate)
+        const updateData: any = {
+          rate: newDailyRate,
+          updated_by: currentUserId || null
+        }
+
+        const { error: updateError } = await supabaseClient
+          .from(TABLES.MACHINERY_DAY_RATES)
+          // @ts-ignore
+          .update(updateData)
+          .eq('id', selectedRate.id)
+
+        if (updateError) {
+          console.error('⚠️ Failed to update rate in machinery_day_rates:', updateError)
+          // Don't throw error, just log it - the history was saved successfully
+        } else {
+          console.log('✅ Updated rate in machinery_day_rates table:', updateData)
+        }
+      }
+
+      setShowDailyRateModal(false)
+      setEditingDailyRate(null)
+      
+      // Always refresh both tables to show updated data
+      await fetchRates() // Refresh rates to show updated rate
+      await fetchDailyRateHistory() // Refresh history
+      
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err: any) {
+      const errorMessage = err?.message || err?.error?.message || 'Unknown error occurred'
+      setError('Failed to save daily rate: ' + errorMessage)
+      console.error('Error saving daily rate:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDeleteDailyRate = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this daily rate?')) {
+      return
+    }
+
+    try {
+      setError('')
+      setSuccess('')
+      setLoading(true)
+
+      const supabaseClient = getSupabaseClient()
+      const { error } = await supabaseClient
+        .from(TABLES.MACHINE_DAILY_RATE_HISTORY)
+        // @ts-ignore
+        .delete()
+        .eq('id', id)
+
+      if (error) throw error
+
+      setSuccess('Daily rate deleted successfully!')
+      await fetchDailyRateHistory()
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err: any) {
+      setError('Failed to delete daily rate: ' + err.message)
+      console.error('Error deleting daily rate:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleUseRate = async (rate: MachineDailyRateHistory) => {
+    if (!selectedMachine || !selectedRate) return
+
+    try {
+      setError('')
+      setSuccess('')
+      setLoading(true)
+
+      const currentUserId = user?.id || appUser?.id
+      const supabaseClient = getSupabaseClient()
+
+      // Set this rate as active (trigger will deactivate others)
+      const { error: updateError } = await supabaseClient
+        .from(TABLES.MACHINE_DAILY_RATE_HISTORY)
+        // @ts-ignore
+        .update({
+          is_active: true,
+          updated_by: currentUserId || null
+        })
+        .eq('id', rate.id)
+
+      if (updateError) {
+        if (updateError.code === '42P01' || updateError.message?.includes('does not exist')) {
+          throw new Error('Table does not exist. Please run the SQL script: Database/machine-daily-rate-history-complete.sql')
+        } else if (updateError.code === '42501' || updateError.message?.includes('permission denied')) {
+          throw new Error('Permission denied. Please check RLS policies in Supabase.')
+        }
+        throw new Error(updateError.message || updateError.details || 'Failed to activate rate')
+      }
+
+      // Update rate in machinery_day_rates table
+      const { error: rateUpdateError } = await supabaseClient
+        .from(TABLES.MACHINERY_DAY_RATES)
+        // @ts-ignore
+        .update({
+          rate: rate.daily_rate,
+          updated_by: currentUserId || null
+        })
+        .eq('id', selectedRate.id)
+
+      if (rateUpdateError) {
+        console.error('⚠️ Failed to update rate in machinery_day_rates:', rateUpdateError)
+        // Don't throw error, just log it - the history was updated successfully
+      } else {
+        console.log('✅ Updated rate in machinery_day_rates table:', rate.daily_rate)
+      }
+
+      setSuccess('Rate activated and machinery day rate updated successfully!')
+      
+      // Refresh both tables
+      await fetchRates()
+      await fetchDailyRateHistory()
+      
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err: any) {
+      const errorMessage = err?.message || err?.error?.message || 'Unknown error occurred'
+      setError('Failed to use rate: ' + errorMessage)
+      console.error('Error using rate:', err)
     } finally {
       setLoading(false)
     }
@@ -566,6 +907,8 @@ export default function MachineryDayRates({ machines }: MachineryDayRatesProps) 
                     <th className="text-left p-3 font-semibold">Code</th>
                     <th className="text-left p-3 font-semibold">Description</th>
                     <th className="text-left p-3 font-semibold">Rate</th>
+                    <th className="text-left p-3 font-semibold">Daily Rate Name</th>
+                    <th className="text-left p-3 font-semibold">Period (From - To)</th>
                     <th className="text-left p-3 font-semibold">Efficiency (%)</th>
                     <th className="text-left p-3 font-semibold">Actions</th>
                   </tr>
@@ -574,6 +917,8 @@ export default function MachineryDayRates({ machines }: MachineryDayRatesProps) 
                   {filteredRates.map((rate) => {
                     const machineInfo = getMachineInfo(rate.code)
                     const isSelected = selectedRates.has(rate.id)
+                    // Get active daily rate for this machine
+                    const activeDailyRate = machineInfo ? getActiveDailyRate(machineInfo.id) : null
                     return (
                       <tr 
                         key={rate.id} 
@@ -617,6 +962,42 @@ export default function MachineryDayRates({ machines }: MachineryDayRatesProps) 
                           </span>
                         </td>
                         <td className="p-3">
+                          {activeDailyRate ? (
+                            <div className="flex items-center gap-1">
+                              <span className="text-sm font-medium text-gray-900 dark:text-white">
+                                {activeDailyRate.name}
+                              </span>
+                              {activeDailyRate.is_active && (
+                                <span className="px-2 py-0.5 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200 rounded text-xs">
+                                  Active
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-gray-400 text-sm">-</span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          {activeDailyRate ? (
+                            <div className="text-sm text-gray-600 dark:text-gray-400">
+                              <div className="flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                <span>{new Date(activeDailyRate.start_date).toLocaleDateString()}</span>
+                              </div>
+                              {activeDailyRate.end_date ? (
+                                <div className="flex items-center gap-1 mt-1">
+                                  <span className="text-gray-400">-</span>
+                                  <span>{new Date(activeDailyRate.end_date).toLocaleDateString()}</span>
+                                </div>
+                              ) : (
+                                <div className="text-xs text-gray-400 mt-1">Ongoing</div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-gray-400 text-sm">-</span>
+                          )}
+                        </td>
+                        <td className="p-3">
                           <div className="flex items-center gap-2">
                             <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                               <div
@@ -637,6 +1018,16 @@ export default function MachineryDayRates({ machines }: MachineryDayRatesProps) 
                         </td>
                         <td className="p-3">
                           <div className="flex items-center gap-2">
+                            <PermissionButton
+                              permission="cost_control.machinery_day_rates.create"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleManageDailyRate(rate)}
+                              className="h-10 w-10 p-0 flex items-center justify-center text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                              title="Manage Daily Rate"
+                            >
+                              <History className="h-5 w-5" />
+                            </PermissionButton>
                             <PermissionButton
                               permission="cost_control.machinery_day_rates.edit"
                               variant="outline"
@@ -880,6 +1271,207 @@ export default function MachineryDayRates({ machines }: MachineryDayRatesProps) 
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Daily Rate Modal */}
+      {showDailyRateModal && selectedRate && selectedMachine && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-4xl max-h-[90vh] overflow-y-auto m-4">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>
+                  {editingDailyRate ? 'Edit Daily Rate' : 'Add Daily Rate'} - {selectedMachine.name} ({selectedMachine.code})
+                </CardTitle>
+                <button
+                  onClick={() => {
+                    setShowDailyRateModal(false)
+                    setEditingDailyRate(null)
+                    setSelectedRate(null)
+                    setSelectedMachine(null)
+                  }}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={(e) => { e.preventDefault(); handleSaveDailyRate(); }} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
+                      Daily Rate *
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={dailyRateFormData.daily_rate}
+                      onChange={(e) => setDailyRateFormData(prev => ({ ...prev, daily_rate: e.target.value }))}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      placeholder="Enter daily rate"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
+                      Name/Description *
+                    </label>
+                    <input
+                      type="text"
+                      value={dailyRateFormData.name}
+                      onChange={(e) => setDailyRateFormData(prev => ({ ...prev, name: e.target.value }))}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      placeholder="e.g., Q1 2025 Rate, Mid-Year Update"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
+                      Start Date *
+                    </label>
+                    <input
+                      type="date"
+                      value={dailyRateFormData.start_date}
+                      onChange={(e) => setDailyRateFormData(prev => ({ ...prev, start_date: e.target.value }))}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
+                      End Date (Optional)
+                    </label>
+                    <input
+                      type="date"
+                      value={dailyRateFormData.end_date}
+                      onChange={(e) => setDailyRateFormData(prev => ({ ...prev, end_date: e.target.value }))}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      min={dailyRateFormData.start_date}
+                    />
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={dailyRateFormData.is_active}
+                        onChange={(e) => setDailyRateFormData(prev => ({ ...prev, is_active: e.target.checked }))}
+                        className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                      />
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Set as active rate (will update machinery day rate in main table)
+                      </span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Daily Rate History */}
+                {selectedMachine && dailyRateHistory.get(selectedMachine.id) && dailyRateHistory.get(selectedMachine.id)!.length > 0 && (
+                  <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+                    <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Rate History</h3>
+                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                      {dailyRateHistory.get(selectedMachine.id)!.map((rate) => (
+                        <div
+                          key={rate.id}
+                          className={`p-3 border rounded-lg ${
+                            rate.is_active
+                              ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+                              : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-gray-900 dark:text-white">{rate.name}</span>
+                                {rate.is_active && (
+                                  <span className="px-2 py-0.5 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200 rounded text-xs">
+                                    Active
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                                <span className="font-semibold">{rate.daily_rate.toFixed(2)}</span> - {new Date(rate.start_date).toLocaleDateString()}
+                                {rate.end_date ? ` to ${new Date(rate.end_date).toLocaleDateString()}` : ' (Ongoing)'}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {!rate.is_active && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleUseRate(rate)}
+                                  className="px-3 py-1.5 text-sm font-medium text-green-700 bg-green-100 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-300 dark:hover:bg-green-900/50 rounded transition-colors"
+                                  title="Use this rate"
+                                  disabled={loading}
+                                >
+                                  USE
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleEditDailyRate(rate)}
+                                className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded"
+                                title="Edit"
+                                disabled={loading}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteDailyRate(rate.id)}
+                                className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
+                                title="Delete"
+                                disabled={loading}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-3 pt-4">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowDailyRateModal(false)
+                      setEditingDailyRate(null)
+                      setSelectedRate(null)
+                      setSelectedMachine(null)
+                    }}
+                    disabled={loading}
+                  >
+                    Cancel
+                  </Button>
+                  <PermissionButton
+                    permission={editingDailyRate ? 'cost_control.machinery_day_rates.edit' : 'cost_control.machinery_day_rates.create'}
+                    onClick={handleSaveDailyRate}
+                    disabled={loading}
+                    className="flex items-center gap-2"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="h-4 w-4" />
+                        {editingDailyRate ? 'Update' : 'Add'} Daily Rate
+                      </>
+                    )}
+                  </PermissionButton>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>
