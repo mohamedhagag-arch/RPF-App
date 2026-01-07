@@ -1155,17 +1155,33 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     const kpiProjectFullCode = (kpi.project_full_code || kpi.project_code || '').toLowerCase().trim()
     const kpiProjectCode = (kpi.project_code || '').toLowerCase().trim()
     
-    // ✅ FIX: Get zone from KPI
+    // ✅ FIX: Get zone from KPI (check all possible fields)
     const rawKPI = (kpi as any).raw || {}
-    const kpiZone = (kpi.zone_ref || kpi.zone_number || rawKPI['Zone Ref'] || rawKPI['Zone Number'] || '').toString().toLowerCase().trim()
+    const kpiZone = (
+      kpi.zone || 
+      kpi.zone_ref || 
+      kpi.zone_number || 
+      rawKPI['Zone'] ||
+      rawKPI['Zone Ref'] || 
+      rawKPI['Zone Number'] || 
+      ''
+    ).toString().toLowerCase().trim()
     
     const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
     const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toLowerCase().trim()
     const activityProjectCode = (activity.project_code || '').toLowerCase().trim()
     
-    // ✅ FIX: Get zone from Activity
+    // ✅ FIX: Get zone from Activity (check all possible fields)
     const rawActivity = (activity as any).raw || {}
-    const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
+    const activityZone = (
+      (activity as any).zone ||
+      activity.zone_ref || 
+      activity.zone_number || 
+      rawActivity['Zone'] ||
+      rawActivity['Zone Ref'] || 
+      rawActivity['Zone Number'] || 
+      ''
+    ).toString().toLowerCase().trim()
     
     // ✅ FIX: Match by activity name and project first
     const projectMatches = (kpiProjectFullCode === activityProjectFullCode) || (kpiProjectCode === activityProjectCode)
@@ -1177,68 +1193,105 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     
     // ✅ FIX: If both have zones, they must match exactly
     if (kpiZone && activityZone) {
-      // Normalize zones by removing project code prefix if present
-      // Try multiple patterns to handle different formats like "P5066-I1 - 1", "P5066-I1-1", "1", etc.
+      // ✅ IMPROVED: More robust zone normalization and matching
       const normalizeZone = (zone: string, projectCode: string): string => {
+        if (!zone || !zone.trim()) return ''
+        
         let normalized = zone.toLowerCase().trim()
-        // Remove project code prefix in various formats
-        normalized = normalized.replace(new RegExp(`^${projectCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*-\\s*`, 'i'), '')
-        normalized = normalized.replace(new RegExp(`^${projectCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+`, 'i'), '')
-        normalized = normalized.replace(new RegExp(`^${projectCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-`, 'i'), '')
-        // Also try with just project code (without sub-code)
-        const projectCodeOnly = projectCode.split('-')[0]
-        if (projectCodeOnly && projectCodeOnly !== projectCode) {
-          const escapedProjectCodeOnly = projectCodeOnly.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-          normalized = normalized.replace(new RegExp(`^${escapedProjectCodeOnly}\\s*-\\s*`, 'i'), '')
-          normalized = normalized.replace(new RegExp(`^${escapedProjectCodeOnly}\\s+`, 'i'), '')
-          normalized = normalized.replace(new RegExp(`^${escapedProjectCodeOnly}-`, 'i'), '')
+        
+        // Remove project code prefix in various formats (with spaces, dashes, etc.)
+        if (projectCode) {
+          const escapedProjectCode = projectCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          // Try: "P478 - 1", "P478-1", "P478 1", etc.
+          normalized = normalized.replace(new RegExp(`^${escapedProjectCode}\\s*-\\s*`, 'i'), '')
+          normalized = normalized.replace(new RegExp(`^${escapedProjectCode}\\s+`, 'i'), '')
+          normalized = normalized.replace(new RegExp(`^${escapedProjectCode}-`, 'i'), '')
+          
+          // Also try with just project code (without sub-code) - e.g., "P478" from "P478-01"
+          const projectCodeOnly = projectCode.split('-')[0]
+          if (projectCodeOnly && projectCodeOnly !== projectCode) {
+            const escapedProjectCodeOnly = projectCodeOnly.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+            normalized = normalized.replace(new RegExp(`^${escapedProjectCodeOnly}\\s*-\\s*`, 'i'), '')
+            normalized = normalized.replace(new RegExp(`^${escapedProjectCodeOnly}\\s+`, 'i'), '')
+            normalized = normalized.replace(new RegExp(`^${escapedProjectCodeOnly}-`, 'i'), '')
+          }
         }
-        return normalized.trim()
+        
+        // Clean up any remaining leading/trailing spaces or dashes
+        normalized = normalized.replace(/^[\s-]+|[\s-]+$/g, '').trim()
+        
+        return normalized || zone.toLowerCase().trim()
       }
       
-      const normalizedKpiZone = normalizeZone(kpiZone, kpiProjectFullCode)
-      const normalizedActivityZone = normalizeZone(activityZone, activityProjectFullCode)
-      
-      // ✅ FIX: Extract zone number (last numeric part or last part after dash/space)
-      const extractZoneNumber = (zone: string): string => {
-        // Try to extract the last numeric part
-        const parts = zone.split(/[\s-]+/)
-        const lastPart = parts[parts.length - 1] || zone
-        // If last part is numeric, return it; otherwise return the whole normalized zone
+      // ✅ IMPROVED: Extract zone identifier (number or full normalized zone)
+      const extractZoneIdentifier = (zone: string): string => {
+        // First normalize the zone
+        const normalized = zone.toLowerCase().trim()
+        
+        // Try to extract the last numeric part (e.g., "1" from "P478 - 1" or "1" from "1")
+        const parts = normalized.split(/[\s-]+/)
+        const lastPart = parts[parts.length - 1] || normalized
+        
+        // If last part is purely numeric, return it
         if (/^\d+$/.test(lastPart)) {
           return lastPart
         }
-        return zone
+        
+        // Otherwise, return the whole normalized zone for exact matching
+        return normalized
       }
       
-      const kpiZoneNumber = extractZoneNumber(normalizedKpiZone)
-      const activityZoneNumber = extractZoneNumber(normalizedActivityZone)
+      const normalizedKpiZone = normalizeZone(kpiZone, kpiProjectFullCode || kpiProjectCode)
+      const normalizedActivityZone = normalizeZone(activityZone, activityProjectFullCode || activityProjectCode)
       
-      // ✅ FIX: Match by zone number - must be exact match
-      if (kpiZoneNumber === activityZoneNumber && kpiZoneNumber !== '') {
+      // ✅ CRITICAL: Extract zone identifiers for comparison
+      const kpiZoneId = extractZoneIdentifier(normalizedKpiZone)
+      const activityZoneId = extractZoneIdentifier(normalizedActivityZone)
+      
+      // ✅ FIX: First try matching by zone identifier (most reliable)
+      if (kpiZoneId && activityZoneId) {
+        if (kpiZoneId === activityZoneId) {
+          return true
+        }
+        // If zone identifiers don't match, zones are different - don't match
+        return false
+      }
+      
+      // ✅ FIX: If zone identifiers couldn't be extracted, try normalized zones
+      if (normalizedKpiZone && normalizedActivityZone) {
+        if (normalizedKpiZone === normalizedActivityZone) {
+          return true
+        }
+        // If normalized zones don't match, zones are different - don't match
+        return false
+      }
+      
+      // ✅ FIX: Last resort - check if original zones match exactly (case-insensitive, normalized spaces)
+      const kpiZoneClean = kpiZone.toLowerCase().trim().replace(/\s+/g, ' ').replace(/\s*-\s*/g, '-')
+      const activityZoneClean = activityZone.toLowerCase().trim().replace(/\s+/g, ' ').replace(/\s*-\s*/g, '-')
+      if (kpiZoneClean === activityZoneClean) {
         return true
       }
       
-      // ✅ FIX: Also check if normalized zones match exactly
-      if (normalizedKpiZone === normalizedActivityZone && normalizedKpiZone !== '') {
-        return true
-      }
-      
-      // ✅ FIX: Also check if original zones match exactly (case-insensitive)
-      if (kpiZone.toLowerCase().trim() === activityZone.toLowerCase().trim()) {
-        return true
-      }
-      
+      // ✅ FIX: If zones don't match by any method, return false to prevent cross-zone matching
       return false
     }
     
-    // ✅ FIX: If only activity has a zone but KPI doesn't, allow match (KPI may not have zone info)
-    // But if KPI has zone but activity doesn't, don't match (to avoid cross-zone matching)
+    // ✅ FIX: Zone matching logic - be more flexible to allow matches
+    // If KPI has zone but activity doesn't, don't match (to avoid cross-zone matching)
     if (kpiZone && !activityZone) {
       return false
     }
     
-    // If neither has a zone, or only activity has a zone, match by name and project only
+    // ✅ FIX: If activity has zone but KPI doesn't, allow match
+    // This allows KPIs without zone info to match activities with zones
+    // The zone information in the activity will help distinguish between different zones in the display
+    if (activityZone && !kpiZone) {
+      return true
+    }
+    
+    // If neither has a zone, match by name and project only
+    // This is safe because both don't have zone information
     return true
   }, [])
 
@@ -5705,8 +5758,18 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                               const rawActivity = (activity as any).raw || {}
                               // ✅ FIX: Use getCachedActivityPeriodValues to ensure consistency with project row calculations
                               // ✅ FIX: Include zone in activityId to ensure unique identification per zone
-                              const activityZone = (activity.zone_ref || activity.zone_number || (activity as any).raw?.['Zone Ref'] || (activity as any).raw?.['Zone Number'] || '').toString().trim()
-                              const activityId = activity.id || `${activity.activity_name || activity.activity}-${projectFullCode}-${activityZone || 'nozone'}`
+                              const activityZone = (
+                                (activity as any).zone ||
+                                activity.zone_ref || 
+                                activity.zone_number || 
+                                rawActivity['Zone'] ||
+                                rawActivity['Zone Ref'] || 
+                                rawActivity['Zone Number'] || 
+                                ''
+                              ).toString().trim()
+                              // ✅ FIX: Create unique activityId that includes activity name, project code, and zone to ensure each activity-zone combination has unique calculations
+                              const activityNameForId = (activity.activity_name || activity.activity || 'N/A').toString().trim()
+                              const activityId = activity.id || `${activityNameForId}-${projectFullCode}-${activityZone || 'nozone'}-${activity.id || ''}`
                               const cachedActivityValues = getCachedActivityPeriodValues(activityId, activity, project, projectFullCode)
                               const activityPeriodValues = cachedActivityValues.earned || []
                               const activityPeriodPlannedValues = cachedActivityValues.planned || []
