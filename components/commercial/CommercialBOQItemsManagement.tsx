@@ -845,17 +845,41 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
       setError('')
       setSuccess('')
       
-      // If variations is being updated, we need to recalculate total_including_variations for each item
-      if (data['Variations'] !== undefined) {
-        // Update each item individually to recalculate total_including_variations
-        const itemsToUpdate = items.filter(item => ids.includes(item.id))
-        const newVariations = data['Variations']
-        
+      const itemsToUpdate = items.filter(item => ids.includes(item.id))
+      const hasQuantityUpdate = data['Quantity'] !== undefined
+      const hasRateUpdate = data['Rate'] !== undefined
+      const hasVariationsUpdate = data['Variations'] !== undefined
+      
+      // If quantity, rate, or variations is being updated, we need to recalculate totals for each item
+      if (hasQuantityUpdate || hasRateUpdate || hasVariationsUpdate) {
+        // Update each item individually to recalculate total_value and total_including_variations
         for (const item of itemsToUpdate) {
-          const newTotalIncludingVariations = item.total_value + newVariations
+          // Use new values if provided, otherwise use existing item values
+          const newQuantity = hasQuantityUpdate ? data['Quantity'] : item.quantity
+          const newRate = hasRateUpdate ? data['Rate'] : item.rate
+          const newVariations = hasVariationsUpdate ? data['Variations'] : item.variations
+          
+          // Recalculate total_value = quantity * rate
+          const newTotalValue = newQuantity * newRate
+          
+          // Recalculate total_including_variations = total_value + variations
+          const newTotalIncludingVariations = newTotalValue + newVariations
+          
           const updateData: any = {
             ...data,
+            'Total Value': newTotalValue,
             'Total Including Variations': newTotalIncludingVariations
+          }
+          
+          // Only include quantity/rate in update if they were actually changed
+          if (!hasQuantityUpdate) {
+            delete updateData['Quantity']
+          }
+          if (!hasRateUpdate) {
+            delete updateData['Rate']
+          }
+          if (!hasVariationsUpdate) {
+            delete updateData['Variations']
           }
           
           const { error: updateError } = await (supabase as any)
@@ -867,7 +891,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
           if (updateError) throw updateError
         }
       } else {
-        // No variations update, can do bulk update
+        // No quantity/rate/variations update, can do bulk update
         const { error: updateError } = await (supabase as any)
           .from(TABLES.COMMERCIAL_BOQ_ITEMS)
           // @ts-ignore - Database column names with spaces require type bypass

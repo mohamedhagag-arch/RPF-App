@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { CommercialBOQItem } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -30,26 +30,50 @@ export function BulkEditBOQItemsModal({
   const [remeasurable, setRemeasurable] = useState<boolean | null>(null)
   const [planningAssignedAmount, setPlanningAssignedAmount] = useState('')
   const [variations, setVariations] = useState('')
+  const [quantity, setQuantity] = useState('')
+  const [rate, setRate] = useState('')
   
   // Track which fields are being updated
   const [fieldsToUpdate, setFieldsToUpdate] = useState<Set<string>>(new Set())
   
-  // Load common values when modal opens
+  // Track previous isOpen state to only initialize once when modal opens
+  const prevIsOpenRef = useRef(false)
+  
+  // Load common values when modal opens (only once)
   useEffect(() => {
-    if (isOpen && selectedItems.length > 0) {
+    // Only initialize when modal transitions from closed to open
+    if (isOpen && !prevIsOpenRef.current && selectedItems.length > 0) {
       const uniqueUnits = Array.from(new Set(selectedItems.map(item => item.unit).filter(Boolean)))
       const uniqueRemeasurable = Array.from(new Set(selectedItems.map(item => item.remeasurable)))
       const uniquePlanningAssigned = Array.from(new Set(selectedItems.map(item => item.planning_assigned_amount)))
       const uniqueVariations = Array.from(new Set(selectedItems.map(item => item.variations)))
+      const uniqueQuantities = Array.from(new Set(selectedItems.map(item => item.quantity)))
+      const uniqueRates = Array.from(new Set(selectedItems.map(item => item.rate)))
       
       setUnit(uniqueUnits.length === 1 && uniqueUnits[0] ? uniqueUnits[0] : '')
       setRemeasurable(uniqueRemeasurable.length === 1 ? uniqueRemeasurable[0] : null)
       setPlanningAssignedAmount(uniquePlanningAssigned.length === 1 ? uniquePlanningAssigned[0].toString() : '')
       setVariations(uniqueVariations.length === 1 ? uniqueVariations[0].toString() : '')
+      setQuantity(uniqueQuantities.length === 1 ? uniqueQuantities[0].toString() : '')
+      setRate(uniqueRates.length === 1 ? uniqueRates[0].toString() : '')
       
       setFieldsToUpdate(new Set())
     }
-  }, [isOpen, selectedItems])
+    
+    // Reset when modal closes
+    if (!isOpen && prevIsOpenRef.current) {
+      setFieldsToUpdate(new Set())
+      setUnit('')
+      setRemeasurable(null)
+      setPlanningAssignedAmount('')
+      setVariations('')
+      setQuantity('')
+      setRate('')
+    }
+    
+    // Update ref
+    prevIsOpenRef.current = isOpen
+  }, [isOpen, selectedItems.length]) // Use selectedItems.length instead of selectedItems array
   
   const handleFieldToggle = (field: string) => {
     const newFields = new Set(fieldsToUpdate)
@@ -87,6 +111,21 @@ export function BulkEditBOQItemsModal({
         updateData['Variations'] = parseFloat(variations) || 0
         // Also update total_including_variations if variations is being updated
         // We'll need to recalculate this for each item
+      }
+      if (fieldsToUpdate.has('quantity')) {
+        updateData['Quantity'] = parseFloat(quantity) || 0
+        // Total Value will be recalculated for each item based on quantity and rate
+      }
+      if (fieldsToUpdate.has('rate')) {
+        updateData['Rate'] = parseFloat(rate) || 0
+        // Total Value will be recalculated for each item based on quantity and rate
+      }
+      
+      // If quantity or rate is being updated, we need to recalculate total_value for each item
+      // This is handled in the parent component's handleBulkUpdate function
+      if (fieldsToUpdate.has('quantity') || fieldsToUpdate.has('rate')) {
+        // The parent component will handle recalculating total_value for each item
+        // based on the new quantity and rate values
       }
       
       updateData.updated_at = new Date().toISOString()
@@ -249,6 +288,64 @@ export function BulkEditBOQItemsModal({
                   value={variations}
                   onChange={(e) => setVariations(e.target.value)}
                   placeholder="Enter variations amount"
+                  className="w-full"
+                />
+              </div>
+            </div>
+            
+            {/* Quantity */}
+            <div className="space-y-2 border border-gray-200 dark:border-gray-700 rounded-lg p-3 transition-all duration-200">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={fieldsToUpdate.has('quantity')}
+                  onChange={() => handleFieldToggle('quantity')}
+                  className="w-4 h-4 cursor-pointer"
+                />
+                <label className="font-medium cursor-pointer" onClick={() => handleFieldToggle('quantity')}>
+                  Quantity
+                </label>
+              </div>
+              <div className={`overflow-hidden transition-all duration-300 ease-in-out ${
+                fieldsToUpdate.has('quantity') 
+                  ? 'max-h-96 opacity-100 mt-2' 
+                  : 'max-h-0 opacity-0'
+              }`}>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                  placeholder="Enter quantity"
+                  className="w-full"
+                />
+              </div>
+            </div>
+            
+            {/* Rate */}
+            <div className="space-y-2 border border-gray-200 dark:border-gray-700 rounded-lg p-3 transition-all duration-200">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={fieldsToUpdate.has('rate')}
+                  onChange={() => handleFieldToggle('rate')}
+                  className="w-4 h-4 cursor-pointer"
+                />
+                <label className="font-medium cursor-pointer" onClick={() => handleFieldToggle('rate')}>
+                  Rate
+                </label>
+              </div>
+              <div className={`overflow-hidden transition-all duration-300 ease-in-out ${
+                fieldsToUpdate.has('rate') 
+                  ? 'max-h-96 opacity-100 mt-2' 
+                  : 'max-h-0 opacity-0'
+              }`}>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={rate}
+                  onChange={(e) => setRate(e.target.value)}
+                  placeholder="Enter rate"
                   className="w-full"
                 />
               </div>
