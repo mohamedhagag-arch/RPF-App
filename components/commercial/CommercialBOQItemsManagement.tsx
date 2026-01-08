@@ -1825,8 +1825,8 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                         {isEditing ? (
                           <Input
                             value={editingData.project_name || ''}
-                            onChange={(e) => setEditingData({ ...editingData, project_name: e.target.value })}
-                            className="w-full"
+                            readOnly
+                            className="w-full bg-gray-100 dark:bg-gray-700 cursor-not-allowed"
                           />
                         ) : (
                           item.project_name
