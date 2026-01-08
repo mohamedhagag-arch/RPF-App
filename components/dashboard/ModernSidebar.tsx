@@ -90,6 +90,7 @@ const sidebarItems: SidebarItem[] = [
     subItems: [
       { icon: ClipboardList, label: 'BOQ Items', tab: 'commercial/boq-items', badgeIcon: ClipboardList, badgeColor: 'bg-gradient-to-br from-green-500 to-emerald-500' },
       { icon: Receipt, label: 'Payments & Invoicing', tab: 'commercial/payments-invoicing', badgeIcon: Receipt, badgeColor: 'bg-gradient-to-br from-blue-500 to-indigo-500' },
+      { icon: FileEdit, label: 'Variations', tab: 'commercial/variations', badgeIcon: FileEdit, badgeColor: 'bg-gradient-to-br from-purple-500 to-pink-500' },
     ]
   },
       { 
@@ -181,6 +182,7 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
     if (tab === 'activity-log') return '/activity-log'
     if (tab === 'commercial/boq-items') return '/commercial/boq-items'
     if (tab === 'commercial/payments-invoicing') return '/commercial/payments-invoicing'
+    if (tab === 'commercial/variations') return '/commercial/variations'
     if (tab === 'forms/boq') return '/boq'
     if (tab === 'forms/kpi-standard') return '/kpi/add'
     if (tab === 'forms/kpi-smart') return '/kpi/smart-form'
@@ -387,6 +389,8 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
                 return guard.hasAccess('commercial.boq_items.view')
               case 'commercial/payments-invoicing':
                 return guard.hasAccess('commercial.payments_invoicing.view')
+              case 'commercial/variations':
+                return guard.hasAccess('commercial.variations.view')
               default:
                 return false
             }

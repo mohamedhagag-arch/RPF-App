@@ -32,7 +32,8 @@ export const TABLES = {
   MACHINE_DAILY_RATE_HISTORY: 'machine_daily_rate_history', // ✅ Machine daily rate history with time periods
   KPI_REJECTED: 'kpi_rejected',                        // ✅ Rejected KPIs table (temporary storage)
   KPI_IGNORED_REPORTING: 'kpi_ignored_reporting_dates', // ✅ Ignored KPI reporting dates (shared across users)
-  COMMERCIAL_BOQ_ITEMS: 'BOQ items'                    // ✅ Commercial BOQ items table
+  COMMERCIAL_BOQ_ITEMS: 'BOQ items',                   // ✅ Commercial BOQ items table
+  CONTRACT_VARIATIONS: 'Contract Variations'          // ✅ Contract Variations table
 } as const
 
 // Backward compatibility alias
@@ -403,4 +404,32 @@ export interface CommercialBOQItem {
   total_including_variations: number // Currency (calculated: total_value + variations)
   created_at: string
   updated_at: string
+}
+
+// ✅ Contract Variations Interface
+export type VariationStatus = 
+  | 'Pending'
+  | 'Var Notice Sent'
+  | 'Submitted'
+  | 'Approved'
+  | 'Rejected'
+  | 'Internal Variation'
+
+export interface ContractVariation {
+  id: string
+  auto_generated_unique_reference_number: string // Auto-generated unique reference number (VAR-YYYY-XXX)
+  project_full_code: string // References Project Sub-Code from Planning Database - ProjectsList
+  project_name: string // Auto-populated from ProjectsList
+  variation_ref_no?: string // Variation reference number
+  item_description: string[] // Array of BOQ item UUIDs
+  quantity_changes: number // Quantity changes (2 decimal places)
+  variation_amount: number // Variation amount in currency (2 decimal places)
+  date_of_submission?: string // Date of submission (nullable)
+  variation_status: VariationStatus // Variation status enum
+  date_of_approval?: string // Date of approval (nullable)
+  remarks?: string // Remarks
+  created_at: string
+  updated_at: string
+  created_by?: string // User ID who created the variation
+  updated_by?: string // User ID who last updated the variation
 }

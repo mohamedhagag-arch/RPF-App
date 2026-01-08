@@ -1014,7 +1014,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
     <div className="space-y-6">
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
+        <Card className="pt-4">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-blue-100 dark:bg-blue-900/20 rounded-lg">
@@ -1028,7 +1028,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
           </CardContent>
         </Card>
         
-        <Card>
+        <Card className="pt-4">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-green-100 dark:bg-green-900/20 rounded-lg">
@@ -1044,7 +1044,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
           </CardContent>
         </Card>
         
-        <Card>
+        <Card className="pt-4">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-purple-100 dark:bg-purple-900/20 rounded-lg">
@@ -1060,7 +1060,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
           </CardContent>
         </Card>
         
-        <Card>
+        <Card className="pt-4">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-indigo-100 dark:bg-indigo-900/20 rounded-lg">

@@ -230,6 +230,19 @@ export function LoginForm() {
     }
   }, [securitySettings.rateLimitCooldownSeconds, securitySettings.enableRateLimiting])
 
+  // ✅ Helper function to format cooldown time
+  const formatCooldownTime = (seconds: number): string => {
+    if (seconds < 60) {
+      return `${seconds} second${seconds !== 1 ? 's' : ''}`
+    }
+    const minutes = Math.floor(seconds / 60)
+    const remainingSeconds = seconds % 60
+    if (remainingSeconds === 0) {
+      return `${minutes} minute${minutes !== 1 ? 's' : ''}`
+    }
+    return `${minutes} minute${minutes !== 1 ? 's' : ''} and ${remainingSeconds} second${remainingSeconds !== 1 ? 's' : ''}`
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
@@ -242,7 +255,7 @@ export function LoginForm() {
     // ✅ Check rate limit cooldown (if enabled)
     // Allow login if cooldown was manually cleared
     if (securitySettings.enableRateLimiting && rateLimitCooldown > 0 && !cooldownManuallyCleared) {
-      setError(`Too many login attempts. Please wait ${rateLimitCooldown} seconds before trying again.`)
+      setError(`Too many login attempts. Please wait ${formatCooldownTime(rateLimitCooldown)} before trying again.`)
       return
     }
 
@@ -349,9 +362,10 @@ export function LoginForm() {
               } else {
                 // Max retries reached, set cooldown only if not manually cleared
                 if (securitySettings.enableRateLimiting && !cooldownManuallyCleared) {
-                  setRateLimitCooldown(securitySettings.rateLimitCooldownSeconds)
+                  const newCooldown = securitySettings.rateLimitCooldownSeconds
+                  setRateLimitCooldown(newCooldown)
                   try {
-                    localStorage.setItem('login_rate_limit_cooldown', securitySettings.rateLimitCooldownSeconds.toString())
+                    localStorage.setItem('login_rate_limit_cooldown', newCooldown.toString())
                     localStorage.setItem('login_rate_limit_time', Date.now().toString())
                   } catch (e) {
                     console.warn('⚠️ Failed to save rate limit to localStorage:', e)
@@ -392,11 +406,14 @@ export function LoginForm() {
     } catch (error: any) {
       // ✅ معالجة خاصة لخطأ 429 (Too Many Requests)
       if (error.status === 429 || error.message?.includes('429') || error.message?.includes('Too Many Requests') || error.message?.includes('rate limit')) {
-        // Only set cooldown if enabled, not already set, and not manually cleared
-        if (securitySettings.enableRateLimiting && rateLimitCooldown === 0 && !cooldownManuallyCleared) {
-          setRateLimitCooldown(securitySettings.rateLimitCooldownSeconds)
+        // Set or refresh cooldown if enabled and not manually cleared
+        // Always refresh cooldown on server rate limit to ensure accurate timing
+        let cooldownToUse = securitySettings.rateLimitCooldownSeconds
+        if (securitySettings.enableRateLimiting && !cooldownManuallyCleared) {
+          cooldownToUse = securitySettings.rateLimitCooldownSeconds
+          setRateLimitCooldown(cooldownToUse)
           try {
-            localStorage.setItem('login_rate_limit_cooldown', securitySettings.rateLimitCooldownSeconds.toString())
+            localStorage.setItem('login_rate_limit_cooldown', cooldownToUse.toString())
             localStorage.setItem('login_rate_limit_time', Date.now().toString())
           } catch (e) {
             console.warn('⚠️ Failed to save rate limit to localStorage:', e)
@@ -405,8 +422,9 @@ export function LoginForm() {
         
         // If cooldown was manually cleared, show a different message
         if (cooldownManuallyCleared) {
+          // Don't set a new cooldown, but inform user that server is still rate limiting
           setError('Server is still rate limiting. Please wait a moment and try again, or contact support if the issue persists.')
-          // Reset the flag after showing the error (user can try again)
+          // Reset the flag after showing the error (user can try again after a short delay)
           setTimeout(() => {
             setCooldownManuallyCleared(false)
             try {
@@ -417,8 +435,8 @@ export function LoginForm() {
             }
           }, 30000) // Reset after 30 seconds
         } else {
-          const cooldownMinutes = Math.ceil(rateLimitCooldown / 60)
-          setError(`Too many login attempts. Please wait ${cooldownMinutes} minute${cooldownMinutes > 1 ? 's' : ''} before trying again.`)
+          // Use the cooldown we just set (or the default if rate limiting is disabled)
+          setError(`Too many login attempts. Please wait ${formatCooldownTime(cooldownToUse)} before trying again.`)
         }
         console.error('❌ Rate limit exceeded:', error)
       } else if (error.message?.includes('Invalid login credentials')) {
