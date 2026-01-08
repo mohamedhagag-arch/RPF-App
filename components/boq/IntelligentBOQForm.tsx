@@ -35,7 +35,6 @@ import {
   getAllActivitiesByDivision
 } from '@/lib/customActivities'
 import {
-  getActivitiesByProjectType,
   ProjectTypeActivity
 } from '@/lib/projectTypeActivitiesManager'
 import { 
@@ -45,6 +44,7 @@ import {
   updateExistingKPIs
 } from '@/lib/autoKPIGenerator'
 import { getAllDivisions, Division as DivisionType } from '@/lib/divisionsManager'
+import { getHolidaysInRange, type DatabaseHoliday } from '@/lib/holidaysManager'
 import { Clock, CheckCircle2, Info, Sparkles, X, Calendar, TrendingUp, AlertCircle, Search, ChevronDown } from 'lucide-react'
 
 interface IntelligentBOQFormProps {
@@ -322,6 +322,7 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   const [kpiPreview, setKpiPreview] = useState<any>(null)
   const [showKPITable, setShowKPITable] = useState(false)
   const [kpiGenerationStatus, setKpiGenerationStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [holidaysInRange, setHolidaysInRange] = useState<DatabaseHoliday[]>([]) // ✅ Store holidays in date range
   
   const supabase = getSupabaseClient()
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('boq-form')
@@ -381,10 +382,12 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
   }, [])
   
   // Workdays Configuration
+  // ✅ Use database holidays from Holidays Management settings
   const workdaysConfig: WorkdaysConfig = {
-    weekendDays: includeWeekends ? [] : [0], // Sunday = 0
-    holidays: UAE_HOLIDAYS,
-    includeWeekends
+    weekendDays: includeWeekends ? [] : [0], // Sunday = 0 (UAE weekend)
+    holidays: UAE_HOLIDAYS, // Fallback holidays (will be overridden by database if useDatabaseHolidays is true)
+    includeWeekends,
+    useDatabaseHolidays: true // ✅ Use holidays from Holidays Management settings
   }
   
   // Load projects on mount
@@ -492,27 +495,65 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
           return
         }
 
-        // ✅ ALWAYS Load ALL activities from ALL scopes (regardless of project.project_type)
-        console.log('🔄 Loading ALL activities from ALL scopes (to allow selection from any scope)')
+        // ✅ OPTIMIZED: Load ALL activities in a SINGLE query instead of multiple queries
+        console.log('🔄 Loading ALL activities from ALL scopes (optimized single query)')
         
         const supabase = getSupabaseClient()
-        // Get all unique project types (scopes)
-        const { data: allScopesData, error: scopesError } = await executeQuery(async () =>
+        const startTime = performance.now()
+        
+        // ✅ SINGLE QUERY: Get all activities at once (much faster than looping)
+        const { data: allActivitiesData, error: activitiesError } = await executeQuery(async () =>
           supabase
             .from('project_type_activities')
-            .select('project_type')
+            .select('*')
             .eq('is_active', true)
+            .order('project_type', { ascending: true })
+            .order('display_order', { ascending: true })
+            .order('activity_name', { ascending: true })
         )
         
-        if (scopesError) throw scopesError
+        if (activitiesError) throw activitiesError
         
-        // Get unique scopes
+        const loadTime = performance.now() - startTime
+        console.log(`⚡ Loaded ${allActivitiesData?.length || 0} activities in ${loadTime.toFixed(2)}ms`)
+        
+        if (!allActivitiesData || allActivitiesData.length === 0) {
+          console.log('⚠️ No activities found in any scope')
+          setActivitySuggestions([])
+          setAllLoadedActivities([])
+          setAvailableScopes([])
+          return
+        }
+        
+        // Get unique scopes from the loaded data
         const uniqueScopes = new Set<string>()
-        allScopesData?.forEach((item: any) => {
-          if (item.project_type) uniqueScopes.add(item.project_type)
+        const allActivitiesMap = new Map<string, any>()
+        
+        // Process all activities in memory (much faster than multiple queries)
+        allActivitiesData.forEach((pta: any) => {
+          // Collect unique scopes
+          if (pta.project_type) {
+            uniqueScopes.add(pta.project_type)
+          }
+          
+          // Map activities (deduplicate by name, keep first occurrence)
+          const key = (pta.activity_name || '').toLowerCase().trim()
+          if (key && !allActivitiesMap.has(key)) {
+            allActivitiesMap.set(key, {
+              id: pta.id,
+              name: pta.activity_name,
+              division: pta.project_type, // Store the scope this activity belongs to
+              unit: pta.default_unit || '',
+              category: pta.category || 'General',
+              is_active: pta.is_active,
+              usage_count: pta.usage_count || 0,
+              created_at: pta.created_at,
+              updated_at: pta.updated_at
+            })
+          }
         })
         
-        const allScopes = Array.from(uniqueScopes)
+        const allScopes = Array.from(uniqueScopes).sort()
         setAvailableScopes(allScopes)
         console.log(`📊 Found ${allScopes.length} unique project scopes:`, allScopes)
         
@@ -522,41 +563,11 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
           console.log(`📋 Project currently has scopes: ${projectScopes.join(', ')}`)
         }
         
-        // Load all activities from all scopes
-        const allActivitiesMap = new Map<string, any>()
-        
-        for (const scope of allScopes) {
-          try {
-            const scopeActivities = await getActivitiesByProjectType(scope, false)
-            
-            scopeActivities.forEach((pta: ProjectTypeActivity) => {
-              const key = pta.activity_name.toLowerCase().trim()
-              if (!allActivitiesMap.has(key)) {
-                allActivitiesMap.set(key, {
-                  id: pta.id,
-                  name: pta.activity_name,
-                  division: pta.project_type, // Store the scope this activity belongs to
-                  unit: pta.default_unit || '',
-                  category: pta.category || 'General',
-                  is_active: pta.is_active,
-                  usage_count: 0,
-                  created_at: pta.created_at,
-                  updated_at: pta.updated_at
-                })
-              }
-            })
-            
-            console.log(`✅ Loaded ${scopeActivities.length} activities for scope "${scope}"`)
-          } catch (scopeError) {
-            console.warn(`⚠️ Error loading activities for scope "${scope}":`, scopeError)
-          }
-        }
-        
         // Convert map to array and sort
         const activities = Array.from(allActivitiesMap.values())
           .sort((a, b) => a.name.localeCompare(b.name))
         
-        console.log(`✅ Total unique activities loaded from ALL scopes: ${activities.length}`)
+        console.log(`✅ Total unique activities loaded from ALL scopes: ${activities.length} (processed in ${(performance.now() - startTime).toFixed(2)}ms total)`)
         
         // Store all activities and update suggestions
         setAllLoadedActivities(activities)
@@ -568,10 +579,6 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
           console.log(`🔍 Filtered to ${filtered.length} activities for scope "${selectedScopeFilter}"`)
         } else {
           setActivitySuggestions(activities)
-        }
-        
-        if (activities.length === 0) {
-          console.log('⚠️ No activities found in any scope')
         }
       } catch (error) {
         console.error('❌ Error loading all activities:', error)
@@ -1421,19 +1428,41 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
         use_virtual_material: useVirtualMaterial
       }
       
-      const kpis = await generateKPIsFromBOQ(tempActivity as any, workdaysConfig)
+      // ✅ OPTIMIZED: Load holidays in parallel with KPI generation for faster performance
+      const [kpis, holidays] = await Promise.all([
+        generateKPIsFromBOQ(tempActivity as any, workdaysConfig),
+        getHolidaysInRange(startDate, endDate).catch((error) => {
+          console.warn('⚠️ Failed to load holidays:', error)
+          return []
+        })
+      ])
+      
       const calculatedTotal = kpis.reduce((sum, kpi) => sum + kpi.quantity, 0)
       const plannedUnitsValue = parseFloat(plannedUnits)
+      
+      // ✅ Set holidays (already filtered to only include holidays in the date range)
+      console.log(`📅 Found ${holidays.length} holidays in date range:`, holidays.map(h => `${h.name} (${h.date})`))
+      setHolidaysInRange(holidays)
+      
+      // ✅ Calculate average per day with min/max values for display
+      const avgPerDay = kpis.length > 0 ? calculatedTotal / kpis.length : 0
+      const minAvgPerDay = Math.floor(avgPerDay) // ✅ Smallest whole number
+      const maxAvgPerDay = Math.ceil(avgPerDay) // ✅ Largest whole number
+      const hasDecimal = avgPerDay % 1 !== 0 // ✅ Check if has decimal part
       
       const summary = {
         totalQuantity: calculatedTotal,
         numberOfDays: kpis.length,
-        averagePerDay: kpis.length > 0 ? calculatedTotal / kpis.length : 0,
+        averagePerDay: avgPerDay,
+        minAveragePerDay: minAvgPerDay, // ✅ Smallest whole number
+        maxAveragePerDay: maxAvgPerDay, // ✅ Largest whole number
+        hasDecimalAverage: hasDecimal, // ✅ Whether average has decimal part
         startDate: kpis.length > 0 ? kpis[0].target_date : '',
         endDate: kpis.length > 0 ? kpis[kpis.length - 1].target_date : '',
         activityTiming: activityTiming,
         hasValue: hasValue,
-        affectsTimeline: affectsTimeline
+        affectsTimeline: affectsTimeline,
+        holidaysCount: holidays.length // ✅ Add holidays count to summary
       }
       
       // ✅ Verify total matches planned units
@@ -3199,7 +3228,11 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                     <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded">
                       <p className="text-xs text-gray-600 dark:text-gray-400">Avg Per Day</p>
                       <p className="text-lg font-bold text-blue-600">
-                        {kpiPreview.summary.averagePerDay}
+                        {kpiPreview.summary.hasDecimalAverage ? (
+                          <span>{kpiPreview.summary.minAveragePerDay} - {kpiPreview.summary.maxAveragePerDay}</span>
+                        ) : (
+                          <span>{kpiPreview.summary.averagePerDay}</span>
+                        )}
                       </p>
                       <p className="text-xs text-gray-500">{unit || 'units'}/day</p>
                     </div>
@@ -3216,6 +3249,38 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                   <div className="mt-3 p-2 bg-gray-50 dark:bg-gray-700/50 rounded text-xs text-gray-600 dark:text-gray-400">
                     💡 <strong>Note:</strong> All quantities are rounded to whole numbers. Total quantity = {kpiPreview.summary.totalQuantity} {unit} (exactly matches Planned Units)
                   </div>
+                  
+                  {/* ✅ Display Holidays Information */}
+                  {holidaysInRange.length > 0 && (
+                    <div className="mt-3 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-700">
+                      <div className="flex items-start gap-2">
+                        <Calendar className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+                        <div className="flex-1">
+                          <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 mb-1.5">
+                            📅 Holidays Excluded ({holidaysInRange.length}):
+                          </p>
+                          <div className="space-y-1">
+                            {holidaysInRange.map((holiday, idx) => {
+                              const holidayDate = new Date(holiday.date)
+                              const formattedDate = holidayDate.toLocaleDateString('en-US', { 
+                                month: 'short', 
+                                day: 'numeric', 
+                                year: 'numeric' 
+                              })
+                              return (
+                                <div key={holiday.id || idx} className="text-xs text-amber-700 dark:text-amber-400">
+                                  <span className="font-medium">• {holiday.name}</span>
+                                  <span className="text-amber-600 dark:text-amber-500 ml-2">
+                                    ({formattedDate}{holiday.is_recurring ? ' - Recurring' : ''})
+                                  </span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               
@@ -3296,7 +3361,13 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
               
               <div className="p-3 bg-gradient-to-br from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
                 <p className="text-xs text-gray-600 dark:text-gray-400 font-medium">Average Per Day</p>
-                <p className="text-2xl font-bold text-blue-600">{kpiPreview.summary.averagePerDay}</p>
+                <p className="text-2xl font-bold text-blue-600">
+                  {kpiPreview.summary.hasDecimalAverage ? (
+                    <span>{kpiPreview.summary.minAveragePerDay} - {kpiPreview.summary.maxAveragePerDay}</span>
+                  ) : (
+                    <span>{kpiPreview.summary.averagePerDay}</span>
+                  )}
+                </p>
                 <p className="text-xs text-gray-500">{unit}/day</p>
               </div>
               
@@ -3316,6 +3387,46 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                 </p>
               </div>
             </div>
+            
+            {/* ✅ Display Holidays Information in Modal */}
+            {holidaysInRange.length > 0 && (
+              <div className="mb-4 p-4 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-700">
+                <div className="flex items-start gap-3">
+                  <Calendar className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-amber-800 dark:text-amber-300 mb-2">
+                      📅 Holidays Excluded from Working Days ({holidaysInRange.length}):
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {holidaysInRange.map((holiday, idx) => {
+                        const holidayDate = new Date(holiday.date)
+                        const formattedDate = holidayDate.toLocaleDateString('en-US', { 
+                          month: 'short', 
+                          day: 'numeric', 
+                          year: 'numeric',
+                          weekday: 'short'
+                        })
+                        return (
+                          <div key={holiday.id || idx} className="flex items-center gap-2 p-2 bg-white dark:bg-gray-800 rounded border border-amber-200 dark:border-amber-700">
+                            <div className="flex-1">
+                              <span className="font-medium text-amber-800 dark:text-amber-300">{holiday.name}</span>
+                              <span className="text-xs text-amber-600 dark:text-amber-500 ml-2">
+                                {formattedDate}
+                                {holiday.is_recurring && (
+                                  <span className="ml-1 px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 rounded text-xs">
+                                    Recurring
+                                  </span>
+                                )}
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
             
             {/* KPI Table */}
             <div className="flex-1 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg">

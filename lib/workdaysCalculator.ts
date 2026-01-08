@@ -101,17 +101,9 @@ export async function calculateWorkdays(
   const start = typeof startDate === 'string' ? new Date(startDate) : new Date(startDate)
   const end = typeof endDate === 'string' ? new Date(endDate) : new Date(endDate)
   
-  let workdays = 0
-  const current = new Date(start)
-  
-  while (current <= end) {
-    if (await isWorkingDay(current, config)) {
-      workdays++
-    }
-    current.setDate(current.getDate() + 1)
-  }
-  
-  return workdays
+  // ✅ OPTIMIZED: Use getWorkingDays which already has optimized holiday loading
+  const workingDays = await getWorkingDays(start, end, config)
+  return workingDays.length
 }
 
 /**
@@ -139,7 +131,7 @@ export function calculateWorkdaysSync(
 }
 
 /**
- * Get all working days between two dates (supports database holidays)
+ * Get all working days between two dates (optimized with parallel holiday checking)
  */
 export async function getWorkingDays(
   startDate: Date | string,
@@ -149,12 +141,67 @@ export async function getWorkingDays(
   const start = typeof startDate === 'string' ? new Date(startDate) : new Date(startDate)
   const end = typeof endDate === 'string' ? new Date(endDate) : new Date(endDate)
   
+  // ✅ OPTIMIZED: Load all holidays in range once (if using database holidays)
+  let holidaysSet: Set<string> = new Set()
+  if (config.useDatabaseHolidays) {
+    try {
+      const { getHolidaysInRange } = await import('./holidaysManager')
+      const startStr = start.toISOString().split('T')[0]
+      const endStr = end.toISOString().split('T')[0]
+      const holidays = await getHolidaysInRange(startStr, endStr)
+      holidaysSet = new Set(holidays.map(h => h.date))
+      
+      // Also add recurring holidays (check month/day)
+      holidays.forEach(holiday => {
+        if (holiday.is_recurring) {
+          const holidayDate = new Date(holiday.date)
+          const holidayMonth = holidayDate.getMonth()
+          const holidayDay = holidayDate.getDate()
+          
+          // Check all dates in range for this recurring holiday
+          const current = new Date(start)
+          while (current <= end) {
+            if (current.getMonth() === holidayMonth && current.getDate() === holidayDay) {
+              holidaysSet.add(current.toISOString().split('T')[0])
+            }
+            current.setDate(current.getDate() + 1)
+          }
+        }
+      })
+    } catch (error) {
+      console.warn('⚠️ Failed to load holidays for optimization:', error)
+    }
+  }
+  
+  // ✅ OPTIMIZED: Process all dates efficiently with cached holidays
   const workingDays: Date[] = []
   const current = new Date(start)
   
   while (current <= end) {
-    if (await isWorkingDay(current, config)) {
-      workingDays.push(new Date(current))
+    // Fast check: weekend first (synchronous)
+    if (config.includeWeekends || !config.weekendDays.includes(current.getDay())) {
+      // Check holiday (use cached set if available)
+      const currentDateStr = formatDateToYMD(current)
+      let isHolidayDate = false
+      
+      if (config.useDatabaseHolidays && holidaysSet.size > 0) {
+        // Fast lookup from cached set (O(1) lookup)
+        isHolidayDate = holidaysSet.has(currentDateStr)
+      } else {
+        // Fallback to config holidays
+        isHolidayDate = config.holidays.some(holiday => {
+          if (holiday.isRecurring) {
+            const holidayDate = new Date(holiday.date)
+            return current.getMonth() === holidayDate.getMonth() && 
+                   current.getDate() === holidayDate.getDate()
+          }
+          return holiday.date === currentDateStr
+        })
+      }
+      
+      if (!isHolidayDate) {
+        workingDays.push(new Date(current))
+      }
     }
     current.setDate(current.getDate() + 1)
   }

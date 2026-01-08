@@ -98,9 +98,13 @@ export function AddBOQItemFormSimplified({
       setSuccess(true)
       
       // Call onSave callback with the new item ID
-      setTimeout(() => {
-        onSave(data.id)
-      }, 500)
+      // ✅ FIX: TypeScript fix - ensure data has id property
+      const itemId = (data as any)?.id || (data as any)?.['id'] || ''
+      if (itemId) {
+        setTimeout(() => {
+          onSave(itemId)
+        }, 500)
+      }
       
     } catch (err: any) {
       console.error('❌ Error creating BOQ item:', err)

@@ -195,17 +195,23 @@ export async function getWorkdaysHolidays(): Promise<Holiday[]> {
 }
 
 /**
- * Get holidays for a specific date range
+ * Get holidays for a specific date range (optimized - only holidays that actually fall in the range)
  */
 export async function getHolidaysInRange(startDate: string, endDate: string): Promise<DatabaseHoliday[]> {
   try {
     const supabase = getSupabaseClient()
+    const start = new Date(startDate)
+    const end = new Date(endDate)
+    start.setHours(0, 0, 0, 0)
+    end.setHours(23, 59, 59, 999)
     
+    // ✅ OPTIMIZED: Get holidays in date range OR recurring holidays (we'll filter recurring ones)
     const { data, error } = await (supabase
       .from(TABLES.HOLIDAYS) as any)
       .select('*')
       .eq('is_active', true)
-      .or(`date.gte.${startDate},date.lte.${endDate},is_recurring.eq.true`)
+      .or(`and(date.gte.${startDate},date.lte.${endDate}),is_recurring.eq.true`)
+      .limit(1000) // ✅ Limit to prevent huge queries
       .order('date', { ascending: true })
 
     if (error) {
@@ -213,7 +219,61 @@ export async function getHolidaysInRange(startDate: string, endDate: string): Pr
       throw error
     }
 
-    return data || []
+    if (!data || data.length === 0) {
+      return []
+    }
+
+    // ✅ FAST FILTER: Only process holidays that actually fall in range
+    const filteredHolidays: DatabaseHoliday[] = []
+    const startTime = start.getTime()
+    const endTime = end.getTime()
+    const startYear = start.getFullYear()
+    const endYear = end.getFullYear()
+    
+    for (const holiday of data) {
+      if (!holiday.is_recurring) {
+        // Simple date check for non-recurring holidays
+        const holidayTime = new Date(holiday.date).getTime()
+        if (holidayTime >= startTime && holidayTime <= endTime) {
+          filteredHolidays.push(holiday)
+        }
+      } else {
+        // ✅ OPTIMIZED: For recurring holidays, check only start and end years (not all years)
+        const holidayDate = new Date(holiday.date)
+        const holidayMonth = holidayDate.getMonth()
+        const holidayDay = holidayDate.getDate()
+        
+        // Check start year
+        const startYearDate = new Date(startYear, holidayMonth, holidayDay)
+        const startYearTime = startYearDate.getTime()
+        if (startYearTime >= startTime && startYearTime <= endTime) {
+          filteredHolidays.push({
+            ...holiday,
+            date: startYearDate.toISOString().split('T')[0]
+          })
+          continue
+        }
+        
+        // Check end year (only if different from start year)
+        if (endYear > startYear) {
+          const endYearDate = new Date(endYear, holidayMonth, holidayDay)
+          const endYearTime = endYearDate.getTime()
+          if (endYearTime >= startTime && endYearTime <= endTime) {
+            filteredHolidays.push({
+              ...holiday,
+              date: endYearDate.toISOString().split('T')[0]
+            })
+          }
+        }
+      }
+    }
+    
+    // Sort by date (only if we have items)
+    if (filteredHolidays.length > 0) {
+      filteredHolidays.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    }
+    
+    return filteredHolidays
   } catch (error) {
     console.error('❌ Failed to fetch holidays in range:', error)
     throw error
