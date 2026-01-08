@@ -75,6 +75,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
     rateRange: { min: undefined as number | undefined, max: undefined as number | undefined },
     totalValueRange: { min: undefined as number | undefined, max: undefined as number | undefined },
     variationsRange: { min: undefined as number | undefined, max: undefined as number | undefined },
+    totalUnitsRange: { min: undefined as number | undefined, max: undefined as number | undefined },
   })
   
   // Multiselect dropdown states
@@ -159,9 +160,11 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
           'TotalValue': firstRow['TotalValue'],
           'totalValue': firstRow['totalValue'],
         })
-        console.log('💰 Variations values:', {
-          'Variations': firstRow['Variations'],
-          'variations': firstRow['variations'],
+        console.log('💰 Variations Amount values:', {
+          'Variations Amount': firstRow['Variations Amount'],
+          'variations_amount': firstRow['variations_amount'],
+          'Variations': firstRow['Variations'], // Support old column name
+          'variations': firstRow['variations'], // Support old column name
         })
         console.log('💰 Planning Assigned Amount values:', {
           'Planning Assigned Amount': firstRow['Planning Assigned Amount'],
@@ -329,7 +332,9 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                         row['Remeasurable?'] === 'true' ||
                         String(getValue(['Remeasurable?', 'remeasurable'])).toLowerCase() === 'true'),
           planning_assigned_amount: Number(getNumericValue(['Planning Assigned Amount', 'planning_assigned_amount', 'PlanningAssignedAmount', 'planningAssignedAmount'])),
-          variations: Number(getNumericValue(['Variations', 'variations'])),
+          units_variation: Number(getNumericValue(['Units Variation', 'units_variation', 'UnitsVariation', 'unitsVariation'])),
+          variations_amount: Number(getNumericValue(['Variations Amount', 'variations_amount', 'VariationsAmount', 'variationsAmount', 'Variations', 'variations'])), // Support both old and new column names
+          total_units: Number(getNumericValue(['Total Units', 'total_units', 'TotalUnits', 'totalUnits'])),
           total_including_variations: Number(getNumericValue(['Total Including Variations', 'total_including_variations', 'TotalIncludingVariations', 'totalIncludingVariations'])),
           created_at: row.created_at || '',
           updated_at: row.updated_at || '',
@@ -343,8 +348,8 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
             rawRateType: typeof row['Rate'],
             rawTotalValue: row['Total Value'],
             rawTotalValueType: typeof row['Total Value'],
-            rawVariations: row['Variations'],
-            rawVariationsType: typeof row['Variations'],
+            rawVariationsAmount: row['Variations Amount'] || row['Variations'], // Support both old and new column names
+            rawVariationsAmountType: typeof (row['Variations Amount'] || row['Variations']),
             rawPlanningAmount: row['Planning Assigned Amount'],
             rawPlanningAmountType: typeof row['Planning Assigned Amount'],
             rawTotalIncludingVariations: row['Total Including Variations'],
@@ -354,8 +359,8 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
             mappedRateType: typeof item.rate,
             mappedTotalValue: item.total_value,
             mappedTotalValueType: typeof item.total_value,
-            mappedVariations: item.variations,
-            mappedVariationsType: typeof item.variations,
+            mappedVariations: item.variations_amount,
+            mappedVariationsType: typeof item.variations_amount,
             mappedPlanningAmount: item.planning_assigned_amount,
             mappedPlanningAmountType: typeof item.planning_assigned_amount,
             mappedTotalIncludingVariations: item.total_including_variations,
@@ -378,7 +383,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
           rate: firstItem.rate,
           total_value: firstItem.total_value,
           planning_assigned_amount: firstItem.planning_assigned_amount,
-          variations: firstItem.variations,
+          variations: firstItem.variations_amount,
           total_including_variations: firstItem.total_including_variations,
           isNaN_rate: isNaN(firstItem.rate),
           isNaN_total_value: isNaN(firstItem.total_value),
@@ -567,6 +572,8 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
     let maxTotalValue = -Infinity
     let minVariations = Infinity
     let maxVariations = -Infinity
+    let minTotalUnits = Infinity
+    let maxTotalUnits = -Infinity
     
     items.forEach(item => {
       if (item.unit) units.add(item.unit)
@@ -595,9 +602,13 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
         minTotalValue = Math.min(minTotalValue, item.total_value)
         maxTotalValue = Math.max(maxTotalValue, item.total_value)
       }
-      if (item.variations !== undefined && !isNaN(item.variations)) {
-        minVariations = Math.min(minVariations, item.variations)
-        maxVariations = Math.max(maxVariations, item.variations)
+      if (item.variations_amount !== undefined && !isNaN(item.variations_amount)) {
+        minVariations = Math.min(minVariations, item.variations_amount)
+        maxVariations = Math.max(maxVariations, item.variations_amount)
+      }
+      if (item.total_units !== undefined && !isNaN(item.total_units)) {
+        minTotalUnits = Math.min(minTotalUnits, item.total_units)
+        maxTotalUnits = Math.max(maxTotalUnits, item.total_units)
       }
     })
     
@@ -639,6 +650,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
         rate: { min: isFinite(minRate) ? minRate : 0, max: isFinite(maxRate) ? maxRate : 1000000 },
         totalValue: { min: isFinite(minTotalValue) ? minTotalValue : 0, max: isFinite(maxTotalValue) ? maxTotalValue : 10000000 },
         variations: { min: isFinite(minVariations) ? minVariations : 0, max: isFinite(maxVariations) ? maxVariations : 1000000 },
+        totalUnits: { min: isFinite(minTotalUnits) ? minTotalUnits : 0, max: isFinite(maxTotalUnits) ? maxTotalUnits : 1000000 },
       }
     }
   }, [items])
@@ -707,10 +719,16 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
       filtered = filtered.filter(item => item.total_value <= filters.totalValueRange.max!)
     }
     if (filters.variationsRange.min !== undefined) {
-      filtered = filtered.filter(item => item.variations >= filters.variationsRange.min!)
+      filtered = filtered.filter(item => item.variations_amount >= filters.variationsRange.min!)
     }
     if (filters.variationsRange.max !== undefined) {
-      filtered = filtered.filter(item => item.variations <= filters.variationsRange.max!)
+      filtered = filtered.filter(item => item.variations_amount <= filters.variationsRange.max!)
+    }
+    if (filters.totalUnitsRange.min !== undefined) {
+      filtered = filtered.filter(item => item.total_units >= filters.totalUnitsRange.min!)
+    }
+    if (filters.totalUnitsRange.max !== undefined) {
+      filtered = filtered.filter(item => item.total_units <= filters.totalUnitsRange.max!)
     }
     
     // Sorting
@@ -730,9 +748,10 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
   const summaryStats = useMemo(() => {
     const totalRecords = filteredItems.length
     const totalValue = filteredItems.reduce((sum, item) => sum + item.total_value, 0)
-    const totalVariations = filteredItems.reduce((sum, item) => sum + item.variations, 0)
+    const totalVariations = filteredItems.reduce((sum, item) => sum + item.variations_amount, 0)
     const totalIncludingVariations = filteredItems.reduce((sum, item) => sum + item.total_including_variations, 0)
     const totalPlanningAssigned = filteredItems.reduce((sum, item) => sum + item.planning_assigned_amount, 0)
+    const totalUnits = filteredItems.reduce((sum, item) => sum + item.total_units, 0)
     const remeasurableCount = filteredItems.filter(item => item.remeasurable).length
     
     return {
@@ -741,6 +760,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
       totalVariations,
       totalIncludingVariations,
       totalPlanningAssigned,
+      totalUnits,
       remeasurableCount,
     }
   }, [filteredItems])
@@ -775,12 +795,14 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
       setError('')
       setSuccess('')
       
-      // Calculate total_value and total_including_variations
+      // Calculate total_value, total_units, and total_including_variations
       const quantity = parseFloat(String(editingData.quantity || 0))
       const rate = parseFloat(String(editingData.rate || 0))
-      const variations = parseFloat(String(editingData.variations || 0))
+      const unitsVariation = parseFloat(String(editingData.units_variation || 0))
+      const variationsAmount = parseFloat(String(editingData.variations_amount || 0))
       const totalValue = quantity * rate
-      const totalIncludingVariations = totalValue + variations
+      const totalUnits = quantity + unitsVariation
+      const totalIncludingVariations = totalValue + variationsAmount
       
       const updateData: any = {
         'Project Full Code': editingData.project_full_code,
@@ -792,7 +814,9 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
         'Total Value': totalValue,
         'Remeasurable?': editingData.remeasurable || false,
         'Planning Assigned Amount': parseFloat(String(editingData.planning_assigned_amount || 0)),
-        'Variations': variations,
+        'Units Variation': unitsVariation,
+        'Variations Amount': variationsAmount,
+        'Total Units': totalUnits,
         'Total Including Variations': totalIncludingVariations,
         updated_at: new Date().toISOString(),
       }
@@ -848,19 +872,24 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
       const itemsToUpdate = items.filter(item => ids.includes(item.id))
       const hasQuantityUpdate = data['Quantity'] !== undefined
       const hasRateUpdate = data['Rate'] !== undefined
-      const hasVariationsUpdate = data['Variations'] !== undefined
+      const hasVariationsUpdate = data['Variations Amount'] !== undefined
+      const hasUnitsVariationUpdate = data['Units Variation'] !== undefined
       
-      // If quantity, rate, or variations is being updated, we need to recalculate totals for each item
-      if (hasQuantityUpdate || hasRateUpdate || hasVariationsUpdate) {
-        // Update each item individually to recalculate total_value and total_including_variations
+      // If quantity, rate, units variation, or variations is being updated, we need to recalculate totals for each item
+      if (hasQuantityUpdate || hasRateUpdate || hasVariationsUpdate || hasUnitsVariationUpdate) {
+        // Update each item individually to recalculate total_value, total_units, and total_including_variations
         for (const item of itemsToUpdate) {
           // Use new values if provided, otherwise use existing item values
           const newQuantity = hasQuantityUpdate ? data['Quantity'] : item.quantity
           const newRate = hasRateUpdate ? data['Rate'] : item.rate
-          const newVariations = hasVariationsUpdate ? data['Variations'] : item.variations
+          const newUnitsVariation = hasUnitsVariationUpdate ? data['Units Variation'] : item.units_variation
+          const newVariations = hasVariationsUpdate ? data['Variations Amount'] : item.variations_amount
           
           // Recalculate total_value = quantity * rate
           const newTotalValue = newQuantity * newRate
+          
+          // Recalculate total_units = quantity + units_variation
+          const newTotalUnits = newQuantity + newUnitsVariation
           
           // Recalculate total_including_variations = total_value + variations
           const newTotalIncludingVariations = newTotalValue + newVariations
@@ -868,18 +897,22 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
           const updateData: any = {
             ...data,
             'Total Value': newTotalValue,
+            'Total Units': newTotalUnits,
             'Total Including Variations': newTotalIncludingVariations
           }
           
-          // Only include quantity/rate in update if they were actually changed
+          // Only include quantity/rate/units_variation in update if they were actually changed
           if (!hasQuantityUpdate) {
             delete updateData['Quantity']
           }
           if (!hasRateUpdate) {
             delete updateData['Rate']
           }
+          if (!hasUnitsVariationUpdate) {
+            delete updateData['Units Variation']
+          }
           if (!hasVariationsUpdate) {
-            delete updateData['Variations']
+            delete updateData['Variations Amount']
           }
           
           const { error: updateError } = await (supabase as any)
@@ -995,6 +1028,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
       rateRange: { min: undefined, max: undefined },
       totalValueRange: { min: undefined, max: undefined },
       variationsRange: { min: undefined, max: undefined },
+      totalUnitsRange: { min: undefined, max: undefined },
     })
     setUnitSearch('')
     setProjectSearch('')
@@ -1013,7 +1047,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
   return (
     <div className="space-y-6">
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <Card className="pt-4">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
@@ -1054,6 +1088,22 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                 <p className="text-sm text-gray-600 dark:text-gray-400">Total Variations</p>
                 <p className="text-2xl font-bold text-gray-900 dark:text-white">
                   {formatCurrencyByCodeSync(summaryStats.totalVariations, 'AED')}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card className="pt-4">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-orange-100 dark:bg-orange-900/20 rounded-lg">
+                <ClipboardList className="h-5 w-5 text-orange-600" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-600 dark:text-gray-400">Total Units</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                  {summaryStats.totalUnits.toLocaleString()}
                 </p>
               </div>
             </div>
@@ -1747,6 +1797,86 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                     </div>
                   </div>
                 </div>
+                
+                {/* Total Units Range Filter */}
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
+                    Total Units Range
+                  </label>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        placeholder="Min"
+                        value={filters.totalUnitsRange.min !== undefined ? filters.totalUnitsRange.min : ''}
+                        onChange={(e) => setFilters({
+                          ...filters,
+                          totalUnitsRange: {
+                            ...filters.totalUnitsRange,
+                            min: e.target.value ? parseFloat(e.target.value) : undefined
+                          }
+                        })}
+                        className="flex-1"
+                        min={uniqueValues.ranges.totalUnits.min}
+                        max={uniqueValues.ranges.totalUnits.max}
+                        step="0.01"
+                      />
+                      <span className="text-gray-500">-</span>
+                      <Input
+                        type="number"
+                        placeholder="Max"
+                        value={filters.totalUnitsRange.max !== undefined ? filters.totalUnitsRange.max : ''}
+                        onChange={(e) => setFilters({
+                          ...filters,
+                          totalUnitsRange: {
+                            ...filters.totalUnitsRange,
+                            max: e.target.value ? parseFloat(e.target.value) : undefined
+                          }
+                        })}
+                        className="flex-1"
+                        min={uniqueValues.ranges.totalUnits.min}
+                        max={uniqueValues.ranges.totalUnits.max}
+                        step="0.01"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={uniqueValues.ranges.totalUnits.min}
+                        max={uniqueValues.ranges.totalUnits.max}
+                        value={filters.totalUnitsRange.min !== undefined ? filters.totalUnitsRange.min : uniqueValues.ranges.totalUnits.min}
+                        onChange={(e) => setFilters({
+                          ...filters,
+                          totalUnitsRange: {
+                            ...filters.totalUnitsRange,
+                            min: parseFloat(e.target.value)
+                          }
+                        })}
+                        className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
+                        step={(uniqueValues.ranges.totalUnits.max - uniqueValues.ranges.totalUnits.min) / 100}
+                      />
+                      <input
+                        type="range"
+                        min={uniqueValues.ranges.totalUnits.min}
+                        max={uniqueValues.ranges.totalUnits.max}
+                        value={filters.totalUnitsRange.max !== undefined ? filters.totalUnitsRange.max : uniqueValues.ranges.totalUnits.max}
+                        onChange={(e) => setFilters({
+                          ...filters,
+                          totalUnitsRange: {
+                            ...filters.totalUnitsRange,
+                            max: parseFloat(e.target.value)
+                          }
+                        })}
+                        className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
+                        step={(uniqueValues.ranges.totalUnits.max - uniqueValues.ranges.totalUnits.min) / 100}
+                      />
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 flex justify-between">
+                      <span>{uniqueValues.ranges.totalUnits.min.toLocaleString()}</span>
+                      <span>{uniqueValues.ranges.totalUnits.max.toLocaleString()}</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -1812,9 +1942,21 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                   <th className="p-2 text-left">Planning Assigned</th>
                   <th 
                     className="p-2 text-left cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800"
-                    onClick={() => handleSort('variations')}
+                    onClick={() => handleSort('units_variation')}
                   >
-                    Variations {sortColumn === 'variations' && (sortDirection === 'asc' ? '↑' : '↓')}
+                    Units Variation {sortColumn === 'units_variation' && (sortDirection === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th 
+                    className="p-2 text-left cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800"
+                    onClick={() => handleSort('variations_amount')}
+                  >
+                    Variations Amount {sortColumn === 'variations_amount' && (sortDirection === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th 
+                    className="p-2 text-left cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800"
+                    onClick={() => handleSort('total_units')}
+                  >
+                    Total Units {sortColumn === 'total_units' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th className="p-2 text-left">Total Inc. Variations</th>
                   <th className="p-2 text-left">Actions</th>
@@ -1839,9 +1981,9 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                       rawTotalValueType: typeof item.total_value,
                       displayTotalValue: displayTotalValue,
                       formattedTotalValue: formatCurrencyByCodeSync(displayTotalValue, 'AED'),
-                      rawVariations: item.variations,
-                      rawVariationsType: typeof item.variations,
-                      displayVariations: getDisplayValue(item.variations),
+                      rawVariations: item.variations_amount,
+                      rawVariationsType: typeof item.variations_amount,
+                      displayVariations: getDisplayValue(item.variations_amount),
                       rawPlanningAmount: item.planning_assigned_amount,
                       rawPlanningAmountType: typeof item.planning_assigned_amount,
                       displayPlanningAmount: getDisplayValue(item.planning_assigned_amount),
@@ -1995,19 +2137,41 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                           <Input
                             type="number"
                             step="0.01"
-                            value={editingData.variations || ''}
-                            onChange={(e) => setEditingData({ ...editingData, variations: parseFloat(e.target.value) || 0 })}
+                            value={editingData.units_variation || ''}
+                            onChange={(e) => setEditingData({ ...editingData, units_variation: parseFloat(e.target.value) || 0 })}
                             className="w-full"
                           />
                         ) : (
-                          formatCurrencyByCodeSync(getDisplayValue(item.variations), 'AED')
+                          item.units_variation || 0
+                        )}
+                      </td>
+                      <td className="p-2">
+                        {isEditing ? (
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={editingData.variations_amount || ''}
+                            onChange={(e) => setEditingData({ ...editingData, variations_amount: parseFloat(e.target.value) || 0 })}
+                            className="w-full"
+                          />
+                        ) : (
+                          formatCurrencyByCodeSync(getDisplayValue(item.variations_amount), 'AED')
+                        )}
+                      </td>
+                      <td className="p-2">
+                        {isEditing ? (
+                          <span className="text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                            {(editingData.quantity || 0) + (editingData.units_variation || 0)}
+                          </span>
+                        ) : (
+                          item.total_units || 0
                         )}
                       </td>
                       <td className="p-2">
                         {isEditing ? (
                           <span className="text-gray-500">
                             {formatCurrencyByCodeSync(
-                              ((editingData.quantity || 0) * (editingData.rate || 0)) + (editingData.variations || 0),
+                              ((editingData.quantity || 0) * (editingData.rate || 0)) + (editingData.variations_amount || 0),
                               'AED'
                             )}
                           </span>

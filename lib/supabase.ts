@@ -400,8 +400,10 @@ export interface CommercialBOQItem {
   total_value: number // Currency (calculated: quantity * rate)
   remeasurable: boolean
   planning_assigned_amount: number // Currency
-  variations: number // Currency
-  total_including_variations: number // Currency (calculated: total_value + variations)
+  units_variation: number // Units variation
+  variations_amount: number // Currency (renamed from variations)
+  total_units: number // Calculated: quantity + units_variation
+  total_including_variations: number // Currency (calculated: total_value + variations_amount)
   created_at: string
   updated_at: string
 }

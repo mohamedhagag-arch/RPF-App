@@ -46,7 +46,7 @@ export function BulkEditBOQItemsModal({
       const uniqueUnits = Array.from(new Set(selectedItems.map(item => item.unit).filter(Boolean)))
       const uniqueRemeasurable = Array.from(new Set(selectedItems.map(item => item.remeasurable)))
       const uniquePlanningAssigned = Array.from(new Set(selectedItems.map(item => item.planning_assigned_amount)))
-      const uniqueVariations = Array.from(new Set(selectedItems.map(item => item.variations)))
+      const uniqueVariations = Array.from(new Set(selectedItems.map(item => item.variations_amount)))
       const uniqueQuantities = Array.from(new Set(selectedItems.map(item => item.quantity)))
       const uniqueRates = Array.from(new Set(selectedItems.map(item => item.rate)))
       
@@ -108,7 +108,7 @@ export function BulkEditBOQItemsModal({
         updateData['Planning Assigned Amount'] = parseFloat(planningAssignedAmount) || 0
       }
       if (fieldsToUpdate.has('variations')) {
-        updateData['Variations'] = parseFloat(variations) || 0
+        updateData['Variations Amount'] = parseFloat(variations) || 0
         // Also update total_including_variations if variations is being updated
         // We'll need to recalculate this for each item
       }

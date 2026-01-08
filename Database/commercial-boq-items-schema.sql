@@ -23,7 +23,9 @@ CREATE TABLE IF NOT EXISTS public."BOQ items" (
   "Total Value" NUMERIC(15, 2) DEFAULT 0.00,
   "Remeasurable?" BOOLEAN DEFAULT FALSE,
   "Planning Assigned Amount" NUMERIC(15, 2) DEFAULT 0.00,
-  "Variations" NUMERIC(15, 2) DEFAULT 0.00,
+  "Units Variation" NUMERIC(15, 2) DEFAULT 0.00,
+  "Variations Amount" NUMERIC(15, 2) DEFAULT 0.00,
+  "Total Units" NUMERIC(15, 2) DEFAULT 0.00,
   "Total Including Variations" NUMERIC(15, 2) DEFAULT 0.00,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -59,6 +61,7 @@ ALTER TABLE public."BOQ items"
 
 -- Create trigger for updated_at timestamp
 -- ============================================================
+DROP TRIGGER IF EXISTS update_boq_items_updated_at ON public."BOQ items";
 CREATE TRIGGER update_boq_items_updated_at BEFORE UPDATE ON public."BOQ items"
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
@@ -69,6 +72,7 @@ ALTER TABLE public."BOQ items" ENABLE ROW LEVEL SECURITY;
 -- Create RLS Policies
 -- ============================================================
 -- Allow authenticated users to do everything
+DROP POLICY IF EXISTS "auth_all_boq_items" ON public."BOQ items";
 CREATE POLICY "auth_all_boq_items" ON public."BOQ items"
   FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
@@ -94,7 +98,7 @@ ANALYZE public."BOQ items";
 -- ============================================================
 -- The table has been created with:
 -- ✅ Auto-generated unique reference numbers
--- ✅ All required columns (Project Full Code, Project Name, Item Description, Unit, Quantity, Rate, Total Value, Remeasurable?, Planning Assigned Amount, Variations, Total Including Variations)
+-- ✅ All required columns (Project Full Code, Project Name, Item Description, Unit, Quantity, Rate, Total Value, Remeasurable?, Planning Assigned Amount, Units Variation, Variations Amount, Total Including Variations)
 -- ✅ RLS enabled with authenticated user access
 -- ✅ Indexes for performance
 -- ✅ Auto-update timestamps
