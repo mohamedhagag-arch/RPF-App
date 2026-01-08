@@ -35,6 +35,7 @@ import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 import { buildProjectFullCode } from '@/lib/projectDataFetcher'
 import { BulkEditVariationsModal } from './BulkEditVariationsModal'
 import { AddVariationForm } from './AddVariationForm'
+import { AddBOQItemFormSimplified } from './AddBOQItemFormSimplified'
 
 // Helper function to format date as "Jan 04, 25"
 const formatDate = (dateString: string | undefined | null): string => {
@@ -95,7 +96,7 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
     project_full_code: '',
     project_name: '',
     variation_ref_no: '',
-    item_description: [''],
+    item_description: '',
     quantity_changes: 0,
     variation_amount: 0,
     date_of_submission: undefined,
@@ -113,6 +114,9 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
   
   // Add variation form state
   const [showAddForm, setShowAddForm] = useState(false)
+  
+  // Simplified BOQ item form state (for inline row creation)
+  const [showAddBOQFormInline, setShowAddBOQFormInline] = useState(false)
   
   // Filters state
   const [showFilters, setShowFilters] = useState(false)
@@ -217,23 +221,9 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
           return 0
         }
         
-        // Handle array of UUIDs for item_description
-        let itemDescriptionArray: string[] = []
+        // Handle single UUID for item_description
         const itemDescValue = row['Item Description'] || row['item_description']
-        if (Array.isArray(itemDescValue)) {
-          itemDescriptionArray = itemDescValue.map((id: any) => String(id))
-        } else if (itemDescValue) {
-          // If it's a string, try to parse it
-          try {
-            const parsed = JSON.parse(itemDescValue)
-            if (Array.isArray(parsed)) {
-              itemDescriptionArray = parsed.map((id: any) => String(id))
-            }
-          } catch {
-            // If parsing fails, treat as single value
-            itemDescriptionArray = [String(itemDescValue)]
-          }
-        }
+        const itemDescription = itemDescValue ? String(itemDescValue).trim() : ''
         
         const variation: ContractVariation = {
           id: row.id || '',
@@ -253,7 +243,7 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
             'Variation Ref no.',
             'variation_ref_no'
           ]) || undefined,
-          item_description: itemDescriptionArray,
+          item_description: itemDescription,
           quantity_changes: Number(getNumericValue(['Quantity Changes', 'quantity_changes'])),
           variation_amount: Number(getNumericValue(['Variation Amount', 'variation_amount'])),
           date_of_submission: getValue([
@@ -416,6 +406,82 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
       fetchingBOQItemsRef.current = false
     }
   }, [supabase])
+  
+  // Update BOQ items Variations field based on linked variations
+  const updateBOQItemsVariations = useCallback(async () => {
+    try {
+      // Fetch all variations
+      const { data: allVariations, error: variationsError } = await supabase
+        .from(TABLES.CONTRACT_VARIATIONS)
+        .select('id, "Item Description", "Variation Amount"')
+      
+      if (variationsError) {
+        console.error('Error fetching variations for BOQ update:', variationsError)
+        return
+      }
+      
+      // Calculate total variation amount for each BOQ item
+      const boqItemTotals: Record<string, number> = {}
+      
+      if (allVariations) {
+        allVariations.forEach((variation: any) => {
+          const itemDescription = variation['Item Description'] || variation.item_description || ''
+          const variationAmount = parseFloat(variation['Variation Amount'] || variation.variation_amount || 0) || 0
+          
+          // Add the variation amount to the linked BOQ item
+          if (itemDescription && String(itemDescription).trim() !== '') {
+            const boqItemId = String(itemDescription).trim()
+            if (!boqItemTotals[boqItemId]) {
+              boqItemTotals[boqItemId] = 0
+            }
+            boqItemTotals[boqItemId] += variationAmount
+          }
+        })
+      }
+      
+      // Update each BOQ item's Variations field
+      const updatePromises = Object.entries(boqItemTotals).map(async ([boqItemId, totalVariations]) => {
+        const { error: updateError } = await supabase
+          .from(TABLES.COMMERCIAL_BOQ_ITEMS)
+          .update({ 'Variations': totalVariations })
+          .eq('id', boqItemId)
+        
+        if (updateError) {
+          console.error(`Error updating BOQ item ${boqItemId}:`, updateError)
+        }
+      })
+      
+      // Also update BOQ items that are not in any variation to 0
+      const { data: allBOQItems, error: boqError } = await supabase
+        .from(TABLES.COMMERCIAL_BOQ_ITEMS)
+        .select('id')
+      
+      if (!boqError && allBOQItems) {
+        const boqItemIds = new Set(Object.keys(boqItemTotals))
+        const itemsToReset = allBOQItems
+          .filter(item => !boqItemIds.has(item.id))
+          .map(item => item.id)
+        
+        if (itemsToReset.length > 0) {
+          const { error: resetError } = await supabase
+            .from(TABLES.COMMERCIAL_BOQ_ITEMS)
+            .update({ 'Variations': 0 })
+            .in('id', itemsToReset)
+          
+          if (resetError) {
+            console.error('Error resetting BOQ items variations:', resetError)
+          }
+        }
+      }
+      
+      await Promise.all(updatePromises)
+      
+      // Refresh BOQ items list to reflect changes
+      await fetchBOQItems()
+    } catch (err: any) {
+      console.error('Error updating BOQ items variations:', err)
+    }
+  }, [supabase, fetchBOQItems])
   
   useEffect(() => {
     const loadData = async () => {
@@ -681,7 +747,7 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
       project_full_code: '',
       project_name: '',
       variation_ref_no: '',
-      item_description: [''],
+      item_description: '',
       quantity_changes: 0,
       variation_amount: 0,
       date_of_submission: undefined,
@@ -703,7 +769,7 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
       project_full_code: '',
       project_name: '',
       variation_ref_no: '',
-      item_description: [''],
+      item_description: '',
       quantity_changes: 0,
       variation_amount: 0,
       date_of_submission: undefined,
@@ -725,9 +791,9 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
         return
       }
       
-      const validBOQItems = (newVariationData.item_description || []).filter(id => id && id.trim() !== '')
-      if (validBOQItems.length === 0) {
-        setError('Please select at least one BOQ item')
+      const validBOQItem = (newVariationData.item_description || '').trim()
+      if (!validBOQItem) {
+        setError('Please select a BOQ item')
         return
       }
       
@@ -740,7 +806,7 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
         'Project Full Code': newVariationData.project_full_code,
         'Project Name': newVariationData.project_name,
         'Variation Ref no.': newVariationData.variation_ref_no || null,
-        'Item Description': validBOQItems,
+        'Item Description': validBOQItem,
         'Quantity Changes': newVariationData.quantity_changes !== undefined && newVariationData.quantity_changes !== null ? newVariationData.quantity_changes : 0,
         'Variation Amount': newVariationData.variation_amount !== undefined && newVariationData.variation_amount !== null ? newVariationData.variation_amount : 0,
         'Date of Submission': newVariationData.date_of_submission || null,
@@ -764,7 +830,7 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
         project_full_code: '',
         project_name: '',
         variation_ref_no: '',
-        item_description: [''],
+        item_description: '',
         quantity_changes: 0,
         variation_amount: 0,
         date_of_submission: undefined,
@@ -773,6 +839,9 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
         remarks: '',
       })
       await fetchVariations()
+      
+      // Update BOQ items Variations field
+      await updateBOQItemsVariations()
       
       setTimeout(() => setSuccess(''), 3000)
     } catch (err: any) {
@@ -792,7 +861,7 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
         project_full_code: '',
         project_name: '',
         variation_ref_no: '',
-        item_description: [''],
+        item_description: '',
         quantity_changes: 0,
         variation_amount: 0,
         date_of_submission: undefined,
@@ -813,7 +882,7 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
         'Project Full Code': editingData.project_full_code,
         'Project Name': editingData.project_name,
         'Variation Ref no.': editingData.variation_ref_no || null,
-        'Item Description': editingData.item_description || [],
+        'Item Description': editingData.item_description || null,
         'Quantity Changes': editingData.quantity_changes !== undefined && editingData.quantity_changes !== null ? editingData.quantity_changes : 0,
         'Variation Amount': editingData.variation_amount !== undefined && editingData.variation_amount !== null ? editingData.variation_amount : 0,
         'Date of Submission': editingData.date_of_submission || null,
@@ -835,6 +904,9 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
       setEditingId(null)
       setEditingData({})
       await fetchVariations()
+      
+      // Update BOQ items Variations field
+      await updateBOQItemsVariations()
       
       setTimeout(() => setSuccess(''), 3000)
     } catch (err: any) {
@@ -858,6 +930,10 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
       
       setSuccess('Variation deleted successfully')
       await fetchVariations()
+      
+      // Update BOQ items Variations field
+      await updateBOQItemsVariations()
+      
       setTimeout(() => setSuccess(''), 3000)
     } catch (err: any) {
       console.error('Error deleting variation:', err)
@@ -886,6 +962,10 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
       setSelectedIds(new Set())
       setIsSelectMode(false)
       await fetchVariations()
+      
+      // Update BOQ items Variations field
+      await updateBOQItemsVariations()
+      
       setTimeout(() => setSuccess(''), 3000)
     } catch (err: any) {
       console.error('Error bulk updating variations:', err)
@@ -910,6 +990,10 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
       setSelectedIds(new Set())
       setIsSelectMode(false)
       await fetchVariations()
+      
+      // Update BOQ items Variations field
+      await updateBOQItemsVariations()
+      
       setTimeout(() => setSuccess(''), 3000)
     } catch (err: any) {
       console.error('Error bulk deleting variations:', err)
@@ -943,7 +1027,7 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
       'Project Full Code',
       'Project Name',
       'Variation Ref No.',
-      'BOQ Items Count',
+      'BOQ Item',
       'Quantity Changes',
       'Variation Amount',
       'Date of Submission',
@@ -959,7 +1043,7 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
       v.project_full_code,
       v.project_name,
       v.variation_ref_no || '',
-      v.item_description.length.toString(),
+      v.item_description ? getBOQItemDescription(v.item_description) : '',
       v.quantity_changes.toString(),
       v.variation_amount.toString(),
       v.date_of_submission || '',
@@ -1573,7 +1657,7 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
                     Variation Ref No.
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">
-                    BOQ Items
+                    BOQ Item
                   </th>
                   <th 
                     className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
@@ -1667,18 +1751,16 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">
                       <div className="space-y-2">
-                        {(newVariationData.item_description || ['']).map((itemId, index) => {
+                        {(() => {
                           const projectBOQItems = getBOQItemsForProject(newVariationData.project_full_code || '')
                           return (
-                            <div key={index} className="flex items-center gap-2">
+                            <>
                               <select
-                                value={itemId}
+                                value={newVariationData.item_description || ''}
                                 onChange={(e) => {
-                                  const newItems = [...(newVariationData.item_description || [])]
-                                  newItems[index] = e.target.value
-                                  setNewVariationData({ ...newVariationData, item_description: newItems })
+                                  setNewVariationData({ ...newVariationData, item_description: e.target.value })
                                 }}
-                                className="flex-1 px-2 py-1 border rounded dark:bg-gray-700 dark:border-gray-600"
+                                className="w-full px-2 py-1 border rounded dark:bg-gray-700 dark:border-gray-600"
                                 disabled={!newVariationData.project_full_code}
                               >
                                 <option value="">Select BOQ Item...</option>
@@ -1692,33 +1774,20 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
                                   </option>
                                 ))}
                               </select>
-                              {(newVariationData.item_description || []).length > 1 && (
+                              {newVariationData.project_full_code && (
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  onClick={() => {
-                                    const newItems = (newVariationData.item_description || []).filter((_, i) => i !== index)
-                                    setNewVariationData({ ...newVariationData, item_description: newItems })
-                                  }}
+                                  onClick={() => setShowAddBOQFormInline(true)}
+                                  className="mt-2 w-full"
                                 >
-                                  <X className="h-4 w-4" />
+                                  <Plus className="h-4 w-4 mr-1" />
+                                  Add New BOQ Item for This Project
                                 </Button>
                               )}
-                            </div>
+                            </>
                           )
-                        })}
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            const newItems = [...(newVariationData.item_description || []), '']
-                            setNewVariationData({ ...newVariationData, item_description: newItems })
-                          }}
-                          disabled={!newVariationData.project_full_code}
-                        >
-                          <Plus className="h-4 w-4 mr-1" />
-                          Add Item
-                        </Button>
+                        })()}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
@@ -1878,57 +1947,28 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">
                           {isEditing ? (
-                            <div className="space-y-2">
-                              {editingData.item_description?.map((itemId, index) => (
-                                <div key={index} className="flex items-center gap-2">
-                                  <select
-                                    value={itemId}
-                                    onChange={(e) => {
-                                      const newItems = [...(editingData.item_description || [])]
-                                      newItems[index] = e.target.value
-                                      setEditingData({ ...editingData, item_description: newItems })
-                                    }}
-                                    className="flex-1 px-2 py-1 border rounded dark:bg-gray-700 dark:border-gray-600"
-                                  >
-                                    <option value="">Select BOQ Item...</option>
-                                    {projectBOQItems.map(item => (
-                                      <option key={item.id} value={item.id}>
-                                        {item.item_description} ({item.auto_generated_unique_reference_number})
-                                      </option>
-                                    ))}
-                                  </select>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                      const newItems = editingData.item_description?.filter((_, i) => i !== index) || []
-                                      setEditingData({ ...editingData, item_description: newItems })
-                                    }}
-                                  >
-                                    <X className="h-4 w-4" />
-                                  </Button>
-                                </div>
+                            <select
+                              value={editingData.item_description || ''}
+                              onChange={(e) => {
+                                setEditingData({ ...editingData, item_description: e.target.value })
+                              }}
+                              className="w-full px-2 py-1 border rounded dark:bg-gray-700 dark:border-gray-600"
+                            >
+                              <option value="">Select BOQ Item...</option>
+                              {projectBOQItems.sort((a, b) => {
+                                const aDesc = (a.item_description || '').toLowerCase()
+                                const bDesc = (b.item_description || '').toLowerCase()
+                                return aDesc.localeCompare(bDesc)
+                              }).map(item => (
+                                <option key={item.id} value={item.id}>
+                                  {item.item_description} ({item.auto_generated_unique_reference_number})
+                                </option>
                               ))}
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  const newItems = [...(editingData.item_description || []), '']
-                                  setEditingData({ ...editingData, item_description: newItems })
-                                }}
-                              >
-                                <Plus className="h-4 w-4 mr-1" />
-                                Add Item
-                              </Button>
-                            </div>
+                            </select>
                           ) : (
-                            <div className="space-y-1">
-                              {variation.item_description.length > 0 ? (
-                                variation.item_description.map((itemId, idx) => (
-                                  <div key={idx} className="text-sm">
-                                    {getBOQItemDescription(itemId)}
-                                  </div>
-                                ))
+                            <div className="text-sm">
+                              {variation.item_description ? (
+                                getBOQItemDescription(variation.item_description)
                               ) : (
                                 <span className="text-gray-400">-</span>
                               )}
@@ -2108,9 +2148,34 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
           onSave={async () => {
             setShowAddForm(false)
             await fetchVariations()
+            // Update BOQ items Variations field
+            await updateBOQItemsVariations()
           }}
           onCancel={() => setShowAddForm(false)}
           isOpen={showAddForm}
+          onBOQItemsRefresh={async () => {
+            await fetchBOQItems()
+          }}
+        />
+      )}
+      
+      {/* Simplified BOQ Item Form for inline row creation */}
+      {showAddBOQFormInline && newVariationData.project_full_code && newVariationData.project_name && (
+        <AddBOQItemFormSimplified
+          projectFullCode={newVariationData.project_full_code}
+          projectName={newVariationData.project_name}
+          onSave={async (newItemId: string) => {
+            // Refresh BOQ items list
+            await fetchBOQItems()
+            
+            // Close the BOQ form
+            setShowAddBOQFormInline(false)
+            
+            // Auto-select the new item
+            setNewVariationData({ ...newVariationData, item_description: newItemId })
+          }}
+          onCancel={() => setShowAddBOQFormInline(false)}
+          isOpen={showAddBOQFormInline}
         />
       )}
     </div>

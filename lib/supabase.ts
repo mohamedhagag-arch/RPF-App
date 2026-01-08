@@ -421,7 +421,7 @@ export interface ContractVariation {
   project_full_code: string // References Project Sub-Code from Planning Database - ProjectsList
   project_name: string // Auto-populated from ProjectsList
   variation_ref_no?: string // Variation reference number
-  item_description: string[] // Array of BOQ item UUIDs
+  item_description: string // Single BOQ item UUID
   quantity_changes: number // Quantity changes (2 decimal places)
   variation_amount: number // Variation amount in currency (2 decimal places)
   date_of_submission?: string // Date of submission (nullable)

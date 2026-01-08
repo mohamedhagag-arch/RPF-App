@@ -10,6 +10,7 @@ import { Alert } from '@/components/ui/Alert'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { X, Save, Loader2, Plus } from 'lucide-react'
 import { useAuth } from '@/app/providers'
+import { AddBOQItemFormSimplified } from './AddBOQItemFormSimplified'
 
 interface AddVariationFormProps {
   projects: Project[]
@@ -17,6 +18,7 @@ interface AddVariationFormProps {
   onSave: () => void
   onCancel: () => void
   isOpen: boolean
+  onBOQItemsRefresh?: () => void
 }
 
 export function AddVariationForm({ 
@@ -24,18 +26,20 @@ export function AddVariationForm({
   boqItems,
   onSave, 
   onCancel, 
-  isOpen 
+  isOpen,
+  onBOQItemsRefresh
 }: AddVariationFormProps) {
   const { appUser } = useAuth()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
+  const [showAddBOQForm, setShowAddBOQForm] = useState(false)
   
   // Form fields
   const [projectFullCode, setProjectFullCode] = useState('')
   const [projectName, setProjectName] = useState('')
   const [variationRefNo, setVariationRefNo] = useState('')
-  const [selectedBOQItems, setSelectedBOQItems] = useState<string[]>([''])
+  const [selectedBOQItem, setSelectedBOQItem] = useState<string>('')
   const [quantityChanges, setQuantityChanges] = useState('')
   const [variationAmount, setVariationAmount] = useState('')
   const [dateOfSubmission, setDateOfSubmission] = useState('')
@@ -51,7 +55,7 @@ export function AddVariationForm({
       setProjectFullCode('')
       setProjectName('')
       setVariationRefNo('')
-      setSelectedBOQItems([''])
+      setSelectedBOQItem('')
       setQuantityChanges('')
       setVariationAmount('')
       setDateOfSubmission('')
@@ -81,27 +85,20 @@ export function AddVariationForm({
     return boqItems.filter(item => item.project_full_code === projectFullCode)
   }, [projectFullCode, boqItems])
   
-  // Handle BOQ item selection change
-  const handleBOQItemChange = (index: number, itemId: string) => {
-    const newItems = [...selectedBOQItems]
-    newItems[index] = itemId
-    setSelectedBOQItems(newItems)
-  }
-  
-  // Add new BOQ item field
-  const handleAddBOQItem = () => {
-    setSelectedBOQItems([...selectedBOQItems, ''])
-  }
-  
-  // Remove BOQ item field
-  const handleRemoveBOQItem = (index: number) => {
-    const newItems = selectedBOQItems.filter((_, i) => i !== index)
-    if (newItems.length === 0) {
-      setSelectedBOQItems([''])
-    } else {
-      setSelectedBOQItems(newItems)
+  // Handle BOQ item creation
+  const handleBOQItemCreated = async (newItemId: string) => {
+    // Refresh BOQ items list
+    if (onBOQItemsRefresh) {
+      onBOQItemsRefresh()
     }
+    
+    // Close the BOQ form
+    setShowAddBOQForm(false)
+    
+    // Auto-select the new item
+    setSelectedBOQItem(newItemId)
   }
+  
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -112,10 +109,10 @@ export function AddVariationForm({
       return
     }
     
-    // Filter out empty BOQ item selections
-    const validBOQItems = selectedBOQItems.filter(id => id && id.trim() !== '')
-    if (validBOQItems.length === 0) {
-      setError('Please select at least one BOQ item')
+    // Validate BOQ item selection
+    const validBOQItem = (selectedBOQItem || '').trim()
+    if (!validBOQItem) {
+      setError('Please select a BOQ item')
       return
     }
     
@@ -137,7 +134,7 @@ export function AddVariationForm({
         'Project Full Code': projectFullCode,
         'Project Name': projectName,
         'Variation Ref no.': variationRefNo || null,
-        'Item Description': validBOQItems, // Array of UUIDs
+        'Item Description': validBOQItem, // Single UUID
         'Quantity Changes': quantityChangesNum,
         'Variation Amount': variationAmountNum,
         'Date of Submission': dateOfSubmission || null,
@@ -165,6 +162,7 @@ export function AddVariationForm({
       setSuccess(true)
       
       // Call onSave callback to refresh the list
+      // Note: BOQ items variations will be updated by the parent component
       setTimeout(() => {
         onSave()
         onCancel()
@@ -342,58 +340,48 @@ export function AddVariationForm({
               </div>
             </div>
             
-            {/* BOQ Items Selection */}
+            {/* BOQ Item Selection */}
             <div className="space-y-2">
               <label className="text-sm font-medium">
-                BOQ Items <span className="text-red-500">*</span>
+                BOQ Item <span className="text-red-500">*</span>
               </label>
-              {selectedBOQItems.map((itemId, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  <select
-                    value={itemId}
-                    onChange={(e) => handleBOQItemChange(index, e.target.value)}
-                    required={index === 0}
-                    className="flex-1 px-3 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600"
-                    disabled={loading || !projectFullCode}
-                  >
-                    <option value="">Select BOQ Item...</option>
-                    {[...availableBOQItems].sort((a, b) => {
-                      const aDesc = (a.item_description || '').toLowerCase()
-                      const bDesc = (b.item_description || '').toLowerCase()
-                      return aDesc.localeCompare(bDesc)
-                    }).map(item => (
-                      <option key={item.id} value={item.id}>
-                        {item.item_description} ({item.auto_generated_unique_reference_number})
-                      </option>
-                    ))}
-                  </select>
-                  {selectedBOQItems.length > 1 && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleRemoveBOQItem(index)}
-                      disabled={loading}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-              ))}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleAddBOQItem}
+              <select
+                value={selectedBOQItem}
+                onChange={(e) => setSelectedBOQItem(e.target.value)}
+                required
+                className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600"
                 disabled={loading || !projectFullCode}
               >
-                <Plus className="h-4 w-4 mr-1" />
-                Add BOQ Item
-              </Button>
+                <option value="">Select BOQ Item...</option>
+                {[...availableBOQItems].sort((a, b) => {
+                  const aDesc = (a.item_description || '').toLowerCase()
+                  const bDesc = (b.item_description || '').toLowerCase()
+                  return aDesc.localeCompare(bDesc)
+                }).map(item => (
+                  <option key={item.id} value={item.id}>
+                    {item.item_description} ({item.auto_generated_unique_reference_number})
+                  </option>
+                ))}
+              </select>
               {!projectFullCode && (
                 <p className="text-sm text-gray-500 dark:text-gray-400">
                   Please select a project first to see available BOQ items
                 </p>
+              )}
+              {projectFullCode && (
+                <div className="mt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowAddBOQForm(true)}
+                    disabled={loading}
+                    className="w-full"
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    Add New BOQ Item for This Project
+                  </Button>
+                </div>
               )}
             </div>
             
@@ -442,6 +430,15 @@ export function AddVariationForm({
           </form>
         </CardContent>
       </Card>
+      
+      {/* Simplified BOQ Item Form */}
+      <AddBOQItemFormSimplified
+        projectFullCode={projectFullCode}
+        projectName={projectName}
+        onSave={handleBOQItemCreated}
+        onCancel={() => setShowAddBOQForm(false)}
+        isOpen={showAddBOQForm}
+      />
     </div>
   )
 }

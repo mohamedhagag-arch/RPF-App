@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS public."Contract Variations" (
   "Project Full Code" TEXT NOT NULL,
   "Project Name" TEXT NOT NULL,
   "Variation Ref no." TEXT,
-  "Item Description" UUID[] DEFAULT ARRAY[]::UUID[],
+  "Item Description" UUID,
   "Quantity Changes" NUMERIC(15, 2) DEFAULT 0.00,
   "Variation Amount" NUMERIC(15, 2) DEFAULT 0.00,
   "Date of Submission" DATE,
@@ -50,7 +50,7 @@ COMMENT ON TABLE public."Contract Variations" IS 'Contract variations with proje
 COMMENT ON COLUMN public."Contract Variations"."Auto Generated Unique Reference Number" IS 'Auto-generated unique reference number in format VAR-YYYY-XXX';
 COMMENT ON COLUMN public."Contract Variations"."Project Full Code" IS 'References Project Sub-Code from Planning Database - ProjectsList';
 COMMENT ON COLUMN public."Contract Variations"."Project Name" IS 'Auto-populated from Planning Database - ProjectsList based on Project Full Code';
-COMMENT ON COLUMN public."Contract Variations"."Item Description" IS 'Array of UUID references to BOQ items table';
+COMMENT ON COLUMN public."Contract Variations"."Item Description" IS 'Single UUID reference to BOQ items table';
 COMMENT ON COLUMN public."Contract Variations"."Quantity Changes" IS 'Quantity changes as a decimal number';
 COMMENT ON COLUMN public."Contract Variations"."Variation Amount" IS 'Variation amount in currency (2 decimal places)';
 COMMENT ON COLUMN public."Contract Variations"."Variation Status" IS 'Current status of the variation';
@@ -126,6 +126,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Drop trigger if it exists before creating
+DROP TRIGGER IF EXISTS update_contract_variations_updated_at ON public."Contract Variations";
 CREATE TRIGGER update_contract_variations_updated_at 
   BEFORE UPDATE ON public."Contract Variations"
   FOR EACH ROW 
@@ -137,6 +139,8 @@ ALTER TABLE public."Contract Variations" ENABLE ROW LEVEL SECURITY;
 
 -- Create RLS Policies
 -- ============================================================
+-- Drop policy if it exists before creating
+DROP POLICY IF EXISTS "auth_all_contract_variations" ON public."Contract Variations";
 -- Allow authenticated users to do everything
 CREATE POLICY "auth_all_contract_variations" ON public."Contract Variations"
   FOR ALL TO authenticated USING (true) WITH CHECK (true);
@@ -156,7 +160,7 @@ CREATE INDEX IF NOT EXISTS idx_contract_variations_created_at
 CREATE INDEX IF NOT EXISTS idx_contract_variations_created_by 
   ON public."Contract Variations" (created_by);
 CREATE INDEX IF NOT EXISTS idx_contract_variations_item_description 
-  ON public."Contract Variations" USING GIN ("Item Description");
+  ON public."Contract Variations" ("Item Description");
 
 -- Grant Permissions
 -- ============================================================
@@ -173,11 +177,11 @@ ANALYZE public."Contract Variations";
 -- ============================================================
 -- The table has been created with:
 -- ✅ Auto-generated unique reference numbers (VAR-YYYY-XXX format)
--- ✅ All required columns (Project Full Code, Project Name, Variation Ref no., Item Description array, Quantity Changes, Variation Amount, Date of Submission, Variation Status, Date of Approval, Remarks)
+-- ✅ All required columns (Project Full Code, Project Name, Variation Ref no., Item Description (single UUID), Quantity Changes, Variation Amount, Date of Submission, Variation Status, Date of Approval, Remarks)
 -- ✅ Auto-populated Project Name from ProjectsList table
 -- ✅ Enum constraint for Variation Status
 -- ✅ RLS enabled with authenticated user access
--- ✅ Indexes for performance (including GIN index for UUID array)
+-- ✅ Indexes for performance (including index for Item Description UUID)
 -- ✅ Auto-update timestamps
 -- ✅ User tracking (created_by, updated_by)
 -- ============================================================
