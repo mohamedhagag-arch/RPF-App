@@ -1,6 +1,6 @@
 ﻿'use client'
 
-import React, { useState, useEffect, useMemo, useCallback, memo, useRef, Fragment } from 'react'
+import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, memo, useRef, Fragment } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
@@ -71,61 +71,51 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   const [debouncedPeriodType, setDebouncedPeriodType] = useState<PeriodType>('weekly')
   const [isCalculating, setIsCalculating] = useState(false)
   
-  // ✅ PERFORMANCE: Debounce dateRange changes to prevent UI freezing
+  // ? PERFORMANCE: Debounce dateRange changes to prevent UI freezing
   useEffect(() => {
-    setIsCalculating(true)
+    // Only show calculating if date range actually changed
+    if (dateRange.start && dateRange.end && 
+        (dateRange.start !== debouncedDateRange.start || dateRange.end !== debouncedDateRange.end)) {
+      setIsCalculating(true)
+    }
     const timer = setTimeout(() => {
       setDebouncedDateRange(dateRange)
-      // ✅ PERFORMANCE: Use requestIdleCallback to finish calculations when browser is idle
-      if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
-        requestIdleCallback(() => {
-          setIsCalculating(false)
-        }, { timeout: 1000 })
-      } else {
-        setTimeout(() => setIsCalculating(false), 100)
-      }
-    }, 500) // ✅ PERFORMANCE: Increased debounce to 500ms for heavy calculations
+      // Note: isCalculating will be managed by the cache clearing effect
+    }, 200) // ? Reduced debounce to 200ms for better responsiveness
     
     return () => clearTimeout(timer)
-  }, [dateRange])
+  }, [dateRange, debouncedDateRange.start, debouncedDateRange.end])
   
-  // ✅ PERFORMANCE: Debounce periodType changes
+  // ? PERFORMANCE: Debounce periodType changes
   useEffect(() => {
-    setIsCalculating(true)
+    // Only show calculating if period type actually changed
+    if (periodType !== debouncedPeriodType) {
+      setIsCalculating(true)
+    }
     const timer = setTimeout(() => {
       setDebouncedPeriodType(periodType)
-      // ✅ PERFORMANCE: Use requestIdleCallback to finish calculations when browser is idle
-      if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
-        requestIdleCallback(() => {
-          setIsCalculating(false)
-        }, { timeout: 1000 })
-      } else {
-        setTimeout(() => setIsCalculating(false), 100)
-      }
-    }, 500) // ✅ PERFORMANCE: Increased debounce to 500ms for heavy calculations
+      // Note: isCalculating will be managed by the cache clearing effect
+    }, 200) // ? Reduced debounce to 200ms for better responsiveness
     
     return () => clearTimeout(timer)
-  }, [periodType])
+  }, [periodType, debouncedPeriodType])
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>([])
   const [debouncedSelectedDivisions, setDebouncedSelectedDivisions] = useState<string[]>([])
   
-  // ✅ PERFORMANCE: Debounce selectedDivisions changes to prevent UI freezing
+  // ? PERFORMANCE: Debounce selectedDivisions changes to prevent UI freezing
   useEffect(() => {
-    setIsCalculating(true)
+    // Only show calculating if divisions actually changed
+    const divisionsChanged = JSON.stringify(selectedDivisions.sort()) !== JSON.stringify(debouncedSelectedDivisions.sort())
+    if (divisionsChanged) {
+      setIsCalculating(true)
+    }
     const timer = setTimeout(() => {
       setDebouncedSelectedDivisions(selectedDivisions)
-      // ✅ PERFORMANCE: Use requestIdleCallback to finish calculations when browser is idle
-      if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
-        requestIdleCallback(() => {
-          setIsCalculating(false)
-        }, { timeout: 1000 })
-      } else {
-        setTimeout(() => setIsCalculating(false), 100)
-      }
-    }, 500) // ✅ PERFORMANCE: Increased debounce to 500ms for heavy calculations
+      // Note: isCalculating will be managed by the cache clearing effect
+    }, 200) // ? Reduced debounce to 200ms for better responsiveness
     
     return () => clearTimeout(timer)
-  }, [selectedDivisions])
+  }, [selectedDivisions, debouncedSelectedDivisions])
   
   const [hideZeroProjects, setHideZeroProjects] = useState(false)
   const [viewPlannedValue, setViewPlannedValue] = useState(false)
@@ -144,6 +134,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   const [hideDivisionsColumn, setHideDivisionsColumn] = useState(false)
   const [hideTotalContractColumn, setHideTotalContractColumn] = useState(false)
   const [useVirtualValueInChart, setUseVirtualValueInChart] = useState(false)
+  const [chartKey, setChartKey] = useState(0) // Force re-render of chart
   
   const chartRef = useRef<HTMLDivElement>(null)
   const chartExportMenuRef = useRef<HTMLDivElement>(null)
@@ -151,7 +142,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   
   const today = useMemo(() => new Date(), [])
   
-  // ✅ PERFORMANCE: Pre-build map of project ID to activities for O(1) lookup
+  // ? PERFORMANCE: Pre-build map of project ID to activities for O(1) lookup
   const projectActivitiesMap = useMemo(() => {
     const map = new Map<string, BOQActivity[]>()
     projects.forEach((project: Project) => {
@@ -166,7 +157,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     return map
   }, [projects, activities])
   
-  // ✅ PERFORMANCE: Pre-build map of division to project IDs for O(1) lookup
+  // ? PERFORMANCE: Pre-build map of division to project IDs for O(1) lookup
   const divisionToProjectIdsMap = useMemo(() => {
     const map = new Map<string, Set<string>>()
     
@@ -183,7 +174,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     })
     
     // Then, add projects by their activities' divisions
-    // ✅ PERFORMANCE: Build project code/id to activities map first
+    // ? PERFORMANCE: Build project code/id to activities map first
     const projectToActivitiesMap = new Map<string, BOQActivity[]>()
     activities.forEach((activity: BOQActivity) => {
       const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
@@ -239,11 +230,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     return map
   }, [projects, activities])
   
-  // ✅ PERFORMANCE: Filter projects using pre-built map (O(1) lookup instead of O(n*m))
+  // ? PERFORMANCE: Filter projects using pre-built map (O(1) lookup instead of O(n*m))
   const filteredProjects = useMemo(() => {
     if (debouncedSelectedDivisions.length === 0) return projects
     
-    // ✅ PERFORMANCE: Collect all project IDs that match any selected division
+    // ? PERFORMANCE: Collect all project IDs that match any selected division
     const matchingProjectIds = new Set<string>()
     debouncedSelectedDivisions.forEach((selectedDiv: string) => {
       const normalizedDiv = selectedDiv.trim().toLowerCase()
@@ -253,15 +244,15 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       }
     })
     
-    // ✅ PERFORMANCE: Filter projects using Set lookup (O(1) per project)
+    // ? PERFORMANCE: Filter projects using Set lookup (O(1) per project)
     return projects.filter((project: Project) => matchingProjectIds.has(project.id))
   }, [projects, debouncedSelectedDivisions, divisionToProjectIdsMap])
   
-  // ✅ PERFORMANCE: Use provided analytics if available, otherwise calculate only for filtered projects
+  // ? PERFORMANCE: Use provided analytics if available, otherwise calculate only for filtered projects
   const allAnalytics = useMemo(() => {
-    // ✅ DEBUG: Log analytics calculation
+    // ? DEBUG: Log analytics calculation
     if (process.env.NODE_ENV === 'development') {
-      console.log('🔍 MonthlyWorkRevenueTab allAnalytics calculation:', {
+      console.log('?? MonthlyWorkRevenueTab allAnalytics calculation:', {
         _providedAnalyticsCount: _providedAnalytics?.length || 0,
         filteredProjectsCount: filteredProjects.length,
         projectsCount: projects.length,
@@ -271,50 +262,50 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       })
     }
     
-    // ✅ FIX: If _providedAnalytics exists and has data, use it (respecting division filter)
+    // ? FIX: If _providedAnalytics exists and has data, use it (respecting division filter)
     if (_providedAnalytics && _providedAnalytics.length > 0) {
       // If no division filter is applied, return all provided analytics
       if (debouncedSelectedDivisions.length === 0) {
         return _providedAnalytics
       }
       // Otherwise, filter by selected divisions
-      // ✅ FIX: Use projects (not filteredProjects) to get all project IDs, then filter analytics
+      // ? FIX: Use projects (not filteredProjects) to get all project IDs, then filter analytics
       const allProjectIds = new Set(projects.map((p: any) => p.id))
       const filteredProjectIds = new Set(filteredProjects.map((p: any) => p.id))
       const filteredAnalytics = _providedAnalytics.filter((a: any) => {
         // Include if project is in filteredProjects OR if no division filter matches
         return filteredProjectIds.has(a.project.id) || (filteredProjectIds.size === 0 && allProjectIds.has(a.project.id))
       })
-      // ✅ FIX: Return filtered analytics, or calculate new if filter results in empty but we have projects
+      // ? FIX: Return filtered analytics, or calculate new if filter results in empty but we have projects
       if (filteredAnalytics.length > 0) {
         return filteredAnalytics
       }
-      // ✅ FIX: If filtered analytics is empty but we have projects, calculate new analytics
+      // ? FIX: If filtered analytics is empty but we have projects, calculate new analytics
       if (filteredProjects.length > 0) {
-        console.log('⚠️ Provided analytics filtered to empty, calculating new analytics...')
+        console.log('?? Provided analytics filtered to empty, calculating new analytics...')
         return getAllProjectsAnalytics(filteredProjects, activities, kpis)
       }
       return _providedAnalytics
     }
-    // ✅ FIX: If no provided analytics, calculate from filtered projects or all projects
+    // ? FIX: If no provided analytics, calculate from filtered projects or all projects
     if (filteredProjects.length === 0) {
-      // ✅ FIX: If no division filter, use all projects
+      // ? FIX: If no division filter, use all projects
       if (debouncedSelectedDivisions.length === 0 && projects.length > 0) {
-        console.log('⚠️ No filtered projects but have projects, calculating analytics from all projects...')
+        console.log('?? No filtered projects but have projects, calculating analytics from all projects...')
         return getAllProjectsAnalytics(projects, activities, kpis)
       }
       return []
     }
-    console.log('⚠️ Calculating analytics from filtered projects...')
+    console.log('?? Calculating analytics from filtered projects...')
     return getAllProjectsAnalytics(filteredProjects, activities, kpis)
   }, [_providedAnalytics, filteredProjects, projects, activities, kpis, debouncedSelectedDivisions])
   
   // Pre-filter KPIs by project for performance
-  // ✅ FIX: Use exact matching with project_full_code to differentiate similar projects
+  // ? FIX: Use exact matching with project_full_code to differentiate similar projects
   const projectKPIsMap = useMemo(() => {
     const map = new Map<string, { actual: any[]; planned: any[] }>()
     projects.forEach((project: Project) => {
-      // ✅ Build project_full_code exactly as it should be
+      // ? Build project_full_code exactly as it should be
       const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
       const projectCode = (project.project_code || '').toString().trim().toUpperCase()
       const projectSubCode = (project.project_sub_code || '').toString().trim().toUpperCase()
@@ -327,24 +318,24 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         const kpiProjectSubCode = (kpi.project_sub_code || rawKPI['Project Sub Code'] || '').toString().trim().toUpperCase()
         const kpiProjectId = (kpi as any).project_id || ''
         
-        // ✅ PRIORITY 1: Exact match by project_full_code (most accurate)
+        // ? PRIORITY 1: Exact match by project_full_code (most accurate)
         if (kpiProjectFullCode && projectFullCode && kpiProjectFullCode === projectFullCode) {
           return true
         }
         
-        // ✅ PRIORITY 2: Match by project_id (if available)
+        // ? PRIORITY 2: Match by project_id (if available)
         if (projectId && kpiProjectId && projectId === kpiProjectId) {
           return true
         }
         
-        // ✅ PRIORITY 3: Match by project_code + project_sub_code (for projects with sub codes)
+        // ? PRIORITY 3: Match by project_code + project_sub_code (for projects with sub codes)
         if (projectSubCode && kpiProjectSubCode) {
           if (kpiProjectCode === projectCode && kpiProjectSubCode === projectSubCode) {
             return true
           }
         }
         
-        // ✅ PRIORITY 4: Match by project_code only (fallback for projects without sub codes)
+        // ? PRIORITY 4: Match by project_code only (fallback for projects without sub codes)
         if (!projectSubCode && kpiProjectCode === projectCode && !kpiProjectSubCode) {
           return true
         }
@@ -492,7 +483,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   }, [])
   
   // Divisions data map - using unique key (project_full_code + project_name) to differentiate similar projects
-  // ✅ FIX: Use projectActivitiesMap instead of analytics.activities for accurate activity matching
+  // ? FIX: Use projectActivitiesMap instead of analytics.activities for accurate activity matching
   const divisionsDataMap = useMemo(() => {
     const map = new Map<string, { divisionAmounts: Record<string, number>, divisionNames: Record<string, string> }>()
     
@@ -500,14 +491,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     projects.forEach((project: Project) => {
       const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
       const projectName = (project.project_name || '').toString().trim()
-      // ✅ Use unique key combining project_full_code and project_name for exact matching
+      // ? Use unique key combining project_full_code and project_name for exact matching
       const uniqueKey = `${projectFullCode}|${projectName}`
       
-      // ✅ FIX: Get activities from projectActivitiesMap using project.id for accurate matching
+      // ? FIX: Get activities from projectActivitiesMap using project.id for accurate matching
       // Also verify activity matches project_full_code to ensure correct matching
       const projectActivitiesFromMap = projectActivitiesMap.get(project.id) || []
       
-      // ✅ DOUBLE CHECK: Filter activities to ensure they match this specific project's full code
+      // ? DOUBLE CHECK: Filter activities to ensure they match this specific project's full code
       const projectActivities = projectActivitiesFromMap.filter((activity: BOQActivity) => {
         const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
         return activityFullCode === projectFullCode || activity.project_id === project.id
@@ -564,14 +555,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   }, [periodType, dateRange])
   
   // Calculate period earned value
-  // ✅ FIX: analytics.activities is already filtered by divisions in getCachedPeriodValues
+  // ? FIX: analytics.activities is already filtered by divisions in getCachedPeriodValues
   // So we should use analytics.activities directly without filtering again
   const calculatePeriodEarnedValue = useCallback((project: Project, analytics: any): number[] => {
-    // ✅ FIX: Get KPIs from projectKPIsMap, but also verify they match this specific project
+    // ? FIX: Get KPIs from projectKPIsMap, but also verify they match this specific project
     const projectKPIs = projectKPIsMap.get(project.id)
     let allProjectKPIs = projectKPIs?.actual || []
     
-    // ✅ DOUBLE CHECK: Filter KPIs to ensure they match this specific project's full code
+    // ? DOUBLE CHECK: Filter KPIs to ensure they match this specific project's full code
     const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
     const projectCode = (project.project_code || '').toString().trim().toUpperCase()
     const projectSubCode = (project.project_sub_code || '').toString().trim().toUpperCase()
@@ -584,17 +575,17 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       const kpiProjectSubCode = (kpi.project_sub_code || rawKPI['Project Sub Code'] || '').toString().trim().toUpperCase()
       const kpiProjectId = (kpi as any).project_id || ''
       
-      // ✅ PRIORITY 1: Exact match by project_full_code
+      // ? PRIORITY 1: Exact match by project_full_code
       if (kpiProjectFullCode && projectFullCode && kpiProjectFullCode === projectFullCode) {
         return true
       }
       
-      // ✅ PRIORITY 2: Match by project_id
+      // ? PRIORITY 2: Match by project_id
       if (projectId && kpiProjectId && projectId === kpiProjectId) {
         return true
       }
       
-      // ✅ PRIORITY 3: Match by project_code + project_sub_code
+      // ? PRIORITY 3: Match by project_code + project_sub_code
       if (projectSubCode && kpiProjectSubCode) {
         if (kpiProjectCode === projectCode && kpiProjectSubCode === projectSubCode) {
           return true
@@ -604,7 +595,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       return false
     })
     
-    // ✅ FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
+    // ? FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
     const projectActivities = analytics.activities || []
     
     return periods.map((period) => {
@@ -676,35 +667,10 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           }
           if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
           
-          let relatedActivity: BOQActivity | undefined = undefined
-          
-          if (kpiActivityName && kpiProjectFullCode && kpiZone) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
-              const rawActivity = (a as any).raw || {}
-              const activityZone = (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
-              return activityName === kpiActivityName && 
-                     activityProjectFullCode === kpiProjectFullCode &&
-                     (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
-            })
-          }
-          
-          if (!relatedActivity && kpiActivityName && kpiProjectFullCode) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
-              return activityName === kpiActivityName && activityProjectFullCode === kpiProjectFullCode
-            })
-          }
-          
-          if (!relatedActivity && kpiActivityName && kpiProjectCode) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectCode = (a.project_code || '').toLowerCase().trim()
-              return activityName === kpiActivityName && activityProjectCode === kpiProjectCode
-            })
-          }
+          // ✅ FIX: Use kpiMatchesActivity for exact matching including zone - no fallback to avoid cross-zone matching
+          const relatedActivity = projectActivities.find((a: BOQActivity) => {
+            return kpiMatchesActivity(kpi, a)
+          })
           
           if (relatedActivity) {
             const rawActivity = (relatedActivity as any).raw || {}
@@ -735,7 +701,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
             }
           }
           
-          // ✅ FIX: Only add value if relatedActivity was found in filtered activities
+          // ? FIX: Only add value if relatedActivity was found in filtered activities
           // If relatedActivity is not found, it means this KPI belongs to an activity that was filtered out
           // So we should NOT add its value to the sum
           if (!relatedActivity) {
@@ -766,16 +732,16 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
             }
           }
           
-          // ✅ CRITICAL: If no value found and no rate, skip (NEVER use quantity as value!)
+          // ? CRITICAL: If no value found and no rate, skip (NEVER use quantity as value!)
           if (financialValue === 0) {
           return sum
           }
           
-          // ✅ Always return the base financialValue (Actual value remains constant)
+          // ? Always return the base financialValue (Actual value remains constant)
           // Virtual Material will be calculated and displayed separately in the UI
           return sum + financialValue
         } catch (error) {
-          // ✅ PERFORMANCE: Only log critical errors
+          // ? PERFORMANCE: Only log critical errors
           if (process.env.NODE_ENV === 'development') console.error('[Monthly Revenue] Error calculating KPI value:', error, { kpi, project })
           return sum
         }
@@ -783,15 +749,15 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     })
   }, [kpis, periods, activities, today, projectKPIsMap, showVirtualMaterialValues, debouncedSelectedDivisions])
 
-  // ✅ Calculate Virtual Material Amount per period from KPIs for activities with use_virtual_material
-  // ✅ FIX: analytics.activities is already filtered by divisions in getCachedPeriodValues
+  // ? Calculate Virtual Material Amount per period from KPIs for activities with use_virtual_material
+  // ? FIX: analytics.activities is already filtered by divisions in getCachedPeriodValues
   // So we should use analytics.activities directly without filtering again
   const calculatePeriodVirtualMaterialAmount = useCallback((project: Project, analytics: any): number[] => {
-    // ✅ FIX: Get KPIs from projectKPIsMap, but also verify they match this specific project
+    // ? FIX: Get KPIs from projectKPIsMap, but also verify they match this specific project
     const projectKPIs = projectKPIsMap.get(project.id)
     let allProjectKPIs = projectKPIs?.actual || []
     
-    // ✅ DOUBLE CHECK: Filter KPIs to ensure they match this specific project's full code
+    // ? DOUBLE CHECK: Filter KPIs to ensure they match this specific project's full code
     const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
     const projectCode = (project.project_code || '').toString().trim().toUpperCase()
     const projectSubCode = (project.project_sub_code || '').toString().trim().toUpperCase()
@@ -804,17 +770,17 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       const kpiProjectSubCode = (kpi.project_sub_code || rawKPI['Project Sub Code'] || '').toString().trim().toUpperCase()
       const kpiProjectId = (kpi as any).project_id || ''
       
-      // ✅ PRIORITY 1: Exact match by project_full_code
+      // ? PRIORITY 1: Exact match by project_full_code
       if (kpiProjectFullCode && projectFullCode && kpiProjectFullCode === projectFullCode) {
         return true
       }
       
-      // ✅ PRIORITY 2: Match by project_id
+      // ? PRIORITY 2: Match by project_id
       if (projectId && kpiProjectId && projectId === kpiProjectId) {
         return true
       }
       
-      // ✅ PRIORITY 3: Match by project_code + project_sub_code
+      // ? PRIORITY 3: Match by project_code + project_sub_code
       if (projectSubCode && kpiProjectSubCode) {
         if (kpiProjectCode === projectCode && kpiProjectSubCode === projectSubCode) {
           return true
@@ -823,7 +789,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       
       return false
     })
-    // ✅ FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
+    // ? FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
     const projectActivities = analytics.activities || []
     
     // Get Virtual Material Percentage from project
@@ -915,56 +881,12 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           }
           if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
           
-          let relatedActivity: BOQActivity | undefined = undefined
+          // ✅ FIX: Use kpiMatchesActivity for exact matching including zone - no fallback to avoid cross-zone matching
+          const relatedActivity = projectActivities.find((a: BOQActivity) => {
+            return kpiMatchesActivity(kpi, a)
+          })
           
-          if (kpiActivityName && kpiProjectFullCode && kpiZone) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
-              const rawActivity = (a as any).raw || {}
-              const activityZone = (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
-              return activityName === kpiActivityName && 
-                     activityProjectFullCode === kpiProjectFullCode &&
-                     (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
-            })
-          }
-          
-          if (!relatedActivity && kpiActivityName && kpiProjectFullCode) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
-              return activityName === kpiActivityName && activityProjectFullCode === kpiProjectFullCode
-            })
-          }
-          
-          if (!relatedActivity && kpiActivityName && kpiProjectCode && kpiZone) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectCode = (a.project_code || '').toLowerCase().trim()
-              const rawActivity = (a as any).raw || {}
-              const activityZone = (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
-              return activityName === kpiActivityName && 
-                     activityProjectCode === kpiProjectCode &&
-                     (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
-            })
-          }
-          
-          if (!relatedActivity && kpiActivityName && kpiProjectCode) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectCode = (a.project_code || '').toLowerCase().trim()
-              return activityName === kpiActivityName && activityProjectCode === kpiProjectCode
-            })
-          }
-          
-          if (!relatedActivity && kpiActivityName) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              return activityName === kpiActivityName
-            })
-          }
-          
-          // ✅ CRITICAL: Calculate Virtual Material ONLY for activities with use_virtual_material === true
+          // ? CRITICAL: Calculate Virtual Material ONLY for activities with use_virtual_material === true
           // Check if activity uses virtual material
           const useVirtualMaterial = relatedActivity?.use_virtual_material ?? false
           if (!useVirtualMaterial) return sum
@@ -1020,7 +942,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
             }
           }
           
-          // Calculate Virtual Material Amount = Base Value × (Virtual Material Percentage / 100)
+          // Calculate Virtual Material Amount = Base Value � (Virtual Material Percentage / 100)
           if (baseValue > 0) {
             const virtualMaterialAmount = baseValue * (virtualMaterialPercentage / 100)
             return sum + virtualMaterialAmount
@@ -1035,14 +957,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   }, [kpis, periods, activities, today, projectKPIsMap, debouncedSelectedDivisions])
 
   // Calculate period planned value
-  // ✅ FIX: analytics.activities is already filtered by divisions in getCachedPeriodValues
+  // ? FIX: analytics.activities is already filtered by divisions in getCachedPeriodValues
   // So we should use analytics.activities directly without filtering again
   const calculatePeriodPlannedValue = useCallback((project: Project, analytics: any): number[] => {
-    // ✅ FIX: Get KPIs from projectKPIsMap, but also verify they match this specific project
+    // ? FIX: Get KPIs from projectKPIsMap, but also verify they match this specific project
     const projectKPIs = projectKPIsMap.get(project.id)
     let allProjectKPIs = projectKPIs?.planned || []
     
-    // ✅ DOUBLE CHECK: Filter KPIs to ensure they match this specific project's full code
+    // ? DOUBLE CHECK: Filter KPIs to ensure they match this specific project's full code
     const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
     const projectCode = (project.project_code || '').toString().trim().toUpperCase()
     const projectSubCode = (project.project_sub_code || '').toString().trim().toUpperCase()
@@ -1055,17 +977,17 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       const kpiProjectSubCode = (kpi.project_sub_code || rawKPI['Project Sub Code'] || '').toString().trim().toUpperCase()
       const kpiProjectId = (kpi as any).project_id || ''
       
-      // ✅ PRIORITY 1: Exact match by project_full_code
+      // ? PRIORITY 1: Exact match by project_full_code
       if (kpiProjectFullCode && projectFullCode && kpiProjectFullCode === projectFullCode) {
         return true
       }
       
-      // ✅ PRIORITY 2: Match by project_id
+      // ? PRIORITY 2: Match by project_id
       if (projectId && kpiProjectId && projectId === kpiProjectId) {
         return true
       }
       
-      // ✅ PRIORITY 3: Match by project_code + project_sub_code
+      // ? PRIORITY 3: Match by project_code + project_sub_code
       if (projectSubCode && kpiProjectSubCode) {
         if (kpiProjectCode === projectCode && kpiProjectSubCode === projectSubCode) {
           return true
@@ -1075,7 +997,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       return false
     })
     
-    // ✅ FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
+    // ? FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
     const projectActivities = analytics.activities || []
     
     return periods.map((period) => {
@@ -1144,35 +1066,10 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           }
           if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
           
-          let relatedActivity: BOQActivity | undefined = undefined
-          
-          if (kpiActivityName && kpiProjectFullCode && kpiZone) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
-              const rawActivity = (a as any).raw || {}
-              const activityZone = (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
-              return activityName === kpiActivityName && 
-                     activityProjectFullCode === kpiProjectFullCode &&
-                     (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
-            })
-          }
-          
-          if (!relatedActivity && kpiActivityName && kpiProjectFullCode) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
-              return activityName === kpiActivityName && activityProjectFullCode === kpiProjectFullCode
-            })
-          }
-          
-          if (!relatedActivity && kpiActivityName && kpiProjectCode) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectCode = (a.project_code || '').toLowerCase().trim()
-              return activityName === kpiActivityName && activityProjectCode === kpiProjectCode
-            })
-          }
+          // ✅ FIX: Use kpiMatchesActivity for exact matching including zone - no fallback to avoid cross-zone matching
+          const relatedActivity = projectActivities.find((a: BOQActivity) => {
+            return kpiMatchesActivity(kpi, a)
+          })
           
           if (relatedActivity) {
             const rawActivity = (relatedActivity as any).raw || {}
@@ -1203,7 +1100,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
             }
           }
           
-          // ✅ FIX: Only add value if relatedActivity was found in filtered activities
+          // ? FIX: Only add value if relatedActivity was found in filtered activities
           // If relatedActivity is not found, it means this KPI belongs to an activity that was filtered out
           // So we should NOT add its value to the sum
           if (!relatedActivity) {
@@ -1252,36 +1149,169 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   }, [kpis, periods, activities, today, projectKPIsMap, debouncedSelectedDivisions])
 
   // Helper function to match KPI with activity
+  // ✅ FIX: Include zone matching in kpiMatchesActivity to prevent matching activities from different zones
   const kpiMatchesActivity = useCallback((kpi: any, activity: BOQActivity): boolean => {
     const kpiActivityName = (kpi.activity_name || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
     const kpiProjectFullCode = (kpi.project_full_code || kpi.project_code || '').toLowerCase().trim()
     const kpiProjectCode = (kpi.project_code || '').toLowerCase().trim()
     
+    // ✅ FIX: Get zone from KPI (check all possible fields)
+    const rawKPI = (kpi as any).raw || {}
+    const kpiZone = (
+      kpi.zone || 
+      kpi.zone_ref || 
+      kpi.zone_number || 
+      rawKPI['Zone'] ||
+      rawKPI['Zone Ref'] || 
+      rawKPI['Zone Number'] || 
+      ''
+    ).toString().toLowerCase().trim()
+    
     const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
     const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toLowerCase().trim()
     const activityProjectCode = (activity.project_code || '').toLowerCase().trim()
     
-    return (kpiActivityName === activityName && kpiProjectFullCode === activityProjectFullCode) ||
-           (kpiActivityName === activityName && kpiProjectCode === activityProjectCode)
+    // ✅ FIX: Get zone from Activity (check all possible fields)
+    const rawActivity = (activity as any).raw || {}
+    const activityZone = (
+      (activity as any).zone ||
+      activity.zone_ref || 
+      activity.zone_number || 
+      rawActivity['Zone'] ||
+      rawActivity['Zone Ref'] || 
+      rawActivity['Zone Number'] || 
+      ''
+    ).toString().toLowerCase().trim()
+    
+    // ✅ FIX: Match by activity name and project first
+    const projectMatches = (kpiProjectFullCode === activityProjectFullCode) || (kpiProjectCode === activityProjectCode)
+    const activityNameMatches = kpiActivityName === activityName
+    
+    if (!activityNameMatches || !projectMatches) {
+      return false
+    }
+    
+    // ✅ FIX: If both have zones, they must match exactly
+    if (kpiZone && activityZone) {
+      // ✅ IMPROVED: More robust zone normalization and matching
+      const normalizeZone = (zone: string, projectCode: string): string => {
+        if (!zone || !zone.trim()) return ''
+        
+        let normalized = zone.toLowerCase().trim()
+        
+        // Remove project code prefix in various formats (with spaces, dashes, etc.)
+        if (projectCode) {
+          const escapedProjectCode = projectCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          // Try: "P478 - 1", "P478-1", "P478 1", etc.
+          normalized = normalized.replace(new RegExp(`^${escapedProjectCode}\\s*-\\s*`, 'i'), '')
+          normalized = normalized.replace(new RegExp(`^${escapedProjectCode}\\s+`, 'i'), '')
+          normalized = normalized.replace(new RegExp(`^${escapedProjectCode}-`, 'i'), '')
+          
+          // Also try with just project code (without sub-code) - e.g., "P478" from "P478-01"
+          const projectCodeOnly = projectCode.split('-')[0]
+          if (projectCodeOnly && projectCodeOnly !== projectCode) {
+            const escapedProjectCodeOnly = projectCodeOnly.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+            normalized = normalized.replace(new RegExp(`^${escapedProjectCodeOnly}\\s*-\\s*`, 'i'), '')
+            normalized = normalized.replace(new RegExp(`^${escapedProjectCodeOnly}\\s+`, 'i'), '')
+            normalized = normalized.replace(new RegExp(`^${escapedProjectCodeOnly}-`, 'i'), '')
+          }
+        }
+        
+        // Clean up any remaining leading/trailing spaces or dashes
+        normalized = normalized.replace(/^[\s-]+|[\s-]+$/g, '').trim()
+        
+        return normalized || zone.toLowerCase().trim()
+      }
+      
+      // ✅ IMPROVED: Extract zone identifier (number or full normalized zone)
+      const extractZoneIdentifier = (zone: string): string => {
+        // First normalize the zone
+        const normalized = zone.toLowerCase().trim()
+        
+        // Try to extract the last numeric part (e.g., "1" from "P478 - 1" or "1" from "1")
+        const parts = normalized.split(/[\s-]+/)
+        const lastPart = parts[parts.length - 1] || normalized
+        
+        // If last part is purely numeric, return it
+        if (/^\d+$/.test(lastPart)) {
+          return lastPart
+        }
+        
+        // Otherwise, return the whole normalized zone for exact matching
+        return normalized
+      }
+      
+      const normalizedKpiZone = normalizeZone(kpiZone, kpiProjectFullCode || kpiProjectCode)
+      const normalizedActivityZone = normalizeZone(activityZone, activityProjectFullCode || activityProjectCode)
+      
+      // ✅ CRITICAL: Extract zone identifiers for comparison
+      const kpiZoneId = extractZoneIdentifier(normalizedKpiZone)
+      const activityZoneId = extractZoneIdentifier(normalizedActivityZone)
+      
+      // ✅ FIX: First try matching by zone identifier (most reliable)
+      if (kpiZoneId && activityZoneId) {
+        if (kpiZoneId === activityZoneId) {
+          return true
+        }
+        // If zone identifiers don't match, zones are different - don't match
+        return false
+      }
+      
+      // ✅ FIX: If zone identifiers couldn't be extracted, try normalized zones
+      if (normalizedKpiZone && normalizedActivityZone) {
+        if (normalizedKpiZone === normalizedActivityZone) {
+          return true
+        }
+        // If normalized zones don't match, zones are different - don't match
+        return false
+      }
+      
+      // ✅ FIX: Last resort - check if original zones match exactly (case-insensitive, normalized spaces)
+      const kpiZoneClean = kpiZone.toLowerCase().trim().replace(/\s+/g, ' ').replace(/\s*-\s*/g, '-')
+      const activityZoneClean = activityZone.toLowerCase().trim().replace(/\s+/g, ' ').replace(/\s*-\s*/g, '-')
+      if (kpiZoneClean === activityZoneClean) {
+        return true
+      }
+      
+      // ✅ FIX: If zones don't match by any method, return false to prevent cross-zone matching
+      return false
+    }
+    
+    // ✅ FIX: Zone matching logic - be more flexible to allow matches
+    // If KPI has zone but activity doesn't, don't match (to avoid cross-zone matching)
+    if (kpiZone && !activityZone) {
+      return false
+    }
+    
+    // ✅ FIX: If activity has zone but KPI doesn't, allow match
+    // This allows KPIs without zone info to match activities with zones
+    // The zone information in the activity will help distinguish between different zones in the display
+    if (activityZone && !kpiZone) {
+      return true
+    }
+    
+    // If neither has a zone, match by name and project only
+    // This is safe because both don't have zone information
+    return true
   }, [])
 
-  // ✅ PERFORMANCE: Pre-calculate period values for all projects once
-  // ✅ Calculate value before the selected date range (Outer Range)
+  // ? PERFORMANCE: Pre-calculate period values for all projects once
+  // ? Calculate value before the selected date range (Outer Range)
   const calculateOuterRangeValue = useCallback((project: Project, analytics: any): number => {
     // If outer range is not configured, return 0
     if (!outerRangeStart) return 0
     
-    // ✅ Get periods to use first period start as fallback if dateRange.start is not set
+    // ? Get periods to use first period start as fallback if dateRange.start is not set
     const periods = getPeriodsInRange()
     const outerRangeEndDate = dateRange.start || (periods.length > 0 ? periods[0].start.toISOString().split('T')[0] : null)
     
     if (!outerRangeEndDate) return 0
     
-    // ✅ PERFORMANCE: Use pre-filtered KPIs instead of filtering every time
+    // ? PERFORMANCE: Use pre-filtered KPIs instead of filtering every time
     const projectKPIs = projectKPIsMap.get(project.id)
     let allProjectKPIs = projectKPIs?.actual || []
     
-    // ✅ DOUBLE CHECK: Filter KPIs to ensure they match this specific project's full code
+    // ? DOUBLE CHECK: Filter KPIs to ensure they match this specific project's full code
     const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
     const projectCode = (project.project_code || '').toString().trim().toUpperCase()
     const projectSubCode = (project.project_sub_code || '').toString().trim().toUpperCase()
@@ -1294,17 +1324,17 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       const kpiProjectSubCode = (kpi.project_sub_code || rawKPI['Project Sub Code'] || '').toString().trim().toUpperCase()
       const kpiProjectId = (kpi as any).project_id || ''
       
-      // ✅ PRIORITY 1: Exact match by project_full_code
+      // ? PRIORITY 1: Exact match by project_full_code
       if (kpiProjectFullCode && projectFullCode && kpiProjectFullCode === projectFullCode) {
         return true
       }
       
-      // ✅ PRIORITY 2: Match by project_id
+      // ? PRIORITY 2: Match by project_id
       if (projectId && kpiProjectId && projectId === kpiProjectId) {
         return true
       }
       
-      // ✅ PRIORITY 3: Match by project_code + project_sub_code
+      // ? PRIORITY 3: Match by project_code + project_sub_code
       if (projectSubCode && kpiProjectSubCode) {
         if (kpiProjectCode === projectCode && kpiProjectSubCode === projectSubCode) {
           return true
@@ -1320,7 +1350,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       outerStart.setHours(0, 0, 0, 0)
       outerEnd.setHours(23, 59, 59, 999)
       
-      // ✅ For current/future periods, use today as the end date instead of outerEnd
+      // ? For current/future periods, use today as the end date instead of outerEnd
       const effectiveOuterEnd = outerEnd > today ? today : outerEnd
       
       // Get KPI Actual for outer range period
@@ -1335,7 +1365,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         
         if (inputType !== 'actual') return false
         
-        // ✅ Use EXACT SAME LOGIC as calculatePeriodEarnedValue
+        // ? Use EXACT SAME LOGIC as calculatePeriodEarnedValue
         const rawKPIDate = (kpi as any).raw || {}
         const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
         const actualDateValue = (kpi as any).actual_date || rawKPIDate['Actual Date'] || ''
@@ -1376,8 +1406,8 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         }
       })
       
-      // ✅ Calculate value using EXACT SAME LOGIC as calculatePeriodEarnedValue
-      // ✅ FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
+      // ? Calculate value using EXACT SAME LOGIC as calculatePeriodEarnedValue
+      // ? FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
       const projectActivities = analytics.activities || []
       
       return actualKPIsInOuterRange.reduce((sum: number, kpi: any) => {
@@ -1401,35 +1431,10 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           }
           if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
           
-          let relatedActivity: BOQActivity | undefined = undefined
-          
-          if (kpiActivityName && kpiProjectFullCode && kpiZone) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
-              const rawActivity = (a as any).raw || {}
-              const activityZone = (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
-              return activityName === kpiActivityName && 
-                     activityProjectFullCode === kpiProjectFullCode &&
-                     (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
-            })
-          }
-          
-          if (!relatedActivity && kpiActivityName && kpiProjectFullCode) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
-              return activityName === kpiActivityName && activityProjectFullCode === kpiProjectFullCode
-            })
-          }
-          
-          if (!relatedActivity && kpiActivityName && kpiProjectCode) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectCode = (a.project_code || '').toLowerCase().trim()
-              return activityName === kpiActivityName && activityProjectCode === kpiProjectCode
-            })
-          }
+          // ✅ FIX: Use kpiMatchesActivity for exact matching including zone - no fallback to avoid cross-zone matching
+          const relatedActivity = projectActivities.find((a: BOQActivity) => {
+            return kpiMatchesActivity(kpi, a)
+          })
           
           if (relatedActivity) {
             const rawActivity = (relatedActivity as any).raw || {}
@@ -1460,7 +1465,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
             }
           }
           
-          // ✅ FIX: Only add value if relatedActivity was found in filtered activities
+          // ? FIX: Only add value if relatedActivity was found in filtered activities
           // If relatedActivity is not found, it means this KPI belongs to an activity that was filtered out
           // So we should NOT add its value to the sum
           if (!relatedActivity) {
@@ -1514,22 +1519,22 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     }
   }, [outerRangeStart, debouncedDateRange.start, today, projectKPIsMap, getPeriodsInRange, debouncedSelectedDivisions])
 
-  // ✅ Calculate Planned value before the selected date range (Outer Range)
+  // ? Calculate Planned value before the selected date range (Outer Range)
   const calculateOuterRangePlannedValue = useCallback((project: Project, analytics: any): number => {
     // If outer range is not configured, return 0
     if (!outerRangeStart) return 0
     
-    // ✅ Get periods to use first period start as fallback if dateRange.start is not set
+    // ? Get periods to use first period start as fallback if dateRange.start is not set
     const periods = getPeriodsInRange()
     const outerRangeEndDate = dateRange.start || (periods.length > 0 ? periods[0].start.toISOString().split('T')[0] : null)
     
     if (!outerRangeEndDate) return 0
     
-    // ✅ PERFORMANCE: Use pre-filtered KPIs instead of filtering every time
+    // ? PERFORMANCE: Use pre-filtered KPIs instead of filtering every time
     const projectKPIs = projectKPIsMap.get(project.id)
     let allProjectKPIs = projectKPIs?.planned || []
     
-    // ✅ DOUBLE CHECK: Filter KPIs to ensure they match this specific project's full code
+    // ? DOUBLE CHECK: Filter KPIs to ensure they match this specific project's full code
     const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
     const projectCode = (project.project_code || '').toString().trim().toUpperCase()
     const projectSubCode = (project.project_sub_code || '').toString().trim().toUpperCase()
@@ -1542,17 +1547,17 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       const kpiProjectSubCode = (kpi.project_sub_code || rawKPI['Project Sub Code'] || '').toString().trim().toUpperCase()
       const kpiProjectId = (kpi as any).project_id || ''
       
-      // ✅ PRIORITY 1: Exact match by project_full_code
+      // ? PRIORITY 1: Exact match by project_full_code
       if (kpiProjectFullCode && projectFullCode && kpiProjectFullCode === projectFullCode) {
         return true
       }
       
-      // ✅ PRIORITY 2: Match by project_id
+      // ? PRIORITY 2: Match by project_id
       if (projectId && kpiProjectId && projectId === kpiProjectId) {
         return true
       }
       
-      // ✅ PRIORITY 3: Match by project_code + project_sub_code
+      // ? PRIORITY 3: Match by project_code + project_sub_code
       if (projectSubCode && kpiProjectSubCode) {
         if (kpiProjectCode === projectCode && kpiProjectSubCode === projectSubCode) {
           return true
@@ -1568,7 +1573,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       outerStart.setHours(0, 0, 0, 0)
       outerEnd.setHours(23, 59, 59, 999)
       
-      // ✅ For current/future periods, use today as the end date instead of outerEnd
+      // ? For current/future periods, use today as the end date instead of outerEnd
       const effectiveOuterEnd = outerEnd > today ? today : outerEnd
       
       // Get KPI Planned for outer range period
@@ -1583,7 +1588,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         
         if (inputType !== 'planned') return false
         
-        // ✅ Use EXACT SAME LOGIC as calculatePeriodPlannedValue
+        // ? Use EXACT SAME LOGIC as calculatePeriodPlannedValue
         const rawKPIDate = (kpi as any).raw || {}
         const targetDateValue = kpi.target_date || rawKPIDate['Target Date'] || ''
         const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
@@ -1618,8 +1623,8 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         }
       })
       
-      // ✅ Calculate value using EXACT SAME LOGIC as calculatePeriodPlannedValue
-      // ✅ FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
+      // ? Calculate value using EXACT SAME LOGIC as calculatePeriodPlannedValue
+      // ? FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
       const projectActivities = analytics.activities || []
       
       return plannedKPIsInOuterRange.reduce((sum: number, kpi: any) => {
@@ -1643,35 +1648,10 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           }
           if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
           
-          let relatedActivity: BOQActivity | undefined = undefined
-          
-          if (kpiActivityName && kpiProjectFullCode && kpiZone) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
-              const rawActivity = (a as any).raw || {}
-              const activityZone = (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
-              return activityName === kpiActivityName && 
-                     activityProjectFullCode === kpiProjectFullCode &&
-                     (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
-            })
-          }
-          
-          if (!relatedActivity && kpiActivityName && kpiProjectFullCode) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
-              return activityName === kpiActivityName && activityProjectFullCode === kpiProjectFullCode
-            })
-          }
-          
-          if (!relatedActivity && kpiActivityName && kpiProjectCode) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectCode = (a.project_code || '').toLowerCase().trim()
-              return activityName === kpiActivityName && activityProjectCode === kpiProjectCode
-            })
-          }
+          // ✅ FIX: Use kpiMatchesActivity for exact matching including zone - no fallback to avoid cross-zone matching
+          const relatedActivity = projectActivities.find((a: BOQActivity) => {
+            return kpiMatchesActivity(kpi, a)
+          })
           
           if (relatedActivity) {
             const rawActivity = (relatedActivity as any).raw || {}
@@ -1702,7 +1682,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
             }
           }
           
-          // ✅ FIX: Only add value if relatedActivity was found in filtered activities
+          // ? FIX: Only add value if relatedActivity was found in filtered activities
           // If relatedActivity is not found, it means this KPI belongs to an activity that was filtered out
           // So we should NOT add its value to the sum
           if (!relatedActivity) {
@@ -1745,8 +1725,8 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     }
   }, [outerRangeStart, dateRange.start, today, projectKPIsMap, getPeriodsInRange])
 
-  // ✅ Calculate Virtual Material Amount for Outer Range (Actual)
-  // ✅ FIX: analytics.activities is already filtered by divisions in getCachedPeriodValues
+  // ? Calculate Virtual Material Amount for Outer Range (Actual)
+  // ? FIX: analytics.activities is already filtered by divisions in getCachedPeriodValues
   // So we should use analytics.activities directly without filtering again
   const calculateOuterRangeVirtualMaterialAmount = useCallback((project: Project, analytics: any): number => {
     if (!outerRangeStart || !showVirtualMaterialValues) return 0
@@ -1758,7 +1738,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     
     const projectKPIs = projectKPIsMap.get(project.id)
     const allProjectKPIs = projectKPIs?.actual || []
-    // ✅ FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
+    // ? FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
     const projectActivities = analytics.activities || []
     
     // Get Virtual Material Percentage from project
@@ -1847,35 +1827,10 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           }
           if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
           
-          let relatedActivity: BOQActivity | undefined = undefined
-          
-          if (kpiActivityName && kpiProjectFullCode && kpiZone) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
-              const rawActivity = (a as any).raw || {}
-              const activityZone = (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
-              return activityName === kpiActivityName && 
-                     activityProjectFullCode === kpiProjectFullCode &&
-                     (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
-            })
-          }
-          
-          if (!relatedActivity && kpiActivityName && kpiProjectFullCode) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
-              return activityName === kpiActivityName && activityProjectFullCode === kpiProjectFullCode
-            })
-          }
-          
-          if (!relatedActivity && kpiActivityName && kpiProjectCode) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectCode = (a.project_code || '').toLowerCase().trim()
-              return activityName === kpiActivityName && activityProjectCode === kpiProjectCode
-            })
-          }
+          // ✅ FIX: Use kpiMatchesActivity for exact matching including zone - no fallback to avoid cross-zone matching
+          const relatedActivity = projectActivities.find((a: BOQActivity) => {
+            return kpiMatchesActivity(kpi, a)
+          })
           
           return relatedActivity?.use_virtual_material === true
         } catch {
@@ -1903,35 +1858,10 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           }
           if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
           
-          let relatedActivity: BOQActivity | undefined = undefined
-          
-          if (kpiActivityName && kpiProjectFullCode && kpiZone) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
-              const rawActivity = (a as any).raw || {}
-              const activityZone = (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
-              return activityName === kpiActivityName && 
-                     activityProjectFullCode === kpiProjectFullCode &&
-                     (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
-            })
-          }
-          
-          if (!relatedActivity && kpiActivityName && kpiProjectFullCode) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
-              return activityName === kpiActivityName && activityProjectFullCode === kpiProjectFullCode
-            })
-          }
-          
-          if (!relatedActivity && kpiActivityName && kpiProjectCode) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectCode = (a.project_code || '').toLowerCase().trim()
-              return activityName === kpiActivityName && activityProjectCode === kpiProjectCode
-            })
-          }
+          // ✅ FIX: Use kpiMatchesActivity for exact matching including zone - no fallback to avoid cross-zone matching
+          const relatedActivity = projectActivities.find((a: BOQActivity) => {
+            return kpiMatchesActivity(kpi, a)
+          })
           
           if (!relatedActivity || !relatedActivity.use_virtual_material) return sum
           
@@ -1979,8 +1909,8 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     }
   }, [outerRangeStart, debouncedDateRange.start, today, projectKPIsMap, getPeriodsInRange, showVirtualMaterialValues, debouncedSelectedDivisions])
 
-  // ✅ Calculate Virtual Material Amount for Outer Range (Planned)
-  // ✅ FIX: analytics.activities is already filtered by divisions in getCachedPeriodValues
+  // ? Calculate Virtual Material Amount for Outer Range (Planned)
+  // ? FIX: analytics.activities is already filtered by divisions in getCachedPeriodValues
   // So we should use analytics.activities directly without filtering again
   const calculateOuterRangePlannedVirtualMaterialAmount = useCallback((project: Project, analytics: any): number => {
     if (!outerRangeStart || !showVirtualMaterialValues || !viewPlannedValue) return 0
@@ -1992,7 +1922,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     
     const projectKPIs = projectKPIsMap.get(project.id)
     const allProjectKPIs = projectKPIs?.planned || []
-    // ✅ FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
+    // ? FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
     const projectActivities = analytics.activities || []
     
     // Get Virtual Material Percentage from project
@@ -2078,35 +2008,10 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           }
           if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
           
-          let relatedActivity: BOQActivity | undefined = undefined
-          
-          if (kpiActivityName && kpiProjectFullCode && kpiZone) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
-              const rawActivity = (a as any).raw || {}
-              const activityZone = (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
-              return activityName === kpiActivityName && 
-                     activityProjectFullCode === kpiProjectFullCode &&
-                     (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
-            })
-          }
-          
-          if (!relatedActivity && kpiActivityName && kpiProjectFullCode) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
-              return activityName === kpiActivityName && activityProjectFullCode === kpiProjectFullCode
-            })
-          }
-          
-          if (!relatedActivity && kpiActivityName && kpiProjectCode) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectCode = (a.project_code || '').toLowerCase().trim()
-              return activityName === kpiActivityName && activityProjectCode === kpiProjectCode
-            })
-          }
+          // ✅ FIX: Use kpiMatchesActivity for exact matching including zone - no fallback to avoid cross-zone matching
+          const relatedActivity = projectActivities.find((a: BOQActivity) => {
+            return kpiMatchesActivity(kpi, a)
+          })
           
           return relatedActivity?.use_virtual_material === true
         } catch {
@@ -2134,35 +2039,10 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           }
           if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
           
-          let relatedActivity: BOQActivity | undefined = undefined
-          
-          if (kpiActivityName && kpiProjectFullCode && kpiZone) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
-              const rawActivity = (a as any).raw || {}
-              const activityZone = (a.zone_ref || a.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
-              return activityName === kpiActivityName && 
-                     activityProjectFullCode === kpiProjectFullCode &&
-                     (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))
-            })
-          }
-          
-          if (!relatedActivity && kpiActivityName && kpiProjectFullCode) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectFullCode = (a.project_full_code || a.project_code || '').toLowerCase().trim()
-              return activityName === kpiActivityName && activityProjectFullCode === kpiProjectFullCode
-            })
-          }
-          
-          if (!relatedActivity && kpiActivityName && kpiProjectCode) {
-            relatedActivity = projectActivities.find((a: BOQActivity) => {
-              const activityName = (a.activity_name || a.activity || '').toLowerCase().trim()
-              const activityProjectCode = (a.project_code || '').toLowerCase().trim()
-              return activityName === kpiActivityName && activityProjectCode === kpiProjectCode
-            })
-          }
+          // ✅ FIX: Use kpiMatchesActivity for exact matching including zone - no fallback to avoid cross-zone matching
+          const relatedActivity = projectActivities.find((a: BOQActivity) => {
+            return kpiMatchesActivity(kpi, a)
+          })
           
           if (!relatedActivity || !relatedActivity.use_virtual_material) return sum
           
@@ -2210,15 +2090,15 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     }
   }, [outerRangeStart, debouncedDateRange.start, today, projectKPIsMap, getPeriodsInRange, showVirtualMaterialValues, viewPlannedValue, debouncedSelectedDivisions])
 
-  // ✅ Calculate Virtual Material Amount for Planned KPIs
-  // ✅ FIX: analytics.activities is already filtered by divisions in getCachedPeriodValues
+  // ? Calculate Virtual Material Amount for Planned KPIs
+  // ? FIX: analytics.activities is already filtered by divisions in getCachedPeriodValues
   // So we should use analytics.activities directly without filtering again
   const calculatePeriodPlannedVirtualMaterialAmount = useCallback((project: Project, analytics: any): number[] => {
-    // ✅ FIX: Get KPIs from projectKPIsMap, but also verify they match this specific project
+    // ? FIX: Get KPIs from projectKPIsMap, but also verify they match this specific project
     const projectKPIs = projectKPIsMap.get(project.id)
     let allProjectKPIs = projectKPIs?.planned || []
     
-    // ✅ DOUBLE CHECK: Filter KPIs to ensure they match this specific project's full code
+    // ? DOUBLE CHECK: Filter KPIs to ensure they match this specific project's full code
     const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
     const projectCode = (project.project_code || '').toString().trim().toUpperCase()
     const projectSubCode = (project.project_sub_code || '').toString().trim().toUpperCase()
@@ -2231,17 +2111,17 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       const kpiProjectSubCode = (kpi.project_sub_code || rawKPI['Project Sub Code'] || '').toString().trim().toUpperCase()
       const kpiProjectId = (kpi as any).project_id || ''
       
-      // ✅ PRIORITY 1: Exact match by project_full_code
+      // ? PRIORITY 1: Exact match by project_full_code
       if (kpiProjectFullCode && projectFullCode && kpiProjectFullCode === projectFullCode) {
         return true
       }
       
-      // ✅ PRIORITY 2: Match by project_id
+      // ? PRIORITY 2: Match by project_id
       if (projectId && kpiProjectId && projectId === kpiProjectId) {
         return true
       }
       
-      // ✅ PRIORITY 3: Match by project_code + project_sub_code
+      // ? PRIORITY 3: Match by project_code + project_sub_code
       if (projectSubCode && kpiProjectSubCode) {
         if (kpiProjectCode === projectCode && kpiProjectSubCode === projectSubCode) {
           return true
@@ -2250,7 +2130,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       
       return false
     })
-    // ✅ FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
+    // ? FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
     const projectActivities = analytics.activities || []
     
     // Get Virtual Material Percentage from project
@@ -2456,9 +2336,9 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     })
   }, [kpis, periods, activities, today, projectKPIsMap, kpiMatchesActivity, debouncedSelectedDivisions])
 
-  // ✅ PERFORMANCE: Use existing optimized functions instead of recalculating
+  // ? PERFORMANCE: Use existing optimized functions instead of recalculating
   // These functions are already optimized and use projectKPIsMap for fast lookups
-  // ✅ PERFORMANCE: Use debouncedSelectedDivisions as a string key to ensure cache recalculation
+  // ? PERFORMANCE: Use debouncedSelectedDivisions as a string key to ensure cache recalculation
   const selectedDivisionsKey = useMemo(() => debouncedSelectedDivisions.sort().join(','), [debouncedSelectedDivisions])
   
   // ? PERFORMANCE: Use useRef for caches to persist across renders without triggering re-renders
@@ -2472,11 +2352,24 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   useEffect(() => {
     periodValuesCache.current.clear()
     activityPeriodValuesCache.current.clear()
+    // ? Keep calculating state active until cache is repopulated
+    setIsCalculating(true)
+    // ? Use requestIdleCallback to finish calculations when browser is idle
+    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+      requestIdleCallback(() => {
+        setIsCalculating(false)
+      }, { timeout: 1000 })
+    } else {
+      setTimeout(() => setIsCalculating(false), 500)
+    }
   }, [debouncedDateRange.start, debouncedDateRange.end, debouncedPeriodType, selectedDivisionsKey])
   
   // ? PERFORMANCE: Helper to get cached activity period values
   const getCachedActivityPeriodValues = useCallback((activityId: string, activity: BOQActivity, project: Project, projectFullCode: string): { earned: number[], planned: number[], virtualMaterial: number[], plannedVirtualMaterial: number[] } => {
-    const cacheKey = `${activityId}-${selectedDivisionsKey}`
+    // ✅ FIX: Include zone in cache key to ensure different zones have different cache entries
+    const rawActivity = (activity as any).raw || {}
+    const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim().toUpperCase()
+    const cacheKey = `${activityId}-${activityZone}-${selectedDivisionsKey}`
     
     // Check if already cached
     if (activityPeriodValuesCache.current.has(cacheKey)) {
@@ -2484,7 +2377,6 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     }
     
     // Calculate and cache
-    const rawActivity = (activity as any).raw || {}
     
     // Calculate Actual period values
     const activityPeriodValues = periods.map((period) => {
@@ -2492,7 +2384,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       const periodEnd = period.end
       const effectivePeriodEnd = periodEnd > today ? today : periodEnd
       
-      // ✅ PERFORMANCE: Pre-filter KPIs by project and input type to reduce iterations
+      // ? PERFORMANCE: Pre-filter KPIs by project and input type to reduce iterations
       const projectKPIs = projectKPIsMap.get(project.id)
       let allProjectKPIs = projectKPIs?.actual || []
       
@@ -2734,27 +2626,27 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     return values
   }, [periods, today, projectKPIsMap, kpis, kpiMatchesActivity, viewPlannedValue, showVirtualMaterialValues, selectedDivisionsKey])
   
-  // ✅ PERFORMANCE: Calculate values lazily only for projects that need to be displayed
+  // ? PERFORMANCE: Calculate values lazily only for projects that need to be displayed
   // This function is called when we need a project's values
-  // ✅ FIX: Use unique key (project_full_code + project_name) instead of projectId for exact matching
+  // ? FIX: Use unique key (project_full_code + project_name) instead of projectId for exact matching
   const getCachedPeriodValues = useCallback((projectId: string, analytics: any): { earned: number[], planned: number[], outerRangeValue: number, outerRangePlannedValue: number, outerRangeVirtualMaterialAmount: number, outerRangePlannedVirtualMaterialAmount: number, virtualMaterialAmount: number[], plannedVirtualMaterialAmount: number[] } => {
     const project = analytics.project
-    // ✅ FIX: Use unique key combining project_full_code and project_name for exact matching
+    // ? FIX: Use unique key combining project_full_code and project_name for exact matching
     const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
     const projectName = (project.project_name || '').toString().trim()
     const uniqueProjectKey = `${projectFullCode}|${projectName}`
     
-    // ✅ PERFORMANCE: Include debouncedSelectedDivisions in cache key
-    const periodCacheKey = `${uniqueProjectKey}-${debouncedSelectedDivisions.sort().join(',')}`
+    // ✅ FIX: Include viewPlannedValue in cache key to ensure planned values are recalculated when toggled
+    const periodCacheKey = `${uniqueProjectKey}-${debouncedSelectedDivisions.sort().join(',')}-${viewPlannedValue ? 'planned' : 'actual'}`
     // Check if already cached
     if (periodValuesCache.current.has(periodCacheKey)) {
       return periodValuesCache.current.get(periodCacheKey)!
     }
     
-    // ✅ PERFORMANCE: Calculate and cache with debounced divisions
-    // ✅ FIX: Use projectActivitiesMap to get accurate activities for this specific project
+    // ? PERFORMANCE: Calculate and cache with debounced divisions
+    // ? FIX: Use projectActivitiesMap to get accurate activities for this specific project
     const projectActivities = projectActivitiesMap.get(project.id) || []
-    // ✅ DOUBLE CHECK: Filter activities to ensure they match this specific project's full code
+    // ? DOUBLE CHECK: Filter activities to ensure they match this specific project's full code
     const filteredProjectActivities = projectActivities.filter((activity: BOQActivity) => {
       const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
       return activityFullCode === projectFullCode || activity.project_id === project.id
@@ -2799,26 +2691,26 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     const plannedVirtualMaterialAmount = showVirtualMaterialValues && viewPlannedValue ? calculatePeriodPlannedVirtualMaterialAmount(analytics.project, filteredAnalytics) : []
     
     const values = { earned: earnedValues, planned: plannedValues, outerRangeValue, outerRangePlannedValue, outerRangeVirtualMaterialAmount, outerRangePlannedVirtualMaterialAmount, virtualMaterialAmount, plannedVirtualMaterialAmount }
-    // ✅ PERFORMANCE: Include debouncedSelectedDivisions in cache key
-    const periodCacheKeyFinal = `${uniqueProjectKey}-${debouncedSelectedDivisions.sort().join(',')}`
+    // ✅ FIX: Include viewPlannedValue in cache key to ensure planned values are recalculated when toggled
+    const periodCacheKeyFinal = `${uniqueProjectKey}-${debouncedSelectedDivisions.sort().join(',')}-${viewPlannedValue ? 'planned' : 'actual'}`
     periodValuesCache.current.set(periodCacheKeyFinal, values)
     return values
   }, [debouncedSelectedDivisions, calculatePeriodEarnedValue, calculatePeriodPlannedValue, viewPlannedValue, showOuterRangeColumn, calculateOuterRangeValue, calculateOuterRangePlannedValue, calculateOuterRangeVirtualMaterialAmount, calculateOuterRangePlannedVirtualMaterialAmount, showVirtualMaterialValues, calculatePeriodVirtualMaterialAmount, calculatePeriodPlannedVirtualMaterialAmount, projectActivitiesMap])
 
-  // ✅ PERFORMANCE: Show ALL projects from allAnalytics, regardless of date range or KPIs
+  // ? PERFORMANCE: Show ALL projects from allAnalytics, regardless of date range or KPIs
   // The date range filter only affects which periods show data in the table, not which projects are displayed
   // This ensures ALL active projects are always visible, even if they don't have KPIs in the selected period
   const projectsWithWorkInRange = useMemo(() => {
-    // ✅ allAnalytics already contains only filtered projects (from filteredProjects)
+    // ? allAnalytics already contains only filtered projects (from filteredProjects)
     // filteredProjects is already filtered by debouncedSelectedDivisions, so allAnalytics is also filtered
     // The date range is only used for calculating period values, not for filtering projects
     let filtered = allAnalytics
     
-    // ✅ PERFORMANCE: Filter out projects with Grand Total = 0 if checkbox is checked
+    // ? PERFORMANCE: Filter out projects with Grand Total = 0 if checkbox is checked
     // Note: This filter is applied AFTER division filter (which is already in allAnalytics)
-    // ✅ PERFORMANCE: Use lazy evaluation - only calculate when needed (for visible projects)
+    // ? PERFORMANCE: Use lazy evaluation - only calculate when needed (for visible projects)
     if (hideZeroProjects) {
-      // ✅ PERFORMANCE: Don't calculate for all projects at once - filter will be applied lazily in render
+      // ? PERFORMANCE: Don't calculate for all projects at once - filter will be applied lazily in render
       // The actual filtering will happen when projects are rendered, not here
       filtered = filtered
     }
@@ -2826,11 +2718,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     return filtered
   }, [allAnalytics, hideZeroProjects])
   
-  // ✅ PERFORMANCE: Paginate projects for display with lazy filtering
+  // ? PERFORMANCE: Paginate projects for display with lazy filtering
   const paginatedProjects = useMemo(() => {
     let filtered = projectsWithWorkInRange
     
-    // ✅ PERFORMANCE: Apply hideZeroProjects filter lazily only to visible projects
+    // ? PERFORMANCE: Apply hideZeroProjects filter lazily only to visible projects
     if (hideZeroProjects) {
       filtered = filtered.filter((analytics: any) => {
         const projectId = analytics.project.id
@@ -2846,7 +2738,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     return filtered.slice(startIndex, endIndex)
   }, [projectsWithWorkInRange, currentPage, itemsPerPage, hideZeroProjects, getCachedPeriodValues])
   
-  // ✅ PERFORMANCE: Calculate total pages with lazy filtering
+  // ? PERFORMANCE: Calculate total pages with lazy filtering
   const totalPages = useMemo(() => {
     let filtered = projectsWithWorkInRange
     if (hideZeroProjects) {
@@ -2861,24 +2753,24 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     return Math.ceil(filtered.length / itemsPerPage)
   }, [projectsWithWorkInRange, itemsPerPage, hideZeroProjects, getCachedPeriodValues])
   
-  // ✅ Reset to page 1 when filters change
+  // ? Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1)
   }, [debouncedSelectedDivisions, hideZeroProjects, debouncedDateRange.start, debouncedDateRange.end, debouncedPeriodType])
   
-  // ✅ PERFORMANCE: Clear activity cache when debounced filters change
+  // ? PERFORMANCE: Clear activity cache when debounced filters change
   useEffect(() => {
     activityPeriodValuesCache.current.clear()
   }, [debouncedSelectedDivisions, debouncedDateRange.start, debouncedDateRange.end, debouncedPeriodType, viewPlannedValue, showVirtualMaterialValues])
   
-  // ✅ Smooth page change with loading state
+  // ? Smooth page change with loading state
   const handlePageChange = useCallback((newPage: number) => {
     if (newPage === currentPage) return
     
     setIsChangingPage(true)
     setCurrentPage(newPage)
     
-    // ✅ Scroll to top of table smoothly
+    // ? Scroll to top of table smoothly
     setTimeout(() => {
       const tableElement = document.querySelector('table')
       if (tableElement) {
@@ -2888,7 +2780,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     }, 100)
   }, [currentPage])
   
-  // ✅ Handle items per page change
+  // ? Handle items per page change
   const handleItemsPerPageChange = useCallback((newItemsPerPage: number) => {
     setItemsPerPage(newItemsPerPage)
     setCurrentPage(1) // Reset to first page
@@ -2899,16 +2791,16 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     }, 100)
   }, [])
   
-  // ✅ PERFORMANCE: Pre-calculate values for visible projects + buffer (for smooth scrolling)
-  // ✅ Calculate for current page + next page for instant navigation
+  // ? PERFORMANCE: Pre-calculate values for visible projects + buffer (for smooth scrolling)
+  // ? Calculate for current page + next page for instant navigation
   useEffect(() => {
     if (allAnalytics.length === 0 || projectsWithWorkInRange.length === 0) return
     
     const startIndex = (currentPage - 1) * itemsPerPage
-    const endIndex = startIndex + itemsPerPage * 2 // ✅ Pre-calculate current + next page for instant navigation
+    const endIndex = startIndex + itemsPerPage * 2 // ? Pre-calculate current + next page for instant navigation
     const projectsToPrecalculate = projectsWithWorkInRange.slice(startIndex, endIndex)
     
-    // ✅ Use requestIdleCallback for non-blocking calculation
+    // ? Use requestIdleCallback for non-blocking calculation
     const calculateInBackground = () => {
       projectsToPrecalculate.forEach((analytics: any) => {
         if (!periodValuesCache.current.has(analytics.project.id)) {
@@ -2925,8 +2817,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     }
   }, [currentPage, itemsPerPage, projectsWithWorkInRange, periodValuesCache, getCachedPeriodValues, allAnalytics.length])
 
-  // ✅ PERFORMANCE: Removed debug logging useEffect for production
+  // ? PERFORMANCE: Removed debug logging useEffect for production
 
+
+  // ✅ FIX: Clear cache when viewPlannedValue changes to force recalculation
+  useEffect(() => {
+    periodValuesCache.current.clear()
+    activityPeriodValuesCache.current.clear()
+  }, [viewPlannedValue])
 
   // Close chart export menu when clicking outside
   useEffect(() => {
@@ -2975,7 +2873,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         document.body.removeChild(downloadLink)
         URL.revokeObjectURL(svgUrl)
         
-        console.log(`✅ Downloaded: ${baseFilename}.svg`)
+        console.log(`? Downloaded: ${baseFilename}.svg`)
         return
       }
 
@@ -3005,7 +2903,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           document.body.removeChild(downloadLink)
           URL.revokeObjectURL(url)
           
-          console.log(`✅ Downloaded: ${baseFilename}.${format}`)
+          console.log(`? Downloaded: ${baseFilename}.${format}`)
         }, `image/${format}`, 0.95)
         return
       }
@@ -3035,7 +2933,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight)
         pdf.save(`${baseFilename}.pdf`)
         
-        console.log(`✅ Downloaded: ${baseFilename}.pdf`)
+        console.log(`? Downloaded: ${baseFilename}.pdf`)
         return
       }
     } catch (error) {
@@ -3044,21 +2942,21 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     }
   }, [dateRange])
 
-  // ✅ FIXED: Calculate totals directly from periodValuesCache (same as Grand Total column in table)
+  // ? FIXED: Calculate totals directly from periodValuesCache (same as Grand Total column in table)
   // This ensures Summary Card values match exactly with the table's Grand Total column
   const totals = useMemo(() => {
-    // ✅ Total Contract Value = Sum of contract_amount from all filtered projects
+    // ? Total Contract Value = Sum of contract_amount from all filtered projects
     const totalContractValue = filteredProjects.reduce((sum: number, project: Project) => {
       const contractAmount = parseFloat(String(project.contract_amount || '0').replace(/,/g, '')) || 0
       return sum + contractAmount
     }, 0)
     
-    // ✅ PERFORMANCE: Total Earned Value = Sum of Grand Total from ALL projects using cached values
+    // ? PERFORMANCE: Total Earned Value = Sum of Grand Total from ALL projects using cached values
     // This uses the EXACT SAME LOGIC as the table's Grand Total column: periodValues.reduce((sum, val) => sum + val, 0)
     let totalEarnedValue = 0
     allAnalytics.forEach((analytics: any) => {
       const projectId = analytics.project.id
-      // ✅ PERFORMANCE: Use getCachedPeriodValues to ensure cache is populated
+      // ? PERFORMANCE: Use getCachedPeriodValues to ensure cache is populated
       const cachedValues = getCachedPeriodValues(projectId, analytics)
       const periodValues = cachedValues?.earned || []
       // Calculate Grand Total for this project (same as table row)
@@ -3066,12 +2964,12 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       totalEarnedValue += grandTotal
     })
     
-    // ✅ PERFORMANCE: Calculate period earned value totals using cached values (much faster)
-    // ✅ FIX: Use cached period values instead of recalculating from activities/KPIs
+    // ? PERFORMANCE: Calculate period earned value totals using cached values (much faster)
+    // ? FIX: Use cached period values instead of recalculating from activities/KPIs
     const periodEarnedValueTotals = periods.map((_, periodIndex) => {
       let sum = 0
       
-      // ✅ PERFORMANCE: Sum from cached values (O(n) instead of O(n*m*k))
+      // ? PERFORMANCE: Sum from cached values (O(n) instead of O(n*m*k))
       projectsWithWorkInRange.forEach((analytics: any) => {
         const projectId = analytics.project.id
         const cachedValues = getCachedPeriodValues(projectId, analytics)
@@ -3082,11 +2980,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       return sum
     })
     
-    // ✅ PERFORMANCE: Calculate period planned value totals using cached values
+    // ? PERFORMANCE: Calculate period planned value totals using cached values
     const periodPlannedValueTotals = periods.map((_, periodIndex) => {
       let sum = 0
       
-      // ✅ PERFORMANCE: Sum from cached values (O(n) instead of O(n*m*k))
+      // ? PERFORMANCE: Sum from cached values (O(n) instead of O(n*m*k))
       projectsWithWorkInRange.forEach((analytics: any) => {
         const projectId = analytics.project.id
         const cachedValues = getCachedPeriodValues(projectId, analytics)
@@ -3097,24 +2995,24 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       return sum
     })
     
-    // ✅ Calculate grand totals from period totals (sum of all periods)
+    // ? Calculate grand totals from period totals (sum of all periods)
     const grandTotalEarnedValue = periodEarnedValueTotals.reduce((sum, val) => sum + val, 0)
     const grandTotalPlannedValue = periodPlannedValueTotals.reduce((sum, val) => sum + val, 0)
     
-    // ✅ Calculate total Virtual Material Amount from PROJECT ROWS ONLY (not from expanded activities)
+    // ? Calculate total Virtual Material Amount from PROJECT ROWS ONLY (not from expanded activities)
     const totalVirtualMaterialAmount = showVirtualMaterialValues 
       ? (() => {
           let sum = 0
-          // ✅ Sum ONLY from project rows (not from expanded activities)
-          // ✅ Use allAnalytics instead of projectsWithWorkInRange so chart values don't change when hideZeroProjects is toggled
+          // ? Sum ONLY from project rows (not from expanded activities)
+          // ? Use allAnalytics instead of projectsWithWorkInRange so chart values don't change when hideZeroProjects is toggled
           allAnalytics.forEach((analytics: any) => {
             const isExpanded = expandedProjects.has(analytics.project.id)
             
             if (isExpanded) {
-              // ✅ Project is expanded: calculate sum of activities' VM (which is what the project row displays)
+              // ? Project is expanded: calculate sum of activities' VM (which is what the project row displays)
               const project = analytics.project
               const projectId = project.id
-              // ✅ PERFORMANCE: Use pre-computed map instead of filtering activities repeatedly
+              // ? PERFORMANCE: Use pre-computed map instead of filtering activities repeatedly
               const projectActivities = projectActivitiesMap.get(projectId) || []
               
               // Calculate sum of activities' VM for all periods
@@ -3279,7 +3177,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                 })
               })
             } else {
-              // ✅ Project is NOT expanded: use cached value
+              // ? Project is NOT expanded: use cached value
               const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
               const virtualMaterialAmounts = cachedValues?.virtualMaterialAmount || []
               sum += virtualMaterialAmounts.reduce((s, val) => s + val, 0)
@@ -3290,20 +3188,20 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         })()
       : 0
     
-    // ✅ Calculate total Planned Virtual Material Amount from PROJECT ROWS ONLY (not from expanded activities)
+    // ? Calculate total Planned Virtual Material Amount from PROJECT ROWS ONLY (not from expanded activities)
     const totalPlannedVirtualMaterialAmount = showVirtualMaterialValues && viewPlannedValue
       ? (() => {
           let sum = 0
-          // ✅ Sum ONLY from project rows (not from expanded activities)
-          // ✅ Use allAnalytics instead of projectsWithWorkInRange so chart values don't change when hideZeroProjects is toggled
+          // ? Sum ONLY from project rows (not from expanded activities)
+          // ? Use allAnalytics instead of projectsWithWorkInRange so chart values don't change when hideZeroProjects is toggled
           allAnalytics.forEach((analytics: any) => {
             const isExpanded = expandedProjects.has(analytics.project.id)
             
             if (isExpanded) {
-              // ✅ Project is expanded: calculate sum of activities' Planned VM (which is what the project row displays)
+              // ? Project is expanded: calculate sum of activities' Planned VM (which is what the project row displays)
               const project = analytics.project
               const projectId = project.id
-              // ✅ PERFORMANCE: Use pre-computed map instead of filtering activities repeatedly
+              // ? PERFORMANCE: Use pre-computed map instead of filtering activities repeatedly
               const projectActivities = projectActivitiesMap.get(projectId) || []
               const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
               
@@ -3409,7 +3307,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                 })
               })
             } else {
-              // ✅ Project is NOT expanded: use cached value
+              // ? Project is NOT expanded: use cached value
               const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
               const plannedVirtualMaterialAmounts = cachedValues?.plannedVirtualMaterialAmount || []
               sum += plannedVirtualMaterialAmounts.reduce((s, val) => s + val, 0)
@@ -3435,7 +3333,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
 
   // Export to Excel function with advanced formatting
   const handleExportPeriodRevenue = useCallback(async () => {
-    // ✅ FIX: Filter projects based on hideZeroProjects setting
+    // ? FIX: Filter projects based on hideZeroProjects setting
     let projectsToExport = projectsWithWorkInRange
     if (hideZeroProjects) {
       projectsToExport = projectsWithWorkInRange.filter((analytics: any) => {
@@ -3459,7 +3357,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       const exportData: any[] = []
 
       // Build header row array for manual header setting (to avoid double headers)
-      // ✅ FIX: Apply column visibility settings
+      // ? FIX: Apply column visibility settings
       const headerValues: string[] = [
         'Project Full Name'
       ]
@@ -3483,7 +3381,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         headerValues.push('Virtual Material')
       }
       
-      // ✅ Add Outer Range column(s) if enabled
+      // ? Add Outer Range column(s) if enabled
       if (showOuterRangeColumn && outerRangeStart) {
         const outerRangeEndDate = dateRange.start || (periods.length > 0 ? periods[0].start.toISOString().split('T')[0] : null)
         const outerRangeLabel = outerRangeEndDate 
@@ -3519,7 +3417,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       }
       
       // Build header keys object for data rows (to match column order)
-      // ✅ FIX: Apply column visibility settings
+      // ? FIX: Apply column visibility settings
       const headerKeys: string[] = [
         'Project Full Name'
       ]
@@ -3596,7 +3494,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           }))
           .sort((a, b) => b.amount - a.amount)
         
-        // ✅ FIX: Filter divisions by selected divisions if filter is applied
+        // ? FIX: Filter divisions by selected divisions if filter is applied
         if (selectedDivisions.length > 0) {
           divisionsList = divisionsList.filter(div => {
             const normalizedDivName = div.name.trim().toLowerCase()
@@ -3618,14 +3516,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                           'No'
         const isWorkmanship = workmanship === 'Yes' || workmanship === 'TRUE' || workmanship === true
         
-        // ✅ PERFORMANCE: Get period values from cache
+        // ? PERFORMANCE: Get period values from cache
         const cachedValues = getCachedPeriodValues(project.id, analytics)
         const periodValues = cachedValues?.earned || []
         const periodPlannedValues = viewPlannedValue ? (cachedValues?.planned || []) : []
         const virtualMaterialAmounts = showVirtualMaterialValues ? (cachedValues?.virtualMaterialAmount || []) : []
         const plannedVirtualMaterialAmounts = showVirtualMaterialValues && viewPlannedValue ? (cachedValues?.plannedVirtualMaterialAmount || []) : []
         
-        // ✅ FIX: Calculate Grand Total with Virtual Material if showVirtualMaterialValues is enabled
+        // ? FIX: Calculate Grand Total with Virtual Material if showVirtualMaterialValues is enabled
         let grandTotal = periodValues.reduce((sum: number, val: number) => sum + val, 0)
         if (showVirtualMaterialValues) {
           const totalVirtualMaterial = virtualMaterialAmounts.reduce((sum: number, val: number) => sum + val, 0)
@@ -3685,7 +3583,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           row['Virtual Material'] = virtualMaterialAmount
         }
         
-        // ✅ Add Outer Range value(s) if enabled
+        // ? Add Outer Range value(s) if enabled
         if (showOuterRangeColumn && outerRangeStart) {
           const outerRangeValue = cachedValues?.outerRangeValue || 0
           const outerRangePlannedValue = viewPlannedValue ? (cachedValues?.outerRangePlannedValue || 0) : 0
@@ -3698,7 +3596,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         }
         
         // Add period values (Actual and Planned if enabled)
-        // ✅ FIX: Add Virtual Material values if showVirtualMaterialValues is enabled
+        // ? FIX: Add Virtual Material values if showVirtualMaterialValues is enabled
         periodHeaders.forEach((periodLabel, index) => {
           if (viewPlannedValue) {
             let actualValue = periodValues[index] || 0
@@ -3734,7 +3632,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         exportData.push(row)
       })
 
-      // ✅ FIX: Add totals row with correct values from totals object
+      // ? FIX: Add totals row with correct values from totals object
       const totalsRow: any = {}
       totalsRow['Project Full Name'] = 'GRAND TOTAL'
       
@@ -3757,7 +3655,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         totalsRow['Virtual Material'] = totals.totalVirtualMaterialAmount
       }
       
-      // ✅ Add Outer Range total(s) if enabled
+      // ? Add Outer Range total(s) if enabled
       if (showOuterRangeColumn && outerRangeStart) {
         const totalOuterRangeValue = projectsToExport.reduce((sum: number, analytics: any) => {
           const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
@@ -3785,8 +3683,8 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         }
       }
       
-      // ✅ FIX: Use period totals from totals object (Actual and Planned if enabled)
-      // ✅ FIX: Add Virtual Material values if showVirtualMaterialValues is enabled
+      // ? FIX: Use period totals from totals object (Actual and Planned if enabled)
+      // ? FIX: Add Virtual Material values if showVirtualMaterialValues is enabled
       periodHeaders.forEach((periodLabel, index) => {
         if (viewPlannedValue) {
           let actualTotal = totals.periodEarnedValueTotals[index] || 0
@@ -3867,7 +3765,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       // Create worksheet from data only (no header row in data)
       const ws = XLSX.utils.json_to_sheet(exportData)
       
-      // ✅ FIX: Manually set header row to avoid double headers
+      // ? FIX: Manually set header row to avoid double headers
       // Replace the auto-generated header row (row 0) with our custom headers
       headerValues.forEach((headerValue, colIndex) => {
         const cellAddress = XLSX.utils.encode_cell({ r: 0, c: colIndex })
@@ -3909,7 +3807,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         }
       }
       
-      // ✅ FIX: Calculate column indices dynamically based on visible columns
+      // ? FIX: Calculate column indices dynamically based on visible columns
       let currentColIndex = 0
       const colIndices: { [key: string]: number } = {}
       
@@ -3937,7 +3835,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         colIndices['Virtual Material'] = currentColIndex++
       }
       
-      // ✅ FIX: Add formulas to totals row (formulas ensure Excel calculates correctly)
+      // ? FIX: Add formulas to totals row (formulas ensure Excel calculates correctly)
       // Total Contract Amount - only if visible
       if (!hideTotalContractColumn && colIndices['Total Contract Amount'] !== undefined) {
         const totalContractCol = getColLetter(colIndices['Total Contract Amount'])
@@ -3979,7 +3877,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         }
       }
       
-      // ✅ Column: Outer Range - if enabled
+      // ? Column: Outer Range - if enabled
       let periodStartCol = currentColIndex // Start after all base columns
       if (showOuterRangeColumn && outerRangeStart) {
         if (viewPlannedValue) {
@@ -4022,7 +3920,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         }
       }
       
-      // ✅ FIX: Period columns (Actual and Planned if enabled)
+      // ? FIX: Period columns (Actual and Planned if enabled)
       periodHeaders.forEach((_, periodIndex) => {
         if (viewPlannedValue) {
           // Actual column
@@ -4064,7 +3962,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         }
       })
       
-      // ✅ FIX: Grand Total column(s) - Use actual value from totals
+      // ? FIX: Grand Total column(s) - Use actual value from totals
       if (viewPlannedValue) {
         // Grand Total - Actual
         const grandTotalActualColIndex = periodStartCol + (periodHeaders.length * 2)
@@ -4151,7 +4049,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         })
       }
       
-      // ✅ FIX: Define column widths (including Planned columns if enabled, respecting hidden columns)
+      // ? FIX: Define column widths (including Planned columns if enabled, respecting hidden columns)
       const colWidths: Array<{ wch: number }> = [
         { wch: 35 }, // Project Full Name (always visible)
       ]
@@ -4204,18 +4102,18 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       
       ws['!cols'] = colWidths
       
-      // ✅ FIX: Freeze first row and first 3 columns for better navigation
+      // ? FIX: Freeze first row and first 3 columns for better navigation
       ws['!freeze'] = { xSplit: 3, ySplit: 1, topLeftCell: 'D2', activePane: 'bottomRight', state: 'frozen' }
       
-      // ✅ FIX: Define styles with improved appearance
+      // ? FIX: Define styles with improved appearance
       const headerStyle = {
-        font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 12 }, // ✅ Increased font size
+        font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 12 }, // ? Increased font size
         fill: { fgColor: { rgb: '4472C4' } }, // Blue background
         alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
         border: {
-          top: { style: 'medium', color: { rgb: '000000' } }, // ✅ Medium border for better visibility
+          top: { style: 'medium', color: { rgb: '000000' } }, // ? Medium border for better visibility
           bottom: { style: 'medium', color: { rgb: '000000' } },
-          left: { style: 'thin', color: { rgb: 'FFFFFF' } }, // ✅ White border for better contrast
+          left: { style: 'thin', color: { rgb: 'FFFFFF' } }, // ? White border for better contrast
           right: { style: 'thin', color: { rgb: 'FFFFFF' } }
         }
       }
@@ -4242,26 +4140,26 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       }
       
       const totalsStyle = {
-        font: { bold: true, sz: 12, color: { rgb: '000000' } }, // ✅ Increased font size and black color
+        font: { bold: true, sz: 12, color: { rgb: '000000' } }, // ? Increased font size and black color
         fill: { fgColor: { rgb: 'D9E1F2' } }, // Light blue background
         alignment: { horizontal: 'right', vertical: 'center' },
-        numFmt: '#,##0.00', // ✅ Currency format with 2 decimal places
+        numFmt: '#,##0.00', // ? Currency format with 2 decimal places
         border: {
-          top: { style: 'thick', color: { rgb: '000000' } }, // ✅ Thick border for totals row
+          top: { style: 'thick', color: { rgb: '000000' } }, // ? Thick border for totals row
           bottom: { style: 'thick', color: { rgb: '000000' } },
-          left: { style: 'thin', color: { rgb: '000000' } }, // ✅ Black border for better visibility
+          left: { style: 'thin', color: { rgb: '000000' } }, // ? Black border for better visibility
           right: { style: 'thin', color: { rgb: '000000' } }
         }
       }
       
       const totalsTextStyle = {
-        font: { bold: true, sz: 12, color: { rgb: '000000' } }, // ✅ Increased font size and black color
+        font: { bold: true, sz: 12, color: { rgb: '000000' } }, // ? Increased font size and black color
         fill: { fgColor: { rgb: 'D9E1F2' } },
         alignment: { horizontal: 'left', vertical: 'center' },
         border: {
-          top: { style: 'thick', color: { rgb: '000000' } }, // ✅ Thick border for totals row
+          top: { style: 'thick', color: { rgb: '000000' } }, // ? Thick border for totals row
           bottom: { style: 'thick', color: { rgb: '000000' } },
-          left: { style: 'thin', color: { rgb: '000000' } }, // ✅ Black border for better visibility
+          left: { style: 'thin', color: { rgb: '000000' } }, // ? Black border for better visibility
           right: { style: 'thin', color: { rgb: '000000' } }
         }
       }
@@ -4284,7 +4182,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           if (!ws[cellAddress]) continue
           
           const colIndex = col
-          // ✅ FIX: Determine if column is numeric based on header name (respects hidden columns)
+          // ? FIX: Determine if column is numeric based on header name (respects hidden columns)
           const headerName = headerValues[colIndex] || ''
           const isNumberColumn = 
             headerName === 'Total Contract Amount' ||
@@ -4327,7 +4225,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         }
       }
       
-      // ✅ FIX: Create workbook with dynamic sheet name based on period type
+      // ? FIX: Create workbook with dynamic sheet name based on period type
       const wb = XLSX.utils.book_new()
       const periodTypeLabel = periodType === 'daily' ? 'Daily' : 
                              periodType === 'weekly' ? 'Weekly' : 
@@ -4337,7 +4235,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       const sheetName = `${periodTypeLabel} Work Revenue`
       XLSX.utils.book_append_sheet(wb, ws, sheetName)
       
-      // ✅ FIX: Generate filename with period type and date range
+      // ? FIX: Generate filename with period type and date range
       const dateStr = dateRange.start && dateRange.end
         ? `${dateRange.start}_to_${dateRange.end}`
         : new Date().toISOString().split('T')[0]
@@ -4346,14 +4244,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       // Write file
       XLSX.writeFile(wb, filename)
       
-      console.log(`✅ Downloaded formatted Excel: ${filename}`)
+      console.log(`? Downloaded formatted Excel: ${filename}`)
     } catch (error) {
       console.error('Error exporting to Excel:', error)
       alert('Failed to export data. Please try again.')
     }
   }, [projectsWithWorkInRange, periods, totals, divisionsDataMap, dateRange, formatCurrency, periodType, showOuterRangeColumn, outerRangeStart, getCachedPeriodValues, selectedDivisions, viewPlannedValue, hideZeroProjects, hideDivisionsColumn, hideTotalContractColumn, hideVirtualMaterialColumn, showVirtualMaterialValues])
 
-  // ✅ Calculate chart data using useMemo (moved from IIFE in JSX)
+  // ? Calculate chart data using useMemo (moved from IIFE in JSX)
   const chartData = useMemo(() => {
     if (periods.length === 0) return []
     
@@ -4366,13 +4264,13 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
             const virtualMaterialAmounts = cachedValues?.virtualMaterialAmount || []
             sum += virtualMaterialAmounts[periodIndex] || 0
           })
-          // ✅ PERFORMANCE: Sum from expanded activities using projectActivitiesMap
+          // ? PERFORMANCE: Sum from expanded activities using projectActivitiesMap
           allAnalytics.forEach((analytics: any) => {
             if (!expandedProjects.has(analytics.project.id)) return
             
             const project = analytics.project
             const projectId = project.id
-            // ✅ PERFORMANCE: Use pre-computed map instead of filtering activities repeatedly
+            // ? PERFORMANCE: Use pre-computed map instead of filtering activities repeatedly
             const projectActivities = projectActivitiesMap.get(projectId) || []
             
             projectActivities.forEach((activity: BOQActivity) => {
@@ -4402,7 +4300,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
               
               if (virtualMaterialPercentage === 0) return
               
-              // ✅ PERFORMANCE: Pre-filter KPIs by date range once per period, then match activities
+              // ? PERFORMANCE: Pre-filter KPIs by date range once per period, then match activities
               // This reduces the number of kpiMatchesActivity calls
               const periodStartTime = periodStart.getTime()
               const periodEndTime = effectivePeriodEnd.getTime()
@@ -4434,7 +4332,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                   if (isNaN(kpiDate.getTime())) return false
                   kpiDate.setHours(0, 0, 0, 0)
                   const kpiDateTime = kpiDate.getTime()
-                  // ✅ PERFORMANCE: Use numeric comparison instead of Date objects
+                  // ? PERFORMANCE: Use numeric comparison instead of Date objects
                   if (kpiDateTime < periodStartTime || kpiDateTime > periodEndTime) {
                     return false
                   }
@@ -4543,13 +4441,35 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     })
   }, [periods, periodType, totals, useVirtualValueInChart, viewPlannedValue, allAnalytics, expandedProjects, projectActivitiesMap, kpis, today, getCachedPeriodValues, kpiMatchesActivity])
 
-  // ✅ Common chart props
+  // ✅ FIX: Force chart to re-render on mount and when data changes
+  useLayoutEffect(() => {
+    if (periods.length > 0 && chartRef.current) {
+      // Force re-render by updating chart key after a small delay to ensure DOM is ready
+      const timer = setTimeout(() => {
+        setChartKey(prev => prev + 1)
+      }, 100)
+      return () => clearTimeout(timer)
+    }
+  }, [periods.length, debouncedDateRange.start, debouncedDateRange.end, debouncedPeriodType])
+
+  // ✅ FIX: Also trigger re-render when chartData changes (after it's calculated)
+  useEffect(() => {
+    if (periods.length > 0 && chartData.length > 0 && chartRef.current) {
+      // Use a small delay to ensure chart is ready
+      const timer = setTimeout(() => {
+        setChartKey(prev => prev + 1)
+      }, 50)
+      return () => clearTimeout(timer)
+    }
+  }, [periods.length, chartData.length])
+
+  // ? Common chart props
   const commonChartProps = useMemo(() => ({
     data: chartData,
     margin: { top: 5, right: 30, left: 20, bottom: 5 }
   }), [chartData])
 
-  // ✅ Common axis and tooltip components
+  // ? Common axis and tooltip components
   const commonAxis = useMemo(() => (
     <>
       <CartesianGrid strokeDasharray="3 3" className="stroke-gray-300 dark:stroke-gray-700" />
@@ -4616,7 +4536,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     </>
   ), [periodType, projectsWithWorkInRange, formatCurrency])
 
-  // ✅ Render chart component based on type
+  // ? Render chart component based on type
   const renderChart = () => {
     if (chartType === 'line') {
       return (
@@ -4785,7 +4705,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       <div className="flex items-center justify-between flex-wrap gap-4">
                     <div>
           <h3 className="text-2xl font-bold text-gray-900 dark:text-white">MONTHLY WORK REVENUE (Excl VAT)</h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">ما تم تنفيذه حتى الآن - Weekly Earned Value Report</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">?? ?? ?????? ??? ???? - Weekly Earned Value Report</p>
                     </div>
         <div className="flex items-center gap-4 flex-wrap">
           <div className="relative" ref={divisionDropdownRef}>
@@ -4892,7 +4812,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
               className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
             />
           </div>
-          {/* ✅ Outer Range: للفترة قبل الفترة المحددة */}
+          {/* ? Outer Range: ?????? ??? ?????? ??????? */}
           <div className="flex flex-col gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
             <div className="flex items-center gap-2">
               <input
@@ -5106,7 +5026,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         <CardContent>
           <div ref={chartRef} className="h-80 w-full">
             {periods.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer key={chartKey} width="100%" height="100%">
                 {renderChart()}
               </ResponsiveContainer>
             ) : (
@@ -5353,7 +5273,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                         <tr key={projectId} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                         <td className="border border-gray-300 dark:border-gray-600 px-2 py-3 text-center" style={{ width: '50px' }}>
                           {(() => {
-                            // ✅ PERFORMANCE: Use pre-computed map instead of filtering activities repeatedly
+                            // ? PERFORMANCE: Use pre-computed map instead of filtering activities repeatedly
                             const projectActivities = projectActivitiesMap.get(projectId) || []
                             return projectActivities.length > 0 ? (
                               <button
@@ -5389,7 +5309,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                         {!hideDivisionsColumn && (
                           <td className="border border-gray-300 dark:border-gray-600 px-4 py-3" style={{ width: '180px', overflow: 'hidden' }}>
                             {(() => {
-                              // ✅ Use unique key (project_full_code + project_name) for exact matching
+                              // ? Use unique key (project_full_code + project_name) for exact matching
                               const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
                               const projectName = (project.project_name || '').toString().trim()
                               const uniqueKey = `${projectFullCode}|${projectName}`
@@ -5467,7 +5387,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                         )}
                         <td className="border border-gray-300 dark:border-gray-600 px-4 py-3" style={{ width: '220px', overflow: 'hidden' }}>
                           {(() => {
-                            // ✅ Use unique key (project_full_code + project_name) for exact matching
+                            // ? Use unique key (project_full_code + project_name) for exact matching
                             const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
                             const projectName = (project.project_name || '').toString().trim()
                             const uniqueKey = `${projectFullCode}|${projectName}`
@@ -5784,16 +5704,35 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                         const project = analytics.project
                         const projectId = project.id
                         const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
-                        // ✅ PERFORMANCE: Use pre-computed map instead of filtering activities repeatedly
+                        // ? PERFORMANCE: Use pre-computed map instead of filtering activities repeatedly
                         const projectActivitiesFromMap = projectActivitiesMap.get(projectId) || []
                         
                         // ✅ FIX: Filter activities to ensure they match this specific project's full code for exact matching
+                        // Only use project_full_code matching, not project_id, to avoid showing activities from other projects
                         let projectActivities = projectActivitiesFromMap.filter((activity: BOQActivity) => {
                           const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
-                          return activityFullCode === projectFullCode || activity.project_id === project.id
+                          // ✅ FIX: Only match by project_full_code for exact matching, not by project_id
+                          return activityFullCode === projectFullCode
                         })
                         
-                        // ✅ FIX: Use debouncedSelectedDivisions to match getCachedPeriodValues filtering
+                        // ✅ FIX: Keep all activities with different zones - they are considered different activities
+                        // Only remove true duplicates (same name + same zone + same project)
+                        const seenActivities = new Set<string>()
+                        projectActivities = projectActivities.filter((activity: BOQActivity) => {
+                          const activityName = (activity.activity_name || activity.activity || '').toString().trim().toUpperCase()
+                          const activityZone = (activity.zone_ref || activity.zone_number || (activity as any).raw?.['Zone Ref'] || (activity as any).raw?.['Zone Number'] || '').toString().trim().toUpperCase()
+                          const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+                          // ✅ FIX: Include zone in unique key - different zones = different activities
+                          const uniqueKey = `${activityFullCode}|${activityName}|${activityZone}`
+                          
+                          if (seenActivities.has(uniqueKey)) {
+                            return false
+                          }
+                          seenActivities.add(uniqueKey)
+                          return true
+                        })
+                        
+                        // ? FIX: Use debouncedSelectedDivisions to match getCachedPeriodValues filtering
                         if (debouncedSelectedDivisions.length > 0) {
                           projectActivities = projectActivities.filter((activity: BOQActivity) => {
                             const rawActivity = (activity as any).raw || {}
@@ -5817,373 +5756,27 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                           <>
                             {projectActivities.map((activity: BOQActivity) => {
                               const rawActivity = (activity as any).raw || {}
-                              const activityPeriodValues = new Array(periods.length).fill(0)
-                              const activityPeriodPlannedValues = viewPlannedValue ? new Array(periods.length).fill(0) : []
-                              const activityPeriodVirtualMaterialAmounts = showVirtualMaterialValues ? new Array(periods.length).fill(0) : []
-                              const activityPeriodPlannedVirtualMaterialAmounts = showVirtualMaterialValues && viewPlannedValue ? new Array(periods.length).fill(0) : []
+                              // ✅ FIX: Use getCachedActivityPeriodValues to ensure consistency with project row calculations
+                              // ✅ FIX: Include zone in activityId to ensure unique identification per zone
+                              const activityZone = (
+                                (activity as any).zone ||
+                                activity.zone_ref || 
+                                activity.zone_number || 
+                                rawActivity['Zone'] ||
+                                rawActivity['Zone Ref'] || 
+                                rawActivity['Zone Number'] || 
+                                ''
+                              ).toString().trim()
+                              // ✅ FIX: Create unique activityId that includes activity name, project code, and zone to ensure each activity-zone combination has unique calculations
+                              const activityNameForId = (activity.activity_name || activity.activity || 'N/A').toString().trim()
+                              const activityId = activity.id || `${activityNameForId}-${projectFullCode}-${activityZone || 'nozone'}-${activity.id || ''}`
+                              const cachedActivityValues = getCachedActivityPeriodValues(activityId, activity, project, projectFullCode)
+                              const activityPeriodValues = cachedActivityValues.earned || []
+                              const activityPeriodPlannedValues = cachedActivityValues.planned || []
+                              const activityPeriodVirtualMaterialAmounts = cachedActivityValues.virtualMaterial || []
+                              const activityPeriodPlannedVirtualMaterialAmounts = cachedActivityValues.plannedVirtualMaterial || []
                               
-                              periods.forEach((period, periodIndex) => {
-                                const periodStart = period.start
-                                const periodEnd = period.end
-                                const effectivePeriodEnd = periodEnd > today ? today : periodEnd
-                                
-                                const actualKPIs = kpis.filter((kpi: any) => {
-                                  const rawKPI = (kpi as any).raw || {}
-                                  const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
-                                  const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
-                                  const kpiProjectId = (kpi as any).project_id || ''
-                                  
-                                  let projectMatches = false
-                                  if (kpiProjectFullCode && projectFullCode && kpiProjectFullCode === projectFullCode) {
-                                    projectMatches = true
-                                  } else if (project.id && kpiProjectId && project.id === kpiProjectId) {
-                                    projectMatches = true
-                                  } else if (kpiProjectCode && projectFullCode.includes(kpiProjectCode)) {
-                                    const projectCode = (project.project_code || '').toString().trim().toUpperCase()
-                                    if (kpiProjectCode === projectCode) {
-                                      projectMatches = true
-                                    }
-                                  }
-                                  
-                                  if (!projectMatches) return false
-                                  
-                                  const inputType = String(kpi.input_type || rawKPI['Input Type'] || '').trim().toLowerCase()
-                                  if (inputType !== 'actual') return false
-                                  
-                                  if (!kpiMatchesActivity(kpi, activity)) {
-                                    return false
-                                  }
-                                  
-                                  const rawKPIDate = (kpi as any).raw || {}
-                                  const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
-                                  const actualDateValue = (kpi as any).actual_date || rawKPIDate['Actual Date'] || ''
-                                  const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
-                                  
-                                  let kpiDateStr = ''
-                                  if (kpi.input_type === 'Actual' && actualDateValue) {
-                                    kpiDateStr = actualDateValue
-                                  } else if (dayValue) {
-                                    kpiDateStr = activityDateValue || dayValue
-                                  } else {
-                                    kpiDateStr = activityDateValue || actualDateValue
-                                  }
-                                  
-                                  if (!kpiDateStr) return false
-                                  
-                                  try {
-                                    const kpiDate = new Date(kpiDateStr)
-                                    if (isNaN(kpiDate.getTime())) return false
-                                    kpiDate.setHours(0, 0, 0, 0)
-                                    const normalizedPeriodStart = new Date(periodStart)
-                                    normalizedPeriodStart.setHours(0, 0, 0, 0)
-                                    const normalizedPeriodEnd = new Date(effectivePeriodEnd)
-                                    normalizedPeriodEnd.setHours(23, 59, 59, 999)
-                                    return kpiDate >= normalizedPeriodStart && kpiDate <= normalizedPeriodEnd
-                                  } catch {
-                                    return false
-                                  }
-                                })
-                                
-                                const periodValue = actualKPIs.reduce((sum: number, kpi: any) => {
-                                  try {
-                                    const rawKpi = (kpi as any).raw || {}
-                                    const quantityValue = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
-                                    
-                                    let financialValue = 0
-                                    const totalValueFromActivity = activity.total_value || parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 0
-                                    const totalUnits = activity.total_units || activity.planned_units || parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 0
-                                    let rate = 0
-                                    if (totalUnits > 0 && totalValueFromActivity > 0) {
-                                      rate = totalValueFromActivity / totalUnits
-                                    } else {
-                                      rate = activity.rate || parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
-                                    }
-                                    
-                                    if (rate > 0 && quantityValue > 0) {
-                                      financialValue = quantityValue * rate
-                                      if (financialValue > 0) return sum + financialValue
-                                    }
-                                    
-                                    let kpiValue = 0
-                                    if (rawKpi['Value'] !== undefined && rawKpi['Value'] !== null) {
-                                      const val = rawKpi['Value']
-                                      kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
-                                    }
-                                    if (kpiValue === 0 && rawKpi.value !== undefined && rawKpi.value !== null) {
-                                      const val = rawKpi.value
-                                      kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
-                                    }
-                                    if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
-                                      const val = kpi.value
-                                      kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
-                                    }
-                                    if (kpiValue > 0) return sum + kpiValue
-                                    
-                                    const actualValue = kpi.actual_value || parseFloat(String(rawKpi['Actual Value'] || '0').replace(/,/g, '')) || 0
-                                    if (actualValue > 0) return sum + actualValue
-                                    
-                                    return sum
-                                  } catch {
-                                    return sum
-                                  }
-                                }, 0)
-                                
-                                activityPeriodValues[periodIndex] = periodValue
-                                
-                                if (viewPlannedValue) {
-                                  const plannedKPIs = kpis.filter((kpi: any) => {
-                                    const rawKPI = (kpi as any).raw || {}
-                                    const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
-                                    const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
-                                    const kpiProjectId = (kpi as any).project_id || ''
-                                    
-                                    let projectMatches = false
-                                    if (kpiProjectFullCode && projectFullCode && kpiProjectFullCode === projectFullCode) {
-                                      projectMatches = true
-                                    } else if (project.id && kpiProjectId && project.id === kpiProjectId) {
-                                      projectMatches = true
-                                    } else if (kpiProjectCode && projectFullCode.includes(kpiProjectCode)) {
-                                      const projectCode = (project.project_code || '').toString().trim().toUpperCase()
-                                      if (kpiProjectCode === projectCode) {
-                                        projectMatches = true
-                                      }
-                                    }
-                                    
-                                    if (!projectMatches) return false
-                                    
-                                    const inputType = String(kpi.input_type || rawKPI['Input Type'] || '').trim().toLowerCase()
-                                    if (inputType !== 'planned') return false
-                                    
-                                    if (!kpiMatchesActivity(kpi, activity)) {
-                                      return false
-                                    }
-                                    
-                                    const kpiDate = kpi.target_date || rawKPI['Target Date'] || ''
-                                    if (!kpiDate) return false
-                                    
-                                    try {
-                                      const date = new Date(kpiDate)
-                                      if (isNaN(date.getTime())) return false
-                                      date.setHours(0, 0, 0, 0)
-                                      const normalizedPeriodStart = new Date(periodStart)
-                                      normalizedPeriodStart.setHours(0, 0, 0, 0)
-                                      const normalizedPeriodEnd = new Date(effectivePeriodEnd)
-                                      normalizedPeriodEnd.setHours(23, 59, 59, 999)
-                                      return date >= normalizedPeriodStart && date <= normalizedPeriodEnd
-                                    } catch {
-                                      return false
-                                    }
-                                  })
-                                  
-                                  const plannedValue = plannedKPIs.reduce((s: number, kpi: any) => {
-                                    const rawKpi = (kpi as any).raw || {}
-                                    const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
-                                    
-                                    const totalValue = activity.total_value || parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 0
-                                    const totalUnits = activity.total_units || activity.planned_units || parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 0
-                                    
-                                    let rate = 0
-                                    if (totalUnits > 0 && totalValue > 0) {
-                                      rate = totalValue / totalUnits
-                                    } else {
-                                      rate = activity.rate || parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
-                                    }
-                                    
-                                    if (rate > 0 && quantity > 0) {
-                                      return s + rate * quantity
-                                    } else {
-                                      const kpiValue = parseFloat(String(kpi.value || rawKpi['Value'] || '0').replace(/,/g, '')) || 0
-                                      if (kpiValue > 0) {
-                                        return s + kpiValue
-                                      }
-                                    }
-                                    
-                                    return s
-                                  }, 0)
-                                  
-                                  activityPeriodPlannedValues[periodIndex] = plannedValue
-                                }
-                                
-                                if (showVirtualMaterialValues && activity.use_virtual_material) {
-                                  let virtualMaterialPercentage = 0
-                                  const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
-                                  
-                                  if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
-                                    let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
-                                    const parsedValue = parseFloat(cleanedValue)
-                                    if (!isNaN(parsedValue)) {
-                                      if (parsedValue > 0 && parsedValue <= 1) {
-                                        virtualMaterialPercentage = parsedValue * 100
-                                      } else {
-                                        virtualMaterialPercentage = parsedValue
-                                      }
-                                    }
-                                  }
-                                  
-                                  if (virtualMaterialPercentage > 0) {
-                                    const actualKPIsForVM = kpis.filter((kpi: any) => {
-                                      const rawKPI = (kpi as any).raw || {}
-                                      const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
-                                      const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
-                                      const kpiProjectId = (kpi as any).project_id || ''
-                                      
-                                      let projectMatches = false
-                                      if (kpiProjectFullCode && projectFullCode && kpiProjectFullCode === projectFullCode) {
-                                        projectMatches = true
-                                      } else if (project.id && kpiProjectId && project.id === kpiProjectId) {
-                                        projectMatches = true
-                                      } else if (kpiProjectCode && projectFullCode.includes(kpiProjectCode)) {
-                                        const projectCode = (project.project_code || '').toString().trim().toUpperCase()
-                                        if (kpiProjectCode === projectCode) {
-                                          projectMatches = true
-                                        }
-                                      }
-                                      
-                                      if (!projectMatches) return false
-                                      
-                                      const inputType = String(kpi.input_type || rawKPI['Input Type'] || '').trim().toLowerCase()
-                                      if (inputType !== 'actual') return false
-                                      
-                                      if (!kpiMatchesActivity(kpi, activity)) {
-                                        return false
-                                      }
-                                      
-                                      const rawKPIDate = (kpi as any).raw || {}
-                                      const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
-                                      const actualDateValue = (kpi as any).actual_date || rawKPIDate['Actual Date'] || ''
-                                      const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
-                                      
-                                      let kpiDateStr = ''
-                                      if (kpi.input_type === 'Actual' && actualDateValue) {
-                                        kpiDateStr = actualDateValue
-                                      } else if (dayValue) {
-                                        kpiDateStr = activityDateValue || dayValue
-                                      } else {
-                                        kpiDateStr = activityDateValue || actualDateValue
-                                      }
-                                      
-                                      if (!kpiDateStr) return false
-                                      
-                                      try {
-                                        const kpiDate = new Date(kpiDateStr)
-                                        if (isNaN(kpiDate.getTime())) return false
-                                        kpiDate.setHours(0, 0, 0, 0)
-                                        const normalizedPeriodStart = new Date(periodStart)
-                                        normalizedPeriodStart.setHours(0, 0, 0, 0)
-                                        const normalizedPeriodEnd = new Date(effectivePeriodEnd)
-                                        normalizedPeriodEnd.setHours(23, 59, 59, 999)
-                                        return kpiDate >= normalizedPeriodStart && kpiDate <= normalizedPeriodEnd
-                                      } catch {
-                                        return false
-                                      }
-                                    })
-                                    
-                                    actualKPIsForVM.forEach((kpi: any) => {
-                                      const rawKpi = (kpi as any).raw || {}
-                                      const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
-                                      
-                                      const totalValue = activity.total_value || parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 0
-                                      const totalUnits = activity.total_units || activity.planned_units || parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 0
-                                      
-                                      let rate = 0
-                                      if (totalUnits > 0 && totalValue > 0) {
-                                        rate = totalValue / totalUnits
-                                      } else {
-                                        rate = activity.rate || parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
-                                      }
-                                      
-                                      let baseValue = 0
-                                      if (rate > 0 && quantity > 0) {
-                                        baseValue = rate * quantity
-                                      } else {
-                                        const kpiValue = parseFloat(String(kpi.value || rawKpi['Value'] || '0').replace(/,/g, '')) || 0
-                                        if (kpiValue > 0) {
-                                          baseValue = kpiValue
-                                        }
-                                      }
-                                      
-                                      if (baseValue > 0) {
-                                        activityPeriodVirtualMaterialAmounts[periodIndex] += baseValue * (virtualMaterialPercentage / 100)
-                                      }
-                                    })
-                                    
-                                    if (viewPlannedValue) {
-                                      const plannedKPIsForVM = kpis.filter((kpi: any) => {
-                                        const rawKPI = (kpi as any).raw || {}
-                                        const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
-                                        const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
-                                        const kpiProjectId = (kpi as any).project_id || ''
-                                        
-                                        let projectMatches = false
-                                        if (kpiProjectFullCode && projectFullCode && kpiProjectFullCode === projectFullCode) {
-                                          projectMatches = true
-                                        } else if (project.id && kpiProjectId && project.id === kpiProjectId) {
-                                          projectMatches = true
-                                        } else if (kpiProjectCode && projectFullCode.includes(kpiProjectCode)) {
-                                          const projectCode = (project.project_code || '').toString().trim().toUpperCase()
-                                          if (kpiProjectCode === projectCode) {
-                                            projectMatches = true
-                                          }
-                                        }
-                                        
-                                        if (!projectMatches) return false
-                                        
-                                        const inputType = String(kpi.input_type || rawKPI['Input Type'] || '').trim().toLowerCase()
-                                        if (inputType !== 'planned') return false
-                                        
-                                        if (!kpiMatchesActivity(kpi, activity)) {
-                                          return false
-                                        }
-                                        
-                                        const kpiDate = kpi.target_date || rawKPI['Target Date'] || ''
-                                        if (!kpiDate) return false
-                                        
-                                        try {
-                                          const date = new Date(kpiDate)
-                                          if (isNaN(date.getTime())) return false
-                                          date.setHours(0, 0, 0, 0)
-                                          const normalizedPeriodStart = new Date(periodStart)
-                                          normalizedPeriodStart.setHours(0, 0, 0, 0)
-                                          const normalizedPeriodEnd = new Date(effectivePeriodEnd)
-                                          normalizedPeriodEnd.setHours(23, 59, 59, 999)
-                                          return date >= normalizedPeriodStart && date <= normalizedPeriodEnd
-                                        } catch {
-                                          return false
-                                        }
-                                      })
-                                      
-                                      plannedKPIsForVM.forEach((kpi: any) => {
-                                        const rawKpi = (kpi as any).raw || {}
-                                        const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
-                                        
-                                        const totalValue = activity.total_value || parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 0
-                                        const totalUnits = activity.total_units || activity.planned_units || parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 0
-                                        
-                                        let rate = 0
-                                        if (totalUnits > 0 && totalValue > 0) {
-                                          rate = totalValue / totalUnits
-                                        } else {
-                                          rate = activity.rate || parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
-                                        }
-                                        
-                                        let baseValue = 0
-                                        if (rate > 0 && quantity > 0) {
-                                          baseValue = rate * quantity
-                                        } else {
-                                          const kpiValue = parseFloat(String(kpi.value || rawKpi['Value'] || '0').replace(/,/g, '')) || 0
-                                          if (kpiValue > 0) {
-                                            baseValue = kpiValue
-                                          }
-                                        }
-                                        
-                                        if (baseValue > 0) {
-                                          activityPeriodPlannedVirtualMaterialAmounts[periodIndex] += baseValue * (virtualMaterialPercentage / 100)
-                                        }
-                                      })
-                                    }
-                                  }
-                                }
-                              })
+                              // ? FIX: Now using cached values from getCachedActivityPeriodValues which uses the same logic as project rows
                               
                               const activityGrandTotal = activityPeriodValues.reduce((sum: number, val: number) => sum + val, 0)
                               const activityGrandTotalPlanned = viewPlannedValue ? activityPeriodPlannedValues.reduce((sum: number, val: number) => sum + val, 0) : 0
@@ -6218,47 +5811,25 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                   <td className="border border-gray-300 dark:border-gray-600 px-4 py-2" style={{ width: '220px' }}></td>
                                   {!hideVirtualMaterialColumn && (
                                     <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right" style={{ width: '180px' }}>
-                                      {(() => {
-                                        let virtualMaterialPercentage = 0
-                                        const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
-                                        
-                                        if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
-                                          let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
-                                          const parsedValue = parseFloat(cleanedValue)
-                                          if (!isNaN(parsedValue)) {
-                                            if (parsedValue > 0 && parsedValue <= 1) {
-                                              virtualMaterialPercentage = parsedValue * 100
-                                            } else {
-                                              virtualMaterialPercentage = parsedValue
-                                            }
-                                          }
-                                        }
-                                        
-                                        return activity.use_virtual_material && virtualMaterialPercentage > 0 ? (
-                                          <span className="text-xs font-medium text-purple-600 dark:text-purple-400">
-                                            {virtualMaterialPercentage.toFixed(1)}%
-                                          </span>
-                                        ) : (
-                                          <span className="text-xs text-gray-400 dark:text-gray-500">-</span>
-                                        )
-                                      })()}
+                                      {showVirtualMaterialValues && activity.use_virtual_material ? (
+                                        <span className="text-xs text-purple-600 dark:text-purple-400 font-medium">
+                                          {formatCurrency(activityTotalVirtualMaterialAmount, project.currency)}
+                                        </span>
+                                      ) : (
+                                        <span className="text-xs text-gray-400 dark:text-gray-500">-</span>
+                                      )}
                                     </td>
                                   )}
                                   {showOuterRangeColumn && outerRangeStart && (
-                                    viewPlannedValue ? (
-                                      <>
-                                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}></td>
-                                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}></td>
-                                      </>
-                                    ) : (
-                                      <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}></td>
-                                    )
+                                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}>
+                                      <span className="text-xs text-gray-400">-</span>
+                                    </td>
                                   )}
                                   {periods.map((period, periodIndex) => {
                                     const periodValue = activityPeriodValues[periodIndex] || 0
                                     const periodPlannedValue = viewPlannedValue ? (activityPeriodPlannedValues[periodIndex] || 0) : 0
-                                    const periodVirtualMaterialAmount = activityPeriodVirtualMaterialAmounts[periodIndex] || 0
-                                    const periodPlannedVirtualMaterialAmount = activityPeriodPlannedVirtualMaterialAmounts[periodIndex] || 0
+                                    const periodVirtualMaterialAmount = showVirtualMaterialValues ? (activityPeriodVirtualMaterialAmounts[periodIndex] || 0) : 0
+                                    const periodPlannedVirtualMaterialAmount = showVirtualMaterialValues && viewPlannedValue ? (activityPeriodPlannedVirtualMaterialAmounts[periodIndex] || 0) : 0
                                     
                                     if (viewPlannedValue) {
                                       return (
@@ -6270,16 +5841,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                                   {formatCurrency(periodValue, project.currency)}
                                                 </span>
                                               ) : (
-                                                <span className="text-sm text-gray-400">-</span>
+                                                <span className="text-xs text-gray-400">-</span>
                                               )}
                                               {!hideVirtualMaterialColumn && showVirtualMaterialValues && periodVirtualMaterialAmount > 0 && (
                                                 <div className="text-xs text-purple-600 dark:text-purple-400">
                                                   {formatCurrency(periodVirtualMaterialAmount, project.currency)}
-                                                </div>
-                                              )}
-                                              {!hideVirtualMaterialColumn && showVirtualMaterialValues && periodValue > 0 && periodVirtualMaterialAmount > 0 && (
-                                                <div className="text-xs font-bold text-gray-900 dark:text-white">
-                                                  {formatCurrency(periodValue + periodVirtualMaterialAmount, project.currency)}
                                                 </div>
                                               )}
                                             </div>
@@ -6291,16 +5857,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                                   {formatCurrency(periodPlannedValue, project.currency)}
                                                 </span>
                                               ) : (
-                                                <span className="text-sm text-gray-400">-</span>
+                                                <span className="text-xs text-gray-400">-</span>
                                               )}
                                               {!hideVirtualMaterialColumn && showVirtualMaterialValues && periodPlannedVirtualMaterialAmount > 0 && (
                                                 <div className="text-xs text-purple-600 dark:text-purple-400">
                                                   {formatCurrency(periodPlannedVirtualMaterialAmount, project.currency)}
-                                                </div>
-                                              )}
-                                              {!hideVirtualMaterialColumn && showVirtualMaterialValues && periodPlannedValue > 0 && periodPlannedVirtualMaterialAmount > 0 && (
-                                                <div className="text-xs font-bold text-gray-900 dark:text-white">
-                                                  {formatCurrency(periodPlannedValue + periodPlannedVirtualMaterialAmount, project.currency)}
                                                 </div>
                                               )}
                                             </div>
@@ -6316,16 +5877,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                                 {formatCurrency(periodValue, project.currency)}
                                               </span>
                                             ) : (
-                                              <span className="text-sm text-gray-400">-</span>
+                                              <span className="text-xs text-gray-400">-</span>
                                             )}
                                             {!hideVirtualMaterialColumn && showVirtualMaterialValues && periodVirtualMaterialAmount > 0 && (
                                               <div className="text-xs text-purple-600 dark:text-purple-400">
                                                 {formatCurrency(periodVirtualMaterialAmount, project.currency)}
-                                              </div>
-                                            )}
-                                            {!hideVirtualMaterialColumn && showVirtualMaterialValues && periodValue > 0 && periodVirtualMaterialAmount > 0 && (
-                                              <div className="text-xs font-bold text-gray-900 dark:text-white">
-                                                {formatCurrency(periodValue + periodVirtualMaterialAmount, project.currency)}
                                               </div>
                                             )}
                                           </div>
@@ -6342,16 +5898,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                               {formatCurrency(activityGrandTotal, project.currency)}
                                             </span>
                                           ) : (
-                                            <span className="text-sm text-gray-400">-</span>
+                                            <span className="text-xs text-gray-400">-</span>
                                           )}
                                           {!hideVirtualMaterialColumn && showVirtualMaterialValues && activityTotalVirtualMaterialAmount > 0 && (
-                                            <div className="text-xs text-purple-600 dark:text-purple-400">
+                                            <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
                                               {formatCurrency(activityTotalVirtualMaterialAmount, project.currency)}
-                                            </div>
-                                          )}
-                                          {!hideVirtualMaterialColumn && showVirtualMaterialValues && activityGrandTotal > 0 && activityTotalVirtualMaterialAmount > 0 && (
-                                            <div className="text-xs font-bold text-gray-900 dark:text-white">
-                                              {formatCurrency(activityGrandTotal + activityTotalVirtualMaterialAmount, project.currency)}
                                             </div>
                                           )}
                                         </div>
@@ -6363,16 +5914,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                               {formatCurrency(activityGrandTotalPlanned, project.currency)}
                                             </span>
                                           ) : (
-                                            <span className="text-sm text-gray-400">-</span>
+                                            <span className="text-xs text-gray-400">-</span>
                                           )}
                                           {!hideVirtualMaterialColumn && showVirtualMaterialValues && activityTotalPlannedVirtualMaterialAmount > 0 && (
-                                            <div className="text-xs text-purple-600 dark:text-purple-400">
+                                            <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
                                               {formatCurrency(activityTotalPlannedVirtualMaterialAmount, project.currency)}
-                                            </div>
-                                          )}
-                                          {!hideVirtualMaterialColumn && showVirtualMaterialValues && activityGrandTotalPlanned > 0 && activityTotalPlannedVirtualMaterialAmount > 0 && (
-                                            <div className="text-xs font-bold text-gray-900 dark:text-white">
-                                              {formatCurrency(activityGrandTotalPlanned + activityTotalPlannedVirtualMaterialAmount, project.currency)}
                                             </div>
                                           )}
                                         </div>
@@ -6381,21 +5927,12 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                   ) : (
                                     <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right" style={{ width: '150px' }}>
                                       <div className="space-y-1">
-                                        {activityGrandTotal > 0 ? (
-                                          <span className="text-sm text-green-600 dark:text-green-400 font-bold">
-                                            {formatCurrency(activityGrandTotal, project.currency)}
-                                          </span>
-                                        ) : (
-                                          <span className="text-sm text-gray-400">-</span>
-                                        )}
+                                        <span className="text-sm text-gray-900 dark:text-white font-bold">
+                                          {formatCurrency(activityGrandTotal, project.currency)}
+                                        </span>
                                         {!hideVirtualMaterialColumn && showVirtualMaterialValues && activityTotalVirtualMaterialAmount > 0 && (
-                                          <div className="text-xs text-purple-600 dark:text-purple-400">
+                                          <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
                                             {formatCurrency(activityTotalVirtualMaterialAmount, project.currency)}
-                                          </div>
-                                        )}
-                                        {!hideVirtualMaterialColumn && showVirtualMaterialValues && activityGrandTotal > 0 && activityTotalVirtualMaterialAmount > 0 && (
-                                          <div className="text-xs font-bold text-gray-900 dark:text-white">
-                                            {formatCurrency(activityGrandTotal + activityTotalVirtualMaterialAmount, project.currency)}
                                           </div>
                                         )}
                                       </div>
@@ -6407,275 +5944,23 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                           </>
                         )
                       })()}
-                      </>
-                    )
-                  })
+                    </>
+                  )
+                })
                 )}
               </tbody>
-              {projectsWithWorkInRange.length > 0 && (
-                <tfoot>
-                  <tr className="bg-gray-100 dark:bg-gray-800 font-bold border-t-2 border-gray-300 dark:border-gray-600">
-                    <td colSpan={1 + 1 + (hideDivisionsColumn ? 0 : 1) + 1 + (hideTotalContractColumn ? 0 : 1) + 1 + (hideVirtualMaterialColumn ? 0 : 1) + (showOuterRangeColumn && outerRangeStart ? (viewPlannedValue ? 2 : 1) : 0)} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right">
-                      <span className="text-gray-900 dark:text-white">Grand Total</span>
-                    </td>
-                    {periods.map((period, periodIndex) => {
-                      // ✅ FIX: Calculate totals from paginatedProjects (visible rows) only
-                      const periodTotal = paginatedProjects.reduce((sum: number, analytics: any) => {
-                        const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
-                        const periodValues = cachedValues?.earned || []
-                        return sum + (periodValues[periodIndex] || 0)
-                      }, 0)
-                      const periodPlannedTotal = viewPlannedValue ? paginatedProjects.reduce((sum: number, analytics: any) => {
-                        const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
-                        const periodPlannedValues = cachedValues?.planned || []
-                        return sum + (periodPlannedValues[periodIndex] || 0)
-                      }, 0) : 0
-                      const periodVirtualMaterialTotal = showVirtualMaterialValues ? paginatedProjects.reduce((sum: number, analytics: any) => {
-                        const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
-                        const virtualMaterialAmounts = cachedValues?.virtualMaterialAmount || []
-                        return sum + (virtualMaterialAmounts[periodIndex] || 0)
-                      }, 0) : 0
-                      const periodPlannedVirtualMaterialTotal = showVirtualMaterialValues && viewPlannedValue ? paginatedProjects.reduce((sum: number, analytics: any) => {
-                        const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
-                        const plannedVirtualMaterialAmounts = cachedValues?.plannedVirtualMaterialAmount || []
-                        return sum + (plannedVirtualMaterialAmounts[periodIndex] || 0)
-                      }, 0) : 0
-                      
-                      if (viewPlannedValue) {
-                        return (
-                          <React.Fragment key={periodIndex}>
-                            <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-green-50 dark:bg-green-900/20" style={{ width: '140px' }}>
-                              <div className="space-y-1">
-                                {periodTotal > 0 ? (
-                                  <span className="text-green-600 dark:text-green-400 font-bold">
-                                    {formatCurrency(periodTotal, projectsWithWorkInRange[0]?.project?.currency || 'AED')}
-                                  </span>
-                                ) : (
-                                  <span className="text-gray-400">-</span>
-                                )}
-                                {!hideVirtualMaterialColumn && showVirtualMaterialValues && periodVirtualMaterialTotal > 0 && (
-                                  <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
-                                    {formatCurrency(periodVirtualMaterialTotal, projectsWithWorkInRange[0]?.project?.currency || 'AED')}
-                                  </div>
-                                )}
-                                {!hideVirtualMaterialColumn && showVirtualMaterialValues && periodTotal > 0 && periodVirtualMaterialTotal > 0 && (
-                                  <div className="text-xs font-bold text-gray-900 dark:text-white">
-                                    {formatCurrency(periodTotal + periodVirtualMaterialTotal, projectsWithWorkInRange[0]?.project?.currency || 'AED')}
-                                  </div>
-                                )}
-                              </div>
-                            </td>
-                            <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '140px' }}>
-                              <div className="space-y-1">
-                                {periodPlannedTotal > 0 ? (
-                                  <span className="text-blue-600 dark:text-blue-400 font-bold">
-                                    {formatCurrency(periodPlannedTotal, projectsWithWorkInRange[0]?.project?.currency || 'AED')}
-                                  </span>
-                                ) : (
-                                  <span className="text-gray-400">-</span>
-                                )}
-                                {!hideVirtualMaterialColumn && showVirtualMaterialValues && periodPlannedVirtualMaterialTotal > 0 && (
-                                  <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
-                                    {formatCurrency(periodPlannedVirtualMaterialTotal, projectsWithWorkInRange[0]?.project?.currency || 'AED')}
-                                  </div>
-                                )}
-                                {!hideVirtualMaterialColumn && showVirtualMaterialValues && periodPlannedTotal > 0 && periodPlannedVirtualMaterialTotal > 0 && (
-                                  <div className="text-xs font-bold text-gray-900 dark:text-white">
-                                    {formatCurrency(periodPlannedTotal + periodPlannedVirtualMaterialTotal, projectsWithWorkInRange[0]?.project?.currency || 'AED')}
-                                  </div>
-                                )}
-                              </div>
-                            </td>
-                          </React.Fragment>
-                        )
-                      } else {
-                        return (
-                          <td key={periodIndex} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '140px' }}>
-                            <div className="space-y-1">
-                              {periodTotal > 0 ? (
-                                <span className="text-green-600 dark:text-green-400 font-bold">
-                                  {formatCurrency(periodTotal, projectsWithWorkInRange[0]?.project?.currency || 'AED')}
-                                </span>
-                              ) : (
-                                <span className="text-gray-400">-</span>
-                              )}
-                              {!hideVirtualMaterialColumn && showVirtualMaterialValues && periodVirtualMaterialTotal > 0 && (
-                                <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
-                                  {formatCurrency(periodVirtualMaterialTotal, projectsWithWorkInRange[0]?.project?.currency || 'AED')}
-                                </div>
-                              )}
-                              {!hideVirtualMaterialColumn && showVirtualMaterialValues && periodTotal > 0 && periodVirtualMaterialTotal > 0 && (
-                                <div className="text-xs font-bold text-gray-900 dark:text-white">
-                                  {formatCurrency(periodTotal + periodVirtualMaterialTotal, projectsWithWorkInRange[0]?.project?.currency || 'AED')}
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                        )
-                      }
-                    })}
-                    {viewPlannedValue ? (
-                      <>
-                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-green-50 dark:bg-green-900/20" style={{ width: '150px' }}>
-                          <div className="space-y-1">
-                            {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
-                              <>
-                                {(() => {
-                                  // ✅ FIX: Calculate Grand Total from paginatedProjects (visible rows) only
-                                  const grandTotalEarnedValue = paginatedProjects.reduce((sum: number, analytics: any) => {
-                                    const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
-                                    const periodValues = cachedValues?.earned || []
-                                    return sum + periodValues.reduce((s: number, val: number) => s + val, 0)
-                                  }, 0)
-                                  const totalVirtualMaterialAmount = paginatedProjects.reduce((sum: number, analytics: any) => {
-                                    const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
-                                    const virtualMaterialAmounts = cachedValues?.virtualMaterialAmount || []
-                                    return sum + virtualMaterialAmounts.reduce((s: number, val: number) => s + val, 0)
-                                  }, 0)
-                                  const totalGrandTotal = grandTotalEarnedValue + totalVirtualMaterialAmount
-                                  return (
-                                    <>
-                                      {grandTotalEarnedValue > 0 ? (
-                                        <span className="text-green-600 dark:text-green-400 font-bold">
-                                          {formatCurrency(grandTotalEarnedValue, projectsWithWorkInRange[0]?.project?.currency || 'AED')}
-                                        </span>
-                                      ) : (
-                                        <span className="text-gray-400">-</span>
-                                      )}
-                                      {totalVirtualMaterialAmount > 0 && (
-                                        <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
-                                          {formatCurrency(totalVirtualMaterialAmount, projectsWithWorkInRange[0]?.project?.currency || 'AED')}
-                                        </div>
-                                      )}
-                                      {totalVirtualMaterialAmount > 0 && totalGrandTotal > 0 && (
-                                        <div className="text-xs font-bold text-gray-900 dark:text-white">
-                                          {formatCurrency(totalGrandTotal, projectsWithWorkInRange[0]?.project?.currency || 'AED')}
-                                        </div>
-                                      )}
-                                    </>
-                                  )
-                                })()}
-                              </>
-                            ) : (
-                              <span className="text-gray-900 dark:text-white font-bold">{formatCurrency(paginatedProjects.reduce((sum: number, analytics: any) => {
-                                const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
-                                const periodValues = cachedValues?.earned || []
-                                return sum + periodValues.reduce((s: number, val: number) => s + val, 0)
-                              }, 0), projectsWithWorkInRange[0]?.project?.currency || 'AED')}</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '150px' }}>
-                          <div className="space-y-1">
-                            {!hideVirtualMaterialColumn && showVirtualMaterialValues ? (
-                              <>
-                                {(() => {
-                                  // ✅ FIX: Calculate Grand Total Planned from paginatedProjects (visible rows) only
-                                  const grandTotalPlannedValue = paginatedProjects.reduce((sum: number, analytics: any) => {
-                                    const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
-                                    const periodPlannedValues = cachedValues?.planned || []
-                                    return sum + periodPlannedValues.reduce((s: number, val: number) => s + val, 0)
-                                  }, 0)
-                                  const totalPlannedVirtualMaterialAmount = paginatedProjects.reduce((sum: number, analytics: any) => {
-                                    const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
-                                    const plannedVirtualMaterialAmounts = cachedValues?.plannedVirtualMaterialAmount || []
-                                    return sum + plannedVirtualMaterialAmounts.reduce((s: number, val: number) => s + val, 0)
-                                  }, 0)
-                                  const totalPlannedGrandTotal = grandTotalPlannedValue + totalPlannedVirtualMaterialAmount
-                                  return (
-                                    <>
-                                      {grandTotalPlannedValue > 0 ? (
-                                        <span className="text-blue-600 dark:text-blue-400 font-bold">
-                                          {formatCurrency(grandTotalPlannedValue, projectsWithWorkInRange[0]?.project?.currency || 'AED')}
-                                        </span>
-                                      ) : (
-                                        <span className="text-gray-400">-</span>
-                                      )}
-                                      {totalPlannedVirtualMaterialAmount > 0 && (
-                                        <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
-                                          {formatCurrency(totalPlannedVirtualMaterialAmount, projectsWithWorkInRange[0]?.project?.currency || 'AED')}
-                                        </div>
-                                      )}
-                                      {totalPlannedVirtualMaterialAmount > 0 && totalPlannedGrandTotal > 0 && (
-                                        <div className="text-xs font-bold text-gray-900 dark:text-white">
-                                          {formatCurrency(totalPlannedGrandTotal, projectsWithWorkInRange[0]?.project?.currency || 'AED')}
-                                        </div>
-                                      )}
-                                    </>
-                                  )
-                                })()}
-                              </>
-                            ) : (
-                                (() => {
-                                  const grandTotalPlannedValue = paginatedProjects.reduce((sum: number, analytics: any) => {
-                                    const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
-                                    const periodPlannedValues = cachedValues?.planned || []
-                                    return sum + periodPlannedValues.reduce((s: number, val: number) => s + val, 0)
-                                  }, 0)
-                                  return grandTotalPlannedValue > 0 ? (
-                                    <span className="text-blue-600 dark:text-blue-400 font-bold">{formatCurrency(grandTotalPlannedValue, projectsWithWorkInRange[0]?.project?.currency || 'AED')}</span>
-                                  ) : (
-                                    <span className="text-gray-400">-</span>
-                                  )
-                                })()
-                              )}
-                          </div>
-                        </td>
-                      </>
-                    ) : (
-                      <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '150px' }}>
-                        <div className="space-y-1">
-                          {(() => {
-                            // ✅ FIX: Calculate Grand Total from paginatedProjects (visible rows) only
-                            const grandTotalEarnedValue = paginatedProjects.reduce((sum: number, analytics: any) => {
-                              const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
-                              const periodValues = cachedValues?.earned || []
-                              return sum + periodValues.reduce((s: number, val: number) => s + val, 0)
-                            }, 0)
-                            const totalVirtualMaterialAmount = showVirtualMaterialValues ? paginatedProjects.reduce((sum: number, analytics: any) => {
-                              const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
-                              const virtualMaterialAmounts = cachedValues?.virtualMaterialAmount || []
-                              return sum + virtualMaterialAmounts.reduce((s: number, val: number) => s + val, 0)
-                            }, 0) : 0
-                            return (
-                              <>
-                                <span className="text-gray-900 dark:text-white font-bold">{formatCurrency(grandTotalEarnedValue, projectsWithWorkInRange[0]?.project?.currency || 'AED')}</span>
-                                {!hideVirtualMaterialColumn && showVirtualMaterialValues && totalVirtualMaterialAmount > 0 && (
-                                  <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
-                                    {formatCurrency(totalVirtualMaterialAmount, projectsWithWorkInRange[0]?.project?.currency || 'AED')}
-                                  </div>
-                                )}
-                                {!hideVirtualMaterialColumn && showVirtualMaterialValues && totalVirtualMaterialAmount > 0 && (grandTotalEarnedValue + totalVirtualMaterialAmount) > 0 && (
-                                  <div className="text-xs font-bold text-gray-900 dark:text-white">
-                                    {formatCurrency(grandTotalEarnedValue + totalVirtualMaterialAmount, projectsWithWorkInRange[0]?.project?.currency || 'AED')}
-                                  </div>
-                                )}
-                              </>
-                            )
-                          })()}
-                        </div>
-                      </td>
-                    )}
-                  </tr>
-                </tfoot>
-              )}
             </table>
           </div>
           
-          {projectsWithWorkInRange.length > 0 && (
-            <div className="mt-4">
-              {isChangingPage && (
-                <div className="mb-2 text-sm text-gray-500 dark:text-gray-400 text-center">
-                  Loading...
-                </div>
-              )}
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700">
               <Pagination
                 currentPage={currentPage}
                 totalPages={totalPages}
-                onPageChange={handlePageChange}
+                totalItems={paginatedProjects.length}
                 itemsPerPage={itemsPerPage}
-                totalItems={hideZeroProjects ? paginatedProjects.length * totalPages : projectsWithWorkInRange.length}
-                onItemsPerPageChange={handleItemsPerPageChange}
+                onPageChange={handlePageChange}
               />
             </div>
           )}
