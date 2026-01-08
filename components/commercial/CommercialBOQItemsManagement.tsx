@@ -99,9 +99,22 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
   const supabase = getSupabaseClient()
   const { startSmartLoading, stopSmartLoading } = useSmartLoading('commercial-boq-items')
   
+  // Refs to prevent concurrent fetches
+  const fetchingItemsRef = useRef(false)
+  const fetchingProjectsRef = useRef(false)
+  const fetchingSubCodesRef = useRef(false)
+  const fetchingUnitsRef = useRef(false)
+  
   // Fetch BOQ Items
   const fetchItems = useCallback(async () => {
+    // Prevent concurrent fetches
+    if (fetchingItemsRef.current) {
+      console.log('⏸️ Fetch already in progress, skipping...')
+      return
+    }
+    
     try {
+      fetchingItemsRef.current = true
       setLoading(true)
       setError('')
       startSmartLoading(setLoading)
@@ -380,13 +393,21 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
       console.error('❌ Error fetching BOQ items:', err)
       setError(err.message || 'Failed to load BOQ items. Please check the browser console for details.')
     } finally {
+      fetchingItemsRef.current = false
       stopSmartLoading(setLoading)
     }
   }, [supabase, startSmartLoading, stopSmartLoading])
   
   // Fetch Projects for dropdown
   const fetchProjects = useCallback(async () => {
+    // Prevent concurrent fetches
+    if (fetchingProjectsRef.current) {
+      console.log('⏸️ Projects fetch already in progress, skipping...')
+      return
+    }
+    
     try {
+      fetchingProjectsRef.current = true
       const { data, error: fetchError } = await supabase
         .from(TABLES.PROJECTS)
         .select('*')
@@ -418,24 +439,32 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
       setProjects(mappedProjects)
     } catch (err: any) {
       console.error('Error fetching projects:', err)
+    } finally {
+      fetchingProjectsRef.current = false
     }
   }, [supabase])
 
   // Fetch Project Sub-Codes for dropdown
   const fetchProjectSubCodes = useCallback(async () => {
+    // Prevent concurrent fetches
+    if (fetchingSubCodesRef.current) {
+      console.log('⏸️ Sub-codes fetch already in progress, skipping...')
+      return
+    }
+    
     try {
+      fetchingSubCodesRef.current = true
+      // Fetch all project sub-codes and filter client-side to avoid URL encoding issues
       const { data, error: fetchError } = await supabase
         .from(TABLES.PROJECTS)
         .select('"Project Sub-Code"')
-        .not('"Project Sub-Code"', 'is', null)
-        .neq('"Project Sub-Code"', '')
       
       if (fetchError) {
         console.error('Error fetching project sub-codes:', fetchError)
         return
       }
       
-      // Extract unique sub-codes
+      // Extract unique sub-codes (filter null/empty client-side)
       const subCodesSet = new Set<string>()
       if (data && data.length > 0) {
         data.forEach((row: any) => {
@@ -456,17 +485,25 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
       console.log('✅ Loaded project sub-codes:', uniqueSubCodes.length)
     } catch (err: any) {
       console.error('Error fetching project sub-codes:', err)
+    } finally {
+      fetchingSubCodesRef.current = false
     }
   }, [supabase])
 
   // Fetch Units for dropdown
   const fetchUnits = useCallback(async () => {
+    // Prevent concurrent fetches
+    if (fetchingUnitsRef.current) {
+      console.log('⏸️ Units fetch already in progress, skipping...')
+      return
+    }
+    
     try {
+      fetchingUnitsRef.current = true
+      // Fetch all units and filter client-side to avoid URL encoding issues
       const { data, error: fetchError } = await supabase
         .from('units')
         .select('code')
-        .not('code', 'is', null)
-        .neq('code', '')
         .order('code', { ascending: true })
       
       if (fetchError) {
@@ -474,7 +511,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
         return
       }
       
-      // Extract unique unit codes
+      // Extract unique unit codes (filter null/empty client-side)
       const unitsSet = new Set<string>()
       if (data && data.length > 0) {
         data.forEach((row: any) => {
@@ -495,14 +532,24 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
       console.log('✅ Loaded units:', uniqueUnits.length)
     } catch (err: any) {
       console.error('Error fetching units:', err)
+    } finally {
+      fetchingUnitsRef.current = false
     }
   }, [supabase])
   
   useEffect(() => {
-    fetchItems()
-    fetchProjects()
-    fetchProjectSubCodes()
-    fetchUnits()
+    // Stagger initial fetches to avoid resource exhaustion
+    const loadData = async () => {
+      await fetchItems()
+      // Small delay between fetches to prevent resource exhaustion
+      await new Promise(resolve => setTimeout(resolve, 100))
+      await fetchProjects()
+      await new Promise(resolve => setTimeout(resolve, 100))
+      await fetchProjectSubCodes()
+      await new Promise(resolve => setTimeout(resolve, 100))
+      await fetchUnits()
+    }
+    loadData()
   }, [fetchItems, fetchProjects, fetchProjectSubCodes, fetchUnits])
   
   // Extract unique values for multiselect filters and calculate ranges
@@ -2043,7 +2090,11 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
       {showAddForm && (
         <AddBOQItemForm
           projects={projects}
-          onSave={fetchItems}
+          onSave={async () => {
+            // Add small delay to ensure insert is complete before fetching
+            await new Promise(resolve => setTimeout(resolve, 300))
+            await fetchItems()
+          }}
           onCancel={() => setShowAddForm(false)}
           isOpen={showAddForm}
         />

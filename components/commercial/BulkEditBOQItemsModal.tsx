@@ -140,87 +140,118 @@ export function BulkEditBOQItemsModal({
             </p>
             
             {/* Unit */}
-            <div className="space-y-2">
+            <div className="space-y-2 border border-gray-200 dark:border-gray-700 rounded-lg p-3 transition-all duration-200">
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
                   checked={fieldsToUpdate.has('unit')}
                   onChange={() => handleFieldToggle('unit')}
+                  className="w-4 h-4 cursor-pointer"
                 />
-                <label className="font-medium">Unit</label>
+                <label className="font-medium cursor-pointer" onClick={() => handleFieldToggle('unit')}>
+                  Unit
+                </label>
               </div>
-              {fieldsToUpdate.has('unit') && (
+              <div className={`overflow-hidden transition-all duration-300 ease-in-out ${
+                fieldsToUpdate.has('unit') 
+                  ? 'max-h-96 opacity-100 mt-2' 
+                  : 'max-h-0 opacity-0'
+              }`}>
                 <Input
                   value={unit}
                   onChange={(e) => setUnit(e.target.value)}
                   placeholder="Enter unit"
+                  className="w-full"
                 />
-              )}
+              </div>
             </div>
             
             {/* Remeasurable */}
-            <div className="space-y-2">
+            <div className="space-y-2 border border-gray-200 dark:border-gray-700 rounded-lg p-3 transition-all duration-200">
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
                   checked={fieldsToUpdate.has('remeasurable')}
                   onChange={() => handleFieldToggle('remeasurable')}
+                  className="w-4 h-4 cursor-pointer"
                 />
-                <label className="font-medium">Remeasurable</label>
+                <label className="font-medium cursor-pointer" onClick={() => handleFieldToggle('remeasurable')}>
+                  Remeasurable
+                </label>
               </div>
-              {fieldsToUpdate.has('remeasurable') && (
+              <div className={`overflow-hidden transition-all duration-300 ease-in-out ${
+                fieldsToUpdate.has('remeasurable') 
+                  ? 'max-h-96 opacity-100 mt-2' 
+                  : 'max-h-0 opacity-0'
+              }`}>
                 <select
                   value={remeasurable === null ? '' : remeasurable ? 'true' : 'false'}
                   onChange={(e) => setRemeasurable(e.target.value === '' ? null : e.target.value === 'true')}
-                  className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
                   <option value="">Select...</option>
                   <option value="true">Yes</option>
                   <option value="false">No</option>
                 </select>
-              )}
+              </div>
             </div>
             
             {/* Planning Assigned Amount */}
-            <div className="space-y-2">
+            <div className="space-y-2 border border-gray-200 dark:border-gray-700 rounded-lg p-3 transition-all duration-200">
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
                   checked={fieldsToUpdate.has('planning_assigned_amount')}
                   onChange={() => handleFieldToggle('planning_assigned_amount')}
+                  className="w-4 h-4 cursor-pointer"
                 />
-                <label className="font-medium">Planning Assigned Amount</label>
+                <label className="font-medium cursor-pointer" onClick={() => handleFieldToggle('planning_assigned_amount')}>
+                  Planning Assigned Amount
+                </label>
               </div>
-              {fieldsToUpdate.has('planning_assigned_amount') && (
+              <div className={`overflow-hidden transition-all duration-300 ease-in-out ${
+                fieldsToUpdate.has('planning_assigned_amount') 
+                  ? 'max-h-96 opacity-100 mt-2' 
+                  : 'max-h-0 opacity-0'
+              }`}>
                 <Input
                   type="number"
                   step="0.01"
                   value={planningAssignedAmount}
                   onChange={(e) => setPlanningAssignedAmount(e.target.value)}
                   placeholder="Enter amount"
+                  className="w-full"
                 />
-              )}
+              </div>
             </div>
             
             {/* Variations */}
-            <div className="space-y-2">
+            <div className="space-y-2 border border-gray-200 dark:border-gray-700 rounded-lg p-3 transition-all duration-200">
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
                   checked={fieldsToUpdate.has('variations')}
                   onChange={() => handleFieldToggle('variations')}
+                  className="w-4 h-4 cursor-pointer"
                 />
-                <label className="font-medium">Variations</label>
+                <label className="font-medium cursor-pointer" onClick={() => handleFieldToggle('variations')}>
+                  Variations
+                </label>
               </div>
-              {fieldsToUpdate.has('variations') && (
+              <div className={`overflow-hidden transition-all duration-300 ease-in-out ${
+                fieldsToUpdate.has('variations') 
+                  ? 'max-h-96 opacity-100 mt-2' 
+                  : 'max-h-0 opacity-0'
+              }`}>
                 <Input
                   type="number"
                   step="0.01"
                   value={variations}
                   onChange={(e) => setVariations(e.target.value)}
                   placeholder="Enter variations amount"
+                  className="w-full"
                 />
-              )}
+              </div>
             </div>
           </div>
           
