@@ -348,6 +348,11 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: 'commercial.payments_invoicing.delete', name: 'Delete Payments & Invoicing', category: 'commercial', description: 'Can delete payments and invoicing records', action: 'delete' },
   { id: 'commercial.payments_invoicing.export', name: 'Export Payments & Invoicing', category: 'commercial', description: 'Can export payments and invoicing data', action: 'export' },
   { id: 'commercial.payments_invoicing.import', name: 'Import Payments & Invoicing', category: 'commercial', description: 'Can import payments and invoicing records from files', action: 'manage' },
+  { id: 'commercial.variations.view', name: 'View Variations', category: 'commercial', description: 'Can view contract variations', action: 'view' },
+  { id: 'commercial.variations.create', name: 'Create Variations', category: 'commercial', description: 'Can create new contract variations', action: 'create' },
+  { id: 'commercial.variations.edit', name: 'Edit Variations', category: 'commercial', description: 'Can edit contract variations', action: 'edit' },
+  { id: 'commercial.variations.delete', name: 'Delete Variations', category: 'commercial', description: 'Can delete contract variations', action: 'delete' },
+  { id: 'commercial.variations.export', name: 'Export Variations', category: 'commercial', description: 'Can export variations data', action: 'export' },
 ]
 
 // الصلاحيات الافتراضية لكل دور

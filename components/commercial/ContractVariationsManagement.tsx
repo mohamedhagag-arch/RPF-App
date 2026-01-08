@@ -364,6 +364,11 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
           return 0
         }
         
+        const quantity = Number(getNumericValue(['Quantity', 'quantity']))
+        const unitsVariation = Number(getNumericValue(['Units Variation', 'units_variation', 'UnitsVariation', 'unitsVariation']))
+        const variationsAmount = Number(getNumericValue(['Variations', 'variations', 'Variations Amount', 'variations_amount']))
+        const totalValue = Number(getNumericValue(['Total Value', 'total_value', 'TotalValue', 'totalValue']))
+        
         const item: CommercialBOQItem = {
           id: row.id || '',
           auto_generated_unique_reference_number: getValue([
@@ -383,15 +388,17 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
             'item_description'
           ]) || '',
           unit: getValue(['Unit', 'unit']) || '',
-          quantity: Number(getNumericValue(['Quantity', 'quantity'])),
+          quantity: quantity,
           rate: Number(getNumericValue(['Rate', 'rate'])),
-          total_value: Number(getNumericValue(['Total Value', 'total_value', 'TotalValue', 'totalValue'])),
+          total_value: totalValue,
           remeasurable: (row['Remeasurable?'] === true || 
                         row['Remeasurable?'] === 'true' ||
                         String(getValue(['Remeasurable?', 'remeasurable'])).toLowerCase() === 'true'),
           planning_assigned_amount: Number(getNumericValue(['Planning Assigned Amount', 'planning_assigned_amount', 'PlanningAssignedAmount', 'planningAssignedAmount'])),
-          variations: Number(getNumericValue(['Variations', 'variations'])),
-          total_including_variations: Number(getNumericValue(['Total Including Variations', 'total_including_variations', 'TotalIncludingVariations', 'totalIncludingVariations'])),
+          units_variation: unitsVariation,
+          variations_amount: variationsAmount,
+          total_units: quantity + unitsVariation, // ✅ Calculated: quantity + units_variation
+          total_including_variations: totalValue + variationsAmount, // ✅ Calculated: total_value + variations_amount
           created_at: row.created_at || '',
           updated_at: row.updated_at || '',
         }
@@ -443,8 +450,8 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
       
       // Update each BOQ item's Variations Amount and Units Variation fields
       const updatePromises = Object.entries(boqItemTotals).map(async ([boqItemId, totals]) => {
-        const { error: updateError } = await supabase
-          .from(TABLES.COMMERCIAL_BOQ_ITEMS)
+        const { error: updateError } = await (supabase
+          .from(TABLES.COMMERCIAL_BOQ_ITEMS) as any)
           .update({ 
             'Variations Amount': totals.variationsAmount,
             'Units Variation': totals.unitsVariation
@@ -463,13 +470,13 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
       
       if (!boqError && allBOQItems) {
         const boqItemIds = new Set(Object.keys(boqItemTotals))
-        const itemsToReset = allBOQItems
-          .filter(item => !boqItemIds.has(item.id))
-          .map(item => item.id)
+        const itemsToReset = (allBOQItems as any[])
+          .filter((item: any) => !boqItemIds.has(item.id))
+          .map((item: any) => item.id)
         
         if (itemsToReset.length > 0) {
-          const { error: resetError } = await supabase
-            .from(TABLES.COMMERCIAL_BOQ_ITEMS)
+          const { error: resetError } = await (supabase
+            .from(TABLES.COMMERCIAL_BOQ_ITEMS) as any)
             .update({ 
               'Variations Amount': 0,
               'Units Variation': 0
@@ -2131,6 +2138,8 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
               <Pagination
                 currentPage={currentPage}
                 totalPages={totalPages}
+                totalItems={filteredVariations.length}
+                itemsPerPage={itemsPerPage}
                 onPageChange={setCurrentPage}
               />
             </div>
