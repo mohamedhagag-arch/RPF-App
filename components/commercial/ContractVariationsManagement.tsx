@@ -407,43 +407,48 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
     }
   }, [supabase])
   
-  // Update BOQ items Variations field based on linked variations
+  // Update BOQ items Variations field and Units Variation field based on linked variations
   const updateBOQItemsVariations = useCallback(async () => {
     try {
       // Fetch all variations
       const { data: allVariations, error: variationsError } = await supabase
         .from(TABLES.CONTRACT_VARIATIONS)
-        .select('id, "Item Description", "Variation Amount"')
+        .select('id, "Item Description", "Variation Amount", "Quantity Changes"')
       
       if (variationsError) {
         console.error('Error fetching variations for BOQ update:', variationsError)
         return
       }
       
-      // Calculate total variation amount for each BOQ item
-      const boqItemTotals: Record<string, number> = {}
+      // Calculate total variation amount and total quantity changes for each BOQ item
+      const boqItemTotals: Record<string, { variationsAmount: number; unitsVariation: number }> = {}
       
       if (allVariations) {
         allVariations.forEach((variation: any) => {
           const itemDescription = variation['Item Description'] || variation.item_description || ''
           const variationAmount = parseFloat(variation['Variation Amount'] || variation.variation_amount || 0) || 0
+          const quantityChanges = parseFloat(variation['Quantity Changes'] || variation.quantity_changes || 0) || 0
           
-          // Add the variation amount to the linked BOQ item
+          // Add the variation amount and quantity changes to the linked BOQ item
           if (itemDescription && String(itemDescription).trim() !== '') {
             const boqItemId = String(itemDescription).trim()
             if (!boqItemTotals[boqItemId]) {
-              boqItemTotals[boqItemId] = 0
+              boqItemTotals[boqItemId] = { variationsAmount: 0, unitsVariation: 0 }
             }
-            boqItemTotals[boqItemId] += variationAmount
+            boqItemTotals[boqItemId].variationsAmount += variationAmount
+            boqItemTotals[boqItemId].unitsVariation += quantityChanges
           }
         })
       }
       
-      // Update each BOQ item's Variations field
-      const updatePromises = Object.entries(boqItemTotals).map(async ([boqItemId, totalVariations]) => {
+      // Update each BOQ item's Variations Amount and Units Variation fields
+      const updatePromises = Object.entries(boqItemTotals).map(async ([boqItemId, totals]) => {
         const { error: updateError } = await supabase
           .from(TABLES.COMMERCIAL_BOQ_ITEMS)
-          .update({ 'Variations': totalVariations })
+          .update({ 
+            'Variations Amount': totals.variationsAmount,
+            'Units Variation': totals.unitsVariation
+          })
           .eq('id', boqItemId)
         
         if (updateError) {
@@ -465,7 +470,10 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
         if (itemsToReset.length > 0) {
           const { error: resetError } = await supabase
             .from(TABLES.COMMERCIAL_BOQ_ITEMS)
-            .update({ 'Variations': 0 })
+            .update({ 
+              'Variations Amount': 0,
+              'Units Variation': 0
+            })
             .in('id', itemsToReset)
           
           if (resetError) {

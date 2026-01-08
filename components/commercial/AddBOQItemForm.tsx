@@ -36,8 +36,6 @@ export function AddBOQItemForm({
   const [quantity, setQuantity] = useState('')
   const [rate, setRate] = useState('')
   const [remeasurable, setRemeasurable] = useState(false)
-  const [planningAssignedAmount, setPlanningAssignedAmount] = useState('')
-  const [variations, setVariations] = useState('')
   
   const supabase = getSupabaseClient()
   
@@ -51,8 +49,6 @@ export function AddBOQItemForm({
       setQuantity('')
       setRate('')
       setRemeasurable(false)
-      setPlanningAssignedAmount('')
-      setVariations('')
       setError('')
       setSuccess(false)
     }
@@ -80,9 +76,9 @@ export function AddBOQItemForm({
   }, [quantity, rate])
   
   const calculatedTotalIncludingVariations: number = useMemo(() => {
-    const vars = parseFloat(variations) || 0
-    return Number(calculatedTotalValue) + Number(vars)
-  }, [calculatedTotalValue, variations]) as number
+    // Variations Amount is read-only and set to 0 for new items
+    return Number(calculatedTotalValue)
+  }, [calculatedTotalValue]) as number
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -111,9 +107,12 @@ export function AddBOQItemForm({
       const quantityNum = parseFloat(quantity)
       const rateNum = parseFloat(rate)
       const totalValue = quantityNum * rateNum
-      const variationsNum = parseFloat(variations) || 0
+      // These fields are read-only and set to 0 for new items
+      const variationsNum = 0
       const totalIncludingVariations = totalValue + variationsNum
-      const planningAssignedNum = parseFloat(planningAssignedAmount) || 0
+      const planningAssignedNum = 0
+      const unitsVariation = 0
+      const totalUnits = quantityNum + unitsVariation
       
       // Prepare data for Supabase (using exact column names from database)
       const insertData = {
@@ -126,7 +125,9 @@ export function AddBOQItemForm({
         'Total Value': totalValue,
         'Remeasurable?': remeasurable,
         'Planning Assigned Amount': planningAssignedNum,
-        'Variations': variationsNum,
+        'Units Variation': unitsVariation,
+        'Variations Amount': variationsNum,
+        'Total Units': totalUnits,
         'Total Including Variations': totalIncludingVariations,
       }
       
@@ -155,8 +156,6 @@ export function AddBOQItemForm({
       setQuantity('')
       setRate('')
       setRemeasurable(false)
-      setPlanningAssignedAmount('')
-      setVariations('')
       
       // Call onSave callback to refresh the list
       setTimeout(() => {
@@ -225,20 +224,6 @@ export function AddBOQItemForm({
                     )
                   })}
                 </select>
-              </div>
-              
-              {/* Project Name */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Project Name <span className="text-red-500">*</span>
-                </label>
-                <Input
-                  value={projectName}
-                  onChange={(e) => setProjectName(e.target.value)}
-                  required
-                  disabled={loading}
-                  placeholder="Enter project name"
-                />
               </div>
               
               {/* Item Description */}
@@ -321,33 +306,6 @@ export function AddBOQItemForm({
                   />
                   <span className="text-sm text-gray-600 dark:text-gray-400">Yes</span>
                 </div>
-              </div>
-              
-              {/* Planning Assigned Amount */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Planning Assigned Amount</label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={planningAssignedAmount}
-                  onChange={(e) => setPlanningAssignedAmount(e.target.value)}
-                  disabled={loading}
-                  placeholder="Enter planning assigned amount"
-                  min="0"
-                />
-              </div>
-              
-              {/* Variations */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Variations</label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={variations}
-                  onChange={(e) => setVariations(e.target.value)}
-                  disabled={loading}
-                  placeholder="Enter variations amount"
-                />
               </div>
               
               {/* Total Including Variations (Calculated) */}

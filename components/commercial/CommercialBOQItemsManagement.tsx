@@ -53,6 +53,21 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingData, setEditingData] = useState<Partial<CommercialBOQItem>>({})
   
+  // Adding new row state
+  const [isAddingNew, setIsAddingNew] = useState(false)
+  const [newBOQItemData, setNewBOQItemData] = useState<Partial<CommercialBOQItem>>({
+    project_full_code: '',
+    project_name: '',
+    item_description: '',
+    unit: '',
+    quantity: 0,
+    rate: 0,
+    remeasurable: false,
+    planning_assigned_amount: 0,
+    units_variation: 0,
+    variations_amount: 0,
+  })
+  
   // Multi-select state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isSelectMode, setIsSelectMode] = useState(false)
@@ -783,10 +798,139 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
     return 0
   }
   
+  // Handle add new row
+  const handleAddNewRow = () => {
+    setIsAddingNew(true)
+    setNewBOQItemData({
+      project_full_code: '',
+      project_name: '',
+      item_description: '',
+      unit: '',
+      quantity: 0,
+      rate: 0,
+      remeasurable: false,
+      planning_assigned_amount: 0,
+      units_variation: 0,
+      variations_amount: 0,
+    })
+    // Cancel any ongoing edit
+    if (editingId) {
+      setEditingId(null)
+      setEditingData({})
+    }
+  }
+  
+  // Handle cancel add new row
+  const handleCancelAddNew = () => {
+    setIsAddingNew(false)
+    setNewBOQItemData({
+      project_full_code: '',
+      project_name: '',
+      item_description: '',
+      unit: '',
+      quantity: 0,
+      rate: 0,
+      remeasurable: false,
+      planning_assigned_amount: 0,
+      units_variation: 0,
+      variations_amount: 0,
+    })
+  }
+  
+  // Handle save new row
+  const handleSaveNew = async () => {
+    try {
+      setError('')
+      setSuccess('')
+      
+      // Validation
+      if (!newBOQItemData.project_full_code || !newBOQItemData.project_name) {
+        setError('Please select a project')
+        return
+      }
+      
+      if (!newBOQItemData.item_description || !newBOQItemData.item_description.trim()) {
+        setError('Please enter an item description')
+        return
+      }
+      
+      // Calculate totals
+      const quantity = parseFloat(String(newBOQItemData.quantity || 0))
+      const rate = parseFloat(String(newBOQItemData.rate || 0))
+      const unitsVariation = parseFloat(String(newBOQItemData.units_variation || 0))
+      const variationsAmount = parseFloat(String(newBOQItemData.variations_amount || 0))
+      const totalValue = quantity * rate
+      const totalUnits = quantity + unitsVariation
+      const totalIncludingVariations = totalValue + variationsAmount
+      
+      const insertData: any = {
+        'Project Full Code': newBOQItemData.project_full_code,
+        'Project Name': newBOQItemData.project_name,
+        'Item Description': newBOQItemData.item_description.trim(),
+        'Unit': newBOQItemData.unit || null,
+        'Quantity': quantity,
+        'Rate': rate,
+        'Total Value': totalValue,
+        'Remeasurable?': newBOQItemData.remeasurable || false,
+        'Planning Assigned Amount': parseFloat(String(newBOQItemData.planning_assigned_amount || 0)),
+        'Units Variation': unitsVariation,
+        'Variations Amount': variationsAmount,
+        'Total Units': totalUnits,
+        'Total Including Variations': totalIncludingVariations,
+        created_by: appUser?.id || null,
+      }
+      
+      const { error: insertError } = await (supabase as any)
+        .from(TABLES.COMMERCIAL_BOQ_ITEMS)
+        .insert([insertData] as any)
+        .select()
+        .single()
+      
+      if (insertError) throw insertError
+      
+      setSuccess('BOQ item created successfully')
+      setIsAddingNew(false)
+      setNewBOQItemData({
+        project_full_code: '',
+        project_name: '',
+        item_description: '',
+        unit: '',
+        quantity: 0,
+        rate: 0,
+        remeasurable: false,
+        planning_assigned_amount: 0,
+        units_variation: 0,
+        variations_amount: 0,
+      })
+      await fetchItems()
+      
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err: any) {
+      console.error('Error creating BOQ item:', err)
+      setError(err.message || 'Failed to create BOQ item')
+    }
+  }
+  
   // Handle edit
   const handleEdit = (item: CommercialBOQItem) => {
     setEditingId(item.id)
     setEditingData({ ...item })
+    // Cancel any ongoing add
+    if (isAddingNew) {
+      setIsAddingNew(false)
+      setNewBOQItemData({
+        project_full_code: '',
+        project_name: '',
+        item_description: '',
+        unit: '',
+        quantity: 0,
+        rate: 0,
+        remeasurable: false,
+        planning_assigned_amount: 0,
+        units_variation: 0,
+        variations_amount: 0,
+      })
+    }
   }
   
   // Handle save
@@ -1883,87 +2027,251 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
           
           {/* Table */}
           <div className="overflow-x-auto">
+            {/* Add New Row Button */}
+            {!isAddingNew && (
+              <div className="p-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                <PermissionButton
+                  permission="commercial.boq_items.create"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAddNewRow}
+                  className="w-full"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add New BOQ Item Row
+                </PermissionButton>
+              </div>
+            )}
             <table className="w-full border-collapse">
-              <thead>
-                <tr className="border-b">
+              <thead className="bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-750 sticky top-0 z-10 shadow-sm">
+                <tr>
                   {isSelectMode && (
-                    <th className="p-2 text-left">
+                    <th className="px-4 py-3 text-left">
                       <input
                         type="checkbox"
                         checked={selectedIds.size === paginatedItems.length && paginatedItems.length > 0}
                         onChange={(e) => handleSelectAll(e.target.checked)}
+                        className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600 cursor-pointer"
                       />
                     </th>
                   )}
                   <th 
-                    className="p-2 text-left cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800"
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
                     onClick={() => handleSort('auto_generated_unique_reference_number')}
                   >
                     Ref Number {sortColumn === 'auto_generated_unique_reference_number' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
-                    className="p-2 text-left cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800"
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
                     onClick={() => handleSort('project_full_code')}
                   >
                     Project Full Code {sortColumn === 'project_full_code' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
-                    className="p-2 text-left cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800"
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
                     onClick={() => handleSort('project_name')}
                   >
                     Project Name {sortColumn === 'project_name' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
-                    className="p-2 text-left cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800"
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
                     onClick={() => handleSort('item_description')}
                   >
                     Item Description {sortColumn === 'item_description' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
-                  <th className="p-2 text-left">Unit</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">Unit</th>
                   <th 
-                    className="p-2 text-left cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800"
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
                     onClick={() => handleSort('quantity')}
                   >
                     Quantity {sortColumn === 'quantity' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
-                    className="p-2 text-left cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800"
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
                     onClick={() => handleSort('rate')}
                   >
                     Rate {sortColumn === 'rate' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
-                    className="p-2 text-left cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800"
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
                     onClick={() => handleSort('total_value')}
                   >
                     Total Value {sortColumn === 'total_value' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
-                  <th className="p-2 text-left">Remeasurable</th>
-                  <th className="p-2 text-left">Planning Assigned</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">Remeasurable</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">Planning Assigned</th>
                   <th 
-                    className="p-2 text-left cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800"
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
                     onClick={() => handleSort('units_variation')}
                   >
                     Units Variation {sortColumn === 'units_variation' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
-                    className="p-2 text-left cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800"
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
                     onClick={() => handleSort('variations_amount')}
                   >
                     Variations Amount {sortColumn === 'variations_amount' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
-                    className="p-2 text-left cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800"
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
                     onClick={() => handleSort('total_units')}
                   >
                     Total Units {sortColumn === 'total_units' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
-                  <th className="p-2 text-left">Total Inc. Variations</th>
-                  <th className="p-2 text-left">Actions</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">Total Inc. Variations</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
-              <tbody>
-                {paginatedItems.map((item, index) => {
+              <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+                {/* Add New Row */}
+                {isAddingNew && (
+                  <tr className="bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30">
+                    {isSelectMode && (
+                      <td className="px-4 py-4 whitespace-nowrap"></td>
+                    )}
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 italic">
+                      (New)
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                      <select
+                        value={newBOQItemData.project_full_code || ''}
+                        onChange={(e) => {
+                          const selectedSubCode = e.target.value
+                          const matchingProject = projects.find((project) => {
+                            const projectSubCode = (project.project_sub_code || '').toString().trim()
+                            return projectSubCode === selectedSubCode
+                          })
+                          
+                          setNewBOQItemData({
+                            ...newBOQItemData,
+                            project_full_code: selectedSubCode,
+                            project_name: matchingProject?.project_name || ''
+                          })
+                        }}
+                        className="w-full px-2 py-1 border rounded dark:bg-gray-700 dark:border-gray-600"
+                      >
+                        <option value="">Select Project Sub-Code</option>
+                        {projectSubCodes.map((subCode) => (
+                          <option key={subCode} value={subCode}>
+                            {subCode}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                      <span className="text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                        {newBOQItemData.project_name || '-'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">
+                      <Input
+                        value={newBOQItemData.item_description || ''}
+                        onChange={(e) => setNewBOQItemData({ ...newBOQItemData, item_description: e.target.value })}
+                        className="w-full"
+                        placeholder="Item Description"
+                      />
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                      <select
+                        value={newBOQItemData.unit || ''}
+                        onChange={(e) => setNewBOQItemData({ ...newBOQItemData, unit: e.target.value })}
+                        className="w-full px-2 py-1 border rounded dark:bg-gray-700 dark:border-gray-600"
+                      >
+                        <option value="">Select Unit</option>
+                        {units.map((unit) => (
+                          <option key={unit} value={unit}>
+                            {unit}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                      <Input
+                        type="number"
+                        value={newBOQItemData.quantity || ''}
+                        onChange={(e) => setNewBOQItemData({ ...newBOQItemData, quantity: parseFloat(e.target.value) || 0 })}
+                        className="w-full"
+                        placeholder="0"
+                      />
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={newBOQItemData.rate || ''}
+                        onChange={(e) => setNewBOQItemData({ ...newBOQItemData, rate: parseFloat(e.target.value) || 0 })}
+                        className="w-full"
+                        placeholder="0.00"
+                      />
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                      <span className="text-gray-500">
+                        {formatCurrencyByCodeSync((newBOQItemData.quantity || 0) * (newBOQItemData.rate || 0), 'AED')}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                      <input
+                        type="checkbox"
+                        checked={newBOQItemData.remeasurable || false}
+                        onChange={(e) => setNewBOQItemData({ ...newBOQItemData, remeasurable: e.target.checked })}
+                      />
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                      <span className="text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                        {formatCurrencyByCodeSync(newBOQItemData.planning_assigned_amount || 0, 'AED')}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                      <span className="text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                        {newBOQItemData.units_variation || 0}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                      <span className="text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                        {formatCurrencyByCodeSync(newBOQItemData.variations_amount || 0, 'AED')}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                      <span className="text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                        {(newBOQItemData.quantity || 0) + (newBOQItemData.units_variation || 0)}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                      <span className="text-gray-500">
+                        {formatCurrencyByCodeSync(
+                          ((newBOQItemData.quantity || 0) * (newBOQItemData.rate || 0)) + (newBOQItemData.variations_amount || 0),
+                          'AED'
+                        )}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleSaveNew}
+                        >
+                          <Save className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleCancelAddNew}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {paginatedItems.length === 0 && !isAddingNew ? (
+                  <tr>
+                    <td colSpan={isSelectMode ? 18 : 17} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
+                      No BOQ items found
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedItems.map((item, index) => {
                   const isEditing = editingId === item.id
                   const isSelected = selectedIds.has(item.id)
                   
@@ -1991,18 +2299,19 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                   }
                   
                   return (
-                    <tr key={item.id} className="border-b hover:bg-gray-50 dark:hover:bg-gray-800">
+                    <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
                       {isSelectMode && (
-                        <td className="p-2">
+                        <td className="px-4 py-4 whitespace-nowrap">
                           <input
                             type="checkbox"
                             checked={isSelected}
                             onChange={(e) => handleSelectOne(item.id, e.target.checked)}
+                            className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600 cursor-pointer"
                           />
                         </td>
                       )}
-                      <td className="p-2">{item.auto_generated_unique_reference_number}</td>
-                      <td className="p-2">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{item.auto_generated_unique_reference_number}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                         {isEditing ? (
                           <select
                             value={editingData.project_full_code || ''}
@@ -2034,18 +2343,16 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                           item.project_full_code
                         )}
                       </td>
-                      <td className="p-2">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                         {isEditing ? (
-                          <Input
-                            value={editingData.project_name || ''}
-                            readOnly
-                            className="w-full bg-gray-100 dark:bg-gray-700 cursor-not-allowed"
-                          />
+                          <span className="text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                            {editingData.project_name || '-'}
+                          </span>
                         ) : (
                           item.project_name
                         )}
                       </td>
-                      <td className="p-2">
+                      <td className="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">
                         {isEditing ? (
                           <Input
                             value={editingData.item_description || ''}
@@ -2056,7 +2363,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                           item.item_description
                         )}
                       </td>
-                      <td className="p-2">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                         {isEditing ? (
                           <select
                             value={editingData.unit || ''}
@@ -2074,7 +2381,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                           item.unit || '-'
                         )}
                       </td>
-                      <td className="p-2">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                         {isEditing ? (
                           <Input
                             type="number"
@@ -2086,7 +2393,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                           item.quantity
                         )}
                       </td>
-                      <td className="p-2">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                         {isEditing ? (
                           <Input
                             type="number"
@@ -2099,7 +2406,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                           formatCurrencyByCodeSync(getDisplayValue(item.rate), 'AED')
                         )}
                       </td>
-                      <td className="p-2">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                         {isEditing ? (
                           <span className="text-gray-500">
                             {formatCurrencyByCodeSync((editingData.quantity || 0) * (editingData.rate || 0), 'AED')}
@@ -2108,7 +2415,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                           formatCurrencyByCodeSync(getDisplayValue(item.total_value), 'AED')
                         )}
                       </td>
-                      <td className="p-2">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                         {isEditing ? (
                           <input
                             type="checkbox"
@@ -2119,46 +2426,34 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                           item.remeasurable ? 'Yes' : 'No'
                         )}
                       </td>
-                      <td className="p-2">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                         {isEditing ? (
-                          <Input
-                            type="number"
-                            step="0.01"
-                            value={editingData.planning_assigned_amount || ''}
-                            onChange={(e) => setEditingData({ ...editingData, planning_assigned_amount: parseFloat(e.target.value) || 0 })}
-                            className="w-full"
-                          />
+                          <span className="text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                            {formatCurrencyByCodeSync(getDisplayValue(editingData.planning_assigned_amount || 0), 'AED')}
+                          </span>
                         ) : (
                           formatCurrencyByCodeSync(getDisplayValue(item.planning_assigned_amount), 'AED')
                         )}
                       </td>
-                      <td className="p-2">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                         {isEditing ? (
-                          <Input
-                            type="number"
-                            step="0.01"
-                            value={editingData.units_variation || ''}
-                            onChange={(e) => setEditingData({ ...editingData, units_variation: parseFloat(e.target.value) || 0 })}
-                            className="w-full"
-                          />
+                          <span className="text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                            {editingData.units_variation || 0}
+                          </span>
                         ) : (
                           item.units_variation || 0
                         )}
                       </td>
-                      <td className="p-2">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                         {isEditing ? (
-                          <Input
-                            type="number"
-                            step="0.01"
-                            value={editingData.variations_amount || ''}
-                            onChange={(e) => setEditingData({ ...editingData, variations_amount: parseFloat(e.target.value) || 0 })}
-                            className="w-full"
-                          />
+                          <span className="text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                            {formatCurrencyByCodeSync(getDisplayValue(editingData.variations_amount || 0), 'AED')}
+                          </span>
                         ) : (
                           formatCurrencyByCodeSync(getDisplayValue(item.variations_amount), 'AED')
                         )}
                       </td>
-                      <td className="p-2">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                         {isEditing ? (
                           <span className="text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
                             {(editingData.quantity || 0) + (editingData.units_variation || 0)}
@@ -2167,7 +2462,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                           item.total_units || 0
                         )}
                       </td>
-                      <td className="p-2">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                         {isEditing ? (
                           <span className="text-gray-500">
                             {formatCurrencyByCodeSync(
@@ -2179,7 +2474,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                           formatCurrencyByCodeSync(getDisplayValue(item.total_including_variations), 'AED')
                         )}
                       </td>
-                      <td className="p-2">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                         {isEditing ? (
                           <div className="flex gap-2">
                             <Button
@@ -2222,7 +2517,8 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                       </td>
                     </tr>
                   )
-                })}
+                })
+                )}
               </tbody>
             </table>
             
