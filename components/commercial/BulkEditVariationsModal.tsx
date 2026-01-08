@@ -46,16 +46,16 @@ export function BulkEditVariationsModal({
       const uniqueStatuses = Array.from(new Set(selectedVariations.map(v => v.variation_status)))
       const uniqueQuantityChanges = Array.from(new Set(selectedVariations.map(v => v.quantity_changes)))
       const uniqueVariationAmounts = Array.from(new Set(selectedVariations.map(v => v.variation_amount)))
-      const uniqueSubmissionDates = Array.from(new Set(selectedVariations.map(v => v.date_of_submission).filter(Boolean)))
-      const uniqueApprovalDates = Array.from(new Set(selectedVariations.map(v => v.date_of_approval).filter(Boolean)))
-      const uniqueRemarks = Array.from(new Set(selectedVariations.map(v => v.remarks).filter(Boolean)))
+      const uniqueSubmissionDates = Array.from(new Set(selectedVariations.map(v => v.date_of_submission).filter(Boolean))) as string[]
+      const uniqueApprovalDates = Array.from(new Set(selectedVariations.map(v => v.date_of_approval).filter(Boolean))) as string[]
+      const uniqueRemarks = Array.from(new Set(selectedVariations.map(v => v.remarks).filter(Boolean))) as string[]
       
       setVariationStatus(uniqueStatuses.length === 1 ? uniqueStatuses[0] : '')
       setQuantityChanges(uniqueQuantityChanges.length === 1 ? uniqueQuantityChanges[0].toString() : '')
       setVariationAmount(uniqueVariationAmounts.length === 1 ? uniqueVariationAmounts[0].toString() : '')
-      setDateOfSubmission(uniqueSubmissionDates.length === 1 ? uniqueSubmissionDates[0] : '')
-      setDateOfApproval(uniqueApprovalDates.length === 1 ? uniqueApprovalDates[0] : '')
-      setRemarks(uniqueRemarks.length === 1 ? uniqueRemarks[0] || '' : '')
+      setDateOfSubmission(uniqueSubmissionDates.length === 1 ? (uniqueSubmissionDates[0] || '') : '')
+      setDateOfApproval(uniqueApprovalDates.length === 1 ? (uniqueApprovalDates[0] || '') : '')
+      setRemarks(uniqueRemarks.length === 1 ? (uniqueRemarks[0] || '') : '')
       
       setFieldsToUpdate(new Set())
     }
