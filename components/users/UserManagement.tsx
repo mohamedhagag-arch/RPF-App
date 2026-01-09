@@ -54,7 +54,9 @@ import {
   Zap,
   MoreHorizontal,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Info,
+  X
 } from 'lucide-react'
 
 interface UserManagementProps {
@@ -92,6 +94,7 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
   const [showForm, setShowForm] = useState(false)
   const [editingUser, setEditingUser] = useState<User | null>(null)
   const [managingPermissionsUser, setManagingPermissionsUser] = useState<UserWithPermissions | null>(null)
+  const [viewingUserInfo, setViewingUserInfo] = useState<User | null>(null)
   const [useIntegratedSystem, setUseIntegratedSystem] = useState(false) // Force use regular system
 
   // Advanced Features States
@@ -1139,9 +1142,48 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
                       <tr key={user.id} className={`hover:bg-gray-50 dark:hover:bg-gray-800 ${!isActive ? 'opacity-50' : ''}`}>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
-                            <div className="h-10 w-10 rounded-full bg-primary-100 dark:bg-primary-900 flex items-center justify-center">
-                              <Users className="h-5 w-5 text-primary-600" />
-                            </div>
+                            {(() => {
+                              const getInitials = () => {
+                                if (user.first_name && user.last_name) {
+                                  return `${user.first_name[0]}${user.last_name[0]}`.toUpperCase()
+                                }
+                                if (user.full_name) {
+                                  const parts = user.full_name.split(' ')
+                                  if (parts.length >= 2) {
+                                    return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
+                                  }
+                                  return user.full_name.substring(0, 2).toUpperCase()
+                                }
+                                return 'U'
+                              }
+                              
+                              const profilePictureUrl = (user as any).profile_picture_url
+                              
+                              return (
+                                <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 flex items-center justify-center overflow-hidden ring-2 ring-white dark:ring-gray-800 shadow-md flex-shrink-0">
+                                  {profilePictureUrl ? (
+                                    <img
+                                      src={profilePictureUrl}
+                                      alt={user.full_name || 'User'}
+                                      className="w-full h-full object-cover"
+                                      onError={(e) => {
+                                        const target = e.target as HTMLImageElement
+                                        target.style.display = 'none'
+                                        const parent = target.parentElement
+                                        if (parent) {
+                                          parent.innerHTML = `<span class="text-white text-xs font-bold">${getInitials()}</span>`
+                                          parent.className = 'h-10 w-10 rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 flex items-center justify-center overflow-hidden ring-2 ring-white dark:ring-gray-800 shadow-md flex-shrink-0'
+                                        }
+                                      }}
+                                    />
+                                  ) : (
+                                    <span className="text-white text-xs font-bold">
+                                      {getInitials()}
+                                    </span>
+                                  )}
+                                </div>
+                              )
+                            })()}
                             <div className="ml-4">
                               <div className="text-sm font-medium text-gray-900 dark:text-white">
                                 {user.full_name}
@@ -1204,6 +1246,14 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                           <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setViewingUserInfo(user)}
+                              title="View User Information"
+                            >
+                              <Info className="h-4 w-4" />
+                            </Button>
                             <Button
                               variant="outline"
                               size="sm"
@@ -1271,6 +1321,273 @@ export function UserManagement({ userRole = 'viewer' }: UserManagementProps) {
       )}
           </div>
         )
+
+      {/* User Information Modal */}
+      {viewingUserInfo && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <CardHeader className="bg-gradient-to-r from-blue-600 to-purple-600 text-white">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
+                    <Info className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-white text-2xl">User Information</CardTitle>
+                    <p className="text-blue-100 text-sm mt-1">View user details and join date</p>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setViewingUserInfo(null)}
+                  className="bg-white/10 border-white/20 text-white hover:bg-white/20"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="p-6">
+              <div className="space-y-6 pt-4">
+                {/* User Profile Section */}
+                <div className="flex items-start gap-4 pb-6 border-b border-gray-200 dark:border-gray-700">
+                  <div className="relative h-24 w-24 rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 flex items-center justify-center overflow-hidden ring-4 ring-white dark:ring-gray-800 shadow-xl">
+                    {(() => {
+                      const getInitials = () => {
+                        if (viewingUserInfo.first_name && viewingUserInfo.last_name) {
+                          return `${viewingUserInfo.first_name[0]}${viewingUserInfo.last_name[0]}`.toUpperCase()
+                        }
+                        if (viewingUserInfo.full_name) {
+                          const parts = viewingUserInfo.full_name.split(' ')
+                          if (parts.length >= 2) {
+                            return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
+                          }
+                          return viewingUserInfo.full_name.substring(0, 2).toUpperCase()
+                        }
+                        return 'U'
+                      }
+                      
+                      const profilePictureUrl = (viewingUserInfo as any).profile_picture_url
+                      
+                      if (profilePictureUrl) {
+                        return (
+                          <img
+                            src={profilePictureUrl}
+                            alt="Profile Picture"
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement
+                              target.style.display = 'none'
+                              const parent = target.parentElement
+                              if (parent) {
+                                parent.innerHTML = `<span class="text-white text-2xl font-bold">${getInitials()}</span>`
+                                parent.className = 'relative h-24 w-24 rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 flex items-center justify-center overflow-hidden ring-4 ring-white dark:ring-gray-800 shadow-xl'
+                              }
+                            }}
+                          />
+                        )
+                      }
+                      return (
+                        <span className="text-white text-2xl font-bold">
+                          {getInitials()}
+                        </span>
+                      )
+                    })()}
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
+                      {viewingUserInfo.full_name}
+                    </h3>
+                    <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400 mb-3">
+                      <Mail className="h-4 w-4" />
+                      <span>{viewingUserInfo.email}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getRoleColor(viewingUserInfo.role)}`}>
+                        {(() => {
+                          const RoleIcon = getRoleIcon(viewingUserInfo.role)
+                          return <RoleIcon className="h-4 w-4 mr-1" />
+                        })()}
+                        {viewingUserInfo.role.charAt(0).toUpperCase() + viewingUserInfo.role.slice(1)}
+                      </span>
+                      {(() => {
+                        const isActive = (viewingUserInfo as any).is_active !== false
+                        return (
+                          <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+                            isActive 
+                              ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' 
+                              : 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'
+                          }`}>
+                            {isActive ? (
+                              <>
+                                <CheckCircle className="h-4 w-4 mr-1" />
+                                Active
+                              </>
+                            ) : (
+                              <>
+                                <XCircle className="h-4 w-4 mr-1" />
+                                Inactive
+                              </>
+                            )}
+                          </span>
+                        )
+                      })()}
+                    </div>
+                  </div>
+                </div>
+
+                {/* User Details Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Division */}
+                  <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Building className="h-5 w-5 text-gray-500" />
+                      <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Division</span>
+                    </div>
+                    <p className="text-lg font-semibold text-gray-900 dark:text-white">
+                      {viewingUserInfo.division || 'Not specified'}
+                    </p>
+                  </div>
+
+                  {/* Join Date */}
+                  <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Calendar className="h-5 w-5 text-gray-500" />
+                      <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Join Date</span>
+                    </div>
+                    <p className="text-lg font-semibold text-gray-900 dark:text-white">
+                      {viewingUserInfo.created_at 
+                        ? new Date(viewingUserInfo.created_at).toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric'
+                          })
+                        : 'Not available'}
+                    </p>
+                    {viewingUserInfo.created_at && (
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        {new Date(viewingUserInfo.created_at).toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Last Updated */}
+                  {viewingUserInfo.updated_at && (
+                    <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Clock className="h-5 w-5 text-gray-500" />
+                        <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Last Updated</span>
+                      </div>
+                      <p className="text-lg font-semibold text-gray-900 dark:text-white">
+                        {new Date(viewingUserInfo.updated_at).toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric'
+                        })}
+                      </p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        {new Date(viewingUserInfo.updated_at).toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Permissions Count */}
+                  <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Shield className="h-5 w-5 text-gray-500" />
+                      <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Permissions</span>
+                    </div>
+                    <p className="text-lg font-semibold text-gray-900 dark:text-white">
+                      {(() => {
+                        const userWithPerms = viewingUserInfo as UserWithPermissions
+                        const permissionsCount = userWithPerms.custom_permissions_enabled && userWithPerms.permissions && userWithPerms.permissions.length > 0
+                          ? userWithPerms.permissions.length 
+                          : getRolePermissionsCount(viewingUserInfo.role)
+                        return `${permissionsCount} permissions`
+                      })()}
+                    </p>
+                    {(() => {
+                      const userWithPerms = viewingUserInfo as UserWithPermissions
+                      if (userWithPerms.custom_permissions_enabled) {
+                        return (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300 mt-2">
+                            <Key className="h-3 w-3 mr-1" />
+                            Custom Permissions
+                          </span>
+                        )
+                      }
+                      return null
+                    })()}
+                  </div>
+                </div>
+
+                {/* Time Since Join */}
+                {viewingUserInfo.created_at && (
+                  <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Clock className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                      <span className="text-sm font-medium text-blue-900 dark:text-blue-300">Time Since Join</span>
+                    </div>
+                    <p className="text-lg font-semibold text-blue-900 dark:text-blue-100">
+                      {(() => {
+                        const joinDate = new Date(viewingUserInfo.created_at)
+                        const now = new Date()
+                        const diffTime = Math.abs(now.getTime() - joinDate.getTime())
+                        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
+                        const diffMonths = Math.floor(diffDays / 30)
+                        const diffYears = Math.floor(diffDays / 365)
+                        
+                        if (diffYears > 0) {
+                          return `${diffYears} ${diffYears === 1 ? 'year' : 'years'} ago`
+                        } else if (diffMonths > 0) {
+                          return `${diffMonths} ${diffMonths === 1 ? 'month' : 'months'} ago`
+                        } else if (diffDays > 0) {
+                          return `${diffDays} ${diffDays === 1 ? 'day' : 'days'} ago`
+                        } else {
+                          return 'Today'
+                        }
+                      })()}
+                    </p>
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                  <Button
+                    variant="outline"
+                    onClick={() => setViewingUserInfo(null)}
+                  >
+                    Close
+                  </Button>
+                  {(guard.hasAccess('users.edit') || appUser?.role === 'admin') && (
+                    <Button
+                      onClick={() => {
+                        setViewingUserInfo(null)
+                        setEditingUser(viewingUserInfo)
+                      }}
+                    >
+                      <Edit className="h-4 w-4 mr-2" />
+                      Edit User
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Enhanced Permissions Manager - Available in both tabs */}
       {managingPermissionsUser && (
