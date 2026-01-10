@@ -877,7 +877,6 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
         'Variations Amount': variationsAmount,
         'Total Units': totalUnits,
         'Total Including Variations': totalIncludingVariations,
-        created_by: appUser?.id || null,
       }
       
       const { error: insertError } = await (supabase as any)
@@ -2099,7 +2098,6 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                     Total Value {sortColumn === 'total_value' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">Remeasurable</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">Planning Assigned</th>
                   <th 
                     className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
                     onClick={() => handleSort('units_variation')}
@@ -2119,6 +2117,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                     Total Units {sortColumn === 'total_units' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">Total Inc. Variations</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">Planning Assigned</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
@@ -2218,11 +2217,6 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                       <span className="text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
-                        {formatCurrencyByCodeSync(newBOQItemData.planning_assigned_amount || 0, 'AED')}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                      <span className="text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
                         {newBOQItemData.units_variation || 0}
                       </span>
                     </td>
@@ -2242,6 +2236,11 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                           ((newBOQItemData.quantity || 0) * (newBOQItemData.rate || 0)) + (newBOQItemData.variations_amount || 0),
                           'AED'
                         )}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                      <span className="text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                        {formatCurrencyByCodeSync(newBOQItemData.planning_assigned_amount || 0, 'AED')}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
@@ -2429,15 +2428,6 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                         {isEditing ? (
                           <span className="text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
-                            {formatCurrencyByCodeSync(getDisplayValue(editingData.planning_assigned_amount || 0), 'AED')}
-                          </span>
-                        ) : (
-                          formatCurrencyByCodeSync(getDisplayValue(item.planning_assigned_amount), 'AED')
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                        {isEditing ? (
-                          <span className="text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
                             {editingData.units_variation || 0}
                           </span>
                         ) : (
@@ -2472,6 +2462,15 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                           </span>
                         ) : (
                           formatCurrencyByCodeSync(getDisplayValue(item.total_including_variations), 'AED')
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                        {isEditing ? (
+                          <span className="text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                            {formatCurrencyByCodeSync(getDisplayValue(editingData.planning_assigned_amount || 0), 'AED')}
+                          </span>
+                        ) : (
+                          formatCurrencyByCodeSync(getDisplayValue(item.planning_assigned_amount), 'AED')
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
