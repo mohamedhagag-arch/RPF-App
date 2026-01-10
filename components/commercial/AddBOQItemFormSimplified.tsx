@@ -75,7 +75,9 @@ export function AddBOQItemFormSimplified({
         'Rate': 0,
         'Total Value': 0,
         'Planning Assigned Amount': 0,
-        'Variations': 0,
+        'Units Variation': 0,
+        'Variations Amount': 0,
+        'Total Units': 0,
         'Total Including Variations': 0,
         // Auto-generated reference number will be created by trigger
       }

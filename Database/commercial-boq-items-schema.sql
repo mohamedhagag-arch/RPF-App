@@ -65,6 +65,26 @@ DROP TRIGGER IF EXISTS update_boq_items_updated_at ON public."BOQ items";
 CREATE TRIGGER update_boq_items_updated_at BEFORE UPDATE ON public."BOQ items"
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+-- Create function to calculate Total Including Variations
+-- ============================================================
+CREATE OR REPLACE FUNCTION calculate_total_including_variations()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- Calculate Total Including Variations = Total Value + Variations Amount
+  NEW."Total Including Variations" := COALESCE(NEW."Total Value", 0) + COALESCE(NEW."Variations Amount", 0);
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger to automatically calculate Total Including Variations
+-- ============================================================
+DROP TRIGGER IF EXISTS trigger_calculate_total_including_variations ON public."BOQ items";
+CREATE TRIGGER trigger_calculate_total_including_variations
+  BEFORE INSERT OR UPDATE ON public."BOQ items"
+  FOR EACH ROW
+  EXECUTE FUNCTION calculate_total_including_variations();
+
 -- Enable Row Level Security (RLS)
 -- ============================================================
 ALTER TABLE public."BOQ items" ENABLE ROW LEVEL SECURITY;
