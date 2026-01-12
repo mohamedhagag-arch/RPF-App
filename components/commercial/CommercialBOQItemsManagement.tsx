@@ -27,12 +27,14 @@ import {
   TrendingUp,
   FileText,
   CheckSquare,
-  Square
+  Square,
+  Download
 } from 'lucide-react'
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 import { buildProjectFullCode } from '@/lib/projectDataFetcher'
 import { BulkEditBOQItemsModal } from './BulkEditBOQItemsModal'
 import { AddBOQItemForm } from './AddBOQItemForm'
+import { ExportBOQItemsModal } from './ExportBOQItemsModal'
 
 interface CommercialBOQItemsManagementProps {
   globalSearchTerm?: string
@@ -77,6 +79,9 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
   
   // Add item form state
   const [showAddForm, setShowAddForm] = useState(false)
+  
+  // Export modal state
+  const [showExportModal, setShowExportModal] = useState(false)
   
   // Filters state
   const [showFilters, setShowFilters] = useState(false)
@@ -1331,6 +1336,15 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                 <Plus className="h-4 w-4 mr-2" />
                 Add Item
               </PermissionButton>
+              <PermissionButton
+                permission="commercial.boq_items.view"
+                variant="outline"
+                onClick={() => setShowExportModal(true)}
+                disabled={filteredItems.length === 0}
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Export
+              </PermissionButton>
             </div>
           </div>
         </CardHeader>
@@ -2064,13 +2078,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                     className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
                     onClick={() => handleSort('project_full_code')}
                   >
-                    Project Full Code {sortColumn === 'project_full_code' && (sortDirection === 'asc' ? '↑' : '↓')}
-                  </th>
-                  <th 
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
-                    onClick={() => handleSort('project_name')}
-                  >
-                    Project Name {sortColumn === 'project_name' && (sortDirection === 'asc' ? '↑' : '↓')}
+                    Project {sortColumn === 'project_full_code' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
                   <th 
                     className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
@@ -2149,18 +2157,16 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                         }}
                         className="w-full px-2 py-1 border rounded dark:bg-gray-700 dark:border-gray-600"
                       >
-                        <option value="">Select Project Sub-Code</option>
-                        {projectSubCodes.map((subCode) => (
-                          <option key={subCode} value={subCode}>
-                            {subCode}
-                          </option>
-                        ))}
+                        <option value="">Select Project...</option>
+                        {projects.map((project) => {
+                          const fullCode = buildProjectFullCode(project)
+                          return (
+                            <option key={project.id} value={project.project_sub_code || fullCode}>
+                              {fullCode} - {project.project_name}
+                            </option>
+                          )
+                        })}
                       </select>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                      <span className="text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
-                        {newBOQItemData.project_name || '-'}
-                      </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">
                       <Input
@@ -2213,6 +2219,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                         type="checkbox"
                         checked={newBOQItemData.remeasurable || false}
                         onChange={(e) => setNewBOQItemData({ ...newBOQItemData, remeasurable: e.target.checked })}
+                        className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600 cursor-pointer"
                       />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
@@ -2265,7 +2272,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                 )}
                 {paginatedItems.length === 0 && !isAddingNew ? (
                   <tr>
-                    <td colSpan={isSelectMode ? 18 : 17} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
+                    <td colSpan={isSelectMode ? 17 : 16} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
                       No BOQ items found
                     </td>
                   </tr>
@@ -2329,26 +2336,23 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                                 project_name: matchingProject?.project_name || editingData.project_name || ''
                               })
                             }}
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            className="w-full px-2 py-1 border rounded dark:bg-gray-700 dark:border-gray-600"
                           >
-                            <option value="">Select Project Sub-Code</option>
-                            {projectSubCodes.map((subCode) => (
-                              <option key={subCode} value={subCode}>
-                                {subCode}
-                              </option>
-                            ))}
+                            <option value="">Select Project...</option>
+                            {projects.map((project) => {
+                              const fullCode = buildProjectFullCode(project)
+                              return (
+                                <option key={project.id} value={project.project_sub_code || fullCode}>
+                                  {fullCode} - {project.project_name}
+                                </option>
+                              )
+                            })}
                           </select>
                         ) : (
-                          item.project_full_code
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                        {isEditing ? (
-                          <span className="text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
-                            {editingData.project_name || '-'}
-                          </span>
-                        ) : (
-                          item.project_name
+                          <div>
+                            <div className="font-medium">{item.project_full_code}</div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">{item.project_name}</div>
+                          </div>
                         )}
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">
@@ -2420,9 +2424,16 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                             type="checkbox"
                             checked={editingData.remeasurable || false}
                             onChange={(e) => setEditingData({ ...editingData, remeasurable: e.target.checked })}
+                            className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600 cursor-pointer"
                           />
                         ) : (
-                          item.remeasurable ? 'Yes' : 'No'
+                          <span className={`px-2 py-1 rounded text-xs ${
+                            item.remeasurable 
+                              ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200' 
+                              : 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200'
+                          }`}>
+                            {item.remeasurable ? 'Remeasurable' : 'Not Remeasurable'}
+                          </span>
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
@@ -2580,6 +2591,15 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
           }}
           onCancel={() => setShowAddForm(false)}
           isOpen={showAddForm}
+        />
+      )}
+      
+      {/* Export Modal */}
+      {showExportModal && (
+        <ExportBOQItemsModal
+          isOpen={showExportModal}
+          onClose={() => setShowExportModal(false)}
+          items={filteredItems}
         />
       )}
     </div>
