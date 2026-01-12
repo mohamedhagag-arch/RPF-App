@@ -7,7 +7,7 @@
 export interface Permission {
   id: string
   name: string
-  category: 'projects' | 'boq' | 'kpi' | 'users' | 'reports' | 'settings' | 'system' | 'database' | 'cost-control' | 'hr' | 'procurement' | 'commercial'
+  category: 'projects' | 'boq' | 'kpi' | 'users' | 'reports' | 'settings' | 'system' | 'database' | 'cost-control' | 'hr' | 'procurement' | 'commercial' | 'activities'
   description: string
   action: 'view' | 'create' | 'edit' | 'delete' | 'manage' | 'export' | 'approve' | 'backup' | 'restore'
 }
