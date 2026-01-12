@@ -50,11 +50,11 @@ const mainMenuItems = [
     description: 'Project management'
   },
   {
-    id: 'boq' as TabType,
-    label: 'BOQ Activities',
+    id: 'activities' as TabType,
+    label: 'Activities',
     icon: ClipboardList,
-    permission: 'boq.view',
-    description: 'Bill of quantities'
+    permission: 'activities.view',
+    description: 'Project activities'
   },
   {
     id: 'kpi' as TabType,

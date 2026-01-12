@@ -76,7 +76,7 @@ const sidebarItems: SidebarItem[] = [
     label: 'Planning', 
     tab: 'planning',
     subItems: [
-      { icon: ClipboardList, label: 'BOQ', tab: 'boq', badgeIcon: Zap, badgeColor: 'bg-gradient-to-br from-green-500 to-emerald-500' },
+      { icon: ClipboardList, label: 'Activities', tab: 'activities', badgeIcon: Zap, badgeColor: 'bg-gradient-to-br from-green-500 to-emerald-500' },
       { icon: Target, label: 'KPI', tab: 'kpi', badgeIcon: TrendingUp, badgeColor: 'bg-gradient-to-br from-purple-500 to-pink-500' },
       { icon: BarChart3, label: 'Reports', tab: 'reports' },
     ]
@@ -140,7 +140,7 @@ const sidebarItems: SidebarItem[] = [
     label: 'Forms', 
     tab: 'forms',
     subItems: [
-      { icon: ClipboardList, label: 'BOQ Form', tab: 'forms/boq' },
+      { icon: ClipboardList, label: 'Activities Form', tab: 'forms/activities' },
       { icon: Target, label: 'KPI Standard Form', tab: 'forms/kpi-standard' },
       { icon: Zap, label: 'KPI Smart Form', tab: 'forms/kpi-smart' },
       { icon: FileEdit, label: 'Project Form', tab: 'forms/project' },
@@ -176,14 +176,14 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
     if (tab === 'users') return '/settings?tab=users'
     if (tab === 'directory') return '/directory'
     if (tab === 'search') return '/dashboard?search=true'
-    if (tab === 'planning') return '/boq'
+    if (tab === 'planning') return '/activities'
     if (tab === 'commercial') return '/commercial/boq-items'
-    if (tab === 'forms') return '/boq'
+    if (tab === 'forms') return '/activities'
     if (tab === 'activity-log') return '/activity-log'
     if (tab === 'commercial/boq-items') return '/commercial/boq-items'
     if (tab === 'commercial/payments-invoicing') return '/commercial/payments-invoicing'
     if (tab === 'commercial/variations') return '/commercial/variations'
-    if (tab === 'forms/boq') return '/boq'
+    if (tab === 'forms/activities') return '/activities'
     if (tab === 'forms/kpi-standard') return '/kpi/add'
     if (tab === 'forms/kpi-smart') return '/kpi/smart-form'
     if (tab === 'forms/project') return '/projects'
@@ -241,7 +241,7 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
     if (activeTab === 'commercial/boq-items' || activeTab === 'commercial/payments-invoicing') {
       setExpandedItems(prev => new Set(prev).add('commercial'))
     }
-    if (activeTab === 'forms/boq' || activeTab === 'forms/kpi-standard' || activeTab === 'forms/kpi-smart' || activeTab === 'forms/project' || activeTab === 'forms/user') {
+    if (activeTab === 'forms/activities' || activeTab === 'forms/kpi-standard' || activeTab === 'forms/kpi-smart' || activeTab === 'forms/project' || activeTab === 'forms/user') {
       setExpandedItems(prev => new Set(prev).add('forms'))
     }
     if (activeTab === 'cost-control/manpower' || activeTab === 'cost-control/attendance' || activeTab === 'cost-control/attendance/check-in-out' || activeTab === 'cost-control/material' || activeTab === 'cost-control/subcontractor' || activeTab === 'cost-control/diesel') {
@@ -366,8 +366,8 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
         if (item.subItems) {
           return item.subItems.some(subItem => {
             switch (subItem.tab) {
-              case 'boq':
-                return guard.hasAccess('boq.view')
+              case 'activities':
+                return guard.hasAccess('activities.view')
               case 'kpi':
                 return guard.hasAccess('kpi.view')
               case 'reports':
@@ -404,8 +404,8 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
         if (item.subItems) {
           const hasAnyFormAccess = item.subItems.some(subItem => {
             switch (subItem.tab) {
-              case 'forms/boq':
-                return guard.hasAccess('boq.create') || guard.hasAccess('boq.edit')
+              case 'forms/activities':
+                return guard.hasAccess('activities.create') || guard.hasAccess('activities.edit')
               case 'forms/kpi-standard':
               case 'forms/kpi-smart':
                 return guard.hasAccess('kpi.create')
@@ -445,8 +445,8 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
         ...item,
         subItems: item.subItems.filter(subItem => {
           switch (subItem.tab) {
-            case 'boq':
-              return guard.hasAccess('boq.view')
+            case 'activities':
+              return guard.hasAccess('activities.view')
             case 'kpi':
               return guard.hasAccess('kpi.view')
             case 'reports':
@@ -485,8 +485,8 @@ export function ModernSidebar({ activeTab, onTabChange, userName = 'User', userR
               return guard.hasAccess('hr.attendance.check_in_out')
             case 'hr/attendance/review':
               return guard.hasAccess('hr.attendance.review')
-            case 'forms/boq':
-              return guard.isAdmin() || guard.hasAccess('boq.create') || guard.hasAccess('boq.edit')
+            case 'forms/activities':
+              return guard.isAdmin() || guard.hasAccess('activities.create') || guard.hasAccess('activities.edit')
             case 'forms/kpi-standard':
             case 'forms/kpi-smart':
               return guard.isAdmin() || guard.hasAccess('kpi.create')

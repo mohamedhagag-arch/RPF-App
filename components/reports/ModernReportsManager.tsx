@@ -387,7 +387,7 @@ export function ModernReportsManager() {
             <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                  <p className="text-sm font-medium text-green-600 dark:text-green-400">BOQ Activities</p>
+                  <p className="text-sm font-medium text-green-600 dark:text-green-400">Activities</p>
                   <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
                     {formatNumber(stats.totalActivities)}
                   </p>

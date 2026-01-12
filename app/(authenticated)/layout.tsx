@@ -291,7 +291,7 @@ export default function AuthenticatedLayout({
         const recoveryTimer = setTimeout(() => {
           if (!user && !state.isLoading && !state.isRecovering && !redirectAttempted.current) {
             const currentPath = window.location.pathname
-            const protectedRoutes = ['/dashboard', '/projects', '/boq', '/kpi', '/reports', '/settings', '/profile', '/directory', '/hr', '/cost-control', '/procurement']
+            const protectedRoutes = ['/dashboard', '/projects', '/activities', '/kpi', '/reports', '/settings', '/profile', '/directory', '/hr', '/cost-control', '/procurement']
             const isOnProtectedRoute = protectedRoutes.some(route => currentPath.startsWith(route))
             
             if (isOnProtectedRoute) {
@@ -326,7 +326,7 @@ export default function AuthenticatedLayout({
   const getCurrentTab = () => {
     if (pathname === '/dashboard') return 'dashboard'
     if (pathname === '/projects') return 'projects'
-    if (pathname === '/boq') return 'boq'
+    if (pathname === '/activities') return 'activities'
     if (pathname === '/kpi') return 'kpi'
     if (pathname === '/kpi/add') return 'forms/kpi-standard'
     if (pathname === '/kpi/smart-form') return 'forms/kpi-smart'
@@ -367,8 +367,8 @@ export default function AuthenticatedLayout({
       router.push('/settings?tab=users')
     } else if (tab === 'directory') {
       router.push('/directory')
-    } else if (tab === 'forms/boq') {
-      router.push('/boq')
+    } else if (tab === 'forms/activities') {
+      router.push('/activities')
     } else if (tab === 'forms/kpi-standard') {
       router.push('/kpi/add')
     } else if (tab === 'forms/kpi-smart') {
@@ -378,7 +378,7 @@ export default function AuthenticatedLayout({
     } else if (tab === 'forms/user') {
       router.push('/settings?tab=users')
     } else if (tab === 'forms') {
-      router.push('/boq') // Default to BOQ Form
+      router.push('/activities') // Default to Activities Form
     } else if (tab === 'cost-control') {
       router.push('/cost-control')
     } else if (tab === 'cost-control/manpower') {

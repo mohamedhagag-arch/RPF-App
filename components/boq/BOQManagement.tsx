@@ -31,7 +31,7 @@ import { syncBOQFromKPI } from '@/lib/boqKpiSync'
 import { updateProjectStatus } from '@/lib/projectStatusUpdater'
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 
-interface BOQManagementProps {
+interface ActivitiesManagementProps {
   globalSearchTerm?: string
   globalFilters?: {
     project: string
@@ -41,7 +41,7 @@ interface BOQManagementProps {
   }
 }
 
-export function BOQManagement({ globalSearchTerm = '', globalFilters = { project: '', status: '', division: '', dateRange: '' } }: BOQManagementProps = {}) {
+export function ActivitiesManagement({ globalSearchTerm = '', globalFilters = { project: '', status: '', division: '', dateRange: '' } }: ActivitiesManagementProps = {}) {
   const guard = usePermissionGuard()
   const { user: authUser, appUser } = useAuth()
   const [activities, setActivities] = useState<BOQActivity[]>([])
@@ -63,7 +63,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   useEffect(() => {
     // Only set initial value once, not on every guard change
     if (!hasInitializedView) {
-      if (guard.hasAccess('boq.view')) {
+      if (guard.hasAccess('activities.view')) {
         setUseCustomizedTable(true)
       } else {
         setUseCustomizedTable(false)
@@ -127,7 +127,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   const isMountedRef = useRef(true) // ✅ Track if component is mounted
   const isLoadingRef = useRef(false) // ✅ Prevent multiple simultaneous loads
   const hasFetchedRef = useRef(false) // ✅ Track if initial fetch has been done
-  const { startSmartLoading, stopSmartLoading } = useSmartLoading('boq') // ✅ Smart loading
+  const { startSmartLoading, stopSmartLoading } = useSmartLoading('activities') // ✅ Smart loading
   
   // ✅ Update Responsible Divisions in Project based on Activity Division
   // This function collects ALL divisions from ALL BOQ Activities for the project and updates the project
@@ -380,7 +380,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
   }
   
   // ✅ Permission check - return access denied if user doesn't have permission
-  if (!guard.hasAccess('boq.view')) {
+  if (!guard.hasAccess('activities.view')) {
     return (
       <div className="p-6">
         <Alert variant="error">
@@ -388,7 +388,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
             <Lock className="h-5 w-5" />
             <div>
               <h3 className="font-semibold">Access Denied</h3>
-              <p className="text-sm">You do not have permission to view BOQ. Please contact your administrator.</p>
+              <p className="text-sm">You do not have permission to view Activities. Please contact your administrator.</p>
             </div>
           </div>
         </Alert>
@@ -3437,7 +3437,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div className="flex-1">
             <div className="flex items-center gap-3">
-              <h2 className="text-3xl font-bold text-gray-900 dark:text-white">Bill of Quantities (BOQ)</h2>
+              <h2 className="text-3xl font-bold text-gray-900 dark:text-white">Activities</h2>
               {loading && (
                 <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-full animate-pulse">
                   <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
@@ -3449,7 +3449,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
           </div>
           
           {/* Add New Activity Button */}
-          {guard.hasAccess('boq.create') && (
+          {guard.hasAccess('activities.create') && (
             <div className="flex gap-2">
               <Button 
                 onClick={() => setShowForm(true)} 
@@ -3459,7 +3459,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
                 <span>Add New Activity</span>
               </Button>
               <PermissionButton
-                permission="boq.view"
+                permission="activities.view"
                 onClick={() => setUseCustomizedTable(!useCustomizedTable)}
                 variant="outline"
                 className="flex items-center space-x-2 px-6 py-3 whitespace-nowrap"
@@ -3607,21 +3607,21 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300 mr-2">Data Actions:</span>
-          <PermissionGuard permission="boq.export">
+          <PermissionGuard permission="activities.export">
             <ExportButton
               data={getExportData()}
-              filename="BOQ_Activities"
+              filename="Activities"
               formats={['csv', 'excel']}
               label="Export"
               variant="outline"
             />
           </PermissionGuard>
           
-          <PermissionGuard permission="boq.print">
+          <PermissionGuard permission="activities.print">
             <PrintButton
               label="Print"
               variant="outline"
-              printTitle="BOQ Activities Report"
+              printTitle="Activities Report"
               printSettings={{
                 fontSize: 'medium',
                 compactMode: true
@@ -3629,11 +3629,11 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
             />
           </PermissionGuard>
           
-          <PermissionGuard permission="boq.import">
+          <PermissionGuard permission="activities.import">
             <ImportButton
               onImport={handleImportBOQ}
               requiredColumns={['Project Code', 'Activity Name', 'Unit']}
-              templateName="BOQ_Activities"
+              templateName="Activities"
               templateColumns={importTemplateColumns}
               label="Import"
               variant="outline"
@@ -3877,7 +3877,7 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2">
               <ClipboardList className="w-5 h-5" />
-              BOQ Activities
+              Activities
               <span className="text-sm font-normal text-gray-500">
                 ({filteredActivities.length} activities)
               </span>
@@ -3894,10 +3894,10 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
                   </div>
                   <div>
                     <h3 className="text-2xl font-bold text-blue-900 dark:text-blue-100 mb-2">
-                      🔍 Apply Filters to View BOQ Activities
+                      🔍 Apply Filters to View Activities
                     </h3>
                     <p className="text-blue-700 dark:text-blue-300 max-w-md mx-auto">
-                      Use the filters above to search and view BOQ activities. 
+                      Use the filters above to search and view activities. 
                       This ensures fast loading by only fetching relevant data.
                     </p>
                   </div>
@@ -3907,8 +3907,8 @@ export function BOQManagement({ globalSearchTerm = '', globalFilters = { project
                 </div>
               </div>
             </div>
-          ) : guard.hasAccess('boq.view') ? (
-            guard.hasAccess('boq.view') && useCustomizedTable ? (
+          ) : guard.hasAccess('activities.view') ? (
+            guard.hasAccess('activities.view') && useCustomizedTable ? (
               <BOQTableWithCustomization
                 activities={getCurrentPageData()}
                 projects={projects}

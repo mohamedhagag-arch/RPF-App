@@ -12,7 +12,7 @@ import { clsx } from 'clsx'
 import { useCallback } from 'react'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 
-type TabType = 'dashboard' | 'projects' | 'boq' | 'kpi'
+type TabType = 'dashboard' | 'projects' | 'activities' | 'kpi'
 
 interface SidebarProps {
   activeTab: TabType
@@ -34,10 +34,10 @@ const menuItems = [
     permission: 'projects.view'
   },
   {
-    id: 'boq' as TabType,
-    label: 'Bill of Quantities (BOQ)',
+    id: 'activities' as TabType,
+    label: 'Activities',
     icon: ClipboardList,
-    permission: 'boq.view'
+    permission: 'activities.view'
   },
   {
     id: 'kpi' as TabType,
