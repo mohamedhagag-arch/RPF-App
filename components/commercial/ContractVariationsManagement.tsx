@@ -29,7 +29,8 @@ import {
   Square,
   Download,
   Calendar,
-  FileEdit
+  FileEdit,
+  Clock
 } from 'lucide-react'
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 import { buildProjectFullCode } from '@/lib/projectDataFetcher'
@@ -37,6 +38,7 @@ import { BulkEditVariationsModal } from './BulkEditVariationsModal'
 import { AddVariationForm } from './AddVariationForm'
 import { AddBOQItemFormSimplified } from './AddBOQItemFormSimplified'
 import { ExportVariationsModal } from './ExportVariationsModal'
+import { VariationHistoryModal } from './VariationHistoryModal'
 
 // Helper function to format date as "Jan 04, 25"
 const formatDate = (dateString: string | undefined | null): string => {
@@ -115,6 +117,10 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
   
   // Export modal state
   const [showExportModal, setShowExportModal] = useState(false)
+  
+  // History modal state
+  const [showHistoryModal, setShowHistoryModal] = useState(false)
+  const [selectedHistoryVariationId, setSelectedHistoryVariationId] = useState<string | null>(null)
   
   // Add variation form state
   const [showAddForm, setShowAddForm] = useState(false)
@@ -2100,6 +2106,17 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
                           ) : (
                             <div className="flex items-center gap-2">
                               <PermissionButton
+                                permission="commercial.variations.view"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedHistoryVariationId(variation.id)
+                                  setShowHistoryModal(true)
+                                }}
+                              >
+                                <Clock className="h-4 w-4" />
+                              </PermissionButton>
+                              <PermissionButton
                                 permission="commercial.variations.edit"
                                 variant="outline"
                                 size="sm"
@@ -2196,6 +2213,19 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
           isOpen={showExportModal}
           onClose={() => setShowExportModal(false)}
           variations={filteredVariations}
+          getBOQItemDescription={getBOQItemDescription}
+        />
+      )}
+      
+      {/* History Modal */}
+      {showHistoryModal && selectedHistoryVariationId && (
+        <VariationHistoryModal
+          isOpen={showHistoryModal}
+          onClose={() => {
+            setShowHistoryModal(false)
+            setSelectedHistoryVariationId(null)
+          }}
+          variationId={selectedHistoryVariationId}
           getBOQItemDescription={getBOQItemDescription}
         />
       )}

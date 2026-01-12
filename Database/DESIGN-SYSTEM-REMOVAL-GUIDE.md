@@ -54,3 +54,6 @@ Database/design-system-cleanup.sql
 - ملفات `designation-rates` و `IDCardDesigner` **لا يجب حذفها** - هذه مختلفة عن نظام Design
 - احتفظ بنسخة احتياطية قبل الحذف إذا كنت تريد استرجاع البيانات لاحقاً
 
+
+
+

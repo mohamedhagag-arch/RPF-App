@@ -28,13 +28,15 @@ import {
   FileText,
   CheckSquare,
   Square,
-  Download
+  Download,
+  Clock
 } from 'lucide-react'
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 import { buildProjectFullCode } from '@/lib/projectDataFetcher'
 import { BulkEditBOQItemsModal } from './BulkEditBOQItemsModal'
 import { AddBOQItemForm } from './AddBOQItemForm'
 import { ExportBOQItemsModal } from './ExportBOQItemsModal'
+import { BOQItemHistoryModal } from './BOQItemHistoryModal'
 
 interface CommercialBOQItemsManagementProps {
   globalSearchTerm?: string
@@ -82,6 +84,10 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
   
   // Export modal state
   const [showExportModal, setShowExportModal] = useState(false)
+  
+  // History modal state
+  const [showHistoryModal, setShowHistoryModal] = useState(false)
+  const [selectedHistoryItemId, setSelectedHistoryItemId] = useState<string | null>(null)
   
   // Filters state
   const [showFilters, setShowFilters] = useState(false)
@@ -882,6 +888,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
         'Variations Amount': variationsAmount,
         'Total Units': totalUnits,
         'Total Including Variations': totalIncludingVariations,
+        created_by: appUser?.id || appUser?.email || null,
       }
       
       const { error: insertError } = await (supabase as any)
@@ -967,6 +974,7 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
         'Total Units': totalUnits,
         'Total Including Variations': totalIncludingVariations,
         updated_at: new Date().toISOString(),
+        updated_by: appUser?.id || appUser?.email || null,
       }
       
       const { error: updateError } = await (supabase as any)
@@ -2507,6 +2515,17 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                         ) : (
                           <div className="flex gap-2">
                             <PermissionButton
+                              permission="commercial.boq_items.view"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setSelectedHistoryItemId(item.id)
+                                setShowHistoryModal(true)
+                              }}
+                            >
+                              <Clock className="h-4 w-4" />
+                            </PermissionButton>
+                            <PermissionButton
                               permission="commercial.boq_items.edit"
                               size="sm"
                               variant="outline"
@@ -2600,6 +2619,18 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
           isOpen={showExportModal}
           onClose={() => setShowExportModal(false)}
           items={filteredItems}
+        />
+      )}
+      
+      {/* History Modal */}
+      {showHistoryModal && selectedHistoryItemId && (
+        <BOQItemHistoryModal
+          isOpen={showHistoryModal}
+          onClose={() => {
+            setShowHistoryModal(false)
+            setSelectedHistoryItemId(null)
+          }}
+          boqItemId={selectedHistoryItemId}
         />
       )}
     </div>
