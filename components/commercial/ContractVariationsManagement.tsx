@@ -36,6 +36,7 @@ import { buildProjectFullCode } from '@/lib/projectDataFetcher'
 import { BulkEditVariationsModal } from './BulkEditVariationsModal'
 import { AddVariationForm } from './AddVariationForm'
 import { AddBOQItemFormSimplified } from './AddBOQItemFormSimplified'
+import { ExportVariationsModal } from './ExportVariationsModal'
 
 // Helper function to format date as "Jan 04, 25"
 const formatDate = (dateString: string | undefined | null): string => {
@@ -111,6 +112,9 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
   
   // Bulk edit state
   const [showBulkEditModal, setShowBulkEditModal] = useState(false)
+  
+  // Export modal state
+  const [showExportModal, setShowExportModal] = useState(false)
   
   // Add variation form state
   const [showAddForm, setShowAddForm] = useState(false)
@@ -794,6 +798,44 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
     })
   }
   
+  // Calculate Variation Amount automatically for new row when BOQ item or Quantity Changes changes
+  useEffect(() => {
+    if (isAddingNew && newVariationData.item_description && newVariationData.quantity_changes !== undefined && newVariationData.quantity_changes !== null) {
+      const selectedItem = boqItems.find(item => item.id === newVariationData.item_description)
+      if (selectedItem) {
+        const qtyChanges = Number(newVariationData.quantity_changes)
+        if (!isNaN(qtyChanges)) {
+          const calculatedAmount = qtyChanges * (selectedItem.rate || 0)
+          // Only auto-update if the field is empty or matches the previous calculation
+          // This allows users to override the value
+          setNewVariationData(prev => ({
+            ...prev,
+            variation_amount: calculatedAmount
+          }))
+        }
+      }
+    }
+  }, [isAddingNew, newVariationData.item_description, newVariationData.quantity_changes, boqItems])
+  
+  // Calculate Variation Amount automatically for editing when BOQ item or Quantity Changes changes
+  useEffect(() => {
+    if (editingId && editingData.item_description && editingData.quantity_changes !== undefined && editingData.quantity_changes !== null) {
+      const selectedItem = boqItems.find(item => item.id === editingData.item_description)
+      if (selectedItem) {
+        const qtyChanges = Number(editingData.quantity_changes)
+        if (!isNaN(qtyChanges)) {
+          const calculatedAmount = qtyChanges * (selectedItem.rate || 0)
+          // Only auto-update if the field is empty or matches the previous calculation
+          // This allows users to override the value
+          setEditingData(prev => ({
+            ...prev,
+            variation_amount: calculatedAmount
+          }))
+        }
+      }
+    }
+  }, [editingId, editingData.item_description, editingData.quantity_changes, boqItems])
+  
   // Handle save new row
   const handleSaveNew = async () => {
     try {
@@ -1035,55 +1077,6 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
     }
   }
   
-  // Handle export
-  const handleExport = () => {
-    const headers = [
-      'Reference Number',
-      'Project Full Code',
-      'Project Name',
-      'Variation Ref No.',
-      'BOQ Item',
-      'Quantity Changes',
-      'Variation Amount',
-      'Date of Submission',
-      'Status',
-      'Date of Approval',
-      'Remarks',
-      'Created At',
-      'Updated At'
-    ]
-    
-    const rows = filteredVariations.map(v => [
-      v.auto_generated_unique_reference_number,
-      v.project_full_code,
-      v.project_name,
-      v.variation_ref_no || '',
-      v.item_description ? getBOQItemDescription(v.item_description) : '',
-      v.quantity_changes.toString(),
-      v.variation_amount.toString(),
-      v.date_of_submission || '',
-      v.variation_status,
-      v.date_of_approval || '',
-      v.remarks || '',
-      v.created_at,
-      v.updated_at
-    ])
-    
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-    ].join('\n')
-    
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-    const link = document.createElement('a')
-    const url = URL.createObjectURL(blob)
-    link.setAttribute('href', url)
-    link.setAttribute('download', `contract_variations_${new Date().toISOString().split('T')[0]}.csv`)
-    link.style.visibility = 'hidden'
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-  }
   
   // Toggle filter helper
   const toggleFilter = (filterType: string, value: string | VariationStatus) => {
@@ -1282,14 +1275,15 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
                 <Filter className="h-4 w-4 mr-2" />
                 Filters
               </Button>
-              <Button
+              <PermissionButton
+                permission="commercial.variations.view"
                 variant="outline"
                 size="sm"
-                onClick={handleExport}
+                onClick={() => setShowExportModal(true)}
               >
                 <Download className="h-4 w-4 mr-2" />
                 Export
-              </Button>
+              </PermissionButton>
               <Button
                 variant="outline"
                 size="sm"
@@ -2193,6 +2187,16 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
           }}
           onCancel={() => setShowAddBOQFormInline(false)}
           isOpen={showAddBOQFormInline}
+        />
+      )}
+      
+      {/* Export Modal */}
+      {showExportModal && (
+        <ExportVariationsModal
+          isOpen={showExportModal}
+          onClose={() => setShowExportModal(false)}
+          variations={filteredVariations}
+          getBOQItemDescription={getBOQItemDescription}
         />
       )}
     </div>

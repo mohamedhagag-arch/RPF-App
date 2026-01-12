@@ -85,6 +85,22 @@ export function AddVariationForm({
     return boqItems.filter(item => item.project_full_code === projectFullCode)
   }, [projectFullCode, boqItems])
   
+  // Calculate Variation Amount automatically when BOQ item or Quantity Changes changes
+  useEffect(() => {
+    if (selectedBOQItem && quantityChanges !== '') {
+      const selectedItem = boqItems.find(item => item.id === selectedBOQItem)
+      if (selectedItem) {
+        const qtyChanges = parseFloat(quantityChanges)
+        if (!isNaN(qtyChanges)) {
+          const calculatedAmount = qtyChanges * (selectedItem.rate || 0)
+          // Only auto-update if the field is empty or matches the previous calculation
+          // This allows users to override the value
+          setVariationAmount(calculatedAmount.toString())
+        }
+      }
+    }
+  }, [selectedBOQItem, quantityChanges, boqItems])
+  
   // Handle BOQ item creation
   const handleBOQItemCreated = async (newItemId: string) => {
     // Refresh BOQ items list
