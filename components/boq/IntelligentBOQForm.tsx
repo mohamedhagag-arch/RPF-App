@@ -1658,8 +1658,8 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
       if (!hasProjectZones || availableZones.length === 0) {
         const projectFullCode = project?.project_full_code || project?.project_code || projectCode
         throw new Error(
-          `Cannot create BOQ activity: Project "${projectFullCode}" does not have zones defined.\n\n` +
-          `Please go to "Project Zones Management" and add zones for this project before creating BOQ activities.`
+          `Cannot create activity: Project "${projectFullCode}" does not have zones defined.\n\n` +
+          `Please go to "Project Zones Management" and add zones for this project before creating activities.`
         )
       }
       
@@ -2376,10 +2376,10 @@ export function IntelligentBOQForm({ activity, onSubmit, onCancel, projects = []
                           This project does not have zones defined in Project Zones Management.
                         </p>
                         <p className="text-sm text-red-800 dark:text-red-300 mt-1">
-                          <strong>You cannot create BOQ activities for this project until zones are added.</strong>
+                          <strong>You cannot create activities for this project until zones are added.</strong>
                         </p>
                         <p className="text-xs text-red-700 dark:text-red-400 mt-2">
-                          Please go to <strong>"Project Zones Management"</strong> and add zones for project <strong>{project.project_full_code || project.project_code}</strong> before creating BOQ activities.
+                          Please go to <strong>"Project Zones Management"</strong> and add zones for project <strong>{project.project_full_code || project.project_code}</strong> before creating activities.
                         </p>
                       </div>
                     </Alert>

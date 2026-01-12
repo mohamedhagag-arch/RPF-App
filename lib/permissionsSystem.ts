@@ -27,15 +27,15 @@ export const ALL_PERMISSIONS: Permission[] = [
   { id: 'projects.print', name: 'Print Projects', category: 'projects', description: 'Can print projects reports', action: 'export' },
   { id: 'projects.zones', name: 'Manage Zones', category: 'projects', description: 'Can manage project zones', action: 'manage' },
   
-  // BOQ Permissions
-  { id: 'boq.view', name: 'View BOQ', category: 'boq', description: 'Can view BOQ activities', action: 'view' },
-  { id: 'boq.create', name: 'Create Activities', category: 'boq', description: 'Can create BOQ activities', action: 'create' },
-  { id: 'boq.edit', name: 'Edit Activities', category: 'boq', description: 'Can edit BOQ activities', action: 'edit' },
-  { id: 'boq.delete', name: 'Delete Activities', category: 'boq', description: 'Can delete BOQ activities', action: 'delete' },
-  { id: 'boq.approve', name: 'Approve Activities', category: 'boq', description: 'Can approve BOQ activities', action: 'approve' },
-  { id: 'boq.export', name: 'Export BOQ', category: 'boq', description: 'Can export BOQ data', action: 'export' },
-  { id: 'boq.import', name: 'Import BOQ', category: 'boq', description: 'Can import BOQ activities from files', action: 'manage' },
-  { id: 'boq.print', name: 'Print BOQ', category: 'boq', description: 'Can print BOQ reports', action: 'export' },
+  // Activities Permissions
+  { id: 'activities.view', name: 'View Activities', category: 'activities', description: 'Can view activities', action: 'view' },
+  { id: 'activities.create', name: 'Create Activities', category: 'activities', description: 'Can create activities', action: 'create' },
+  { id: 'activities.edit', name: 'Edit Activities', category: 'activities', description: 'Can edit activities', action: 'edit' },
+  { id: 'activities.delete', name: 'Delete Activities', category: 'activities', description: 'Can delete activities', action: 'delete' },
+  { id: 'activities.approve', name: 'Approve Activities', category: 'activities', description: 'Can approve activities', action: 'approve' },
+  { id: 'activities.export', name: 'Export Activities', category: 'activities', description: 'Can export activities data', action: 'export' },
+  { id: 'activities.import', name: 'Import Activities', category: 'activities', description: 'Can import activities from files', action: 'manage' },
+  { id: 'activities.print', name: 'Print Activities', category: 'activities', description: 'Can print activities reports', action: 'export' },
   
   // KPI Permissions
   { id: 'kpi.view', name: 'View KPIs', category: 'kpi', description: 'Can view KPI records', action: 'view' },
@@ -366,8 +366,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'dashboard.view',
     // Projects
     'projects.view', 'projects.create', 'projects.edit', 'projects.delete', 'projects.export', 'projects.import', 'projects.print', 'projects.zones',
-    // BOQ
-    'boq.view', 'boq.create', 'boq.edit', 'boq.delete', 'boq.approve', 'boq.export', 'boq.import', 'boq.print',
+    // Activities
+    'activities.view', 'activities.create', 'activities.edit', 'activities.delete', 'activities.approve', 'activities.export', 'activities.import', 'activities.print',
     // KPI
     'kpi.view', 'kpi.create', 'kpi.create.standard', 'kpi.create.smart', 'kpi.create.legacy', 'kpi.edit', 'kpi.delete', 'kpi.export', 'kpi.import', 'kpi.print', 'kpi.approve', 'kpi.need_to_submit',
     // Reports
@@ -438,7 +438,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     // Projects (view and export only)
     'projects.view', 'projects.export',
     // BOQ (create, edit, view)
-    'boq.view', 'boq.create', 'boq.edit', 'boq.export',
+    'activities.view', 'activities.create', 'activities.edit', 'activities.export',
     // KPI (all except delete)
     'kpi.view', 'kpi.create', 'kpi.create.standard', 'kpi.create.smart', 'kpi.create.legacy', 'kpi.edit', 'kpi.export',
     // Reports (view and export)
@@ -469,7 +469,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
   viewer: [
     'dashboard.view',
     'projects.view',
-    'boq.view',
+    'activities.view',
     'kpi.view',
     'reports.view', 'reports.daily', 'reports.weekly', 'reports.monthly',
     'reports.lookahead', 'reports.critical', 'reports.performance',
@@ -497,7 +497,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     // Projects (view and export)
     'projects.view', 'projects.export',
     // BOQ (view and approve)
-    'boq.view', 'boq.approve', 'boq.export',
+    'activities.view', 'activities.approve', 'activities.export',
     // KPI (view, approve planned KPIs)
     'kpi.view', 'kpi.approve', 'kpi.need_to_submit', 'kpi.export',
     // Reports (view and export)

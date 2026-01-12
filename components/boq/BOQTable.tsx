@@ -134,7 +134,7 @@ export function BOQTable({ activities, projects, allKPIs, onEdit, onDelete, onBu
               Clear Selection
             </Button>
           </div>
-          {guard.hasAccess('boq.delete') && (
+          {guard.hasAccess('activities.delete') && (
             <Button
               variant="outline"
               size="sm"
@@ -321,7 +321,7 @@ export function BOQTable({ activities, projects, allKPIs, onEdit, onDelete, onBu
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                 <div className="flex space-x-2 ">
-                  {guard.hasAccess('boq.edit') && (
+                  {guard.hasAccess('activities.edit') && (
                     <Button
                       variant="outline"
                       size="sm"
@@ -332,7 +332,7 @@ export function BOQTable({ activities, projects, allKPIs, onEdit, onDelete, onBu
                       <span>Edit</span>
                     </Button>
                   )}
-                  {guard.hasAccess('boq.delete') && (
+                  {guard.hasAccess('activities.delete') && (
                     <Button
                       variant="outline"
                       size="sm"

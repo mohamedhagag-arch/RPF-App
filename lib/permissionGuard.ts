@@ -275,7 +275,7 @@ export function useRoutePermission(route: string): boolean {
   // Map routes to permissions
   const routePermissions: Record<string, string> = {
     '/projects': 'projects.view',
-    '/boq': 'boq.view',
+    '/activities': 'activities.view',
     '/kpi': 'kpi.view',
     '/reports': 'reports.view',
     '/users': 'users.view',
@@ -303,7 +303,7 @@ export function useMenuPermission(menuItem: string): boolean {
   // Map menu items to permissions
   const menuPermissions: Record<string, string> = {
     'projects': 'projects.view',
-    'boq': 'boq.view',
+    'activities': 'activities.view',
     'kpi': 'kpi.view',
     'reports': 'reports.view',
     'users': 'users.view',
@@ -335,11 +335,11 @@ export function useButtonPermission(buttonType: string, context?: string): boole
     'delete-project': 'projects.delete',
     'export-project': 'projects.export',
     
-    'create-boq': 'boq.create',
-    'edit-boq': 'boq.edit',
-    'delete-boq': 'boq.delete',
-    'approve-boq': 'boq.approve',
-    'export-boq': 'boq.export',
+    'create-activities': 'activities.create',
+    'edit-activities': 'activities.edit',
+    'delete-activities': 'activities.delete',
+    'approve-activities': 'activities.approve',
+    'export-activities': 'activities.export',
     
     'create-kpi': 'kpi.create',
     'edit-kpi': 'kpi.edit',
@@ -378,9 +378,9 @@ export const quickChecks = {
   canEditProjects: () => usePermissionGuard().hasAccess('projects.edit'),
   canDeleteProjects: () => usePermissionGuard().hasAccess('projects.delete'),
   
-  canCreateBOQ: () => usePermissionGuard().hasAccess('boq.create'),
-  canEditBOQ: () => usePermissionGuard().hasAccess('boq.edit'),
-  canDeleteBOQ: () => usePermissionGuard().hasAccess('boq.delete'),
+  canCreateActivities: () => usePermissionGuard().hasAccess('activities.create'),
+  canEditActivities: () => usePermissionGuard().hasAccess('activities.edit'),
+  canDeleteActivities: () => usePermissionGuard().hasAccess('activities.delete'),
   
   canCreateKPI: () => usePermissionGuard().hasAccess('kpi.create'),
   canEditKPI: () => usePermissionGuard().hasAccess('kpi.edit'),

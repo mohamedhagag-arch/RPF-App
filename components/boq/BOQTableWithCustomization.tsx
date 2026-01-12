@@ -3165,7 +3165,7 @@ export function BOQTableWithCustomization({
         return (
           <div className="flex items-center gap-2">
             <PermissionButton
-              permission="boq.edit"
+              permission="activities.edit"
               variant="outline"
               size="sm"
               onClick={() => onEdit(activity)}
@@ -3174,7 +3174,7 @@ export function BOQTableWithCustomization({
               Edit
             </PermissionButton>
             <PermissionButton
-              permission="boq.delete"
+              permission="activities.delete"
               variant="outline"
               size="sm"
               onClick={() => onDelete(activity.id)}
@@ -3375,7 +3375,7 @@ export function BOQTableWithCustomization({
   }, [activities, sortColumn, sortDirection])
 
   // ✅ Check permission before rendering the entire table
-  if (!guard.hasAccess('boq.view')) {
+  if (!guard.hasAccess('activities.view')) {
     return null
   }
 
@@ -3385,14 +3385,14 @@ export function BOQTableWithCustomization({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-            BOQ Activities ({activities.length})
+            Activities ({activities.length})
           </h3>
           {selectedIds.length > 0 && (
             <div className="flex items-center gap-2">
               <span className="text-sm text-gray-600 dark:text-gray-400">
                 {selectedIds.length} selected
               </span>
-              {onBulkDelete && guard.hasAccess('boq.delete') && (
+              {onBulkDelete && guard.hasAccess('activities.delete') && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -3408,7 +3408,7 @@ export function BOQTableWithCustomization({
         
         <div className="flex items-center gap-2">
           <PermissionButton
-            permission="boq.view"
+            permission="activities.view"
             variant="outline"
             size="sm"
             onClick={() => setShowCustomizer(true)}

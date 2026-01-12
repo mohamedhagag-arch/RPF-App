@@ -6,11 +6,11 @@ import { useAuth } from '@/app/providers'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 import { ProjectsList } from '../projects/ProjectsList'
-import { BOQManagement } from '../boq/BOQManagement'
+import { ActivitiesManagement } from '../boq/BOQManagement'
 import { KPITracking } from '../kpi/KPITracking'
 import { DashboardOverview } from './DashboardOverview'
 
-type TabType = 'dashboard' | 'projects' | 'boq' | 'kpi'
+type TabType = 'dashboard' | 'projects' | 'activities' | 'kpi'
 
 export function Dashboard() {
   const guard = usePermissionGuard()
@@ -46,9 +46,9 @@ export function Dashboard() {
       case 'projects':
         if (!guard.hasAccess('projects.view')) return null
         return <ProjectsList />
-      case 'boq':
-        if (!guard.hasAccess('boq.view')) return null
-        return <BOQManagement />
+      case 'activities':
+        if (!guard.hasAccess('activities.view')) return null
+        return <ActivitiesManagement />
       case 'kpi':
         if (!guard.hasAccess('kpi.view')) return null
         return <KPITracking />
@@ -65,7 +65,7 @@ export function Dashboard() {
     const availableTabs: TabType[] = []
     if (guard.hasAccess('dashboard.view')) availableTabs.push('dashboard')
     if (guard.hasAccess('projects.view')) availableTabs.push('projects')
-    if (guard.hasAccess('boq.view')) availableTabs.push('boq')
+    if (guard.hasAccess('activities.view')) availableTabs.push('activities')
     if (guard.hasAccess('kpi.view')) availableTabs.push('kpi')
     
     // If current tab is not accessible, redirect to first available
