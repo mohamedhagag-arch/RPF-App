@@ -1,6 +1,6 @@
 'use client'
 
-import { BOQManagement } from '@/components/boq/BOQManagement'
+import { ActivitiesManagement } from '@/components/boq/BOQManagement'
 import { PermissionPage } from '@/components/ui/PermissionPage'
 import { DynamicTitle } from '@/components/ui/DynamicTitle'
 
@@ -13,7 +13,7 @@ export default function BOQPage() {
     >
       <DynamicTitle pageTitle="BOQ" />
       <div className="p-6">
-        <BOQManagement globalSearchTerm="" globalFilters={{ project: '', status: '', division: '', dateRange: '' }} />
+        <ActivitiesManagement globalSearchTerm="" globalFilters={{ project: '', status: '', division: '', dateRange: '' }} />
       </div>
     </PermissionPage>
   )
