@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, memo, useRef, Fragment } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -5139,7 +5139,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
             </div>
           )}
           <div className="overflow-x-auto overflow-y-auto print-table-container" style={{ maxHeight: '70vh' }}>
-            <table className="border-collapse text-sm print-table" style={{ tableLayout: 'fixed', minWidth: '100%', width: `${200 + (hideDivisionsColumn ? 0 : 180) + 120 + (hideTotalContractColumn ? 0 : 180) + 220 + (hideVirtualMaterialColumn ? 0 : 180) + (showOuterRangeColumn && outerRangeStart ? (viewPlannedValue ? 320 : 160) : 0) + (periods.length * (viewPlannedValue ? 280 : 140)) + (viewPlannedValue ? 300 : 150)}px` }}>
+            <table className="border-collapse text-sm print-table" style={{ tableLayout: 'fixed', minWidth: '100%', width: `${200 + (hideDivisionsColumn ? 0 : 180) + 120 + (hideTotalContractColumn ? 0 : 180) + 220 + (hideVirtualMaterialColumn ? 0 : 180) + (showOuterRangeColumn && outerRangeStart ? (viewPlannedValue ? (showVirtualMaterialValues ? 640 : 320) : (showVirtualMaterialValues ? 320 : 160)) : 0) + (periods.length * (viewPlannedValue ? (showVirtualMaterialValues ? 560 : 280) : (showVirtualMaterialValues ? 280 : 140))) + (viewPlannedValue ? (showVirtualMaterialValues ? 600 : 300) : (showVirtualMaterialValues ? 300 : 150))}px` }}>
               <thead className="sticky top-0 z-20">
                 {/* First row: Main headers with period headers spanning sub-columns */}
                 <tr className="bg-gray-100 dark:bg-gray-800 border-b-2 border-gray-300 dark:border-gray-600">
@@ -5160,7 +5160,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                   )}
                   {showOuterRangeColumn && outerRangeStart && (
                     viewPlannedValue ? (
-                      <th colSpan={2} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: '320px' }}>
+                      <th colSpan={showVirtualMaterialValues ? 4 : 2} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: showVirtualMaterialValues ? '640px' : '320px' }}>
                         <div className="font-bold text-blue-700 dark:text-blue-300">Outer Range</div>
                         <div className="text-xs font-normal text-gray-500 dark:text-gray-400 mt-1">
                           {outerRangeStart && dateRange.start ? (
@@ -5173,7 +5173,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                         </div>
                       </th>
                     ) : (
-                      <th rowSpan={1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}>
+                      <th colSpan={showVirtualMaterialValues ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: showVirtualMaterialValues ? '320px' : '160px' }}>
                         <div className="font-bold text-blue-700 dark:text-blue-300">Outer Range</div>
                         <div className="text-xs font-normal text-gray-500 dark:text-gray-400 mt-1">
                           {outerRangeStart && dateRange.start ? (
@@ -5189,8 +5189,10 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                   )}
                   {periods.map((period, index) => {
                     if (viewPlannedValue) {
+                      const colSpan = showVirtualMaterialValues ? 4 : 2
+                      const width = showVirtualMaterialValues ? '560px' : '280px'
                       return (
-                        <th key={index} colSpan={2} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: '280px' }}>
+                        <th key={index} colSpan={colSpan} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width }}>
                           <div className="font-bold text-gray-900 dark:text-white">{period.label}</div>
                           <div className="text-xs font-normal text-gray-500 dark:text-gray-400">
                             {period.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {period.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
@@ -5198,8 +5200,10 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                         </th>
                       )
                     } else {
+                      const colSpan = showVirtualMaterialValues ? 2 : 1
+                      const width = showVirtualMaterialValues ? '280px' : '140px'
                       return (
-                        <th key={index} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '140px' }}>
+                        <th key={index} colSpan={colSpan} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width }}>
                           <div>{period.label}</div>
                           <div className="text-xs font-normal text-gray-500 dark:text-gray-400">
                             {period.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {period.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
@@ -5209,11 +5213,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                     }
                   })}
                   {viewPlannedValue ? (
-                    <th colSpan={2} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: '300px' }}>
+                    <th colSpan={showVirtualMaterialValues ? 4 : 2} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: showVirtualMaterialValues ? '600px' : '300px' }}>
                       <div className="font-bold text-gray-900 dark:text-white">Grand Total</div>
                     </th>
                   ) : (
-                    <th className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '150px' }}>Grand Total</th>
+                    <th colSpan={showVirtualMaterialValues ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: showVirtualMaterialValues ? '300px' : '150px' }}>Grand Total</th>
                   )}
                 </tr>
                 {/* Second row: Sub-headers for Actual and Planned (only when viewPlannedValue is enabled) */}
@@ -5227,6 +5231,16 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                         <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}>
                           <div className="text-xs font-medium text-blue-600 dark:text-blue-400">Planned</div>
                         </th>
+                        {showVirtualMaterialValues && (
+                          <>
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-purple-50 dark:bg-purple-900/20" style={{ width: '160px' }}>
+                              <div className="text-xs font-medium text-purple-600 dark:text-purple-400">VM Actual</div>
+                            </th>
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-purple-50 dark:bg-purple-900/20" style={{ width: '160px' }}>
+                              <div className="text-xs font-medium text-purple-600 dark:text-purple-400">VM Planned</div>
+                            </th>
+                          </>
+                        )}
                       </>
                     )}
                     {periods.map((period, index) => (
@@ -5237,6 +5251,16 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                         <th key={`${index}-planned`} className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: '140px' }}>
                           <div className="text-xs font-medium text-blue-600 dark:text-blue-400">Planned</div>
                         </th>
+                        {showVirtualMaterialValues && (
+                          <>
+                            <th key={`${index}-vm-actual`} className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-purple-50 dark:bg-purple-900/20" style={{ width: '140px' }}>
+                              <div className="text-xs font-medium text-purple-600 dark:text-purple-400">VM Actual</div>
+                            </th>
+                            <th key={`${index}-vm-planned`} className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-purple-50 dark:bg-purple-900/20" style={{ width: '140px' }}>
+                              <div className="text-xs font-medium text-purple-600 dark:text-purple-400">VM Planned</div>
+                            </th>
+                          </>
+                        )}
                       </>
                     ))}
                     <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-green-50 dark:bg-green-900/20" style={{ width: '150px' }}>
@@ -5245,13 +5269,54 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                     <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: '150px' }}>
                       <div className="text-xs font-medium text-blue-600 dark:text-blue-400">Planned</div>
                     </th>
+                    {showVirtualMaterialValues && (
+                      <>
+                        <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-purple-50 dark:bg-purple-900/20" style={{ width: '150px' }}>
+                          <div className="text-xs font-medium text-purple-600 dark:text-purple-400">VM Actual</div>
+                        </th>
+                        <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-purple-50 dark:bg-purple-900/20" style={{ width: '150px' }}>
+                          <div className="text-xs font-medium text-purple-600 dark:text-purple-400">VM Planned</div>
+                        </th>
+                      </>
+                    )}
+                  </tr>
+                )}
+                {/* Second row: Sub-headers for Actual and VM Actual (when showVirtualMaterialValues is enabled but viewPlannedValue is false) */}
+                {!viewPlannedValue && showVirtualMaterialValues && (
+                  <tr className="bg-gray-100 dark:bg-gray-800 border-b-2 border-gray-300 dark:border-gray-600">
+                    {showOuterRangeColumn && outerRangeStart && (
+                      <>
+                        <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-green-50 dark:bg-green-900/20" style={{ width: '160px' }}>
+                          <div className="text-xs font-medium text-green-600 dark:text-green-400">Actual</div>
+                        </th>
+                        <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-purple-50 dark:bg-purple-900/20" style={{ width: '160px' }}>
+                          <div className="text-xs font-medium text-purple-600 dark:text-purple-400">VM Actual</div>
+                        </th>
+                      </>
+                    )}
+                    {periods.map((period, index) => (
+                      <>
+                        <th key={`${index}-actual`} className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-green-50 dark:bg-green-900/20" style={{ width: '140px' }}>
+                          <div className="text-xs font-medium text-green-600 dark:text-green-400">Actual</div>
+                        </th>
+                        <th key={`${index}-vm-actual`} className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-purple-50 dark:bg-purple-900/20" style={{ width: '140px' }}>
+                          <div className="text-xs font-medium text-purple-600 dark:text-purple-400">VM Actual</div>
+                        </th>
+                      </>
+                    ))}
+                    <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-green-50 dark:bg-green-900/20" style={{ width: '150px' }}>
+                      <div className="text-xs font-medium text-green-600 dark:text-green-400">Actual</div>
+                    </th>
+                    <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-purple-50 dark:bg-purple-900/20" style={{ width: '150px' }}>
+                      <div className="text-xs font-medium text-purple-600 dark:text-purple-400">VM Actual</div>
+                    </th>
                   </tr>
                 )}
               </thead>
               <tbody>
                 {paginatedProjects.length === 0 ? (
                   <tr>
-                    <td colSpan={1 + 1 + (hideDivisionsColumn ? 0 : 1) + 1 + (hideTotalContractColumn ? 0 : 1) + 1 + (hideVirtualMaterialColumn ? 0 : 1) + (showOuterRangeColumn && outerRangeStart ? (viewPlannedValue ? 2 : 1) : 0) + (periods.length * (viewPlannedValue ? 2 : 1)) + (viewPlannedValue ? 2 : 1)} className="border border-gray-300 dark:border-gray-600 px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                    <td colSpan={1 + 1 + (hideDivisionsColumn ? 0 : 1) + 1 + (hideTotalContractColumn ? 0 : 1) + 1 + (hideVirtualMaterialColumn ? 0 : 1) + (showOuterRangeColumn && outerRangeStart ? (viewPlannedValue ? (showVirtualMaterialValues ? 4 : 2) : (showVirtualMaterialValues ? 2 : 1)) : 0) + (periods.length * (viewPlannedValue ? (showVirtualMaterialValues ? 4 : 2) : (showVirtualMaterialValues ? 2 : 1))) + (viewPlannedValue ? (showVirtualMaterialValues ? 4 : 2) : (showVirtualMaterialValues ? 2 : 1))} className="border border-gray-300 dark:border-gray-600 px-4 py-8 text-center text-gray-500 dark:text-gray-400">
                       <div className="flex flex-col items-center gap-2">
                         <AlertTriangle className="h-8 w-8 text-gray-400" />
                         <p>No projects found</p>
@@ -5470,48 +5535,88 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                         {showOuterRangeColumn && outerRangeStart && (
                           viewPlannedValue ? (
                             <>
-                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}>
-                                <div className="space-y-1">
-                                  {(() => {
-                                    const outerRangeValue = cachedValues?.outerRangeValue || 0
-                                    return outerRangeValue > 0 ? (
-                                      <span className="text-green-600 dark:text-green-400 font-bold">
-                                        {formatCurrency(outerRangeValue, project.currency)}
-                                      </span>
-                                    ) : (
-                                      <span className="text-gray-400">-</span>
-                                    )
-                                  })()}
-                                </div>
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-green-50 dark:bg-green-900/20" style={{ width: '160px' }}>
+                                {(() => {
+                                  const outerRangeValue = cachedValues?.outerRangeValue || 0
+                                  return outerRangeValue > 0 ? (
+                                    <span className="text-green-600 dark:text-green-400 font-bold">
+                                      {formatCurrency(outerRangeValue, project.currency)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-gray-400">-</span>
+                                  )
+                                })()}
                               </td>
                               <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}>
-                                <div className="space-y-1">
-                                  {(() => {
-                                    const outerRangePlannedValue = cachedValues?.outerRangePlannedValue || 0
-                                    return outerRangePlannedValue > 0 ? (
-                                      <span className="text-blue-600 dark:text-blue-400 font-bold">
-                                        {formatCurrency(outerRangePlannedValue, project.currency)}
-                                      </span>
-                                    ) : (
-                                      <span className="text-gray-400">-</span>
-                                    )
-                                  })()}
-                                </div>
+                                {(() => {
+                                  const outerRangePlannedValue = cachedValues?.outerRangePlannedValue || 0
+                                  return outerRangePlannedValue > 0 ? (
+                                    <span className="text-blue-600 dark:text-blue-400 font-bold">
+                                      {formatCurrency(outerRangePlannedValue, project.currency)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-gray-400">-</span>
+                                  )
+                                })()}
                               </td>
+                              {showVirtualMaterialValues && (
+                                <>
+                                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '160px' }}>
+                                    {(() => {
+                                      const outerRangeVirtualMaterialAmount = cachedValues?.outerRangeVirtualMaterialAmount || 0
+                                      return outerRangeVirtualMaterialAmount > 0 ? (
+                                        <span className="text-purple-600 dark:text-purple-400 font-bold">
+                                          {formatCurrency(outerRangeVirtualMaterialAmount, project.currency)}
+                                        </span>
+                                      ) : (
+                                        <span className="text-gray-400">-</span>
+                                      )
+                                    })()}
+                                  </td>
+                                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '160px' }}>
+                                    {(() => {
+                                      const outerRangePlannedVirtualMaterialAmount = cachedValues?.outerRangePlannedVirtualMaterialAmount || 0
+                                      return outerRangePlannedVirtualMaterialAmount > 0 ? (
+                                        <span className="text-purple-600 dark:text-purple-400 font-bold">
+                                          {formatCurrency(outerRangePlannedVirtualMaterialAmount, project.currency)}
+                                        </span>
+                                      ) : (
+                                        <span className="text-gray-400">-</span>
+                                      )
+                                    })()}
+                                  </td>
+                                </>
+                              )}
                             </>
                           ) : (
-                            <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}>
-                              {(() => {
-                                const outerRangeValue = cachedValues?.outerRangeValue || 0
-                                return outerRangeValue > 0 ? (
-                                  <span className="text-green-600 dark:text-green-400 font-bold">
-                                    {formatCurrency(outerRangeValue, project.currency)}
-                                  </span>
-                                ) : (
-                                  <span className="text-gray-400">-</span>
-                                )
-                              })()}
-                            </td>
+                            <>
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-green-50 dark:bg-green-900/20" style={{ width: '160px' }}>
+                                {(() => {
+                                  const outerRangeValue = cachedValues?.outerRangeValue || 0
+                                  return outerRangeValue > 0 ? (
+                                    <span className="text-green-600 dark:text-green-400 font-bold">
+                                      {formatCurrency(outerRangeValue, project.currency)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-gray-400">-</span>
+                                  )
+                                })()}
+                              </td>
+                              {showVirtualMaterialValues && (
+                                <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '160px' }}>
+                                  {(() => {
+                                    const outerRangeVirtualMaterialAmount = cachedValues?.outerRangeVirtualMaterialAmount || 0
+                                    return outerRangeVirtualMaterialAmount > 0 ? (
+                                      <span className="text-purple-600 dark:text-purple-400 font-bold">
+                                        {formatCurrency(outerRangeVirtualMaterialAmount, project.currency)}
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-400">-</span>
+                                    )
+                                  })()}
+                                </td>
+                              )}
+                            </>
                           )
                         )}
                         {periods.map((period, periodIndex) => {
@@ -5524,53 +5629,6 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                             return (
                               <Fragment key={periodIndex}>
                                 <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-green-50 dark:bg-green-900/20" style={{ width: '140px' }}>
-                                  <div className="space-y-1">
-                                    {periodValue > 0 ? (
-                                      <span className="text-green-600 dark:text-green-400 font-bold">
-                                        {formatCurrency(periodValue, project.currency)}
-                                      </span>
-                                    ) : (
-                                      <span className="text-gray-400">-</span>
-                                    )}
-                                    {!hideVirtualMaterialColumn && showVirtualMaterialValues && periodVirtualMaterialAmount > 0 && (
-                                      <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
-                                        {formatCurrency(periodVirtualMaterialAmount, project.currency)}
-                                      </div>
-                                    )}
-                                    {!hideVirtualMaterialColumn && showVirtualMaterialValues && periodValue > 0 && periodVirtualMaterialAmount > 0 && (
-                                      <div className="text-xs font-bold text-gray-900 dark:text-white">
-                                        {formatCurrency(periodValue + periodVirtualMaterialAmount, project.currency)}
-                                      </div>
-                                    )}
-                                  </div>
-                                </td>
-                                <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '140px' }}>
-                                  <div className="space-y-1">
-                                    {periodPlannedValue > 0 ? (
-                                      <span className="text-blue-600 dark:text-blue-400 font-bold">
-                                        {formatCurrency(periodPlannedValue, project.currency)}
-                                      </span>
-                                    ) : (
-                                      <span className="text-gray-400">-</span>
-                                    )}
-                                    {!hideVirtualMaterialColumn && showVirtualMaterialValues && periodPlannedVirtualMaterialAmount > 0 && (
-                                      <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
-                                        {formatCurrency(periodPlannedVirtualMaterialAmount, project.currency)}
-                                      </div>
-                                    )}
-                                    {!hideVirtualMaterialColumn && showVirtualMaterialValues && periodPlannedValue > 0 && periodPlannedVirtualMaterialAmount > 0 && (
-                                      <div className="text-xs font-bold text-gray-900 dark:text-white">
-                                        {formatCurrency(periodPlannedValue + periodPlannedVirtualMaterialAmount, project.currency)}
-                                      </div>
-                                    )}
-                                  </div>
-                                </td>
-                              </Fragment>
-                            )
-                          } else {
-                            return (
-                              <td key={periodIndex} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '140px' }}>
-                                <div className="space-y-1">
                                   {periodValue > 0 ? (
                                     <span className="text-green-600 dark:text-green-400 font-bold">
                                       {formatCurrency(periodValue, project.currency)}
@@ -5578,126 +5636,151 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                   ) : (
                                     <span className="text-gray-400">-</span>
                                   )}
-                                  {!hideVirtualMaterialColumn && showVirtualMaterialValues && periodVirtualMaterialAmount > 0 && (
-                                    <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
-                                      {formatCurrency(periodVirtualMaterialAmount, project.currency)}
-                                    </div>
+                                </td>
+                                <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '140px' }}>
+                                  {periodPlannedValue > 0 ? (
+                                    <span className="text-blue-600 dark:text-blue-400 font-bold">
+                                      {formatCurrency(periodPlannedValue, project.currency)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-gray-400">-</span>
                                   )}
-                                  {!hideVirtualMaterialColumn && showVirtualMaterialValues && periodValue > 0 && periodVirtualMaterialAmount > 0 && (
-                                    <div className="text-xs font-bold text-gray-900 dark:text-white">
-                                      {formatCurrency(periodValue + periodVirtualMaterialAmount, project.currency)}
-                                    </div>
+                                </td>
+                                {showVirtualMaterialValues && (
+                                  <>
+                                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '140px' }}>
+                                      {periodVirtualMaterialAmount > 0 ? (
+                                        <span className="text-purple-600 dark:text-purple-400 font-bold">
+                                          {formatCurrency(periodVirtualMaterialAmount, project.currency)}
+                                        </span>
+                                      ) : (
+                                        <span className="text-gray-400">-</span>
+                                      )}
+                                    </td>
+                                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '140px' }}>
+                                      {periodPlannedVirtualMaterialAmount > 0 ? (
+                                        <span className="text-purple-600 dark:text-purple-400 font-bold">
+                                          {formatCurrency(periodPlannedVirtualMaterialAmount, project.currency)}
+                                        </span>
+                                      ) : (
+                                        <span className="text-gray-400">-</span>
+                                      )}
+                                    </td>
+                                  </>
+                                )}
+                              </Fragment>
+                            )
+                          } else {
+                            return (
+                              <Fragment key={periodIndex}>
+                                <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '140px' }}>
+                                  {periodValue > 0 ? (
+                                    <span className="text-green-600 dark:text-green-400 font-bold">
+                                      {formatCurrency(periodValue, project.currency)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-gray-400">-</span>
                                   )}
-                                </div>
-                              </td>
+                                </td>
+                                {showVirtualMaterialValues && (
+                                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '140px' }}>
+                                    {periodVirtualMaterialAmount > 0 ? (
+                                      <span className="text-purple-600 dark:text-purple-400 font-bold">
+                                        {formatCurrency(periodVirtualMaterialAmount, project.currency)}
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-400">-</span>
+                                    )}
+                                  </td>
+                                )}
+                              </Fragment>
                             )
                           }
                         })}
                         {viewPlannedValue ? (
                           <>
                             <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-green-50 dark:bg-green-900/20" style={{ width: '150px' }}>
-                              <div className="space-y-1">
-                                {(() => {
-                                  const grandTotal = periodValues.reduce((sum: number, val: number) => sum + val, 0) + (cachedValues?.outerRangeValue || 0)
-                                  const totalVirtualMaterialAmount = showVirtualMaterialValues ? (cachedValues?.virtualMaterialAmount?.reduce((sum: number, val: number) => sum + val, 0) || 0) : 0
-                                  const totalGrandTotal = grandTotal + totalVirtualMaterialAmount
-                                  
-                                  if (!hideVirtualMaterialColumn && showVirtualMaterialValues) {
-                                    return (
-                                      <>
-                                        {grandTotal > 0 ? (
-                                          <span className="text-green-600 dark:text-green-400 font-bold">
-                                            {formatCurrency(grandTotal, project.currency)}
-                                          </span>
-                                        ) : (
-                                          <span className="text-gray-400">-</span>
-                                        )}
-                                        {totalVirtualMaterialAmount > 0 && (
-                                          <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
-                                            {formatCurrency(totalVirtualMaterialAmount, project.currency)}
-                                          </div>
-                                        )}
-                                        {totalVirtualMaterialAmount > 0 && totalGrandTotal > 0 && (
-                                          <div className="text-xs font-bold text-gray-900 dark:text-white">
-                                            {formatCurrency(totalGrandTotal, project.currency)}
-                                          </div>
-                                        )}
-                                      </>
-                                    )
-                                  } else {
-                                    return (
-                                      <span className="text-gray-900 dark:text-white font-bold">
-                                        {formatCurrency(grandTotal, project.currency)}
-                                      </span>
-                                    )
-                                  }
-                                })()}
-                              </div>
+                              {(() => {
+                                const grandTotal = periodValues.reduce((sum: number, val: number) => sum + val, 0) + (cachedValues?.outerRangeValue || 0)
+                                return grandTotal > 0 ? (
+                                  <span className="text-green-600 dark:text-green-400 font-bold">
+                                    {formatCurrency(grandTotal, project.currency)}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-400">-</span>
+                                )
+                              })()}
                             </td>
                             <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '150px' }}>
-                              <div className="space-y-1">
-                                {(() => {
-                                  const grandTotalPlanned = periodPlannedValues.reduce((sum: number, val: number) => sum + val, 0) + (cachedValues?.outerRangePlannedValue || 0)
-                                  const totalPlannedVirtualMaterialAmount = showVirtualMaterialValues && viewPlannedValue ? (cachedValues?.plannedVirtualMaterialAmount?.reduce((sum: number, val: number) => sum + val, 0) || 0) : 0
-                                  const totalPlannedGrandTotal = grandTotalPlanned + totalPlannedVirtualMaterialAmount
-                                  
-                                  if (!hideVirtualMaterialColumn && showVirtualMaterialValues) {
-                                    return (
-                                      <>
-                                        {grandTotalPlanned > 0 ? (
-                                          <span className="text-blue-600 dark:text-blue-400 font-bold">
-                                            {formatCurrency(grandTotalPlanned, project.currency)}
-                                          </span>
-                                        ) : (
-                                          <span className="text-gray-400">-</span>
-                                        )}
-                                        {totalPlannedVirtualMaterialAmount > 0 && (
-                                          <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
-                                            {formatCurrency(totalPlannedVirtualMaterialAmount, project.currency)}
-                                          </div>
-                                        )}
-                                        {totalPlannedVirtualMaterialAmount > 0 && totalPlannedGrandTotal > 0 && (
-                                          <div className="text-xs font-bold text-gray-900 dark:text-white">
-                                            {formatCurrency(totalPlannedGrandTotal, project.currency)}
-                                          </div>
-                                        )}
-                                      </>
-                                    )
-                                  } else {
-                                    return grandTotalPlanned > 0 ? (
-                                      <span className="text-blue-600 dark:text-blue-400 font-bold">
-                                        {formatCurrency(grandTotalPlanned, project.currency)}
+                              {(() => {
+                                const grandTotalPlanned = periodPlannedValues.reduce((sum: number, val: number) => sum + val, 0) + (cachedValues?.outerRangePlannedValue || 0)
+                                return grandTotalPlanned > 0 ? (
+                                  <span className="text-blue-600 dark:text-blue-400 font-bold">
+                                    {formatCurrency(grandTotalPlanned, project.currency)}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-400">-</span>
+                                )
+                              })()}
+                            </td>
+                            {showVirtualMaterialValues && (
+                              <>
+                                <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '150px' }}>
+                                  {(() => {
+                                    const totalVirtualMaterialAmount = (cachedValues?.virtualMaterialAmount?.reduce((sum: number, val: number) => sum + val, 0) || 0) + (cachedValues?.outerRangeVirtualMaterialAmount || 0)
+                                    return totalVirtualMaterialAmount > 0 ? (
+                                      <span className="text-purple-600 dark:text-purple-400 font-bold">
+                                        {formatCurrency(totalVirtualMaterialAmount, project.currency)}
                                       </span>
                                     ) : (
                                       <span className="text-gray-400">-</span>
                                     )
-                                  }
-                                })()}
-                              </div>
-                            </td>
+                                  })()}
+                                </td>
+                                <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '150px' }}>
+                                  {(() => {
+                                    const totalPlannedVirtualMaterialAmount = (cachedValues?.plannedVirtualMaterialAmount?.reduce((sum: number, val: number) => sum + val, 0) || 0) + (cachedValues?.outerRangePlannedVirtualMaterialAmount || 0)
+                                    return totalPlannedVirtualMaterialAmount > 0 ? (
+                                      <span className="text-purple-600 dark:text-purple-400 font-bold">
+                                        {formatCurrency(totalPlannedVirtualMaterialAmount, project.currency)}
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-400">-</span>
+                                    )
+                                  })()}
+                                </td>
+                              </>
+                            )}
                           </>
                         ) : (
-                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '150px' }}>
-                            <div className="space-y-1">
+                          <>
+                            <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right" style={{ width: '150px' }}>
                               {(() => {
                                 const grandTotal = periodValues.reduce((sum: number, val: number) => sum + val, 0) + (cachedValues?.outerRangeValue || 0)
-                                const totalVirtualMaterialAmount = showVirtualMaterialValues ? (cachedValues?.virtualMaterialAmount?.reduce((sum: number, val: number) => sum + val, 0) || 0) : 0
-                                
-                                return (
-                                  <>
-                                    <span className="text-gray-900 dark:text-white font-bold">
-                                      {formatCurrency(grandTotal, project.currency)}
-                                    </span>
-                                    {!hideVirtualMaterialColumn && showVirtualMaterialValues && totalVirtualMaterialAmount > 0 && (
-                                      <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
-                                        {formatCurrency(totalVirtualMaterialAmount, project.currency)}
-                                      </div>
-                                    )}
-                                  </>
+                                return grandTotal > 0 ? (
+                                  <span className="text-green-600 dark:text-green-400 font-bold">
+                                    {formatCurrency(grandTotal, project.currency)}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-400">-</span>
                                 )
                               })()}
-                            </div>
-                          </td>
+                            </td>
+                            {showVirtualMaterialValues && (
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '150px' }}>
+                                {(() => {
+                                  const totalVirtualMaterialAmount = (cachedValues?.virtualMaterialAmount?.reduce((sum: number, val: number) => sum + val, 0) || 0) + (cachedValues?.outerRangeVirtualMaterialAmount || 0)
+                                  return totalVirtualMaterialAmount > 0 ? (
+                                    <span className="text-purple-600 dark:text-purple-400 font-bold">
+                                      {formatCurrency(totalVirtualMaterialAmount, project.currency)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-gray-400">-</span>
+                                  )
+                                })()}
+                              </td>
+                            )}
+                          </>
                         )}
                       </tr>
                       {isExpanded && (() => {
@@ -5821,9 +5904,37 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                     </td>
                                   )}
                                   {showOuterRangeColumn && outerRangeStart && (
-                                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}>
-                                      <span className="text-xs text-gray-400">-</span>
-                                    </td>
+                                    viewPlannedValue ? (
+                                      <>
+                                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-green-50 dark:bg-green-900/20" style={{ width: '160px' }}>
+                                          <span className="text-xs text-gray-400">-</span>
+                                        </td>
+                                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '160px' }}>
+                                          <span className="text-xs text-gray-400">-</span>
+                                        </td>
+                                        {showVirtualMaterialValues && (
+                                          <>
+                                            <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '160px' }}>
+                                              <span className="text-xs text-gray-400">-</span>
+                                            </td>
+                                            <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '160px' }}>
+                                              <span className="text-xs text-gray-400">-</span>
+                                            </td>
+                                          </>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <>
+                                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-green-50 dark:bg-green-900/20" style={{ width: '160px' }}>
+                                          <span className="text-xs text-gray-400">-</span>
+                                        </td>
+                                        {showVirtualMaterialValues && (
+                                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '160px' }}>
+                                            <span className="text-xs text-gray-400">-</span>
+                                          </td>
+                                        )}
+                                      </>
+                                    )
                                   )}
                                   {periods.map((period, periodIndex) => {
                                     const periodValue = activityPeriodValues[periodIndex] || 0
@@ -5835,43 +5946,6 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                       return (
                                         <Fragment key={periodIndex}>
                                           <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-green-50 dark:bg-green-900/20" style={{ width: '140px' }}>
-                                            <div className="space-y-1">
-                                              {periodValue > 0 ? (
-                                                <span className="text-sm text-green-600 dark:text-green-400 font-medium">
-                                                  {formatCurrency(periodValue, project.currency)}
-                                                </span>
-                                              ) : (
-                                                <span className="text-xs text-gray-400">-</span>
-                                              )}
-                                              {!hideVirtualMaterialColumn && showVirtualMaterialValues && periodVirtualMaterialAmount > 0 && (
-                                                <div className="text-xs text-purple-600 dark:text-purple-400">
-                                                  {formatCurrency(periodVirtualMaterialAmount, project.currency)}
-                                                </div>
-                                              )}
-                                            </div>
-                                          </td>
-                                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '140px' }}>
-                                            <div className="space-y-1">
-                                              {periodPlannedValue > 0 ? (
-                                                <span className="text-sm text-blue-600 dark:text-blue-400 font-medium">
-                                                  {formatCurrency(periodPlannedValue, project.currency)}
-                                                </span>
-                                              ) : (
-                                                <span className="text-xs text-gray-400">-</span>
-                                              )}
-                                              {!hideVirtualMaterialColumn && showVirtualMaterialValues && periodPlannedVirtualMaterialAmount > 0 && (
-                                                <div className="text-xs text-purple-600 dark:text-purple-400">
-                                                  {formatCurrency(periodPlannedVirtualMaterialAmount, project.currency)}
-                                                </div>
-                                              )}
-                                            </div>
-                                          </td>
-                                        </Fragment>
-                                      )
-                                    } else {
-                                      return (
-                                        <td key={periodIndex} className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right" style={{ width: '140px' }}>
-                                          <div className="space-y-1">
                                             {periodValue > 0 ? (
                                               <span className="text-sm text-green-600 dark:text-green-400 font-medium">
                                                 {formatCurrency(periodValue, project.currency)}
@@ -5879,64 +5953,133 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                             ) : (
                                               <span className="text-xs text-gray-400">-</span>
                                             )}
-                                            {!hideVirtualMaterialColumn && showVirtualMaterialValues && periodVirtualMaterialAmount > 0 && (
-                                              <div className="text-xs text-purple-600 dark:text-purple-400">
-                                                {formatCurrency(periodVirtualMaterialAmount, project.currency)}
-                                              </div>
+                                          </td>
+                                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '140px' }}>
+                                            {periodPlannedValue > 0 ? (
+                                              <span className="text-sm text-blue-600 dark:text-blue-400 font-medium">
+                                                {formatCurrency(periodPlannedValue, project.currency)}
+                                              </span>
+                                            ) : (
+                                              <span className="text-xs text-gray-400">-</span>
                                             )}
-                                          </div>
-                                        </td>
+                                          </td>
+                                          {showVirtualMaterialValues && (
+                                            <>
+                                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '140px' }}>
+                                                {periodVirtualMaterialAmount > 0 ? (
+                                                  <span className="text-sm text-purple-600 dark:text-purple-400 font-medium">
+                                                    {formatCurrency(periodVirtualMaterialAmount, project.currency)}
+                                                  </span>
+                                                ) : (
+                                                  <span className="text-xs text-gray-400">-</span>
+                                                )}
+                                              </td>
+                                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '140px' }}>
+                                                {periodPlannedVirtualMaterialAmount > 0 ? (
+                                                  <span className="text-sm text-purple-600 dark:text-purple-400 font-medium">
+                                                    {formatCurrency(periodPlannedVirtualMaterialAmount, project.currency)}
+                                                  </span>
+                                                ) : (
+                                                  <span className="text-xs text-gray-400">-</span>
+                                                )}
+                                              </td>
+                                            </>
+                                          )}
+                                        </Fragment>
+                                      )
+                                    } else {
+                                      return (
+                                        <Fragment key={periodIndex}>
+                                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right" style={{ width: '140px' }}>
+                                            {periodValue > 0 ? (
+                                              <span className="text-sm text-green-600 dark:text-green-400 font-medium">
+                                                {formatCurrency(periodValue, project.currency)}
+                                              </span>
+                                            ) : (
+                                              <span className="text-xs text-gray-400">-</span>
+                                            )}
+                                          </td>
+                                          {showVirtualMaterialValues && (
+                                            <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '140px' }}>
+                                              {periodVirtualMaterialAmount > 0 ? (
+                                                <span className="text-sm text-purple-600 dark:text-purple-400 font-medium">
+                                                  {formatCurrency(periodVirtualMaterialAmount, project.currency)}
+                                                </span>
+                                              ) : (
+                                                <span className="text-xs text-gray-400">-</span>
+                                              )}
+                                            </td>
+                                          )}
+                                        </Fragment>
                                       )
                                     }
                                   })}
                                   {viewPlannedValue ? (
                                     <>
                                       <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-green-50 dark:bg-green-900/20" style={{ width: '150px' }}>
-                                        <div className="space-y-1">
-                                          {activityGrandTotal > 0 ? (
-                                            <span className="text-sm text-green-600 dark:text-green-400 font-bold">
-                                              {formatCurrency(activityGrandTotal, project.currency)}
-                                            </span>
-                                          ) : (
-                                            <span className="text-xs text-gray-400">-</span>
-                                          )}
-                                          {!hideVirtualMaterialColumn && showVirtualMaterialValues && activityTotalVirtualMaterialAmount > 0 && (
-                                            <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
-                                              {formatCurrency(activityTotalVirtualMaterialAmount, project.currency)}
-                                            </div>
-                                          )}
-                                        </div>
+                                        {activityGrandTotal > 0 ? (
+                                          <span className="text-sm text-green-600 dark:text-green-400 font-bold">
+                                            {formatCurrency(activityGrandTotal, project.currency)}
+                                          </span>
+                                        ) : (
+                                          <span className="text-xs text-gray-400">-</span>
+                                        )}
                                       </td>
                                       <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-blue-50 dark:bg-blue-900/20" style={{ width: '150px' }}>
-                                        <div className="space-y-1">
-                                          {activityGrandTotalPlanned > 0 ? (
-                                            <span className="text-sm text-blue-600 dark:text-blue-400 font-bold">
-                                              {formatCurrency(activityGrandTotalPlanned, project.currency)}
+                                        {activityGrandTotalPlanned > 0 ? (
+                                          <span className="text-sm text-blue-600 dark:text-blue-400 font-bold">
+                                            {formatCurrency(activityGrandTotalPlanned, project.currency)}
+                                          </span>
+                                        ) : (
+                                          <span className="text-xs text-gray-400">-</span>
+                                        )}
+                                      </td>
+                                      {showVirtualMaterialValues && (
+                                        <>
+                                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '150px' }}>
+                                            {activityTotalVirtualMaterialAmount > 0 ? (
+                                              <span className="text-sm text-purple-600 dark:text-purple-400 font-bold">
+                                                {formatCurrency(activityTotalVirtualMaterialAmount, project.currency)}
+                                              </span>
+                                            ) : (
+                                              <span className="text-xs text-gray-400">-</span>
+                                            )}
+                                          </td>
+                                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '150px' }}>
+                                            {activityTotalPlannedVirtualMaterialAmount > 0 ? (
+                                              <span className="text-sm text-purple-600 dark:text-purple-400 font-bold">
+                                                {formatCurrency(activityTotalPlannedVirtualMaterialAmount, project.currency)}
+                                              </span>
+                                            ) : (
+                                              <span className="text-xs text-gray-400">-</span>
+                                            )}
+                                          </td>
+                                        </>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <>
+                                      <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right" style={{ width: '150px' }}>
+                                        {activityGrandTotal > 0 ? (
+                                          <span className="text-sm text-green-600 dark:text-green-400 font-bold">
+                                            {formatCurrency(activityGrandTotal, project.currency)}
+                                          </span>
+                                        ) : (
+                                          <span className="text-xs text-gray-400">-</span>
+                                        )}
+                                      </td>
+                                      {showVirtualMaterialValues && (
+                                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '150px' }}>
+                                          {activityTotalVirtualMaterialAmount > 0 ? (
+                                            <span className="text-sm text-purple-600 dark:text-purple-400 font-bold">
+                                              {formatCurrency(activityTotalVirtualMaterialAmount, project.currency)}
                                             </span>
                                           ) : (
                                             <span className="text-xs text-gray-400">-</span>
                                           )}
-                                          {!hideVirtualMaterialColumn && showVirtualMaterialValues && activityTotalPlannedVirtualMaterialAmount > 0 && (
-                                            <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
-                                              {formatCurrency(activityTotalPlannedVirtualMaterialAmount, project.currency)}
-                                            </div>
-                                          )}
-                                        </div>
-                                      </td>
+                                        </td>
+                                      )}
                                     </>
-                                  ) : (
-                                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right" style={{ width: '150px' }}>
-                                      <div className="space-y-1">
-                                        <span className="text-sm text-gray-900 dark:text-white font-bold">
-                                          {formatCurrency(activityGrandTotal, project.currency)}
-                                        </span>
-                                        {!hideVirtualMaterialColumn && showVirtualMaterialValues && activityTotalVirtualMaterialAmount > 0 && (
-                                          <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">
-                                            {formatCurrency(activityTotalVirtualMaterialAmount, project.currency)}
-                                          </div>
-                                        )}
-                                      </div>
-                                    </td>
                                   )}
                                 </tr>
                               )
