@@ -5143,20 +5143,20 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
               <thead className="sticky top-0 z-20">
                 {/* First row: Main headers with period headers spanning sub-columns */}
                 <tr className="bg-gray-100 dark:bg-gray-800 border-b-2 border-gray-300 dark:border-gray-600">
-                  <th rowSpan={viewPlannedValue ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: '50px' }}>
+                  <th rowSpan={(viewPlannedValue || (!viewPlannedValue && showVirtualMaterialValues)) ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: '50px' }}>
                     <div className="text-xs">Details</div>
                   </th>
-                  <th rowSpan={viewPlannedValue ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold sticky left-0 z-30 bg-gray-100 dark:bg-gray-800" style={{ width: '200px' }}>Project Full Name</th>
+                  <th rowSpan={(viewPlannedValue || (!viewPlannedValue && showVirtualMaterialValues)) ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold sticky left-0 z-30 bg-gray-100 dark:bg-gray-800" style={{ width: '200px' }}>Project Full Name</th>
                   {!hideDivisionsColumn && (
-                    <th rowSpan={viewPlannedValue ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold" style={{ width: '180px' }}>Scope</th>
+                    <th rowSpan={(viewPlannedValue || (!viewPlannedValue && showVirtualMaterialValues)) ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-left font-semibold" style={{ width: '180px' }}>Scope</th>
                   )}
-                  <th rowSpan={viewPlannedValue ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: '120px' }}>Workmanship?</th>
+                  <th rowSpan={(viewPlannedValue || (!viewPlannedValue && showVirtualMaterialValues)) ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: '120px' }}>Workmanship?</th>
                   {!hideTotalContractColumn && (
-                    <th rowSpan={viewPlannedValue ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '180px' }}>Total Contract Amount</th>
+                    <th rowSpan={(viewPlannedValue || (!viewPlannedValue && showVirtualMaterialValues)) ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '180px' }}>Total Contract Amount</th>
                   )}
-                  <th rowSpan={viewPlannedValue ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '220px' }}>Division Contract Amount</th>
+                  <th rowSpan={(viewPlannedValue || (!viewPlannedValue && showVirtualMaterialValues)) ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '220px' }}>Division Contract Amount</th>
                   {!hideVirtualMaterialColumn && (
-                    <th rowSpan={viewPlannedValue ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '180px' }}>Virtual Material</th>
+                    <th rowSpan={(viewPlannedValue || (!viewPlannedValue && showVirtualMaterialValues)) ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right font-semibold" style={{ width: '180px' }}>Virtual Material</th>
                   )}
                   {showOuterRangeColumn && outerRangeStart && (
                     viewPlannedValue ? (
