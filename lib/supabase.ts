@@ -22,6 +22,7 @@ export const TABLES = {
   ATTENDANCE_LOCATIONS: 'attendance_locations',        // ✅ Locations for GPS tracking
   ATTENDANCE_SETTINGS: 'attendance_settings',          // ✅ Attendance system settings
   ATTENDANCE_DAILY_STATUSES: 'attendance_daily_statuses', // ✅ Daily attendance review statuses
+  ABSENT_COSTS: 'absent_costs',                        // ✅ Absent costs tracking table
   HR_MANPOWER: 'hr_manpower',                          // ✅ HR Manpower table
   DEPARTMENTS: 'departments',                          // ✅ Departments master data
   JOB_TITLES: 'job_titles',                            // ✅ Job titles master data
@@ -263,6 +264,25 @@ export interface AttendanceDailyStatus {
   updated_at?: string
   employee?: AttendanceEmployee
   recorded_by_user?: User
+}
+
+export interface AbsentCost {
+  id: string
+  employee_id: string
+  attendance_status_id: string
+  date: string
+  status: 'absent' | 'excused_absent'
+  designation_id?: string | null
+  designation?: string | null
+  overhead_hourly_rate: number
+  hours: number
+  cost: number
+  notes?: string | null
+  created_at: string
+  updated_at?: string
+  created_by?: string | null
+  employee?: AttendanceEmployee
+  designation_rate?: DesignationRate
 }
 
 export interface AttendanceLocation {

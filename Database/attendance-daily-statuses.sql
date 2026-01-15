@@ -90,19 +90,13 @@ CREATE POLICY attendance_daily_statuses_insert_all
   TO authenticated
   WITH CHECK (true);
 
--- Allow admins/managers (or existing app users) to update
-CREATE POLICY attendance_daily_statuses_update_admin
+-- Allow all authenticated users to update (simplified for UPSERT operations)
+CREATE POLICY attendance_daily_statuses_update_all
   ON public.attendance_daily_statuses
   FOR UPDATE
   TO authenticated
-  USING (
-    EXISTS (SELECT 1 FROM public.users WHERE users.id = auth.uid() AND users.role IN ('admin', 'manager'))
-    OR EXISTS (SELECT 1 FROM auth.users WHERE auth.users.id = auth.uid())
-  )
-  WITH CHECK (
-    EXISTS (SELECT 1 FROM public.users WHERE users.id = auth.uid() AND users.role IN ('admin', 'manager'))
-    OR EXISTS (SELECT 1 FROM auth.users WHERE auth.users.id = auth.uid())
-  );
+  USING (true)
+  WITH CHECK (true);
 
 -- Allow admins/managers (or existing app users) to delete
 CREATE POLICY attendance_daily_statuses_delete_admin

@@ -6,9 +6,10 @@
  */
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 
 // Type for our Supabase client
-type AppSupabaseClient = ReturnType<typeof createClient>
+type AppSupabaseClient = ReturnType<typeof createClientComponentClient>
 
 // ✅ singleton instance - عميل واحد فقط في كل التطبيق
 let supabaseInstance: AppSupabaseClient | null = null
@@ -83,15 +84,25 @@ export function getStableSupabaseClient(): AppSupabaseClient {
   console.log('🔧 [StableConnection] Creating new Supabase client...')
 
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    // ✅ Use createClientComponentClient which automatically includes user session
+    // This ensures the client uses 'authenticated' role instead of 'anon'
+    if (typeof window !== 'undefined') {
+      // Client-side: use createClientComponentClient for automatic session handling
+      supabaseInstance = createClientComponentClient({
+        supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      }) as any
+    } else {
+      // Server-side: fallback to createClient
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+      const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-    if (!supabaseUrl || !supabaseKey) {
-      throw new Error('Missing Supabase credentials')
+      if (!supabaseUrl || !supabaseKey) {
+        throw new Error('Missing Supabase credentials')
+      }
+
+      supabaseInstance = createClient(supabaseUrl, supabaseKey, CONNECTION_CONFIG) as any
     }
-
-    // ✅ إنشاء العميل مع الإعدادات المثالية
-    supabaseInstance = createClient(supabaseUrl, supabaseKey, CONNECTION_CONFIG)
 
     console.log('✅ [StableConnection] Client created successfully')
     console.log('📊 [StableConnection] URL:', supabaseUrl.substring(0, 30) + '...')
