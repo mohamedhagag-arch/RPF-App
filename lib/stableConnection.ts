@@ -120,6 +120,11 @@ export function getStableSupabaseClient(): AppSupabaseClient {
   }
 
   isInitializing = false
+  
+  if (!supabaseInstance) {
+    throw new Error('Failed to create Supabase client instance')
+  }
+  
   return supabaseInstance
 }
 
