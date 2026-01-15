@@ -3390,8 +3390,15 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         if (viewPlannedValue) {
           headerValues.push(`${outerRangeLabel} - Actual`)
           headerValues.push(`${outerRangeLabel} - Planned`)
+          if (showVirtualMaterialValues) {
+            headerValues.push(`${outerRangeLabel} - VM Actual`)
+            headerValues.push(`${outerRangeLabel} - VM Planned`)
+          }
         } else {
           headerValues.push(outerRangeLabel)
+          if (showVirtualMaterialValues) {
+            headerValues.push(`${outerRangeLabel} - VM Actual`)
+          }
         }
       }
       
@@ -3403,8 +3410,15 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         if (viewPlannedValue) {
           headerValues.push(`${periodLabel} - Actual`)
           headerValues.push(`${periodLabel} - Planned`)
+          if (showVirtualMaterialValues) {
+            headerValues.push(`${periodLabel} - VM Actual`)
+            headerValues.push(`${periodLabel} - VM Planned`)
+          }
         } else {
           headerValues.push(periodLabel)
+          if (showVirtualMaterialValues) {
+            headerValues.push(`${periodLabel} - VM Actual`)
+          }
         }
       })
       
@@ -3412,8 +3426,15 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       if (viewPlannedValue) {
         headerValues.push('Grand Total - Actual')
         headerValues.push('Grand Total - Planned')
+        if (showVirtualMaterialValues) {
+          headerValues.push('Grand Total - VM Actual')
+          headerValues.push('Grand Total - VM Planned')
+        }
       } else {
         headerValues.push('Grand Total')
+        if (showVirtualMaterialValues) {
+          headerValues.push('Grand Total - VM Actual')
+        }
       }
       
       // Build header keys object for data rows (to match column order)
@@ -3444,23 +3465,44 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         if (viewPlannedValue) {
           headerKeys.push('Outer Range - Actual')
           headerKeys.push('Outer Range - Planned')
+          if (showVirtualMaterialValues) {
+            headerKeys.push('Outer Range - VM Actual')
+            headerKeys.push('Outer Range - VM Planned')
+          }
         } else {
           headerKeys.push('Outer Range')
+          if (showVirtualMaterialValues) {
+            headerKeys.push('Outer Range - VM Actual')
+          }
         }
       }
       periodHeaders.forEach(periodLabel => {
         if (viewPlannedValue) {
           headerKeys.push(`${periodLabel} - Actual`)
           headerKeys.push(`${periodLabel} - Planned`)
+          if (showVirtualMaterialValues) {
+            headerKeys.push(`${periodLabel} - VM Actual`)
+            headerKeys.push(`${periodLabel} - VM Planned`)
+          }
         } else {
           headerKeys.push(periodLabel)
+          if (showVirtualMaterialValues) {
+            headerKeys.push(`${periodLabel} - VM Actual`)
+          }
         }
       })
       if (viewPlannedValue) {
         headerKeys.push('Grand Total - Actual')
         headerKeys.push('Grand Total - Planned')
+        if (showVirtualMaterialValues) {
+          headerKeys.push('Grand Total - VM Actual')
+          headerKeys.push('Grand Total - VM Planned')
+        }
       } else {
         headerKeys.push('Grand Total')
+        if (showVirtualMaterialValues) {
+          headerKeys.push('Grand Total - VM Actual')
+        }
       }
 
       // Add data rows - use filtered projects based on hideZeroProjects
@@ -3523,18 +3565,13 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         const virtualMaterialAmounts = showVirtualMaterialValues ? (cachedValues?.virtualMaterialAmount || []) : []
         const plannedVirtualMaterialAmounts = showVirtualMaterialValues && viewPlannedValue ? (cachedValues?.plannedVirtualMaterialAmount || []) : []
         
-        // ? FIX: Calculate Grand Total with Virtual Material if showVirtualMaterialValues is enabled
+        // Calculate Grand Total (without VM - VM will be in separate columns)
         let grandTotal = periodValues.reduce((sum: number, val: number) => sum + val, 0)
-        if (showVirtualMaterialValues) {
-          const totalVirtualMaterial = virtualMaterialAmounts.reduce((sum: number, val: number) => sum + val, 0)
-          grandTotal = grandTotal + totalVirtualMaterial
-        }
-        
         let grandTotalPlanned = viewPlannedValue ? periodPlannedValues.reduce((sum: number, val: number) => sum + val, 0) : 0
-        if (showVirtualMaterialValues && viewPlannedValue) {
-          const totalPlannedVirtualMaterial = plannedVirtualMaterialAmounts.reduce((sum: number, val: number) => sum + val, 0)
-          grandTotalPlanned = grandTotalPlanned + totalPlannedVirtualMaterial
-        }
+        
+        // Calculate VM totals separately
+        const grandTotalVM = showVirtualMaterialValues ? virtualMaterialAmounts.reduce((sum: number, val: number) => sum + val, 0) : 0
+        const grandTotalPlannedVM = showVirtualMaterialValues && viewPlannedValue ? plannedVirtualMaterialAmounts.reduce((sum: number, val: number) => sum + val, 0) : 0
         
         // Get project full code for display (without uppercase)
         const projectFullCode = project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`
@@ -3587,38 +3624,43 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         if (showOuterRangeColumn && outerRangeStart) {
           const outerRangeValue = cachedValues?.outerRangeValue || 0
           const outerRangePlannedValue = viewPlannedValue ? (cachedValues?.outerRangePlannedValue || 0) : 0
+          const outerRangeVM = showVirtualMaterialValues ? (cachedValues?.outerRangeVirtualMaterialAmount || 0) : 0
+          const outerRangePlannedVM = showVirtualMaterialValues && viewPlannedValue ? (cachedValues?.outerRangePlannedVirtualMaterialAmount || 0) : 0
+          
           if (viewPlannedValue) {
             row['Outer Range - Actual'] = outerRangeValue
             row['Outer Range - Planned'] = outerRangePlannedValue
+            if (showVirtualMaterialValues) {
+              row['Outer Range - VM Actual'] = outerRangeVM
+              row['Outer Range - VM Planned'] = outerRangePlannedVM
+            }
           } else {
             row['Outer Range'] = outerRangeValue
+            if (showVirtualMaterialValues) {
+              row['Outer Range - VM Actual'] = outerRangeVM
+            }
           }
         }
         
-        // Add period values (Actual and Planned if enabled)
-        // ? FIX: Add Virtual Material values if showVirtualMaterialValues is enabled
+        // Add period values (Actual and Planned if enabled, with separate VM columns)
         periodHeaders.forEach((periodLabel, index) => {
+          const actualValue = periodValues[index] || 0
+          const plannedValue = viewPlannedValue ? (periodPlannedValues[index] || 0) : 0
+          const vmActual = showVirtualMaterialValues ? (virtualMaterialAmounts[index] || 0) : 0
+          const vmPlanned = showVirtualMaterialValues && viewPlannedValue ? (plannedVirtualMaterialAmounts[index] || 0) : 0
+          
           if (viewPlannedValue) {
-            let actualValue = periodValues[index] || 0
-            let plannedValue = periodPlannedValues[index] || 0
-            
-            // Add Virtual Material values if enabled
-            if (showVirtualMaterialValues) {
-              actualValue += (virtualMaterialAmounts[index] || 0)
-              plannedValue += (plannedVirtualMaterialAmounts[index] || 0)
-            }
-            
             row[`${periodLabel} - Actual`] = actualValue
             row[`${periodLabel} - Planned`] = plannedValue
-          } else {
-            let actualValue = periodValues[index] || 0
-            
-            // Add Virtual Material values if enabled
             if (showVirtualMaterialValues) {
-              actualValue += (virtualMaterialAmounts[index] || 0)
+              row[`${periodLabel} - VM Actual`] = vmActual
+              row[`${periodLabel} - VM Planned`] = vmPlanned
             }
-            
+          } else {
             row[periodLabel] = actualValue
+            if (showVirtualMaterialValues) {
+              row[`${periodLabel} - VM Actual`] = vmActual
+            }
           }
         })
         
@@ -3626,8 +3668,15 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         if (viewPlannedValue) {
           row['Grand Total - Actual'] = grandTotal
           row['Grand Total - Planned'] = grandTotalPlanned
+          if (showVirtualMaterialValues) {
+            row['Grand Total - VM Actual'] = grandTotalVM
+            row['Grand Total - VM Planned'] = grandTotalPlannedVM
+          }
         } else {
           row['Grand Total'] = grandTotal
+          if (showVirtualMaterialValues) {
+            row['Grand Total - VM Actual'] = grandTotalVM
+          }
         }
         exportData.push(row)
       })
@@ -3659,106 +3708,104 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       if (showOuterRangeColumn && outerRangeStart) {
         const totalOuterRangeValue = projectsToExport.reduce((sum: number, analytics: any) => {
           const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
-          let outerRangeValue = cachedValues?.outerRangeValue || 0
-          // Add Virtual Material if enabled
-          if (showVirtualMaterialValues) {
-            outerRangeValue += (cachedValues?.outerRangeVirtualMaterialAmount || 0)
-          }
-          return sum + outerRangeValue
+          return sum + (cachedValues?.outerRangeValue || 0)
         }, 0)
         const totalOuterRangePlannedValue = viewPlannedValue ? projectsToExport.reduce((sum: number, analytics: any) => {
           const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
-          let outerRangePlannedValue = cachedValues?.outerRangePlannedValue || 0
-          // Add Virtual Material if enabled
-          if (showVirtualMaterialValues) {
-            outerRangePlannedValue += (cachedValues?.outerRangePlannedVirtualMaterialAmount || 0)
-          }
-          return sum + outerRangePlannedValue
+          return sum + (cachedValues?.outerRangePlannedValue || 0)
         }, 0) : 0
+        const totalOuterRangeVM = showVirtualMaterialValues ? projectsToExport.reduce((sum: number, analytics: any) => {
+          const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
+          return sum + (cachedValues?.outerRangeVirtualMaterialAmount || 0)
+        }, 0) : 0
+        const totalOuterRangePlannedVM = showVirtualMaterialValues && viewPlannedValue ? projectsToExport.reduce((sum: number, analytics: any) => {
+          const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
+          return sum + (cachedValues?.outerRangePlannedVirtualMaterialAmount || 0)
+        }, 0) : 0
+        
         if (viewPlannedValue) {
           totalsRow['Outer Range - Actual'] = totalOuterRangeValue // Will be replaced with formula
           totalsRow['Outer Range - Planned'] = totalOuterRangePlannedValue // Will be replaced with formula
+          if (showVirtualMaterialValues) {
+            totalsRow['Outer Range - VM Actual'] = totalOuterRangeVM // Will be replaced with formula
+            totalsRow['Outer Range - VM Planned'] = totalOuterRangePlannedVM // Will be replaced with formula
+          }
         } else {
           totalsRow['Outer Range'] = totalOuterRangeValue // Will be replaced with formula
+          if (showVirtualMaterialValues) {
+            totalsRow['Outer Range - VM Actual'] = totalOuterRangeVM // Will be replaced with formula
+          }
         }
       }
       
-      // ? FIX: Use period totals from totals object (Actual and Planned if enabled)
-      // ? FIX: Add Virtual Material values if showVirtualMaterialValues is enabled
+      // ? FIX: Use period totals from totals object (Actual and Planned if enabled, with separate VM columns)
       periodHeaders.forEach((periodLabel, index) => {
+        const actualTotal = totals.periodEarnedValueTotals[index] || 0
+        const plannedTotal = viewPlannedValue ? (totals.periodPlannedValueTotals?.[index] || 0) : 0
+        const periodVirtualMaterialTotal = showVirtualMaterialValues ? projectsToExport.reduce((sum: number, analytics: any) => {
+          const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
+          return sum + (cachedValues?.virtualMaterialAmount?.[index] || 0)
+        }, 0) : 0
+        const periodPlannedVirtualMaterialTotal = showVirtualMaterialValues && viewPlannedValue ? projectsToExport.reduce((sum: number, analytics: any) => {
+          const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
+          return sum + (cachedValues?.plannedVirtualMaterialAmount?.[index] || 0)
+        }, 0) : 0
+        
         if (viewPlannedValue) {
-          let actualTotal = totals.periodEarnedValueTotals[index] || 0
-          let plannedTotal = totals.periodPlannedValueTotals?.[index] || 0
-          
-          // Add Virtual Material totals if enabled
-          if (showVirtualMaterialValues) {
-            const periodVirtualMaterialTotal = projectsToExport.reduce((sum: number, analytics: any) => {
-              const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
-              return sum + (cachedValues?.virtualMaterialAmount?.[index] || 0)
-            }, 0)
-            const periodPlannedVirtualMaterialTotal = projectsToExport.reduce((sum: number, analytics: any) => {
-              const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
-              return sum + (cachedValues?.plannedVirtualMaterialAmount?.[index] || 0)
-            }, 0)
-            actualTotal += periodVirtualMaterialTotal
-            plannedTotal += periodPlannedVirtualMaterialTotal
-          }
-          
           totalsRow[`${periodLabel} - Actual`] = actualTotal
           totalsRow[`${periodLabel} - Planned`] = plannedTotal
-        } else {
-          let actualTotal = totals.periodEarnedValueTotals[index] || 0
-          
-          // Add Virtual Material totals if enabled
           if (showVirtualMaterialValues) {
-            const periodVirtualMaterialTotal = projectsToExport.reduce((sum: number, analytics: any) => {
-              const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
-              return sum + (cachedValues?.virtualMaterialAmount?.[index] || 0)
-            }, 0)
-            actualTotal += periodVirtualMaterialTotal
+            totalsRow[`${periodLabel} - VM Actual`] = periodVirtualMaterialTotal
+            totalsRow[`${periodLabel} - VM Planned`] = periodPlannedVirtualMaterialTotal
           }
-          
+        } else {
           totalsRow[periodLabel] = actualTotal
+          if (showVirtualMaterialValues) {
+            totalsRow[`${periodLabel} - VM Actual`] = periodVirtualMaterialTotal
+          }
         }
       })
       
-      // Add Grand Total(s) - with Virtual Material if enabled
+      // Add Grand Total(s) - with separate VM columns if enabled
       if (viewPlannedValue) {
-        let grandTotalActual = totals.grandTotalEarnedValue
-        let grandTotalPlanned = totals.grandTotalPlannedValue || 0
+        const grandTotalActual = totals.grandTotalEarnedValue
+        const grandTotalPlanned = totals.grandTotalPlannedValue || 0
         
-        // Add Virtual Material totals if enabled
-        if (showVirtualMaterialValues) {
-          const totalVirtualMaterial = projectsToExport.reduce((sum: number, analytics: any) => {
-            const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
-            const virtualMaterialAmounts = cachedValues?.virtualMaterialAmount || []
-            return sum + virtualMaterialAmounts.reduce((s: number, v: number) => s + v, 0)
-          }, 0)
-          const totalPlannedVirtualMaterial = projectsToExport.reduce((sum: number, analytics: any) => {
-            const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
-            const plannedVirtualMaterialAmounts = cachedValues?.plannedVirtualMaterialAmount || []
-            return sum + plannedVirtualMaterialAmounts.reduce((s: number, v: number) => s + v, 0)
-          }, 0)
-          grandTotalActual += totalVirtualMaterial
-          grandTotalPlanned += totalPlannedVirtualMaterial
-        }
+        // Calculate VM totals separately
+        const totalVirtualMaterial = showVirtualMaterialValues ? projectsToExport.reduce((sum: number, analytics: any) => {
+          const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
+          const virtualMaterialAmounts = cachedValues?.virtualMaterialAmount || []
+          const outerRangeVM = cachedValues?.outerRangeVirtualMaterialAmount || 0
+          return sum + virtualMaterialAmounts.reduce((s: number, v: number) => s + v, 0) + outerRangeVM
+        }, 0) : 0
+        const totalPlannedVirtualMaterial = showVirtualMaterialValues ? projectsToExport.reduce((sum: number, analytics: any) => {
+          const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
+          const plannedVirtualMaterialAmounts = cachedValues?.plannedVirtualMaterialAmount || []
+          const outerRangePlannedVM = cachedValues?.outerRangePlannedVirtualMaterialAmount || 0
+          return sum + plannedVirtualMaterialAmounts.reduce((s: number, v: number) => s + v, 0) + outerRangePlannedVM
+        }, 0) : 0
         
         totalsRow['Grand Total - Actual'] = grandTotalActual
         totalsRow['Grand Total - Planned'] = grandTotalPlanned
-      } else {
-        let grandTotalActual = totals.grandTotalEarnedValue
-        
-        // Add Virtual Material totals if enabled
         if (showVirtualMaterialValues) {
-          const totalVirtualMaterial = projectsToExport.reduce((sum: number, analytics: any) => {
-            const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
-            const virtualMaterialAmounts = cachedValues?.virtualMaterialAmount || []
-            return sum + virtualMaterialAmounts.reduce((s: number, v: number) => s + v, 0)
-          }, 0)
-          grandTotalActual += totalVirtualMaterial
+          totalsRow['Grand Total - VM Actual'] = totalVirtualMaterial
+          totalsRow['Grand Total - VM Planned'] = totalPlannedVirtualMaterial
         }
+      } else {
+        const grandTotalActual = totals.grandTotalEarnedValue
+        
+        // Calculate VM total separately
+        const totalVirtualMaterial = showVirtualMaterialValues ? projectsToExport.reduce((sum: number, analytics: any) => {
+          const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
+          const virtualMaterialAmounts = cachedValues?.virtualMaterialAmount || []
+          const outerRangeVM = cachedValues?.outerRangeVirtualMaterialAmount || 0
+          return sum + virtualMaterialAmounts.reduce((s: number, v: number) => s + v, 0) + outerRangeVM
+        }, 0) : 0
         
         totalsRow['Grand Total'] = grandTotalActual
+        if (showVirtualMaterialValues) {
+          totalsRow['Grand Total - VM Actual'] = totalVirtualMaterial
+        }
       }
       exportData.push(totalsRow)
 
