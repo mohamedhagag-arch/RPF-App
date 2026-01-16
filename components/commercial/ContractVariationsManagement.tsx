@@ -2275,7 +2275,7 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
                                 try {
                                   const { error } = await supabase
                                     .from(TABLES.CONTRACT_VARIATIONS)
-                                    .update({ 'Force Include in BOQ Calculation': newValue })
+                                    .update({ force_include_in_boq_calculation: newValue })
                                     .eq('id', variation.id)
                                   
                                   if (error) throw error
