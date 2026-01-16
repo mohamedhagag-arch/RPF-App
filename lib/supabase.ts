@@ -28,6 +28,7 @@ export const TABLES = {
   JOB_TITLES: 'job_titles',                            // ✅ Job titles master data
   DESIGNATION_RATES: 'designation_rates',              // ✅ Designation hourly rates table (includes daily rate fields)
   DESIGNATION_DAILY_RATE_HISTORY: 'designation_daily_rate_history', // ✅ Daily rate history with time periods
+  EMPLOYEE_RATES: 'employee_rates',                    // ✅ Employee rates table (individual rate per employee)
   MACHINE_LIST: 'machine_list',                        // ✅ Machine list table
   MACHINERY_DAY_RATES: 'machinery_day_rates',          // ✅ Machinery day rates table
   MACHINE_DAILY_RATE_HISTORY: 'machine_daily_rate_history', // ✅ Machine daily rate history with time periods
@@ -282,7 +283,7 @@ export interface AbsentCost {
   updated_at?: string
   created_by?: string | null
   employee?: AttendanceEmployee
-  designation_rate?: DesignationRate
+  employee_rate?: EmployeeRate // Updated to use EmployeeRate instead of DesignationRate
 }
 
 export interface AttendanceLocation {
@@ -322,6 +323,26 @@ export interface DesignationDailyRateHistory {
   start_date: string // Start date of this rate period
   end_date?: string | null // End date of this rate period (NULL means it's the current active rate)
   is_active: boolean // Whether this is the currently active rate
+  created_at: string
+  updated_at: string
+  created_by?: string | null
+  updated_by?: string | null
+}
+
+// ✅ Employee Rate Interface - Individual rate per employee
+export interface EmployeeRate {
+  id: string
+  employee_id: string // Reference to hr_manpower
+  employee_code: string // Denormalized for easier queries
+  employee_name: string // Denormalized for easier queries
+  designation?: string | null // Denormalized from hr_manpower
+  hourly_rate: number
+  overtime_hourly_rate?: number | null
+  off_day_hourly_rate?: number | null
+  overhead_hourly_rate?: number | null // Overhead hourly rate (default: 5.3)
+  total_hourly_rate?: number | null // Auto-calculated: hourly_rate + overhead_hourly_rate
+  daily_rate?: number | null // Auto-calculated: total_hourly_rate * 8
+  authority?: string | null // General Authority or specific authority
   created_at: string
   updated_at: string
   created_by?: string | null

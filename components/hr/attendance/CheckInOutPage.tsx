@@ -739,52 +739,37 @@ export default function CheckInOutPage() {
       console.log('✅ Found HR Employee:', hrEmployee)
       const hrEmployeeTyped = hrEmployee as any
 
-      // 2. Get designation rate for cost calculation
-      // ✅ Enhanced search: Try exact match first, then case-insensitive match
-      let designationRate: any = null
+      // 2. Get employee rate for cost calculation (linked by employee_code)
+      let employeeRate: any = null
       let rateError: any = null
       
-      // Strategy 1: Exact match (case-sensitive)
-      const { data: exactRate, error: exactError } = await supabaseClient
-        .from(TABLES.DESIGNATION_RATES)
+      // Strategy 1: Find rate by employee_code (primary method)
+      const { data: rateByCode, error: codeError } = await supabaseClient
+        .from(TABLES.EMPLOYEE_RATES)
         // @ts-ignore
         .select('*')
-        .eq('designation', hrEmployeeTyped.designation)
+        .eq('employee_code', hrEmployeeTyped.employee_code)
         .maybeSingle()
       
-      if (exactRate && !exactError) {
-        designationRate = exactRate
-        console.log(`✅ Found exact designation rate for: ${hrEmployeeTyped.designation}`, designationRate)
+      if (rateByCode && !codeError) {
+        employeeRate = rateByCode
+        console.log(`✅ Found employee rate for code: ${hrEmployeeTyped.employee_code}`, employeeRate)
       } else {
-        // Strategy 2: Case-insensitive match
-        const { data: caseInsensitiveRate, error: caseError } = await supabaseClient
-          .from(TABLES.DESIGNATION_RATES)
+        // Strategy 2: Fallback - Try to find by designation (for backward compatibility)
+        const { data: rateByDesignation, error: desError } = await supabaseClient
+          .from(TABLES.EMPLOYEE_RATES)
           // @ts-ignore
           .select('*')
-          .ilike('designation', hrEmployeeTyped.designation)
+          .eq('designation', hrEmployeeTyped.designation)
           .maybeSingle()
         
-        if (caseInsensitiveRate && !caseError) {
-          designationRate = caseInsensitiveRate
-          console.log(`✅ Found case-insensitive designation rate for: ${hrEmployeeTyped.designation}`, designationRate)
+        if (rateByDesignation && !desError) {
+          employeeRate = rateByDesignation
+          console.log(`✅ Found employee rate by designation: ${hrEmployeeTyped.designation}`, employeeRate)
         } else {
-          rateError = caseError || exactError
-          console.warn(`⚠️ No designation rate found for: ${hrEmployeeTyped.designation}`)
-          console.warn(`   Tried exact match: ${hrEmployeeTyped.designation}`)
-          console.warn(`   Tried case-insensitive match: ${hrEmployeeTyped.designation}`)
-          
-          // Strategy 3: Debug - List all available designations
-          const { data: allRates } = await supabaseClient
-            .from(TABLES.DESIGNATION_RATES)
-            // @ts-ignore
-            .select('designation')
-            .order('designation', { ascending: true })
-          
-          if (allRates && allRates.length > 0) {
-            const availableDesignations = allRates.map((r: any) => r.designation)
-            console.warn(`   Available designations in database:`, availableDesignations)
-            console.warn(`   💡 Tip: Make sure the designation "${hrEmployeeTyped.designation}" exists in Designation Rates page`)
-          }
+          rateError = desError || codeError
+          console.warn(`⚠️ No employee rate found for code: ${hrEmployeeTyped.employee_code} or designation: ${hrEmployeeTyped.designation}`)
+          console.warn(`   💡 Tip: Make sure the employee "${hrEmployeeTyped.employee_code}" has a rate in Employee Rates page`)
         }
       }
 
@@ -793,14 +778,14 @@ export default function CheckInOutPage() {
       const overtimeHours = Math.max(0, totalHours - standardHours)
       const overtimeText = overtimeHours > 0 ? `${overtimeHours.toFixed(2)}h` : '0h'
 
-      // 4. Calculate cost
+      // 4. Calculate cost using Employee Rate
       let cost = 0
-      if (designationRate) {
-        const rate = designationRate as any
+      if (employeeRate) {
+        const rate = employeeRate as any
         const hourlyRate = rate.hourly_rate || 0
         const overtimeRate = rate.overtime_hourly_rate || hourlyRate || 0
         
-        console.log(`💰 Calculating cost for ${hrEmployeeTyped.designation}:`, {
+        console.log(`💰 Calculating cost for ${hrEmployeeTyped.employee_code}:`, {
           hourlyRate,
           overtimeRate,
           totalHours,
@@ -818,7 +803,7 @@ export default function CheckInOutPage() {
           totalCost: cost
         })
       } else {
-        console.warn(`⚠️ Cannot calculate cost - no rate found for designation: ${hrEmployeeTyped.designation}`)
+        console.warn(`⚠️ Cannot calculate cost - no rate found for employee: ${hrEmployeeTyped.employee_code}`)
       }
 
       // 5. Get Project Code from selected location name

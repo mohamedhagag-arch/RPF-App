@@ -789,8 +789,24 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       
       return false
     })
-    // ? FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
-    const projectActivities = analytics.activities || []
+    // ✅ FIX: Combine activities from analytics.activities AND projectActivitiesMap to ensure ALL activities are included
+    // This ensures VM Actual values from all child activities are aggregated correctly at the project level
+    const projectActivitiesFromAnalytics = analytics.activities || []
+    const projectActivitiesFromMap = projectActivitiesMap.get(project.id) || []
+    // Combine both sources and deduplicate by activity id to ensure all activities are included
+    const allProjectActivitiesMap = new Map<string, BOQActivity>()
+    projectActivitiesFromAnalytics.forEach((activity: BOQActivity) => {
+      if (activity.id) {
+        allProjectActivitiesMap.set(activity.id, activity)
+      }
+    })
+    projectActivitiesFromMap.forEach((activity: BOQActivity) => {
+      const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+      if (activity.id && (activityFullCode === projectFullCode || activity.project_id === project.id)) {
+        allProjectActivitiesMap.set(activity.id, activity)
+      }
+    })
+    const projectActivities = Array.from(allProjectActivitiesMap.values())
     
     // Get Virtual Material Percentage from project
     let virtualMaterialPercentage = 0
@@ -2130,8 +2146,24 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       
       return false
     })
-    // ? FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
-    const projectActivities = analytics.activities || []
+    // ✅ FIX: Combine activities from analytics.activities AND projectActivitiesMap to ensure ALL activities are included
+    // This ensures VM Planned values from all child activities are aggregated correctly at the project level
+    const projectActivitiesFromAnalytics = analytics.activities || []
+    const projectActivitiesFromMap = projectActivitiesMap.get(project.id) || []
+    // Combine both sources and deduplicate by activity id to ensure all activities are included
+    const allProjectActivitiesMap = new Map<string, BOQActivity>()
+    projectActivitiesFromAnalytics.forEach((activity: BOQActivity) => {
+      if (activity.id) {
+        allProjectActivitiesMap.set(activity.id, activity)
+      }
+    })
+    projectActivitiesFromMap.forEach((activity: BOQActivity) => {
+      const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+      if (activity.id && (activityFullCode === projectFullCode || activity.project_id === project.id)) {
+        allProjectActivitiesMap.set(activity.id, activity)
+      }
+    })
+    const projectActivities = Array.from(allProjectActivitiesMap.values())
     
     // Get Virtual Material Percentage from project
     let virtualMaterialPercentage = 0

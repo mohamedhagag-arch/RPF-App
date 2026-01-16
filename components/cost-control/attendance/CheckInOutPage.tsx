@@ -347,23 +347,23 @@ export default function CheckInOutPage() {
 
       const hrEmployeeTyped = hrEmployee as any
 
-      // 2. Get designation rate for cost calculation
-      const { data: designationRate } = await supabaseClient
-        .from(TABLES.DESIGNATION_RATES)
+      // 2. Get employee rate for cost calculation (linked by employee_code)
+      const { data: employeeRate } = await supabaseClient
+        .from(TABLES.EMPLOYEE_RATES)
         // @ts-ignore
         .select('*')
-        .eq('designation', hrEmployeeTyped.designation)
-        .single()
+        .eq('employee_code', hrEmployeeTyped.employee_code)
+        .maybeSingle()
 
       // 3. Calculate overtime (if total hours > 8)
       const standardHours = 8
       const overtimeHours = Math.max(0, totalHours - standardHours)
       const overtimeText = overtimeHours > 0 ? `${overtimeHours.toFixed(2)}h` : '0h'
 
-      // 4. Calculate cost
+      // 4. Calculate cost using Employee Rate
       let cost = 0
-      if (designationRate) {
-        const rate = designationRate as any
+      if (employeeRate) {
+        const rate = employeeRate as any
         const standardCost = Math.min(totalHours, standardHours) * (rate.hourly_rate || 0)
         const overtimeCost = overtimeHours * (rate.overtime_hourly_rate || rate.hourly_rate || 0)
         cost = standardCost + overtimeCost

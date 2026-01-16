@@ -417,26 +417,41 @@ export function MissingAttendance() {
                 designation = (hrEmployee as any).designation
               }
 
-              // Get designation rate if we have a designation
-              if (designation) {
-                const { data: designationRate, error: rateError } = await supabase
-                  .from(TABLES.DESIGNATION_RATES)
-                  // @ts-ignore
-                  .select('id, designation, overhead_hourly_rate')
-                  .eq('designation', designation)
-                  .maybeSingle()
+              // Get employee rate if we have employee_code (linked by employee_code)
+              // Try to find rate by employee_code first
+              const { data: employeeRate, error: rateError } = await supabase
+                .from(TABLES.EMPLOYEE_RATES)
+                // @ts-ignore
+                .select('id, employee_code, designation, overhead_hourly_rate')
+                .eq('employee_code', employee.employee_code)
+                .maybeSingle()
 
-                if (rateError) {
-                  console.warn(`⚠️ Error accessing Designation Rates for ${designation}:`, rateError.message)
-                  // Continue with default rate
-                } else if (designationRate) {
-                  designationId = (designationRate as any).id
-                  overheadRate = (designationRate as any).overhead_hourly_rate || 5.3
-                } else {
-                  console.warn(`⚠️ No designation rate found for ${designation}, using default rate`)
-                }
+              if (rateError) {
+                console.warn(`⚠️ Error accessing Employee Rates for ${employee.employee_code}:`, rateError.message)
+                // Continue with default rate
+              } else if (employeeRate) {
+                // Use employee_rate id (for backward compatibility with absent_costs table)
+                designationId = (employeeRate as any).id
+                overheadRate = (employeeRate as any).overhead_hourly_rate || 5.3
               } else {
-                console.warn(`⚠️ No designation found for employee ${employee.employee_code}, using default rate`)
+                // Fallback: Try to find by designation (for backward compatibility)
+                if (designation) {
+                  const { data: rateByDesignation } = await supabase
+                    .from(TABLES.EMPLOYEE_RATES)
+                    // @ts-ignore
+                    .select('id, designation, overhead_hourly_rate')
+                    .eq('designation', designation)
+                    .maybeSingle()
+
+                  if (rateByDesignation) {
+                    designationId = (rateByDesignation as any).id
+                    overheadRate = (rateByDesignation as any).overhead_hourly_rate || 5.3
+                  } else {
+                    console.warn(`⚠️ No employee rate found for ${employee.employee_code} or designation ${designation}, using default rate`)
+                  }
+                } else {
+                  console.warn(`⚠️ No designation found for employee ${employee.employee_code}, using default rate`)
+                }
               }
             } catch (err: any) {
               console.warn(`⚠️ Error getting designation for employee ${employee.employee_code}:`, err.message)

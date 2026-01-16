@@ -15,41 +15,35 @@ import {
   XCircle,
   Loader2,
   FileSpreadsheet,
-  History,
-  Clock
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { PermissionButton } from '@/components/ui/PermissionButton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Alert } from '@/components/ui/Alert'
-import { supabase, TABLES, DesignationRate, DesignationDailyRateHistory } from '@/lib/supabase'
+import { supabase, TABLES, EmployeeRate, HRManpower } from '@/lib/supabase'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { useAuth } from '@/app/providers'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { usePermissionGuard } from '@/lib/permissionGuard'
 
+// Extended interface to include employee with optional rate
+interface EmployeeWithRate extends HRManpower {
+  rate?: EmployeeRate | null
+  hasRate: boolean
+}
+
 export default function DesignationRates() {
   const { user, appUser } = useAuth()
   const guard = usePermissionGuard()
-  const [rates, setRates] = useState<DesignationRate[]>([])
-  const [dailyRateHistory, setDailyRateHistory] = useState<Map<string, DesignationDailyRateHistory[]>>(new Map())
+  const [rates, setRates] = useState<EmployeeRate[]>([])
+  const [employees, setEmployees] = useState<HRManpower[]>([]) // All employees from hr_manpower
+  const [employeesWithRates, setEmployeesWithRates] = useState<EmployeeWithRate[]>([]) // All employees merged with their rates
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedAuthority, setSelectedAuthority] = useState<string>('all')
-  
-  // Daily Rate Modal state
-  const [showDailyRateModal, setShowDailyRateModal] = useState(false)
-  const [selectedRate, setSelectedRate] = useState<DesignationRate | null>(null)
-  const [editingDailyRate, setEditingDailyRate] = useState<DesignationDailyRateHistory | null>(null)
-  const [dailyRateFormData, setDailyRateFormData] = useState({
-    hourly_rate: '',
-    name: '',
-    start_date: '',
-    end_date: '',
-    is_active: true
-  })
+  const [filterDesignation, setFilterDesignation] = useState<string>('all')
   
   // Check permissions
   const canCreate = guard.hasAccess('cost_control.designation_rates.create')
@@ -58,8 +52,11 @@ export default function DesignationRates() {
   
   // Modal state
   const [showModal, setShowModal] = useState(false)
-  const [editingRate, setEditingRate] = useState<DesignationRate | null>(null)
+  const [editingRate, setEditingRate] = useState<EmployeeRate | null>(null)
   const [formData, setFormData] = useState({
+    employee_id: '',
+    employee_code: '',
+    employee_name: '',
     designation: '',
     hourly_rate: '',
     overtime_hourly_rate: '',
@@ -69,60 +66,41 @@ export default function DesignationRates() {
   })
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(false)
-  const [showDailyRateSection, setShowDailyRateSection] = useState(false)
   const [useCustomOvertime, setUseCustomOvertime] = useState(false)
   const [useCustomOffDay, setUseCustomOffDay] = useState(false)
   const [useCustomOverhead, setUseCustomOverhead] = useState(false)
-  const [newRateDailyRateFormData, setNewRateDailyRateFormData] = useState({
-    name: '',
-    start_date: new Date().toISOString().split('T')[0],
-    end_date: '',
-    is_active: true
-  })
 
   useEffect(() => {
+    fetchEmployees()
     fetchRates()
-    fetchDailyRateHistory()
   }, [])
 
-  const fetchDailyRateHistory = async () => {
+  // Merge employees with rates when both are loaded
+  useEffect(() => {
+    if (employees.length > 0) {
+      mergeEmployeesWithRates()
+    }
+  }, [employees, rates])
+
+  // Fetch all employees from hr_manpower
+  const fetchEmployees = async () => {
     try {
       const supabaseClient = getSupabaseClient()
       const { data, error } = await supabaseClient
-        .from(TABLES.DESIGNATION_DAILY_RATE_HISTORY)
+        .from(TABLES.HR_MANPOWER)
         // @ts-ignore
         .select('*')
-        .order('start_date', { ascending: false })
+        .eq('status', 'Active') // Only fetch active employees
+        .order('employee_name', { ascending: true })
 
       if (error) {
-        // If table doesn't exist, just log and continue (table will be created by SQL script)
-        if (error.code === '42P01' || error.message?.includes('does not exist')) {
-          console.warn('Daily rate history table does not exist yet. Please run the SQL script first.')
-          setDailyRateHistory(new Map())
-          return
-        }
-        console.error('Error fetching daily rate history:', error)
+        console.error('Error fetching employees:', error)
         return
       }
 
-      // Group by designation_id
-      const historyMap = new Map<string, DesignationDailyRateHistory[]>()
-      if (data) {
-        data.forEach((item: any) => {
-          const designationId = item.designation_id
-          if (!historyMap.has(designationId)) {
-            historyMap.set(designationId, [])
-          }
-          historyMap.get(designationId)!.push(item as DesignationDailyRateHistory)
-        })
-      }
-      setDailyRateHistory(historyMap)
+      setEmployees((data || []) as HRManpower[])
     } catch (err: any) {
-      console.error('Error fetching daily rate history:', err)
-      // Don't show error to user if table doesn't exist yet
-      if (err?.code !== '42P01' && !err?.message?.includes('does not exist')) {
-        console.error('Unexpected error:', err)
-      }
+      console.error('Error fetching employees:', err)
     }
   }
 
@@ -133,100 +111,66 @@ export default function DesignationRates() {
       
       const supabaseClient = getSupabaseClient()
       const { data, error } = await supabaseClient
-        .from(TABLES.DESIGNATION_RATES)
+        .from(TABLES.EMPLOYEE_RATES)
         // @ts-ignore
         .select('*')
-        .order('designation', { ascending: true })
+        .order('employee_name', { ascending: true })
 
       if (error) {
+        // If table doesn't exist yet, just log and continue (will show employees without rates)
+        if (error.code === 'PGRST116' || error.message?.includes('does not exist')) {
+          console.warn('Employee rates table does not exist yet. Employees will be shown without rates.')
+          setRates([])
+          setLoading(false)
+          return
+        }
         // Provide more specific error messages
         if (error.code === '42501' || error.message.includes('permission denied')) {
           throw new Error('Permission denied. Please ensure the SQL script has been run in Supabase.')
-        } else if (error.code === 'PGRST116') {
-          throw new Error('Table not found. Please run the schema SQL script first.')
         }
         throw error
       }
-      const ratesData = (data || []) as any[]
       
-      // Update old records that have null overtime_hourly_rate, off_day_hourly_rate, or overhead_hourly_rate
-      const ratesToUpdate = ratesData.filter(rate => 
-        (rate.overtime_hourly_rate === null || rate.overtime_hourly_rate === undefined) ||
-        (rate.off_day_hourly_rate === null || rate.off_day_hourly_rate === undefined) ||
-        (rate.overhead_hourly_rate === null || rate.overhead_hourly_rate === undefined)
-      )
+      const ratesData = (data || []) as EmployeeRate[]
       
-      if (ratesToUpdate.length > 0) {
-        console.log(`🔄 Found ${ratesToUpdate.length} rates with null values. Updating automatically...`)
-        
-        const supabaseClient = getSupabaseClient()
-        const currentUserId = user?.id || appUser?.id
-        
-        // Update all rates in batch
-        for (const rate of ratesToUpdate) {
-          try {
-            const updateData: any = {
-              updated_by: currentUserId || null
-            }
-            
-            // Update overtime_hourly_rate if null
-            if (rate.overtime_hourly_rate === null || rate.overtime_hourly_rate === undefined) {
-              updateData.overtime_hourly_rate = rate.hourly_rate
-            }
-            
-            // Update off_day_hourly_rate if null (default is hourly_rate * 2)
-            if (rate.off_day_hourly_rate === null || rate.off_day_hourly_rate === undefined) {
-              updateData.off_day_hourly_rate = rate.hourly_rate * 2
-            }
-            
-            // Update overhead_hourly_rate if null (default is 5.3)
-            if (rate.overhead_hourly_rate === null || rate.overhead_hourly_rate === undefined) {
-              updateData.overhead_hourly_rate = 5.3
-            }
-            
-            const { error: updateError } = await supabaseClient
-              .from(TABLES.DESIGNATION_RATES)
-              // @ts-ignore
-              .update(updateData)
-              .eq('id', rate.id)
-            
-            if (updateError) {
-              console.error(`Failed to update rate ${rate.id}:`, updateError)
-            } else {
-              // Update the local data
-              if (rate.overtime_hourly_rate === null || rate.overtime_hourly_rate === undefined) {
-                rate.overtime_hourly_rate = rate.hourly_rate
-              }
-              if (rate.off_day_hourly_rate === null || rate.off_day_hourly_rate === undefined) {
-                rate.off_day_hourly_rate = rate.hourly_rate * 2
-              }
-              if (rate.overhead_hourly_rate === null || rate.overhead_hourly_rate === undefined) {
-                rate.overhead_hourly_rate = 5.3
-              }
-              console.log(`✅ Updated rate ${rate.designation}: overtime=${rate.overtime_hourly_rate}, off_day=${rate.off_day_hourly_rate}, overhead=${rate.overhead_hourly_rate}`)
-            }
-          } catch (err) {
-            console.error(`Error updating rate ${rate.id}:`, err)
-          }
-        }
-        
-        console.log('✅ Finished auto-updating rates')
-      }
+      // Ensure all rates have proper default values if null
+      const ratesWithDefaults = ratesData.map((rate: any) => ({
+        ...rate,
+        overtime_hourly_rate: rate.overtime_hourly_rate != null ? rate.overtime_hourly_rate : rate.hourly_rate,
+        off_day_hourly_rate: rate.off_day_hourly_rate != null ? rate.off_day_hourly_rate : (rate.hourly_rate * 2),
+        overhead_hourly_rate: rate.overhead_hourly_rate != null ? rate.overhead_hourly_rate : 5.3,
+        total_hourly_rate: rate.total_hourly_rate != null ? rate.total_hourly_rate : (rate.hourly_rate + (rate.overhead_hourly_rate || 5.3))
+      }))
       
-      setRates(ratesData)
-      // Fetch daily rate history after rates are loaded
-      await fetchDailyRateHistory()
+      setRates(ratesWithDefaults as EmployeeRate[])
+      console.log('✅ Loaded employee rates:', ratesWithDefaults.length)
     } catch (err: any) {
-      console.error('Error fetching rates:', err)
-      setError('Failed to load designation rates: ' + err.message)
+      console.error('Error fetching employee rates:', err)
+      setError('Failed to load employee rates: ' + err.message)
     } finally {
       setLoading(false)
     }
   }
 
+  // Merge employees with their rates
+  const mergeEmployeesWithRates = () => {
+    const merged: EmployeeWithRate[] = employees.map(employee => {
+      const rate = rates.find(r => r.employee_id === employee.id)
+      return {
+        ...employee,
+        rate: rate || null,
+        hasRate: !!rate
+      }
+    })
+    setEmployeesWithRates(merged)
+  }
+
   const handleAdd = () => {
     setEditingRate(null)
     setFormData({
+      employee_id: '',
+      employee_code: '',
+      employee_name: '',
       designation: '',
       hourly_rate: '',
       overtime_hourly_rate: '',
@@ -236,16 +180,9 @@ export default function DesignationRates() {
     })
     setFormErrors({})
     setAutoSaveEnabled(false)
-    setShowDailyRateSection(false)
     setUseCustomOvertime(false)
     setUseCustomOffDay(false)
     setUseCustomOverhead(false)
-    setNewRateDailyRateFormData({
-      name: '',
-      start_date: new Date().toISOString().split('T')[0],
-      end_date: '',
-      is_active: true
-    })
     setShowModal(true)
   }
 
@@ -254,13 +191,13 @@ export default function DesignationRates() {
     const errors: Record<string, string> = { ...formErrors }
     
     switch (name) {
-      case 'designation':
+      case 'employee_id':
         if (!value.trim()) {
-          errors.designation = 'Designation is required'
-        } else if (rates.some(r => r.designation.toLowerCase() === value.trim().toLowerCase() && r.id !== editingRate?.id)) {
-          errors.designation = 'This designation already exists'
+          errors.employee_id = 'Employee is required'
+        } else if (rates.some(r => r.employee_id === value && r.id !== editingRate?.id)) {
+          errors.employee_id = 'This employee already has a rate'
         } else {
-          delete errors.designation
+          delete errors.employee_id
         }
         break
       case 'hourly_rate':
@@ -297,7 +234,7 @@ export default function DesignationRates() {
     return Object.keys(errors).length === 0
   }
 
-  const handleEdit = (rate: DesignationRate) => {
+  const handleEdit = (rate: EmployeeRate) => {
     setEditingRate(rate)
     // If overtime_hourly_rate is null or empty, use hourly_rate as default
     const overtimeRate = rate.overtime_hourly_rate?.toString() || rate.hourly_rate.toString()
@@ -310,7 +247,10 @@ export default function DesignationRates() {
     const isOverheadCustom = rate.overhead_hourly_rate != null && rate.overhead_hourly_rate !== 5.3
     
     setFormData({
-      designation: rate.designation,
+      employee_id: rate.employee_id,
+      employee_code: rate.employee_code,
+      employee_name: rate.employee_name,
+      designation: rate.designation || '',
       hourly_rate: rate.hourly_rate.toString(),
       overtime_hourly_rate: overtimeRate,
       off_day_hourly_rate: offDayRate,
@@ -326,20 +266,20 @@ export default function DesignationRates() {
     setShowModal(true)
   }
 
-  const handleSave = async (saveDailyRateHistory: boolean = false) => {
+  const handleSave = async () => {
     try {
       setError('')
       setSuccess('')
       setLoading(true)
 
       // Validate all fields
-      const isDesignationValid = validateField('designation', formData.designation)
+      const isEmployeeValid = validateField('employee_id', formData.employee_id)
       const isHourlyRateValid = validateField('hourly_rate', formData.hourly_rate)
       const isOvertimeValid = validateField('overtime_hourly_rate', formData.overtime_hourly_rate)
       const isOffDayValid = validateField('off_day_hourly_rate', formData.off_day_hourly_rate)
       const isOverheadValid = validateField('overhead_hourly_rate', formData.overhead_hourly_rate)
 
-      if (!isDesignationValid || !isHourlyRateValid || !isOvertimeValid || !isOffDayValid || !isOverheadValid) {
+      if (!isEmployeeValid || !isHourlyRateValid || !isOvertimeValid || !isOffDayValid || !isOverheadValid) {
         setError('Please fix the errors in the form')
         setLoading(false)
         return
@@ -347,49 +287,47 @@ export default function DesignationRates() {
 
       const currentUserId = user?.id || appUser?.id
 
+      // Get selected employee details
+      const selectedEmployee = employees.find(emp => emp.id === formData.employee_id)
+      if (!selectedEmployee) {
+        setError('Selected employee not found')
+        setLoading(false)
+        return
+      }
+
       // Calculate overtime_hourly_rate based on custom setting
-      // If not using custom, use hourly_rate (default)
       const overtimeRateValue = useCustomOvertime && formData.overtime_hourly_rate && formData.overtime_hourly_rate.trim() !== ''
         ? parseFloat(formData.overtime_hourly_rate)
         : parseFloat(formData.hourly_rate)
 
       // Calculate off_day_hourly_rate based on custom setting
-      // If not using custom, use hourly_rate * 2 (default)
       const offDayRateValue = useCustomOffDay && formData.off_day_hourly_rate && formData.off_day_hourly_rate.trim() !== ''
         ? parseFloat(formData.off_day_hourly_rate)
         : parseFloat(formData.hourly_rate) * 2
 
       // Get overhead_hourly_rate based on custom setting
-      // If not using custom, use default 5.3
       const overheadRateValue = useCustomOverhead && formData.overhead_hourly_rate && formData.overhead_hourly_rate.trim() !== ''
         ? parseFloat(formData.overhead_hourly_rate)
         : 5.3
 
-      console.log('💾 Saving rates:', {
-        hourly_rate: formData.hourly_rate,
+      const rateData: any = {
+        employee_id: formData.employee_id,
+        employee_code: selectedEmployee.employee_code,
+        employee_name: selectedEmployee.employee_name,
+        designation: selectedEmployee.designation,
+        hourly_rate: parseFloat(formData.hourly_rate),
         overtime_hourly_rate: overtimeRateValue,
         off_day_hourly_rate: offDayRateValue,
-        overhead_hourly_rate: overheadRateValue
-      })
-
-      const rateData: any = {
-        designation: formData.designation.trim(),
-        hourly_rate: parseFloat(formData.hourly_rate),
-        overtime_hourly_rate: overtimeRateValue, // Always save a value (never null)
-        off_day_hourly_rate: offDayRateValue, // Always save a value (never null) - default is hourly_rate * 2
-        overhead_hourly_rate: overheadRateValue, // Default: 5.3
+        overhead_hourly_rate: overheadRateValue,
         authority: formData.authority || 'General Authority'
       }
 
-      console.log('💾 Rate data to save:', rateData)
-
       const supabaseClient = getSupabaseClient()
-      let savedRateId: string | null = null
       
       if (editingRate) {
         rateData.updated_by = currentUserId || null
-        const { data, error } = await supabaseClient
-          .from(TABLES.DESIGNATION_RATES)
+        const { error } = await supabaseClient
+          .from(TABLES.EMPLOYEE_RATES)
           // @ts-ignore
           .update(rateData)
           .eq('id', editingRate.id)
@@ -397,51 +335,22 @@ export default function DesignationRates() {
           .single()
 
         if (error) throw error
-        savedRateId = editingRate.id
-        setSuccess('Designation rate updated successfully!')
+        setSuccess('Employee rate updated successfully!')
       } else {
         rateData.created_by = currentUserId || null
-        const { data, error } = await supabaseClient
-          .from(TABLES.DESIGNATION_RATES)
+        const { error } = await supabaseClient
+          .from(TABLES.EMPLOYEE_RATES)
           // @ts-ignore
           .insert([rateData])
           .select()
           .single()
 
         if (error) throw error
-        savedRateId = (data as any)?.id || null
-        setSuccess('Designation rate added successfully!')
-      }
-
-      // If user wants to save daily rate history, do it now
-      if (saveDailyRateHistory && savedRateId && newRateDailyRateFormData.name.trim()) {
-        const dailyRateData: any = {
-          designation_id: savedRateId,
-          name: newRateDailyRateFormData.name.trim(),
-          hourly_rate: parseFloat(formData.hourly_rate),
-          start_date: newRateDailyRateFormData.start_date,
-          end_date: newRateDailyRateFormData.end_date || null,
-          is_active: newRateDailyRateFormData.is_active,
-          created_by: currentUserId || null
-        }
-
-        const { error: dailyRateError } = await supabaseClient
-          .from(TABLES.DESIGNATION_DAILY_RATE_HISTORY)
-          // @ts-ignore
-          .insert([dailyRateData])
-          .select()
-
-        if (dailyRateError) {
-          console.error('Failed to save daily rate history:', dailyRateError)
-          // Don't fail the whole operation, just log it
-        } else {
-          setSuccess('Designation rate and daily rate history saved successfully!')
-        }
+        setSuccess('Employee rate added successfully!')
       }
 
       setShowModal(false)
       await fetchRates()
-      await fetchDailyRateHistory()
       setTimeout(() => setSuccess(''), 3000)
     } catch (err: any) {
       setError('Failed to save rate: ' + (err?.message || 'Unknown error'))
@@ -452,7 +361,7 @@ export default function DesignationRates() {
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this designation rate?')) {
+    if (!confirm('Are you sure you want to delete this employee rate?')) {
       return
     }
 
@@ -463,14 +372,14 @@ export default function DesignationRates() {
 
       const supabaseClient = getSupabaseClient()
       const { error } = await supabaseClient
-        .from(TABLES.DESIGNATION_RATES)
+        .from(TABLES.EMPLOYEE_RATES)
         // @ts-ignore
         .delete()
         .eq('id', id)
 
       if (error) throw error
 
-      setSuccess('Designation rate deleted successfully!')
+      setSuccess('Employee rate deleted successfully!')
       await fetchRates()
       setTimeout(() => setSuccess(''), 3000)
     } catch (err: any) {
@@ -494,13 +403,14 @@ export default function DesignationRates() {
       const lines = text.split('\n').filter(line => line.trim())
       const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
 
-      const designationIndex = headers.findIndex(h => h.includes('designation'))
+      const employeeCodeIndex = headers.findIndex(h => h.includes('employee') && h.includes('code'))
+      const employeeNameIndex = headers.findIndex(h => h.includes('employee') && h.includes('name'))
       const hourlyRateIndex = headers.findIndex(h => h.includes('hourly') && h.includes('rate') && !h.includes('overtime') && !h.includes('off'))
       const overtimeIndex = headers.findIndex(h => h.includes('overtime'))
       const offDayIndex = headers.findIndex(h => h.includes('off') && h.includes('day'))
 
-      if (designationIndex === -1 || hourlyRateIndex === -1) {
-        throw new Error('Invalid CSV format. Required columns: Designation, hourly Rate')
+      if (employeeCodeIndex === -1 || hourlyRateIndex === -1) {
+        throw new Error('Invalid CSV format. Required columns: Employee Code, Hourly Rate')
       }
 
       const currentUserId = user?.id || appUser?.id
@@ -511,16 +421,28 @@ export default function DesignationRates() {
       const ratesToImport: any[] = []
       for (let i = 1; i < lines.length; i++) {
         const values = lines[i].split(',').map(v => v.trim())
-        const designation = values[designationIndex]
+        const employeeCode = values[employeeCodeIndex]
+        const employeeName = values[employeeNameIndex] || ''
         const hourlyRate = parseFloat(values[hourlyRateIndex])
 
-        if (!designation || isNaN(hourlyRate)) continue
+        if (!employeeCode || isNaN(hourlyRate)) continue
+
+        // Find employee by code
+        const employee = employees.find(emp => emp.employee_code === employeeCode)
+        if (!employee) {
+          console.warn(`Employee with code ${employeeCode} not found, skipping...`)
+          continue
+        }
 
         ratesToImport.push({
-          designation,
+          employee_id: employee.id,
+          employee_code: employee.employee_code,
+          employee_name: employee.employee_name,
+          designation: employee.designation,
           hourly_rate: hourlyRate,
-          overtime_hourly_rate: overtimeIndex !== -1 && values[overtimeIndex] ? parseFloat(values[overtimeIndex]) : null,
-          off_day_hourly_rate: offDayIndex !== -1 && values[offDayIndex] ? parseFloat(values[offDayIndex]) : null,
+          overtime_hourly_rate: overtimeIndex !== -1 && values[overtimeIndex] ? parseFloat(values[overtimeIndex]) : hourlyRate,
+          off_day_hourly_rate: offDayIndex !== -1 && values[offDayIndex] ? parseFloat(values[offDayIndex]) : (hourlyRate * 2),
+          overhead_hourly_rate: 5.3,
           authority: 'General Authority',
           created_by: currentUserId
         })
@@ -532,13 +454,13 @@ export default function DesignationRates() {
 
       const supabaseClient = getSupabaseClient()
       const { error } = await supabaseClient
-        .from(TABLES.DESIGNATION_RATES)
+        .from(TABLES.EMPLOYEE_RATES)
         // @ts-ignore
-        .upsert(ratesToImport, { onConflict: 'designation' })
+        .upsert(ratesToImport, { onConflict: 'employee_id' })
 
       if (error) throw error
 
-      setSuccess(`Successfully imported ${ratesToImport.length} designation rate(s)!`)
+      setSuccess(`Successfully imported ${ratesToImport.length} employee rate(s)!`)
       await fetchRates()
       setTimeout(() => setSuccess(''), 5000)
     } catch (err: any) {
@@ -552,14 +474,19 @@ export default function DesignationRates() {
   }
 
   const handleExport = () => {
-    const headers = ['Designation', 'hourly Rate', 'Overtime Hourly Rate', 'Off day hourly working rate', 'Authority']
+    const headers = ['Employee Code', 'Employee Name', 'Designation', 'Hourly Rate', 'Overtime Hourly Rate', 'Off day hourly working rate', 'Overhead Hourly Rate', 'Total Hourly Rate', 'Daily Rate', 'Authority']
     const csvContent = [
       headers.join(','),
       ...rates.map(rate => [
-        rate.designation,
+        rate.employee_code,
+        rate.employee_name,
+        rate.designation || '',
         rate.hourly_rate,
         (rate.overtime_hourly_rate || rate.hourly_rate).toString(),
         (rate.off_day_hourly_rate || rate.hourly_rate * 2).toString(),
+        (rate.overhead_hourly_rate || 5.3).toString(),
+        ((rate.total_hourly_rate) || (rate.hourly_rate + (rate.overhead_hourly_rate || 5.3))).toString(),
+        (rate.daily_rate || ((rate.hourly_rate + (rate.overhead_hourly_rate || 5.3)) * 8)).toString(),
         rate.authority || 'General Authority'
       ].join(','))
     ].join('\n')
@@ -567,7 +494,7 @@ export default function DesignationRates() {
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
     const link = document.createElement('a')
     link.href = URL.createObjectURL(blob)
-    link.download = `designation_rates_${new Date().toISOString().split('T')[0]}.csv`
+    link.download = `employee_rates_${new Date().toISOString().split('T')[0]}.csv`
     link.click()
   }
 
@@ -576,284 +503,34 @@ export default function DesignationRates() {
     return (hourlyRate * 8).toFixed(2)
   }
 
-  // Get active daily rate for a designation
-  const getActiveDailyRate = (designationId: string): DesignationDailyRateHistory | null => {
-    const history = dailyRateHistory.get(designationId) || []
-    return history.find(rate => rate.is_active) || null
-  }
-
-  // Handle manage daily rate
-  const handleManageDailyRate = (rate: DesignationRate) => {
-    setSelectedRate(rate)
-    setEditingDailyRate(null)
-    setDailyRateFormData({
-      hourly_rate: rate.hourly_rate.toString(),
-      name: '',
-      start_date: new Date().toISOString().split('T')[0],
-      end_date: '',
-      is_active: true
-    })
-    setShowDailyRateModal(true)
-  }
-
-  // Handle edit daily rate
-  const handleEditDailyRate = (dailyRate: DesignationDailyRateHistory) => {
-    setEditingDailyRate(dailyRate)
-    setDailyRateFormData({
-      hourly_rate: dailyRate.hourly_rate.toString(),
-      name: dailyRate.name,
-      start_date: dailyRate.start_date,
-      end_date: dailyRate.end_date || '',
-      is_active: dailyRate.is_active
-    })
-    setShowDailyRateModal(true)
-  }
-
-  // Handle save daily rate
-  const handleSaveDailyRate = async () => {
-    try {
-      setError('')
-      setSuccess('')
-      setLoading(true)
-
-      if (!dailyRateFormData.hourly_rate || parseFloat(dailyRateFormData.hourly_rate) < 0) {
-        setError('Please enter a valid hourly rate')
-        setLoading(false)
-        return
-      }
-
-      if (!dailyRateFormData.name.trim()) {
-        setError('Please enter a name for this rate period')
-        setLoading(false)
-        return
-      }
-
-      if (!dailyRateFormData.start_date) {
-        setError('Please enter a start date')
-        setLoading(false)
-        return
-      }
-
-      if (dailyRateFormData.end_date && new Date(dailyRateFormData.end_date) < new Date(dailyRateFormData.start_date)) {
-        setError('End date must be after start date')
-        setLoading(false)
-        return
-      }
-
-      const currentUserId = user?.id || appUser?.id
-      
-      if (!selectedRate) {
-        setError('No designation selected')
-        setLoading(false)
-        return
-      }
-
-      // Validate designation_id exists
-      if (!selectedRate.id) {
-        setError('Invalid designation ID. Please refresh the page and try again.')
-        setLoading(false)
-        return
-      }
-
-      // Save to history table (daily_rate will be auto-calculated from hourly_rate * 8)
-      const rateData: any = {
-        designation_id: selectedRate.id,
-        name: dailyRateFormData.name.trim(),
-        hourly_rate: parseFloat(dailyRateFormData.hourly_rate),
-        start_date: dailyRateFormData.start_date,
-        end_date: dailyRateFormData.end_date || null,
-        is_active: dailyRateFormData.is_active
-      }
-
-      // Only add created_by/updated_by if user is authenticated (these fields are nullable)
-      if (currentUserId) {
-        if (editingDailyRate) {
-          rateData.updated_by = currentUserId
-        } else {
-          rateData.created_by = currentUserId
-        }
-      }
-
-      console.log('📦 Preparing to save daily rate:', {
-        rateData,
-        designationId: selectedRate.id,
-        designationName: selectedRate.designation,
-        currentUserId: currentUserId || 'null (will be set to null in DB)',
-        editingDailyRate: editingDailyRate ? editingDailyRate.id : 'new record'
-      })
-
-      const supabaseClient = getSupabaseClient()
-      
-      if (editingDailyRate) {
-        rateData.updated_by = currentUserId
-        console.log('🔄 Updating daily rate:', editingDailyRate.id)
-        
-        const { data, error } = await supabaseClient
-          .from(TABLES.DESIGNATION_DAILY_RATE_HISTORY)
-          // @ts-ignore
-          .update(rateData)
-          .eq('id', editingDailyRate.id)
-          .select()
-
-        if (error) {
-          console.error('❌ Update error details:', {
-            message: error.message,
-            details: error.details,
-            hint: error.hint,
-            code: error.code,
-            fullError: JSON.stringify(error, null, 2)
-          })
-          
-          // Provide helpful error messages
-          if (error.code === '42P01' || error.message?.includes('does not exist')) {
-            throw new Error('Table does not exist. Please run the SQL script: Database/designation-daily-rate-history-complete.sql')
-          } else if (error.code === '42501' || error.message?.includes('permission denied')) {
-            throw new Error('Permission denied. Please check RLS policies in Supabase.')
-          } else if (error.code === '23503' || error.message?.includes('foreign key')) {
-            throw new Error('Invalid designation. Please refresh the page and try again.')
-          }
-          
-          throw new Error(error.message || error.details || 'Failed to update daily rate')
-        }
-        
-        console.log('✅ Daily rate updated successfully:', data)
-        setSuccess('Daily rate updated successfully!')
-      } else {
-        console.log('➕ Inserting new daily rate')
-        console.log('📤 Data being sent:', JSON.stringify(rateData, null, 2))
-        
-        const { data, error } = await supabaseClient
-          .from(TABLES.DESIGNATION_DAILY_RATE_HISTORY)
-          // @ts-ignore
-          .insert([rateData])
-          .select()
-
-        if (error) {
-          console.error('❌ Insert error details:', {
-            message: error.message,
-            details: error.details,
-            hint: error.hint,
-            code: error.code,
-            fullError: JSON.stringify(error, null, 2),
-            rateData
-          })
-          
-          // Provide helpful error messages
-          if (error.code === '42P01' || error.message?.includes('does not exist')) {
-            throw new Error('Table does not exist. Please run the SQL script: Database/designation-daily-rate-history-complete.sql')
-          } else if (error.code === '42501' || error.message?.includes('permission denied')) {
-            throw new Error('Permission denied. Please check RLS policies in Supabase.')
-          } else if (error.code === '23503' || error.message?.includes('foreign key')) {
-            throw new Error('Invalid designation. Please refresh the page and try again.')
-          } else if (error.code === '23505' || error.message?.includes('unique constraint')) {
-            throw new Error('A rate with this name already exists for this designation.')
-          }
-          
-          throw new Error(error.message || error.details || 'Failed to insert daily rate')
-        }
-        
-        console.log('✅ Daily rate inserted successfully:', data)
-        setSuccess('Daily rate added successfully!')
-      }
-
-      // If this is the active rate, update all rates in designation_rates table
-      if (dailyRateFormData.is_active && selectedRate) {
-        console.log('🔄 Updating rates in designation_rates table (active rate)...')
-        const newHourlyRate = parseFloat(dailyRateFormData.hourly_rate)
-        const updateData: any = {
-          hourly_rate: newHourlyRate,
-          // Update overtime_hourly_rate to match hourly_rate (default behavior)
-          overtime_hourly_rate: newHourlyRate,
-          // Update off_day_hourly_rate to hourly_rate * 2 (default behavior)
-          off_day_hourly_rate: newHourlyRate * 2,
-          updated_by: currentUserId || null
-        }
-
-        const { error: updateError } = await supabaseClient
-          .from(TABLES.DESIGNATION_RATES)
-          // @ts-ignore
-          .update(updateData)
-          .eq('id', selectedRate.id)
-
-        if (updateError) {
-          console.error('⚠️ Failed to update rates in designation_rates:', updateError)
-          // Don't throw error, just log it - the history was saved successfully
-        } else {
-          console.log('✅ Updated all rates in designation_rates table:', updateData)
-        }
-      }
-
-      setShowDailyRateModal(false)
-      setEditingDailyRate(null)
-      
-      // Always refresh both tables to show updated data
-      console.log('🔄 Refreshing tables...')
-      await fetchRates() // Refresh rates to show updated hourly_rate and all columns
-      await fetchDailyRateHistory() // Refresh history
-      
-      setTimeout(() => setSuccess(''), 3000)
-    } catch (err: any) {
-      const errorMessage = err?.message || err?.error?.message || 'Unknown error occurred'
-      setError('Failed to save daily rate: ' + errorMessage)
-      console.error('Error saving daily rate:', err)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // Handle delete daily rate
-  const handleDeleteDailyRate = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this daily rate?')) {
-      return
-    }
-
-    try {
-      setError('')
-      setSuccess('')
-      setLoading(true)
-
-      const supabaseClient = getSupabaseClient()
-      const { error } = await supabaseClient
-        .from(TABLES.DESIGNATION_DAILY_RATE_HISTORY)
-        // @ts-ignore
-        .delete()
-        .eq('id', id)
-
-      if (error) throw error
-
-      setSuccess('Daily rate deleted successfully!')
-      await fetchDailyRateHistory()
-      setTimeout(() => setSuccess(''), 3000)
-    } catch (err: any) {
-      setError('Failed to delete daily rate: ' + err.message)
-      console.error('Error deleting daily rate:', err)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // Filter rates
-  const filteredRates = rates.filter(rate => {
+  // Filter employees with rates
+  const filteredEmployees = employeesWithRates.filter(emp => {
     const matchesSearch = !searchTerm || 
-      rate.designation.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (rate.authority && rate.authority.toLowerCase().includes(searchTerm.toLowerCase()))
+      emp.employee_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      emp.employee_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (emp.designation && emp.designation.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (emp.rate?.authority && emp.rate.authority.toLowerCase().includes(searchTerm.toLowerCase()))
     
-    const matchesAuthority = selectedAuthority === 'all' || rate.authority === selectedAuthority
+    const matchesAuthority = selectedAuthority === 'all' || emp.rate?.authority === selectedAuthority || (!emp.hasRate && selectedAuthority === 'all')
+    const matchesDesignation = filterDesignation === 'all' || emp.designation === filterDesignation
     
-    return matchesSearch && matchesAuthority
+    return matchesSearch && matchesAuthority && matchesDesignation
   })
 
-  // Get unique authorities
+  // Get unique authorities (from rates)
   const authorities = Array.from(new Set(rates.map(r => r.authority).filter(Boolean))) as string[]
+  
+  // Get unique designations (from employees)
+  const designations = Array.from(new Set(employees.map(e => e.designation).filter(Boolean))) as string[]
 
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Designation Rates</h1>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Employee Rates</h1>
           <p className="text-gray-600 dark:text-gray-400 mt-1">
-            Manage hourly rates for different job designations
+            Manage hourly rates for individual employees
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -919,7 +596,7 @@ export default function DesignationRates() {
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <input
                   type="text"
-                  placeholder="Search by designation..."
+                  placeholder="Search by employee name, code, or designation..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
@@ -943,9 +620,30 @@ export default function DesignationRates() {
               </select>
             </div>
 
+            <div>
+              <label className="block text-sm font-medium mb-2">Designation</label>
+              <select
+                value={filterDesignation}
+                onChange={(e) => setFilterDesignation(e.target.value)}
+                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="all">All Designations</option>
+                {designations.map((des) => (
+                  <option key={des} value={des}>
+                    {des}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div className="flex items-end">
               <div className="text-sm text-gray-600 dark:text-gray-400">
-                Total: <span className="font-semibold">{filteredRates.length}</span> designation(s)
+                Total: <span className="font-semibold">{filteredEmployees.length}</span> employee(s)
+                {filteredEmployees.length > 0 && (
+                  <span className="ml-2 text-xs">
+                    ({filteredEmployees.filter(e => e.hasRate).length} with rates)
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -955,26 +653,26 @@ export default function DesignationRates() {
       {/* Rates Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Designation Rates ({filteredRates.length})</CardTitle>
+          <CardTitle>Employee Rates ({filteredEmployees.length})</CardTitle>
         </CardHeader>
         <CardContent>
           {loading ? (
             <LoadingSpinner />
-          ) : filteredRates.length === 0 ? (
+          ) : filteredEmployees.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
               <FileSpreadsheet className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>No designation rates found</p>
+              <p>No employees found</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-gray-200 dark:border-gray-700">
+                    <th className="text-left p-3 font-semibold">Employee Code</th>
+                    <th className="text-left p-3 font-semibold">Employee Name</th>
                     <th className="text-left p-3 font-semibold">Designation</th>
-                    <th className="text-left p-3 font-semibold">hourly Rate</th>
+                    <th className="text-left p-3 font-semibold">Hourly Rate</th>
                     <th className="text-left p-3 font-semibold">Daily Rate (8h)</th>
-                    <th className="text-left p-3 font-semibold">Daily Rate Name</th>
-                    <th className="text-left p-3 font-semibold">Period (From - To)</th>
                     <th className="text-left p-3 font-semibold">Overtime Hourly Rate</th>
                     <th className="text-left p-3 font-semibold">Off day hourly working rate</th>
                     <th className="text-left p-3 font-semibold">Overhead Hourly Rate</th>
@@ -984,135 +682,159 @@ export default function DesignationRates() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredRates.map((rate) => (
-                    <tr 
-                      key={rate.id} 
-                      className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
-                    >
-                      <td className="p-3">
-                        <span className="font-medium text-gray-900 dark:text-white">
-                          {rate.designation}
-                        </span>
-                      </td>
-                      <td className="p-3">
-                        <span className="text-gray-900 dark:text-white font-semibold">
-                          {rate.hourly_rate.toFixed(2)}
-                        </span>
-                      </td>
-                      <td className="p-3">
-                        <div className="flex items-center gap-1">
-                          <Calculator className="h-4 w-4 text-indigo-500" />
-                          <span className="text-indigo-600 dark:text-indigo-400 font-medium">
-                            {rate.daily_rate 
-                              ? rate.daily_rate.toFixed(2) 
-                              : calculateDailyRate((rate.total_hourly_rate) || (rate.hourly_rate + (rate.overhead_hourly_rate || 5.3)))}
+                  {filteredEmployees.map((emp) => {
+                    const rate = emp.rate
+                    return (
+                      <tr 
+                        key={emp.id} 
+                        className={`border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors ${
+                          !emp.hasRate ? 'bg-yellow-50/50 dark:bg-yellow-900/10' : ''
+                        }`}
+                      >
+                        <td className="p-3">
+                          <span className="font-medium text-gray-900 dark:text-white">
+                            {emp.employee_code}
                           </span>
-                        </div>
-                      </td>
-                      <td className="p-3">
-                        {(() => {
-                          const activeRate = getActiveDailyRate(rate.id)
-                          return activeRate ? (
+                        </td>
+                        <td className="p-3">
+                          <span className="font-medium text-gray-900 dark:text-white">
+                            {emp.employee_name}
+                          </span>
+                        </td>
+                        <td className="p-3">
+                          <span className="text-sm text-gray-600 dark:text-gray-400">
+                            {emp.designation || '-'}
+                          </span>
+                        </td>
+                        <td className="p-3">
+                          {rate ? (
+                            <span className="text-gray-900 dark:text-white font-semibold">
+                              {rate.hourly_rate.toFixed(2)}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400 italic text-sm">Not Set</span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          {rate ? (
                             <div className="flex items-center gap-1">
-                              <span className="text-sm font-medium text-gray-900 dark:text-white">
-                                {activeRate.name}
+                              <Calculator className="h-4 w-4 text-indigo-500" />
+                              <span className="text-indigo-600 dark:text-indigo-400 font-medium">
+                                {rate.daily_rate 
+                                  ? rate.daily_rate.toFixed(2) 
+                                  : calculateDailyRate((rate.total_hourly_rate) || (rate.hourly_rate + (rate.overhead_hourly_rate || 5.3)))}
                               </span>
-                              {activeRate.is_active && (
-                                <span className="px-2 py-0.5 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200 rounded text-xs">
-                                  Active
-                                </span>
-                              )}
                             </div>
                           ) : (
-                            <span className="text-gray-400 text-sm">-</span>
-                          )
-                        })()}
-                      </td>
-                      <td className="p-3">
-                        {(() => {
-                          const activeRate = getActiveDailyRate(rate.id)
-                          return activeRate ? (
-                            <div className="text-sm text-gray-600 dark:text-gray-400">
-                              <div className="flex items-center gap-1">
-                                <Clock className="h-3 w-3" />
-                                <span>{new Date(activeRate.start_date).toLocaleDateString()}</span>
-                              </div>
-                              {activeRate.end_date && (
-                                <div className="flex items-center gap-1 mt-1">
-                                  <span className="text-gray-400">-</span>
-                                  <span>{new Date(activeRate.end_date).toLocaleDateString()}</span>
-                                </div>
-                              )}
-                              {!activeRate.end_date && (
-                                <div className="text-xs text-gray-400 mt-1">Ongoing</div>
-                              )}
-                            </div>
+                            <span className="text-gray-400 italic text-sm">-</span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          {rate ? (
+                            <span className="text-gray-600 dark:text-gray-400">
+                              {(rate.overtime_hourly_rate || rate.hourly_rate).toFixed(2)}
+                            </span>
                           ) : (
-                            <span className="text-gray-400 text-sm">-</span>
-                          )
-                        })()}
-                      </td>
-                      <td className="p-3">
-                        <span className="text-gray-600 dark:text-gray-400">
-                          {(rate.overtime_hourly_rate || rate.hourly_rate).toFixed(2)}
-                        </span>
-                      </td>
-                      <td className="p-3">
-                        <span className="text-gray-600 dark:text-gray-400">
-                          {(rate.off_day_hourly_rate || rate.hourly_rate * 2).toFixed(2)}
-                        </span>
-                      </td>
-                      <td className="p-3">
-                        <span className="text-gray-600 dark:text-gray-400">
-                          {(rate.overhead_hourly_rate || 5.3).toFixed(2)}
-                        </span>
-                      </td>
-                      <td className="p-3">
-                        <span className="text-gray-900 dark:text-white font-semibold">
-                          {((rate.total_hourly_rate) || (rate.hourly_rate + (rate.overhead_hourly_rate || 5.3))).toFixed(2)}
-                        </span>
-                      </td>
-                      <td className="p-3">
-                        <span className="text-sm text-gray-600 dark:text-gray-400">
-                          {rate.authority || 'General Authority'}
-                        </span>
-                      </td>
-                      <td className="p-3">
-                        <div className="flex items-center gap-2">
-                          <PermissionButton
-                            permission="cost_control.designation_rates.create"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleManageDailyRate(rate)}
-                            className="h-10 w-10 p-0 flex items-center justify-center text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20"
-                            title="Manage Daily Rate"
-                          >
-                            <History className="h-5 w-5" />
-                          </PermissionButton>
-                          <PermissionButton
-                            permission="cost_control.designation_rates.edit"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleEdit(rate)}
-                            className="h-10 w-10 p-0 flex items-center justify-center"
-                            title="Edit Rate"
-                          >
-                            <Edit className="h-5 w-5" />
-                          </PermissionButton>
-                          <PermissionButton
-                            permission="cost_control.designation_rates.delete"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleDelete(rate.id)}
-                            className="h-10 w-10 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center justify-center"
-                            title="Delete Rate"
-                          >
-                            <Trash2 className="h-5 w-5" />
-                          </PermissionButton>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                            <span className="text-gray-400 italic text-sm">-</span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          {rate ? (
+                            <span className="text-gray-600 dark:text-gray-400">
+                              {(rate.off_day_hourly_rate || rate.hourly_rate * 2).toFixed(2)}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400 italic text-sm">-</span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          {rate ? (
+                            <span className="text-gray-600 dark:text-gray-400">
+                              {(rate.overhead_hourly_rate || 5.3).toFixed(2)}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400 italic text-sm">-</span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          {rate ? (
+                            <span className="text-gray-900 dark:text-white font-semibold">
+                              {((rate.total_hourly_rate) || (rate.hourly_rate + (rate.overhead_hourly_rate || 5.3))).toFixed(2)}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400 italic text-sm">-</span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          {rate ? (
+                            <span className="text-sm text-gray-600 dark:text-gray-400">
+                              {rate.authority || 'General Authority'}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400 italic text-sm">-</span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          <div className="flex items-center gap-2">
+                            {emp.hasRate ? (
+                              <>
+                                <PermissionButton
+                                  permission="cost_control.designation_rates.edit"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleEdit(rate!)}
+                                  className="h-10 w-10 p-0 flex items-center justify-center"
+                                  title="Edit Rate"
+                                >
+                                  <Edit className="h-5 w-5" />
+                                </PermissionButton>
+                                <PermissionButton
+                                  permission="cost_control.designation_rates.delete"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleDelete(rate!.id)}
+                                  className="h-10 w-10 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center justify-center"
+                                  title="Delete Rate"
+                                >
+                                  <Trash2 className="h-5 w-5" />
+                                </PermissionButton>
+                              </>
+                            ) : (
+                              <PermissionButton
+                                permission="cost_control.designation_rates.create"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setFormData({
+                                    employee_id: emp.id,
+                                    employee_code: emp.employee_code,
+                                    employee_name: emp.employee_name,
+                                    designation: emp.designation,
+                                    hourly_rate: '',
+                                    overtime_hourly_rate: '',
+                                    off_day_hourly_rate: '',
+                                    overhead_hourly_rate: '5.3',
+                                    authority: 'General Authority'
+                                  })
+                                  setEditingRate(null)
+                                  setFormErrors({})
+                                  setUseCustomOvertime(false)
+                                  setUseCustomOffDay(false)
+                                  setUseCustomOverhead(false)
+                                  setShowModal(true)
+                                }}
+                                className="h-10 px-3 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 flex items-center justify-center gap-1"
+                                title="Add Rate"
+                              >
+                                <Plus className="h-4 w-4" />
+                                <span className="text-xs">Add Rate</span>
+                              </PermissionButton>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1127,7 +849,7 @@ export default function DesignationRates() {
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {editingRate ? 'Edit Designation Rate' : 'Add Designation Rate'}
+                  {editingRate ? 'Edit Employee Rate' : 'Add Employee Rate'}
                 </h2>
                 <Button
                   variant="ghost"
@@ -1142,27 +864,51 @@ export default function DesignationRates() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium mb-2">
-                    Designation *
-                    {formErrors.designation && (
-                      <span className="text-red-500 text-xs ml-2">({formErrors.designation})</span>
+                    Employee *
+                    {formErrors.employee_id && (
+                      <span className="text-red-500 text-xs ml-2">({formErrors.employee_id})</span>
                     )}
                   </label>
-                  <input
-                    type="text"
-                    value={formData.designation}
+                  <select
+                    value={formData.employee_id}
                     onChange={(e) => {
-                      setFormData({ ...formData, designation: e.target.value })
-                      validateField('designation', e.target.value)
+                      const selectedEmployee = employees.find(emp => emp.id === e.target.value)
+                      if (selectedEmployee) {
+                        setFormData({ 
+                          ...formData, 
+                          employee_id: e.target.value,
+                          employee_code: selectedEmployee.employee_code,
+                          employee_name: selectedEmployee.employee_name,
+                          designation: selectedEmployee.designation
+                        })
+                        validateField('employee_id', e.target.value)
+                      }
                     }}
-                    onBlur={(e) => validateField('designation', e.target.value)}
+                    disabled={!!editingRate} // Disable if editing (can't change employee)
                     className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 ${
-                      formErrors.designation ? 'border-red-500' : 'border-gray-300'
-                    }`}
-                    placeholder="e.g., Project Manager"
+                      formErrors.employee_id ? 'border-red-500' : 'border-gray-300'
+                    } ${editingRate ? 'bg-gray-100 dark:bg-gray-700 cursor-not-allowed' : ''}`}
                     required
-                  />
-                  {formErrors.designation && (
-                    <p className="text-red-500 text-xs mt-1">{formErrors.designation}</p>
+                  >
+                    <option value="">Select an employee...</option>
+                    {employees
+                      .filter(emp => emp.status === 'Active')
+                      .filter(emp => !editingRate || emp.id === formData.employee_id) // Show all if adding, only current if editing
+                      .map((emp) => (
+                        <option key={emp.id} value={emp.id}>
+                          {emp.employee_code} - {emp.employee_name} ({emp.designation})
+                        </option>
+                      ))}
+                  </select>
+                  {formErrors.employee_id && (
+                    <p className="text-red-500 text-xs mt-1">{formErrors.employee_id}</p>
+                  )}
+                  {formData.employee_id && (
+                    <div className="mt-2 p-2 bg-gray-50 dark:bg-gray-700 rounded text-sm">
+                      <div><strong>Code:</strong> {formData.employee_code}</div>
+                      <div><strong>Name:</strong> {formData.employee_name}</div>
+                      <div><strong>Designation:</strong> {formData.designation}</div>
+                    </div>
                   )}
                 </div>
 
@@ -1506,14 +1252,6 @@ export default function DesignationRates() {
                           </span>
                         </span>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setShowDailyRateSection(!showDailyRateSection)}
-                        className="text-indigo-600 hover:text-indigo-700"
-                      >
-                        {showDailyRateSection ? 'Hide' : 'Add'} Daily Rate History
-                      </Button>
                     </div>
                     <div className="mt-3 pt-3 border-t border-indigo-200 dark:border-indigo-700">
                       <div className="flex items-center gap-2 text-sm">
@@ -1527,57 +1265,6 @@ export default function DesignationRates() {
                           </span>
                         </span>
                       </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Daily Rate History Section */}
-                {showDailyRateSection && (
-                  <div className="border-t pt-4 mt-4 space-y-4">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                      Daily Rate History (Optional)
-                    </h3>
-                    <div>
-                      <label className="block text-sm font-medium mb-2">Rate Period Name *</label>
-                      <input
-                        type="text"
-                        value={newRateDailyRateFormData.name}
-                        onChange={(e) => setNewRateDailyRateFormData({ ...newRateDailyRateFormData, name: e.target.value })}
-                        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
-                        placeholder="e.g., Q1 2025 Rate, Initial Rate"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium mb-2">Start Date *</label>
-                        <input
-                          type="date"
-                          value={newRateDailyRateFormData.start_date}
-                          onChange={(e) => setNewRateDailyRateFormData({ ...newRateDailyRateFormData, start_date: e.target.value })}
-                          className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-2">End Date (Optional)</label>
-                        <input
-                          type="date"
-                          value={newRateDailyRateFormData.end_date}
-                          onChange={(e) => setNewRateDailyRateFormData({ ...newRateDailyRateFormData, end_date: e.target.value })}
-                          className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
-                        />
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        id="is_active_daily"
-                        checked={newRateDailyRateFormData.is_active}
-                        onChange={(e) => setNewRateDailyRateFormData({ ...newRateDailyRateFormData, is_active: e.target.checked })}
-                        className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                      />
-                      <label htmlFor="is_active_daily" className="text-sm font-medium">
-                        Set as Active Rate
-                      </label>
                     </div>
                   </div>
                 )}
@@ -1601,14 +1288,13 @@ export default function DesignationRates() {
                       onClick={() => {
                         setShowModal(false)
                         setFormErrors({})
-                        setShowDailyRateSection(false)
                       }}
                       disabled={loading}
                     >
                       Cancel
                     </Button>
                     <Button
-                      onClick={() => handleSave(showDailyRateSection && newRateDailyRateFormData.name.trim() !== '')}
+                      onClick={() => handleSave()}
                       disabled={loading || Object.keys(formErrors).length > 0}
                       className="flex items-center gap-2"
                     >
@@ -1632,240 +1318,6 @@ export default function DesignationRates() {
         </div>
       )}
 
-      {/* Daily Rate Modal */}
-      {showDailyRateModal && selectedRate && (() => {
-        const history = dailyRateHistory.get(selectedRate.id) || []
-        const sortedHistory = [...history].sort((a, b) => 
-          new Date(b.start_date).getTime() - new Date(a.start_date).getTime()
-        )
-
-        return (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-              <div className="p-6">
-                <div className="flex items-center justify-between mb-6">
-                  <div>
-                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-                      {editingDailyRate ? 'Edit Daily Rate' : 'Add Daily Rate'}
-                    </h2>
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                      Designation: <span className="font-medium">{selectedRate.designation}</span>
-                    </p>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setShowDailyRateModal(false)
-                      setEditingDailyRate(null)
-                    }}
-                    className="rounded-full"
-                  >
-                    <X className="h-5 w-5" />
-                  </Button>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Form */}
-                  <div className="space-y-4">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                      {editingDailyRate ? 'Edit Rate Period' : 'New Rate Period'}
-                    </h3>
-                    
-                    <div>
-                      <label className="block text-sm font-medium mb-2">Hourly Rate *</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={dailyRateFormData.hourly_rate}
-                        onChange={(e) => setDailyRateFormData({ ...dailyRateFormData, hourly_rate: e.target.value })}
-                        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
-                        placeholder="e.g., 31.25"
-                        required
-                      />
-                      <p className="text-xs text-gray-500 mt-1">
-                        Enter the hourly rate for this period
-                      </p>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium mb-2">Rate Period Name *</label>
-                      <input
-                        type="text"
-                        value={dailyRateFormData.name}
-                        onChange={(e) => setDailyRateFormData({ ...dailyRateFormData, name: e.target.value })}
-                        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
-                        placeholder="e.g., Q1 2025 Rate, Mid-Year Update"
-                        required
-                      />
-                      <p className="text-xs text-gray-500 mt-1">
-                        Enter a name to identify this rate period
-                      </p>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium mb-2">Start Date *</label>
-                      <input
-                        type="date"
-                        value={dailyRateFormData.start_date}
-                        onChange={(e) => setDailyRateFormData({ ...dailyRateFormData, start_date: e.target.value })}
-                        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium mb-2">End Date (Optional)</label>
-                      <input
-                        type="date"
-                        value={dailyRateFormData.end_date}
-                        onChange={(e) => setDailyRateFormData({ ...dailyRateFormData, end_date: e.target.value })}
-                        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">
-                        Leave empty if this is the current ongoing rate period
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        id="is_active"
-                        checked={dailyRateFormData.is_active}
-                        onChange={(e) => setDailyRateFormData({ ...dailyRateFormData, is_active: e.target.checked })}
-                        className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                      />
-                      <label htmlFor="is_active" className="text-sm font-medium">
-                        Set as Active Rate
-                      </label>
-                    </div>
-
-                    {dailyRateFormData.hourly_rate && !isNaN(parseFloat(dailyRateFormData.hourly_rate)) && (
-                      <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg p-4">
-                        <div className="flex items-center gap-2 text-sm">
-                          <Calculator className="h-4 w-4 text-indigo-600" />
-                          <span className="text-gray-700 dark:text-gray-300">
-                            <strong>Daily Rate:</strong> <span className="font-semibold text-indigo-600">
-                              {calculateDailyRate(parseFloat(dailyRateFormData.hourly_rate))}
-                            </span> (Auto-calculated from Hourly Rate: {parseFloat(dailyRateFormData.hourly_rate).toFixed(2)} × 8 hours)
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="flex justify-end gap-3 pt-4">
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          setShowDailyRateModal(false)
-                          setEditingDailyRate(null)
-                        }}
-                        disabled={loading}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        onClick={handleSaveDailyRate}
-                        disabled={loading}
-                        className="flex items-center gap-2"
-                      >
-                        {loading ? (
-                          <>
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            Saving...
-                          </>
-                        ) : (
-                          <>
-                            <Save className="h-4 w-4" />
-                            {editingDailyRate ? 'Update' : 'Add'} Rate
-                          </>
-                        )}
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* History */}
-                  <div className="space-y-4">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                      Rate History
-                    </h3>
-                    {sortedHistory.length === 0 ? (
-                      <div className="text-center py-8 text-gray-500">
-                        <History className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                        <p>No rate history yet</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-2 max-h-[500px] overflow-y-auto">
-                        {sortedHistory.map((rate) => (
-                          <div
-                            key={rate.id}
-                            className={`p-4 border rounded-lg ${
-                              rate.is_active
-                                ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-800'
-                                : 'bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700'
-                            }`}
-                          >
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <span className="font-medium text-gray-900 dark:text-white">
-                                    {rate.name}
-                                  </span>
-                                  {rate.is_active && (
-                                    <span className="px-2 py-0.5 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200 rounded text-xs">
-                                      Active
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                                  <div className="flex items-center gap-1">
-                                    <Clock className="h-3 w-3" />
-                                    <span>
-                                      {new Date(rate.start_date).toLocaleDateString()}
-                                      {rate.end_date ? ` - ${new Date(rate.end_date).toLocaleDateString()}` : ' - Ongoing'}
-                                    </span>
-                                  </div>
-                                </div>
-                                <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">
-                                  Hourly: <span className="font-medium">{rate.hourly_rate.toFixed(2)}</span>
-                                </div>
-                                <div className="text-lg font-semibold text-indigo-600 dark:text-indigo-400">
-                                  Daily: {rate.daily_rate.toFixed(2)}
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleEditDailyRate(rate)}
-                                  className="h-8 w-8 p-0"
-                                  title="Edit"
-                                >
-                                  <Edit className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleDeleteDailyRate(rate.id)}
-                                  className="h-8 w-8 p-0 text-red-600 hover:text-red-700"
-                                  title="Delete"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )
-      })()}
     </div>
   )
 }
