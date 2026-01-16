@@ -471,6 +471,7 @@ export interface ContractVariation {
   variation_status: VariationStatus // Variation status enum
   date_of_approval?: string // Date of approval (nullable)
   remarks?: string // Remarks
+  force_include_in_boq_calculation?: boolean // Force include in BOQ calculation even if not approved (default: false)
   created_at: string
   updated_at: string
   created_by?: string // User ID who created the variation

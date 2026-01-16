@@ -31,6 +31,7 @@ const allColumns: ColumnOption[] = [
   { key: 'variation_amount', label: 'Variation Amount', selected: true },
   { key: 'date_of_submission', label: 'Date of Submission', selected: true },
   { key: 'variation_status', label: 'Status', selected: true },
+  { key: 'force_include_in_boq_calculation', label: 'FORCE Include in BOQ Calculation', selected: true },
   { key: 'date_of_approval', label: 'Date of Approval', selected: true },
   { key: 'remarks', label: 'Remarks', selected: true },
   { key: 'created_at', label: 'Created At', selected: false },
