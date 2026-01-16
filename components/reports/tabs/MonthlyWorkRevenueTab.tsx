@@ -3425,11 +3425,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           if (showVirtualMaterialValues) {
             headerValues.push(`${outerRangeLabel} - VM Actual`)
             headerValues.push(`${outerRangeLabel} - VM Planned`)
+            headerValues.push(`${outerRangeLabel} - Total Actual`)
+            headerValues.push(`${outerRangeLabel} - Total Planned`)
           }
         } else {
           headerValues.push(outerRangeLabel)
           if (showVirtualMaterialValues) {
             headerValues.push(`${outerRangeLabel} - VM Actual`)
+            headerValues.push(`${outerRangeLabel} - Total`)
           }
         }
       }
@@ -3445,11 +3448,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           if (showVirtualMaterialValues) {
             headerValues.push(`${periodLabel} - VM Actual`)
             headerValues.push(`${periodLabel} - VM Planned`)
+            headerValues.push(`${periodLabel} - Total Actual`)
+            headerValues.push(`${periodLabel} - Total Planned`)
           }
         } else {
           headerValues.push(periodLabel)
           if (showVirtualMaterialValues) {
             headerValues.push(`${periodLabel} - VM Actual`)
+            headerValues.push(`${periodLabel} - Total`)
           }
         }
       })
@@ -3461,11 +3467,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         if (showVirtualMaterialValues) {
           headerValues.push('Grand Total - VM Actual')
           headerValues.push('Grand Total - VM Planned')
+          headerValues.push('Grand Total - Total Actual')
+          headerValues.push('Grand Total - Total Planned')
         }
       } else {
         headerValues.push('Grand Total')
         if (showVirtualMaterialValues) {
           headerValues.push('Grand Total - VM Actual')
+          headerValues.push('Grand Total - Total')
         }
       }
       
@@ -3500,11 +3509,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           if (showVirtualMaterialValues) {
             headerKeys.push('Outer Range - VM Actual')
             headerKeys.push('Outer Range - VM Planned')
+            headerKeys.push('Outer Range - Total Actual')
+            headerKeys.push('Outer Range - Total Planned')
           }
         } else {
           headerKeys.push('Outer Range')
           if (showVirtualMaterialValues) {
             headerKeys.push('Outer Range - VM Actual')
+            headerKeys.push('Outer Range - Total')
           }
         }
       }
@@ -3515,11 +3527,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           if (showVirtualMaterialValues) {
             headerKeys.push(`${periodLabel} - VM Actual`)
             headerKeys.push(`${periodLabel} - VM Planned`)
+            headerKeys.push(`${periodLabel} - Total Actual`)
+            headerKeys.push(`${periodLabel} - Total Planned`)
           }
         } else {
           headerKeys.push(periodLabel)
           if (showVirtualMaterialValues) {
             headerKeys.push(`${periodLabel} - VM Actual`)
+            headerKeys.push(`${periodLabel} - Total`)
           }
         }
       })
@@ -3529,11 +3544,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         if (showVirtualMaterialValues) {
           headerKeys.push('Grand Total - VM Actual')
           headerKeys.push('Grand Total - VM Planned')
+          headerKeys.push('Grand Total - Total Actual')
+          headerKeys.push('Grand Total - Total Planned')
         }
       } else {
         headerKeys.push('Grand Total')
         if (showVirtualMaterialValues) {
           headerKeys.push('Grand Total - VM Actual')
+          headerKeys.push('Grand Total - Total')
         }
       }
 
@@ -3665,11 +3683,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
             if (showVirtualMaterialValues) {
               row['Outer Range - VM Actual'] = outerRangeVM
               row['Outer Range - VM Planned'] = outerRangePlannedVM
+              row['Outer Range - Total Actual'] = outerRangeValue + outerRangeVM
+              row['Outer Range - Total Planned'] = outerRangePlannedValue + outerRangePlannedVM
             }
           } else {
             row['Outer Range'] = outerRangeValue
             if (showVirtualMaterialValues) {
               row['Outer Range - VM Actual'] = outerRangeVM
+              row['Outer Range - Total'] = outerRangeValue + outerRangeVM
             }
           }
         }
@@ -3687,11 +3708,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
             if (showVirtualMaterialValues) {
               row[`${periodLabel} - VM Actual`] = vmActual
               row[`${periodLabel} - VM Planned`] = vmPlanned
+              row[`${periodLabel} - Total Actual`] = actualValue + vmActual
+              row[`${periodLabel} - Total Planned`] = plannedValue + vmPlanned
             }
           } else {
             row[periodLabel] = actualValue
             if (showVirtualMaterialValues) {
               row[`${periodLabel} - VM Actual`] = vmActual
+              row[`${periodLabel} - Total`] = actualValue + vmActual
             }
           }
         })
@@ -3703,11 +3727,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           if (showVirtualMaterialValues) {
             row['Grand Total - VM Actual'] = grandTotalVM
             row['Grand Total - VM Planned'] = grandTotalPlannedVM
+            row['Grand Total - Total Actual'] = grandTotal + grandTotalVM
+            row['Grand Total - Total Planned'] = grandTotalPlanned + grandTotalPlannedVM
           }
         } else {
           row['Grand Total'] = grandTotal
           if (showVirtualMaterialValues) {
             row['Grand Total - VM Actual'] = grandTotalVM
+            row['Grand Total - Total'] = grandTotal + grandTotalVM
           }
         }
         exportData.push(row)
@@ -3761,11 +3788,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           if (showVirtualMaterialValues) {
             totalsRow['Outer Range - VM Actual'] = totalOuterRangeVM // Will be replaced with formula
             totalsRow['Outer Range - VM Planned'] = totalOuterRangePlannedVM // Will be replaced with formula
+            totalsRow['Outer Range - Total Actual'] = totalOuterRangeValue + totalOuterRangeVM
+            totalsRow['Outer Range - Total Planned'] = totalOuterRangePlannedValue + totalOuterRangePlannedVM
           }
         } else {
           totalsRow['Outer Range'] = totalOuterRangeValue // Will be replaced with formula
           if (showVirtualMaterialValues) {
             totalsRow['Outer Range - VM Actual'] = totalOuterRangeVM // Will be replaced with formula
+            totalsRow['Outer Range - Total'] = totalOuterRangeValue + totalOuterRangeVM
           }
         }
       }
@@ -3789,11 +3819,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           if (showVirtualMaterialValues) {
             totalsRow[`${periodLabel} - VM Actual`] = periodVirtualMaterialTotal
             totalsRow[`${periodLabel} - VM Planned`] = periodPlannedVirtualMaterialTotal
+            totalsRow[`${periodLabel} - Total Actual`] = actualTotal + periodVirtualMaterialTotal
+            totalsRow[`${periodLabel} - Total Planned`] = plannedTotal + periodPlannedVirtualMaterialTotal
           }
         } else {
           totalsRow[periodLabel] = actualTotal
           if (showVirtualMaterialValues) {
             totalsRow[`${periodLabel} - VM Actual`] = periodVirtualMaterialTotal
+            totalsRow[`${periodLabel} - Total`] = actualTotal + periodVirtualMaterialTotal
           }
         }
       })
@@ -3822,6 +3855,8 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         if (showVirtualMaterialValues) {
           totalsRow['Grand Total - VM Actual'] = totalVirtualMaterial
           totalsRow['Grand Total - VM Planned'] = totalPlannedVirtualMaterial
+          totalsRow['Grand Total - Total Actual'] = grandTotalActual + totalVirtualMaterial
+          totalsRow['Grand Total - Total Planned'] = grandTotalPlanned + totalPlannedVirtualMaterial
         }
       } else {
         const grandTotalActual = totals.grandTotalEarnedValue
@@ -3837,6 +3872,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         totalsRow['Grand Total'] = grandTotalActual
         if (showVirtualMaterialValues) {
           totalsRow['Grand Total - VM Actual'] = totalVirtualMaterial
+          totalsRow['Grand Total - Total'] = grandTotalActual + totalVirtualMaterial
         }
       }
       exportData.push(totalsRow)
@@ -5239,7 +5275,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                   )}
                   {showOuterRangeColumn && outerRangeStart && (
                     viewPlannedValue ? (
-                      <th colSpan={showVirtualMaterialValues ? 4 : 2} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: showVirtualMaterialValues ? '640px' : '320px' }}>
+                      <th colSpan={showVirtualMaterialValues ? 6 : 2} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: showVirtualMaterialValues ? '960px' : '320px' }}>
                         <div className="font-bold text-blue-700 dark:text-blue-300">Outer Range</div>
                         <div className="text-xs font-normal text-gray-500 dark:text-gray-400 mt-1">
                           {outerRangeStart && dateRange.start ? (
@@ -5252,7 +5288,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                         </div>
                       </th>
                     ) : (
-                      <th colSpan={showVirtualMaterialValues ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: showVirtualMaterialValues ? '320px' : '160px' }}>
+                      <th colSpan={showVirtualMaterialValues ? 3 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: showVirtualMaterialValues ? '480px' : '160px' }}>
                         <div className="font-bold text-blue-700 dark:text-blue-300">Outer Range</div>
                         <div className="text-xs font-normal text-gray-500 dark:text-gray-400 mt-1">
                           {outerRangeStart && dateRange.start ? (
@@ -5268,8 +5304,8 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                   )}
                   {periods.map((period, index) => {
                     if (viewPlannedValue) {
-                      const colSpan = showVirtualMaterialValues ? 4 : 2
-                      const width = showVirtualMaterialValues ? '560px' : '280px'
+                      const colSpan = showVirtualMaterialValues ? 6 : 2
+                      const width = showVirtualMaterialValues ? '840px' : '280px'
                       return (
                         <th key={index} colSpan={colSpan} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width }}>
                           <div className="font-bold text-gray-900 dark:text-white">{period.label}</div>
@@ -5279,8 +5315,8 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                         </th>
                       )
                     } else {
-                      const colSpan = showVirtualMaterialValues ? 2 : 1
-                      const width = showVirtualMaterialValues ? '280px' : '140px'
+                      const colSpan = showVirtualMaterialValues ? 3 : 1
+                      const width = showVirtualMaterialValues ? '420px' : '140px'
                       return (
                         <th key={index} colSpan={colSpan} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width }}>
                           <div>{period.label}</div>
@@ -5292,11 +5328,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                     }
                   })}
                   {viewPlannedValue ? (
-                    <th colSpan={showVirtualMaterialValues ? 4 : 2} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: showVirtualMaterialValues ? '600px' : '300px' }}>
+                    <th colSpan={showVirtualMaterialValues ? 6 : 2} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: showVirtualMaterialValues ? '900px' : '300px' }}>
                       <div className="font-bold text-gray-900 dark:text-white">Grand Total</div>
                     </th>
                   ) : (
-                    <th colSpan={showVirtualMaterialValues ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: showVirtualMaterialValues ? '300px' : '150px' }}>Grand Total</th>
+                    <th colSpan={showVirtualMaterialValues ? 3 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: showVirtualMaterialValues ? '450px' : '150px' }}>Grand Total</th>
                   )}
                 </tr>
                 {/* Second row: Sub-headers for Actual and Planned (only when viewPlannedValue is enabled) */}
@@ -5318,6 +5354,12 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                             <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-purple-50 dark:bg-purple-900/20" style={{ width: '160px' }}>
                               <div className="text-xs font-medium text-purple-600 dark:text-purple-400">VM Planned</div>
                             </th>
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '160px' }}>
+                              <div className="text-xs font-medium text-indigo-600 dark:text-indigo-400">Total Actual</div>
+                            </th>
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '160px' }}>
+                              <div className="text-xs font-medium text-indigo-600 dark:text-indigo-400">Total Planned</div>
+                            </th>
                           </>
                         )}
                       </>
@@ -5338,6 +5380,12 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                             <th key={`${index}-vm-planned`} className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-purple-50 dark:bg-purple-900/20" style={{ width: '140px' }}>
                               <div className="text-xs font-medium text-purple-600 dark:text-purple-400">VM Planned</div>
                             </th>
+                            <th key={`${index}-total-actual`} className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '140px' }}>
+                              <div className="text-xs font-medium text-indigo-600 dark:text-indigo-400">Total Actual</div>
+                            </th>
+                            <th key={`${index}-total-planned`} className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '140px' }}>
+                              <div className="text-xs font-medium text-indigo-600 dark:text-indigo-400">Total Planned</div>
+                            </th>
                           </>
                         )}
                       </>
@@ -5355,6 +5403,12 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                         </th>
                         <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-purple-50 dark:bg-purple-900/20" style={{ width: '150px' }}>
                           <div className="text-xs font-medium text-purple-600 dark:text-purple-400">VM Planned</div>
+                        </th>
+                        <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '150px' }}>
+                          <div className="text-xs font-medium text-indigo-600 dark:text-indigo-400">Total Actual</div>
+                        </th>
+                        <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '150px' }}>
+                          <div className="text-xs font-medium text-indigo-600 dark:text-indigo-400">Total Planned</div>
                         </th>
                       </>
                     )}
@@ -5381,6 +5435,9 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                         <th key={`${index}-vm-actual`} className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-purple-50 dark:bg-purple-900/20" style={{ width: '140px' }}>
                           <div className="text-xs font-medium text-purple-600 dark:text-purple-400">VM Actual</div>
                         </th>
+                        <th key={`${index}-total`} className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '140px' }}>
+                          <div className="text-xs font-medium text-indigo-600 dark:text-indigo-400">Total</div>
+                        </th>
                       </>
                     ))}
                     <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-green-50 dark:bg-green-900/20" style={{ width: '150px' }}>
@@ -5388,6 +5445,9 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                     </th>
                     <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-purple-50 dark:bg-purple-900/20" style={{ width: '150px' }}>
                       <div className="text-xs font-medium text-purple-600 dark:text-purple-400">VM Actual</div>
+                    </th>
+                    <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '150px' }}>
+                      <div className="text-xs font-medium text-indigo-600 dark:text-indigo-400">Total</div>
                     </th>
                   </tr>
                 )}
@@ -5664,6 +5724,34 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                       )
                                     })()}
                                   </td>
+                                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '160px' }}>
+                                    {(() => {
+                                      const outerRangeValue = cachedValues?.outerRangeValue || 0
+                                      const outerRangeVM = cachedValues?.outerRangeVirtualMaterialAmount || 0
+                                      const totalActual = outerRangeValue + outerRangeVM
+                                      return totalActual > 0 ? (
+                                        <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                                          {formatCurrency(totalActual, project.currency)}
+                                        </span>
+                                      ) : (
+                                        <span className="text-gray-400">-</span>
+                                      )
+                                    })()}
+                                  </td>
+                                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '160px' }}>
+                                    {(() => {
+                                      const outerRangePlannedValue = cachedValues?.outerRangePlannedValue || 0
+                                      const outerRangePlannedVM = cachedValues?.outerRangePlannedVirtualMaterialAmount || 0
+                                      const totalPlanned = outerRangePlannedValue + outerRangePlannedVM
+                                      return totalPlanned > 0 ? (
+                                        <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                                          {formatCurrency(totalPlanned, project.currency)}
+                                        </span>
+                                      ) : (
+                                        <span className="text-gray-400">-</span>
+                                      )
+                                    })()}
+                                  </td>
                                 </>
                               )}
                             </>
@@ -5682,18 +5770,34 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                 })()}
                               </td>
                               {showVirtualMaterialValues && (
-                                <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '160px' }}>
-                                  {(() => {
-                                    const outerRangeVirtualMaterialAmount = cachedValues?.outerRangeVirtualMaterialAmount || 0
-                                    return outerRangeVirtualMaterialAmount > 0 ? (
-                                      <span className="text-purple-600 dark:text-purple-400 font-bold">
-                                        {formatCurrency(outerRangeVirtualMaterialAmount, project.currency)}
-                                      </span>
-                                    ) : (
-                                      <span className="text-gray-400">-</span>
-                                    )
-                                  })()}
-                                </td>
+                                <>
+                                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '160px' }}>
+                                    {(() => {
+                                      const outerRangeVirtualMaterialAmount = cachedValues?.outerRangeVirtualMaterialAmount || 0
+                                      return outerRangeVirtualMaterialAmount > 0 ? (
+                                        <span className="text-purple-600 dark:text-purple-400 font-bold">
+                                          {formatCurrency(outerRangeVirtualMaterialAmount, project.currency)}
+                                        </span>
+                                      ) : (
+                                        <span className="text-gray-400">-</span>
+                                      )
+                                    })()}
+                                  </td>
+                                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '160px' }}>
+                                    {(() => {
+                                      const outerRangeValue = cachedValues?.outerRangeValue || 0
+                                      const outerRangeVM = cachedValues?.outerRangeVirtualMaterialAmount || 0
+                                      const total = outerRangeValue + outerRangeVM
+                                      return total > 0 ? (
+                                        <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                                          {formatCurrency(total, project.currency)}
+                                        </span>
+                                      ) : (
+                                        <span className="text-gray-400">-</span>
+                                      )
+                                    })()}
+                                  </td>
+                                </>
                               )}
                             </>
                           )
@@ -5745,6 +5849,30 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                         <span className="text-gray-400">-</span>
                                       )}
                                     </td>
+                                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '140px' }}>
+                                      {(() => {
+                                        const totalActual = periodValue + periodVirtualMaterialAmount
+                                        return totalActual > 0 ? (
+                                          <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                                            {formatCurrency(totalActual, project.currency)}
+                                          </span>
+                                        ) : (
+                                          <span className="text-gray-400">-</span>
+                                        )
+                                      })()}
+                                    </td>
+                                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '140px' }}>
+                                      {(() => {
+                                        const totalPlanned = periodPlannedValue + periodPlannedVirtualMaterialAmount
+                                        return totalPlanned > 0 ? (
+                                          <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                                            {formatCurrency(totalPlanned, project.currency)}
+                                          </span>
+                                        ) : (
+                                          <span className="text-gray-400">-</span>
+                                        )
+                                      })()}
+                                    </td>
                                   </>
                                 )}
                               </Fragment>
@@ -5762,15 +5890,29 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                   )}
                                 </td>
                                 {showVirtualMaterialValues && (
-                                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '140px' }}>
-                                    {periodVirtualMaterialAmount > 0 ? (
-                                      <span className="text-purple-600 dark:text-purple-400 font-bold">
-                                        {formatCurrency(periodVirtualMaterialAmount, project.currency)}
-                                      </span>
-                                    ) : (
-                                      <span className="text-gray-400">-</span>
-                                    )}
-                                  </td>
+                                  <>
+                                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '140px' }}>
+                                      {periodVirtualMaterialAmount > 0 ? (
+                                        <span className="text-purple-600 dark:text-purple-400 font-bold">
+                                          {formatCurrency(periodVirtualMaterialAmount, project.currency)}
+                                        </span>
+                                      ) : (
+                                        <span className="text-gray-400">-</span>
+                                      )}
+                                    </td>
+                                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '140px' }}>
+                                      {(() => {
+                                        const total = periodValue + periodVirtualMaterialAmount
+                                        return total > 0 ? (
+                                          <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                                            {formatCurrency(total, project.currency)}
+                                          </span>
+                                        ) : (
+                                          <span className="text-gray-400">-</span>
+                                        )
+                                      })()}
+                                    </td>
+                                  </>
                                 )}
                               </Fragment>
                             )
@@ -5828,6 +5970,34 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                     )
                                   })()}
                                 </td>
+                                <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '150px' }}>
+                                  {(() => {
+                                    const grandTotal = periodValues.reduce((sum: number, val: number) => sum + val, 0) + (cachedValues?.outerRangeValue || 0)
+                                    const totalVM = (cachedValues?.virtualMaterialAmount?.reduce((sum: number, val: number) => sum + val, 0) || 0) + (cachedValues?.outerRangeVirtualMaterialAmount || 0)
+                                    const totalActual = grandTotal + totalVM
+                                    return totalActual > 0 ? (
+                                      <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                                        {formatCurrency(totalActual, project.currency)}
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-400">-</span>
+                                    )
+                                  })()}
+                                </td>
+                                <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '150px' }}>
+                                  {(() => {
+                                    const grandTotalPlanned = periodPlannedValues.reduce((sum: number, val: number) => sum + val, 0) + (cachedValues?.outerRangePlannedValue || 0)
+                                    const totalPlannedVM = (cachedValues?.plannedVirtualMaterialAmount?.reduce((sum: number, val: number) => sum + val, 0) || 0) + (cachedValues?.outerRangePlannedVirtualMaterialAmount || 0)
+                                    const totalPlanned = grandTotalPlanned + totalPlannedVM
+                                    return totalPlanned > 0 ? (
+                                      <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                                        {formatCurrency(totalPlanned, project.currency)}
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-400">-</span>
+                                    )
+                                  })()}
+                                </td>
                               </>
                             )}
                           </>
@@ -5846,18 +6016,34 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                               })()}
                             </td>
                             {showVirtualMaterialValues && (
-                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '150px' }}>
-                                {(() => {
-                                  const totalVirtualMaterialAmount = (cachedValues?.virtualMaterialAmount?.reduce((sum: number, val: number) => sum + val, 0) || 0) + (cachedValues?.outerRangeVirtualMaterialAmount || 0)
-                                  return totalVirtualMaterialAmount > 0 ? (
-                                    <span className="text-purple-600 dark:text-purple-400 font-bold">
-                                      {formatCurrency(totalVirtualMaterialAmount, project.currency)}
-                                    </span>
-                                  ) : (
-                                    <span className="text-gray-400">-</span>
-                                  )
-                                })()}
-                              </td>
+                              <>
+                                <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '150px' }}>
+                                  {(() => {
+                                    const totalVirtualMaterialAmount = (cachedValues?.virtualMaterialAmount?.reduce((sum: number, val: number) => sum + val, 0) || 0) + (cachedValues?.outerRangeVirtualMaterialAmount || 0)
+                                    return totalVirtualMaterialAmount > 0 ? (
+                                      <span className="text-purple-600 dark:text-purple-400 font-bold">
+                                        {formatCurrency(totalVirtualMaterialAmount, project.currency)}
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-400">-</span>
+                                    )
+                                  })()}
+                                </td>
+                                <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '150px' }}>
+                                  {(() => {
+                                    const grandTotal = periodValues.reduce((sum: number, val: number) => sum + val, 0) + (cachedValues?.outerRangeValue || 0)
+                                    const totalVM = (cachedValues?.virtualMaterialAmount?.reduce((sum: number, val: number) => sum + val, 0) || 0) + (cachedValues?.outerRangeVirtualMaterialAmount || 0)
+                                    const total = grandTotal + totalVM
+                                    return total > 0 ? (
+                                      <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                                        {formatCurrency(total, project.currency)}
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-400">-</span>
+                                    )
+                                  })()}
+                                </td>
+                              </>
                             )}
                           </>
                         )}
@@ -5999,6 +6185,12 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                             <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '160px' }}>
                                               <span className="text-xs text-gray-400">-</span>
                                             </td>
+                                            <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '160px' }}>
+                                              <span className="text-xs text-gray-400">-</span>
+                                            </td>
+                                            <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '160px' }}>
+                                              <span className="text-xs text-gray-400">-</span>
+                                            </td>
                                           </>
                                         )}
                                       </>
@@ -6008,9 +6200,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                           <span className="text-xs text-gray-400">-</span>
                                         </td>
                                         {showVirtualMaterialValues && (
-                                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '160px' }}>
-                                            <span className="text-xs text-gray-400">-</span>
-                                          </td>
+                                          <>
+                                            <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '160px' }}>
+                                              <span className="text-xs text-gray-400">-</span>
+                                            </td>
+                                            <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '160px' }}>
+                                              <span className="text-xs text-gray-400">-</span>
+                                            </td>
+                                          </>
                                         )}
                                       </>
                                     )
@@ -6062,6 +6259,30 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                                   <span className="text-xs text-gray-400">-</span>
                                                 )}
                                               </td>
+                                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '140px' }}>
+                                                {(() => {
+                                                  const totalActual = periodValue + periodVirtualMaterialAmount
+                                                  return totalActual > 0 ? (
+                                                    <span className="text-sm text-indigo-600 dark:text-indigo-400 font-medium">
+                                                      {formatCurrency(totalActual, project.currency)}
+                                                    </span>
+                                                  ) : (
+                                                    <span className="text-xs text-gray-400">-</span>
+                                                  )
+                                                })()}
+                                              </td>
+                                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '140px' }}>
+                                                {(() => {
+                                                  const totalPlanned = periodPlannedValue + periodPlannedVirtualMaterialAmount
+                                                  return totalPlanned > 0 ? (
+                                                    <span className="text-sm text-indigo-600 dark:text-indigo-400 font-medium">
+                                                      {formatCurrency(totalPlanned, project.currency)}
+                                                    </span>
+                                                  ) : (
+                                                    <span className="text-xs text-gray-400">-</span>
+                                                  )
+                                                })()}
+                                              </td>
                                             </>
                                           )}
                                         </Fragment>
@@ -6079,15 +6300,29 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                             )}
                                           </td>
                                           {showVirtualMaterialValues && (
-                                            <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '140px' }}>
-                                              {periodVirtualMaterialAmount > 0 ? (
-                                                <span className="text-sm text-purple-600 dark:text-purple-400 font-medium">
-                                                  {formatCurrency(periodVirtualMaterialAmount, project.currency)}
-                                                </span>
-                                              ) : (
-                                                <span className="text-xs text-gray-400">-</span>
-                                              )}
-                                            </td>
+                                            <>
+                                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '140px' }}>
+                                                {periodVirtualMaterialAmount > 0 ? (
+                                                  <span className="text-sm text-purple-600 dark:text-purple-400 font-medium">
+                                                    {formatCurrency(periodVirtualMaterialAmount, project.currency)}
+                                                  </span>
+                                                ) : (
+                                                  <span className="text-xs text-gray-400">-</span>
+                                                )}
+                                              </td>
+                                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '140px' }}>
+                                                {(() => {
+                                                  const total = periodValue + periodVirtualMaterialAmount
+                                                  return total > 0 ? (
+                                                    <span className="text-sm text-indigo-600 dark:text-indigo-400 font-medium">
+                                                      {formatCurrency(total, project.currency)}
+                                                    </span>
+                                                  ) : (
+                                                    <span className="text-xs text-gray-400">-</span>
+                                                  )
+                                                })()}
+                                              </td>
+                                            </>
                                           )}
                                         </Fragment>
                                       )
@@ -6133,6 +6368,30 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                               <span className="text-xs text-gray-400">-</span>
                                             )}
                                           </td>
+                                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '150px' }}>
+                                            {(() => {
+                                              const totalActual = activityGrandTotal + activityTotalVirtualMaterialAmount
+                                              return totalActual > 0 ? (
+                                                <span className="text-sm text-indigo-600 dark:text-indigo-400 font-bold">
+                                                  {formatCurrency(totalActual, project.currency)}
+                                                </span>
+                                              ) : (
+                                                <span className="text-xs text-gray-400">-</span>
+                                              )
+                                            })()}
+                                          </td>
+                                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '150px' }}>
+                                            {(() => {
+                                              const totalPlanned = activityGrandTotalPlanned + activityTotalPlannedVirtualMaterialAmount
+                                              return totalPlanned > 0 ? (
+                                                <span className="text-sm text-indigo-600 dark:text-indigo-400 font-bold">
+                                                  {formatCurrency(totalPlanned, project.currency)}
+                                                </span>
+                                              ) : (
+                                                <span className="text-xs text-gray-400">-</span>
+                                              )
+                                            })()}
+                                          </td>
                                         </>
                                       )}
                                     </>
@@ -6148,15 +6407,29 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                         )}
                                       </td>
                                       {showVirtualMaterialValues && (
-                                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '150px' }}>
-                                          {activityTotalVirtualMaterialAmount > 0 ? (
-                                            <span className="text-sm text-purple-600 dark:text-purple-400 font-bold">
-                                              {formatCurrency(activityTotalVirtualMaterialAmount, project.currency)}
-                                            </span>
-                                          ) : (
-                                            <span className="text-xs text-gray-400">-</span>
-                                          )}
-                                        </td>
+                                        <>
+                                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '150px' }}>
+                                            {activityTotalVirtualMaterialAmount > 0 ? (
+                                              <span className="text-sm text-purple-600 dark:text-purple-400 font-bold">
+                                                {formatCurrency(activityTotalVirtualMaterialAmount, project.currency)}
+                                              </span>
+                                            ) : (
+                                              <span className="text-xs text-gray-400">-</span>
+                                            )}
+                                          </td>
+                                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '150px' }}>
+                                            {(() => {
+                                              const total = activityGrandTotal + activityTotalVirtualMaterialAmount
+                                              return total > 0 ? (
+                                                <span className="text-sm text-indigo-600 dark:text-indigo-400 font-bold">
+                                                  {formatCurrency(total, project.currency)}
+                                                </span>
+                                              ) : (
+                                                <span className="text-xs text-gray-400">-</span>
+                                              )
+                                            })()}
+                                          </td>
+                                        </>
                                       )}
                                     </>
                                   )}
