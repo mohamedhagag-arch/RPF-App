@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { ContractVariation, VariationStatus, TABLES, Project, CommercialBOQItem } from '@/lib/supabase'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
 import { buildProjectFullCode } from '@/lib/projectDataFetcher'
@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Alert } from '@/components/ui/Alert'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import { X, Save, Loader2, Plus } from 'lucide-react'
+import { X, Save, Loader2, Plus, Calculator, Edit } from 'lucide-react'
 import { useAuth } from '@/app/providers'
 import { AddBOQItemFormSimplified } from './AddBOQItemFormSimplified'
 
@@ -46,6 +46,9 @@ export function AddVariationForm({
   const [variationStatus, setVariationStatus] = useState<VariationStatus>('Pending')
   const [dateOfApproval, setDateOfApproval] = useState('')
   const [remarks, setRemarks] = useState('')
+  const [forceIncludeInBOQCalculation, setForceIncludeInBOQCalculation] = useState(false)
+  const [useManualAmount, setUseManualAmount] = useState(false)
+  const previousVariationAmountRef = useRef<string>('')
   
   const supabase = getSupabaseClient()
   
@@ -62,8 +65,10 @@ export function AddVariationForm({
       setVariationStatus('Pending')
       setDateOfApproval('')
       setRemarks('')
+      setForceIncludeInBOQCalculation(false)
       setError('')
       setSuccess(false)
+      setUseManualAmount(false)
     }
   }, [isOpen])
   
@@ -86,20 +91,30 @@ export function AddVariationForm({
   }, [projectFullCode, boqItems])
   
   // Calculate Variation Amount automatically when BOQ item or Quantity Changes changes
+  // Only calculate if manual mode is disabled
   useEffect(() => {
-    if (selectedBOQItem && quantityChanges !== '') {
+    if (!useManualAmount && selectedBOQItem && quantityChanges !== '') {
       const selectedItem = boqItems.find(item => item.id === selectedBOQItem)
       if (selectedItem) {
         const qtyChanges = parseFloat(quantityChanges)
         if (!isNaN(qtyChanges)) {
           const calculatedAmount = qtyChanges * (selectedItem.rate || 0)
-          // Only auto-update if the field is empty or matches the previous calculation
-          // This allows users to override the value
           setVariationAmount(calculatedAmount.toString())
         }
       }
     }
-  }, [selectedBOQItem, quantityChanges, boqItems])
+  }, [useManualAmount, selectedBOQItem, quantityChanges, boqItems])
+  
+  // Re-enable auto-calculation when variation amount is explicitly cleared (not when it's 0)
+  useEffect(() => {
+    // Only re-enable if the field was previously non-empty and is now empty AND we're in manual mode
+    // This prevents re-enabling when toggling to manual mode with an already empty field
+    if (variationAmount === '' && useManualAmount && previousVariationAmountRef.current !== '') {
+      setUseManualAmount(false)
+    }
+    // Update the ref to track the previous value
+    previousVariationAmountRef.current = variationAmount
+  }, [variationAmount, useManualAmount])
   
   // Handle BOQ item creation
   const handleBOQItemCreated = async (newItemId: string) => {
@@ -157,6 +172,7 @@ export function AddVariationForm({
         'Variation Status': variationStatus,
         'Date of Approval': dateOfApproval || null,
         'Remarks': remarks || null,
+        'Force Include in BOQ Calculation': forceIncludeInBOQCalculation || false,
         created_by: appUser?.id || null,
       }
       
@@ -298,6 +314,31 @@ export function AddVariationForm({
                 </select>
               </div>
               
+              {/* Include in BOQ Calculation */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  FORCE Include in BOQ Calculation
+                </label>
+                <div className="flex items-center space-x-3">
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={forceIncludeInBOQCalculation}
+                      onChange={(e) => setForceIncludeInBOQCalculation(e.target.checked)}
+                      disabled={loading}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600 dark:peer-checked:bg-blue-600"></div>
+                  </label>
+                  <span className="text-sm text-gray-600 dark:text-gray-400">
+                    {forceIncludeInBOQCalculation ? 'Enabled' : 'Disabled'}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  When enabled, this variation will be included in BOQ calculations even if status is not Approved
+                </p>
+              </div>
+              
               {/* Quantity Changes */}
               <div className="space-y-2">
                 <label className="text-sm font-medium">
@@ -315,18 +356,61 @@ export function AddVariationForm({
               
               {/* Variation Amount */}
               <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Variation Amount <span className="text-red-500">*</span>
-                </label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={variationAmount}
-                  onChange={(e) => setVariationAmount(e.target.value)}
-                  required
-                  disabled={loading}
-                  placeholder="Enter variation amount"
-                />
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium">
+                    Variation Amount <span className="text-red-500">*</span>
+                  </label>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={useManualAmount}
+                      onChange={(e) => {
+                        setUseManualAmount(e.target.checked)
+                        if (!e.target.checked && selectedBOQItem && quantityChanges !== '') {
+                          // Re-calculate when switching back to auto
+                          const selectedItem = boqItems.find(item => item.id === selectedBOQItem)
+                          if (selectedItem) {
+                            const qtyChanges = parseFloat(quantityChanges)
+                            if (!isNaN(qtyChanges)) {
+                              const calculatedAmount = qtyChanges * (selectedItem.rate || 0)
+                              setVariationAmount(calculatedAmount.toString())
+                            }
+                          }
+                        }
+                      }}
+                      disabled={loading || !selectedBOQItem || quantityChanges === ''}
+                      className="cursor-pointer"
+                    />
+                    <span className="text-gray-600 dark:text-gray-400">
+                      {useManualAmount ? (
+                        <span className="flex items-center gap-1">
+                          <Edit className="h-3 w-3" />
+                          Manual Entry
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1">
+                          <Calculator className="h-3 w-3" />
+                          Auto-calculate
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                </div>
+                <div className="relative">
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={variationAmount}
+                    onChange={(e) => setVariationAmount(e.target.value)}
+                    required
+                    disabled={loading}
+                    placeholder="Enter variation amount"
+                    className={useManualAmount ? "border-blue-500 dark:border-blue-400" : ""}
+                  />
+                  {useManualAmount && (
+                    <Edit className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-blue-500 dark:text-blue-400" />
+                  )}
+                </div>
               </div>
               
               {/* Date of Submission */}

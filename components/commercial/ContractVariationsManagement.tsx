@@ -30,7 +30,8 @@ import {
   Download,
   Calendar,
   FileEdit,
-  Clock
+  Clock,
+  Calculator
 } from 'lucide-react'
 import { formatCurrencyByCodeSync } from '@/lib/currenciesManager'
 import { buildProjectFullCode } from '@/lib/projectDataFetcher'
@@ -92,6 +93,8 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
   // Editing state
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingData, setEditingData] = useState<Partial<ContractVariation>>({})
+  const [useManualAmountEdit, setUseManualAmountEdit] = useState(false)
+  const previousVariationAmountEditRef = useRef<number | undefined | null>(undefined)
   
   // Adding new row state
   const [isAddingNew, setIsAddingNew] = useState(false)
@@ -106,7 +109,10 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
     variation_status: 'Pending',
     date_of_approval: undefined,
     remarks: '',
+    force_include_in_boq_calculation: false,
   })
+  const [useManualAmountNew, setUseManualAmountNew] = useState(false)
+  const previousVariationAmountNewRef = useRef<number | undefined>(undefined)
   
   // Multi-select state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -137,10 +143,32 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
     variationRefNo: new Set<string>(),
     createdBy: new Set<string>(),
     updatedBy: new Set<string>(),
+    forceIncludeInBOQCalculation: undefined as boolean | undefined,
     dateSubmissionRange: { min: undefined as string | undefined, max: undefined as string | undefined },
     dateApprovalRange: { min: undefined as string | undefined, max: undefined as string | undefined },
     variationAmountRange: { min: undefined as number | undefined, max: undefined as number | undefined },
   })
+  
+  // Clear all filters
+  const clearFilters = () => {
+    setFilters({
+      search: globalSearchTerm,
+      project: new Set<string>(),
+      status: new Set<VariationStatus>(),
+      variationRefNo: new Set<string>(),
+      createdBy: new Set<string>(),
+      updatedBy: new Set<string>(),
+      forceIncludeInBOQCalculation: undefined,
+      dateSubmissionRange: { min: undefined, max: undefined },
+      dateApprovalRange: { min: undefined, max: undefined },
+      variationAmountRange: { min: undefined, max: undefined },
+    })
+    setProjectSearch('')
+    setStatusSearch('')
+    setVariationRefNoSearch('')
+    setCreatedBySearch('')
+    setUpdatedBySearch('')
+  }
   
   // Multiselect dropdown states
   const [showProjectDropdown, setShowProjectDropdown] = useState(false)
@@ -269,6 +297,7 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
             'date_of_approval'
           ]) || undefined,
           remarks: getValue(['Remarks', 'remarks']) || undefined,
+          force_include_in_boq_calculation: row['Force Include in BOQ Calculation'] === true || row['force_include_in_boq_calculation'] === true || false,
           created_at: row.created_at || '',
           updated_at: row.updated_at || '',
           created_by: row.created_by || undefined,
@@ -425,12 +454,14 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
   }, [supabase])
   
   // Update BOQ items Variations field and Units Variation field based on linked variations
+  // Includes variations with status "Approved" OR "Force Include in BOQ Calculation" = true
+  // Ensures no double-counting (if both conditions are true, counts only once)
   const updateBOQItemsVariations = useCallback(async () => {
     try {
-      // Fetch all variations
+      // Fetch all variations, including Variation Status and Force Include flag
       const { data: allVariations, error: variationsError } = await supabase
         .from(TABLES.CONTRACT_VARIATIONS)
-        .select('id, "Item Description", "Variation Amount", "Quantity Changes"')
+        .select('id, "Item Description", "Variation Amount", "Quantity Changes", "Variation Status", "Force Include in BOQ Calculation"')
       
       if (variationsError) {
         console.error('Error fetching variations for BOQ update:', variationsError)
@@ -438,10 +469,21 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
       }
       
       // Calculate total variation amount and total quantity changes for each BOQ item
+      // Include variations with status "Approved" OR "Force Include in BOQ Calculation" = true
       const boqItemTotals: Record<string, { variationsAmount: number; unitsVariation: number }> = {}
       
       if (allVariations) {
         allVariations.forEach((variation: any) => {
+          const variationStatus = variation['Variation Status'] || variation.variation_status || ''
+          const forceInclude = variation['Force Include in BOQ Calculation'] || variation.force_include_in_boq_calculation || false
+          
+          // Only process variations that are either Approved OR have Force Include enabled
+          const shouldInclude = variationStatus === 'Approved' || forceInclude === true
+          
+          if (!shouldInclude) {
+            return // Skip variations that don't meet the criteria
+          }
+          
           const itemDescription = variation['Item Description'] || variation.item_description || ''
           const variationAmount = parseFloat(variation['Variation Amount'] || variation.variation_amount || 0) || 0
           const quantityChanges = parseFloat(variation['Quantity Changes'] || variation.quantity_changes || 0) || 0
@@ -665,6 +707,13 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
       )
     }
     
+    // Force Include in BOQ Calculation filter
+    if (filters.forceIncludeInBOQCalculation !== undefined) {
+      filtered = filtered.filter(variation => 
+        (variation.force_include_in_boq_calculation || false) === filters.forceIncludeInBOQCalculation
+      )
+    }
+    
     // Date range filters
     if (filters.dateSubmissionRange.min) {
       filtered = filtered.filter(variation => {
@@ -780,10 +829,12 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
       date_of_approval: undefined,
       remarks: '',
     })
+    setUseManualAmountNew(false)
     // Cancel any ongoing edit
     if (editingId) {
       setEditingId(null)
       setEditingData({})
+      setUseManualAmountEdit(false)
     }
   }
   
@@ -802,18 +853,18 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
       date_of_approval: undefined,
       remarks: '',
     })
+    setUseManualAmountNew(false)
   }
   
   // Calculate Variation Amount automatically for new row when BOQ item or Quantity Changes changes
+  // Only calculate if manual mode is disabled
   useEffect(() => {
-    if (isAddingNew && newVariationData.item_description && newVariationData.quantity_changes !== undefined && newVariationData.quantity_changes !== null) {
+    if (!useManualAmountNew && isAddingNew && newVariationData.item_description && newVariationData.quantity_changes !== undefined && newVariationData.quantity_changes !== null) {
       const selectedItem = boqItems.find(item => item.id === newVariationData.item_description)
       if (selectedItem) {
         const qtyChanges = Number(newVariationData.quantity_changes)
         if (!isNaN(qtyChanges)) {
           const calculatedAmount = qtyChanges * (selectedItem.rate || 0)
-          // Only auto-update if the field is empty or matches the previous calculation
-          // This allows users to override the value
           setNewVariationData(prev => ({
             ...prev,
             variation_amount: calculatedAmount
@@ -821,18 +872,31 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
         }
       }
     }
-  }, [isAddingNew, newVariationData.item_description, newVariationData.quantity_changes, boqItems])
+  }, [useManualAmountNew, isAddingNew, newVariationData.item_description, newVariationData.quantity_changes, boqItems])
+  
+  // Re-enable auto-calculation when variation amount is explicitly cleared in new row
+  // Only re-enable if it was previously set and is now undefined/null (not 0, as 0 is a valid manual entry)
+  useEffect(() => {
+    if (isAddingNew && (newVariationData.variation_amount === undefined || newVariationData.variation_amount === null) && useManualAmountNew) {
+      // Only re-enable if it was previously non-empty (not undefined/null)
+      // This prevents re-enabling when toggling to manual mode with an already empty field
+      if (previousVariationAmountNewRef.current !== undefined && previousVariationAmountNewRef.current !== null) {
+        setUseManualAmountNew(false)
+      }
+    }
+    // Update the ref to track the previous value
+    previousVariationAmountNewRef.current = newVariationData.variation_amount
+  }, [isAddingNew, newVariationData.variation_amount, useManualAmountNew])
   
   // Calculate Variation Amount automatically for editing when BOQ item or Quantity Changes changes
+  // Only calculate if manual mode is disabled
   useEffect(() => {
-    if (editingId && editingData.item_description && editingData.quantity_changes !== undefined && editingData.quantity_changes !== null) {
+    if (!useManualAmountEdit && editingId && editingData.item_description && editingData.quantity_changes !== undefined && editingData.quantity_changes !== null) {
       const selectedItem = boqItems.find(item => item.id === editingData.item_description)
       if (selectedItem) {
         const qtyChanges = Number(editingData.quantity_changes)
         if (!isNaN(qtyChanges)) {
           const calculatedAmount = qtyChanges * (selectedItem.rate || 0)
-          // Only auto-update if the field is empty or matches the previous calculation
-          // This allows users to override the value
           setEditingData(prev => ({
             ...prev,
             variation_amount: calculatedAmount
@@ -840,7 +904,21 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
         }
       }
     }
-  }, [editingId, editingData.item_description, editingData.quantity_changes, boqItems])
+  }, [useManualAmountEdit, editingId, editingData.item_description, editingData.quantity_changes, boqItems])
+  
+  // Re-enable auto-calculation when variation amount is explicitly cleared in editing
+  // Only re-enable if it was previously set and is now undefined/null (not 0, as 0 is a valid manual entry)
+  useEffect(() => {
+    if (editingId && (editingData.variation_amount === undefined || editingData.variation_amount === null) && useManualAmountEdit) {
+      // Only re-enable if it was previously non-empty (not undefined/null)
+      // This prevents re-enabling when toggling to manual mode with an already empty field
+      if (previousVariationAmountEditRef.current !== undefined && previousVariationAmountEditRef.current !== null) {
+        setUseManualAmountEdit(false)
+      }
+    }
+    // Update the ref to track the previous value
+    previousVariationAmountEditRef.current = editingData.variation_amount
+  }, [editingId, editingData.variation_amount, useManualAmountEdit])
   
   // Handle save new row
   const handleSaveNew = async () => {
@@ -876,6 +954,7 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
         'Variation Status': newVariationData.variation_status || 'Pending',
         'Date of Approval': newVariationData.date_of_approval || null,
         'Remarks': newVariationData.remarks || null,
+        'Force Include in BOQ Calculation': newVariationData.force_include_in_boq_calculation || false,
         created_by: appUser?.id || null,
       }
       
@@ -917,6 +996,8 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
   const handleEdit = (variation: ContractVariation) => {
     setEditingId(variation.id)
     setEditingData({ ...variation })
+    setUseManualAmountEdit(false)
+    previousVariationAmountEditRef.current = variation.variation_amount
     // Cancel any ongoing add
     if (isAddingNew) {
       setIsAddingNew(false)
@@ -932,6 +1013,8 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
         date_of_approval: undefined,
         remarks: '',
       })
+      setUseManualAmountNew(false)
+      previousVariationAmountNewRef.current = undefined
     }
   }
   
@@ -952,6 +1035,7 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
         'Variation Status': editingData.variation_status || 'Pending',
         'Date of Approval': editingData.date_of_approval || null,
         'Remarks': editingData.remarks || null,
+        'Force Include in BOQ Calculation': editingData.force_include_in_boq_calculation || false,
         updated_at: new Date().toISOString(),
         updated_by: appUser?.id || null,
       }
@@ -966,6 +1050,7 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
       setSuccess('Variation updated successfully')
       setEditingId(null)
       setEditingData({})
+      setUseManualAmountEdit(false)
       await fetchVariations()
       
       // Update BOQ items Variations field
@@ -1099,25 +1184,7 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
     })
   }
   
-  // Clear all filters
-  const clearFilters = () => {
-    setFilters({
-      search: '',
-      project: new Set(),
-      status: new Set(),
-      variationRefNo: new Set(),
-      createdBy: new Set(),
-      updatedBy: new Set(),
-      dateSubmissionRange: { min: undefined, max: undefined },
-      dateApprovalRange: { min: undefined, max: undefined },
-      variationAmountRange: { min: undefined, max: undefined },
-    })
-    setProjectSearch('')
-    setStatusSearch('')
-    setVariationRefNoSearch('')
-    setCreatedBySearch('')
-    setUpdatedBySearch('')
-  }
+  // Clear all filters (duplicate removed - using the one defined earlier)
   
   // Get BOQ item description by ID
   const getBOQItemDescription = (id: string): string => {
@@ -1475,6 +1542,25 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
                   )}
                 </div>
                 
+                {/* Force Include in BOQ Calculation Filter */}
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
+                    FORCE Include in BOQ Calculation
+                  </label>
+                  <select
+                    value={filters.forceIncludeInBOQCalculation === undefined ? 'all' : filters.forceIncludeInBOQCalculation ? 'enabled' : 'disabled'}
+                    onChange={(e) => {
+                      const value = e.target.value === 'all' ? undefined : e.target.value === 'enabled'
+                      setFilters({ ...filters, forceIncludeInBOQCalculation: value })
+                    }}
+                    className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600"
+                  >
+                    <option value="all">All</option>
+                    <option value="enabled">Enabled</option>
+                    <option value="disabled">Disabled</option>
+                  </select>
+                </div>
+                
                 {/* Variation Amount Range */}
                 <div>
                   <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
@@ -1698,6 +1784,9 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
                   >
                     Status {sortColumn === 'variation_status' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">
+                    FORCE Include in BOQ Calculation
+                  </th>
                   <th 
                     className="px-6 py-3 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
                     onClick={() => handleSort('date_of_approval')}
@@ -1819,17 +1908,64 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
                       />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={newVariationData.variation_amount !== undefined && newVariationData.variation_amount !== null ? newVariationData.variation_amount : ''}
-                        onChange={(e) => {
-                          const value = e.target.value === '' ? undefined : parseFloat(e.target.value)
-                          setNewVariationData({ ...newVariationData, variation_amount: isNaN(value as number) ? undefined : value })
-                        }}
-                        className="w-full"
-                        placeholder="0.00"
-                      />
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={useManualAmountNew}
+                            onChange={(e) => {
+                              setUseManualAmountNew(e.target.checked)
+                              if (e.target.checked) {
+                                // When toggling to manual mode, set the ref to current value
+                                previousVariationAmountNewRef.current = newVariationData.variation_amount
+                              } else if (newVariationData.item_description && newVariationData.quantity_changes !== undefined && newVariationData.quantity_changes !== null) {
+                                // Re-calculate when switching back to auto
+                                const selectedItem = boqItems.find(item => item.id === newVariationData.item_description)
+                                if (selectedItem) {
+                                  const qtyChanges = Number(newVariationData.quantity_changes)
+                                  if (!isNaN(qtyChanges)) {
+                                    const calculatedAmount = qtyChanges * (selectedItem.rate || 0)
+                                    setNewVariationData(prev => ({ ...prev, variation_amount: calculatedAmount }))
+                                    previousVariationAmountNewRef.current = calculatedAmount
+                                  }
+                                }
+                              }
+                            }}
+                            disabled={!newVariationData.item_description || newVariationData.quantity_changes === undefined || newVariationData.quantity_changes === null}
+                            className="cursor-pointer"
+                            id="manual-amount-new"
+                          />
+                          <label htmlFor="manual-amount-new" className="text-xs cursor-pointer flex items-center gap-1 text-gray-600 dark:text-gray-400">
+                            {useManualAmountNew ? (
+                              <>
+                                <Edit className="h-3 w-3" />
+                                Manual
+                              </>
+                            ) : (
+                              <>
+                                <Calculator className="h-3 w-3" />
+                                Auto
+                              </>
+                            )}
+                          </label>
+                        </div>
+                        <div className="relative">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={newVariationData.variation_amount !== undefined && newVariationData.variation_amount !== null ? newVariationData.variation_amount : ''}
+                            onChange={(e) => {
+                              const value = e.target.value === '' ? undefined : parseFloat(e.target.value)
+                              setNewVariationData({ ...newVariationData, variation_amount: isNaN(value as number) ? undefined : value })
+                            }}
+                            className={`w-full ${useManualAmountNew ? 'border-blue-500 dark:border-blue-400' : ''}`}
+                            placeholder="0.00"
+                          />
+                          {useManualAmountNew && (
+                            <Edit className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-blue-500 dark:text-blue-400 pointer-events-none" />
+                          )}
+                        </div>
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                       <Input
@@ -1851,6 +1987,17 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
                             <option key={status} value={status}>{status}</option>
                           ))}
                       </select>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={newVariationData.force_include_in_boq_calculation || false}
+                          onChange={(e) => setNewVariationData({ ...newVariationData, force_include_in_boq_calculation: e.target.checked })}
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600 dark:peer-checked:bg-blue-600"></div>
+                      </label>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                       <Input
@@ -1890,7 +2037,7 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
                 )}
                 {paginatedVariations.length === 0 && !isAddingNew ? (
                   <tr>
-                    <td colSpan={isSelectMode ? 13 : 12} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
+                    <td colSpan={isSelectMode ? 14 : 13} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
                       No variations found
                     </td>
                   </tr>
@@ -2008,16 +2155,63 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                           {isEditing ? (
-                            <Input
-                              type="number"
-                              step="0.01"
-                              value={editingData.variation_amount !== undefined && editingData.variation_amount !== null ? editingData.variation_amount : ''}
-                              onChange={(e) => {
-                                const value = e.target.value === '' ? undefined : parseFloat(e.target.value)
-                                setEditingData({ ...editingData, variation_amount: isNaN(value as number) ? undefined : value })
-                              }}
-                              className="w-full"
-                            />
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={useManualAmountEdit}
+                                  onChange={(e) => {
+                                    setUseManualAmountEdit(e.target.checked)
+                                    if (e.target.checked) {
+                                      // When toggling to manual mode, set the ref to current value
+                                      previousVariationAmountEditRef.current = editingData.variation_amount
+                                    } else if (editingData.item_description && editingData.quantity_changes !== undefined && editingData.quantity_changes !== null) {
+                                      // Re-calculate when switching back to auto
+                                      const selectedItem = boqItems.find(item => item.id === editingData.item_description)
+                                      if (selectedItem) {
+                                        const qtyChanges = Number(editingData.quantity_changes)
+                                        if (!isNaN(qtyChanges)) {
+                                          const calculatedAmount = qtyChanges * (selectedItem.rate || 0)
+                                          setEditingData(prev => ({ ...prev, variation_amount: calculatedAmount }))
+                                          previousVariationAmountEditRef.current = calculatedAmount
+                                        }
+                                      }
+                                    }
+                                  }}
+                                  disabled={!editingData.item_description || editingData.quantity_changes === undefined || editingData.quantity_changes === null}
+                                  className="cursor-pointer"
+                                  id={`manual-amount-edit-${variation.id}`}
+                                />
+                                <label htmlFor={`manual-amount-edit-${variation.id}`} className="text-xs cursor-pointer flex items-center gap-1 text-gray-600 dark:text-gray-400">
+                                  {useManualAmountEdit ? (
+                                    <>
+                                      <Edit className="h-3 w-3" />
+                                      Manual
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Calculator className="h-3 w-3" />
+                                      Auto
+                                    </>
+                                  )}
+                                </label>
+                              </div>
+                              <div className="relative">
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  value={editingData.variation_amount !== undefined && editingData.variation_amount !== null ? editingData.variation_amount : ''}
+                                  onChange={(e) => {
+                                    const value = e.target.value === '' ? undefined : parseFloat(e.target.value)
+                                    setEditingData({ ...editingData, variation_amount: isNaN(value as number) ? undefined : value })
+                                  }}
+                                  className={`w-full ${useManualAmountEdit ? 'border-blue-500 dark:border-blue-400' : ''}`}
+                                />
+                                {useManualAmountEdit && (
+                                  <Edit className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-blue-500 dark:text-blue-400 pointer-events-none" />
+                                )}
+                              </div>
+                            </div>
                           ) : (
                             formatCurrencyByCodeSync(variation.variation_amount, 'AED')
                           )}
@@ -2060,6 +2254,57 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                           {isEditing ? (
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={editingData.force_include_in_boq_calculation || false}
+                                onChange={(e) => {
+                                  setEditingData({ ...editingData, force_include_in_boq_calculation: e.target.checked })
+                                }}
+                                className="sr-only peer"
+                              />
+                              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600 dark:peer-checked:bg-blue-600"></div>
+                            </label>
+                          ) : (
+                            <PermissionButton
+                              permission="commercial.variations.edit"
+                              variant="ghost"
+                              size="sm"
+                              onClick={async () => {
+                                const newValue = !variation.force_include_in_boq_calculation
+                                try {
+                                  const { error } = await supabase
+                                    .from(TABLES.CONTRACT_VARIATIONS)
+                                    .update({ 'Force Include in BOQ Calculation': newValue })
+                                    .eq('id', variation.id)
+                                  
+                                  if (error) throw error
+                                  
+                                  await fetchVariations()
+                                  await updateBOQItemsVariations()
+                                } catch (err: any) {
+                                  console.error('Error updating toggle:', err)
+                                  setError(err.message || 'Failed to update toggle')
+                                  setTimeout(() => setError(''), 3000)
+                                }
+                              }}
+                              className="p-0"
+                            >
+                              <label className="relative inline-flex items-center cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={variation.force_include_in_boq_calculation || false}
+                                  onChange={() => {}} // Handled by button onClick
+                                  className="sr-only peer"
+                                  readOnly
+                                />
+                                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600 dark:peer-checked:bg-blue-600"></div>
+                              </label>
+                            </PermissionButton>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                          {isEditing ? (
                             <Input
                               type="date"
                               value={editingData.date_of_approval || ''}
@@ -2098,6 +2343,7 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
                                 onClick={() => {
                                   setEditingId(null)
                                   setEditingData({})
+                                  setUseManualAmountEdit(false)
                                 }}
                               >
                                 <X className="h-4 w-4" />
