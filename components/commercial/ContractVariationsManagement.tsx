@@ -40,6 +40,7 @@ import { AddVariationForm } from './AddVariationForm'
 import { AddBOQItemFormSimplified } from './AddBOQItemFormSimplified'
 import { ExportVariationsModal } from './ExportVariationsModal'
 import { VariationHistoryModal } from './VariationHistoryModal'
+import { PrintVariationsModal } from './PrintVariationsModal'
 
 // Helper function to format date as "Jan 04, 25"
 const formatDate = (dateString: string | undefined | null): string => {
@@ -123,6 +124,9 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
   
   // Export modal state
   const [showExportModal, setShowExportModal] = useState(false)
+  
+  // Print modal state
+  const [showPrintModal, setShowPrintModal] = useState(false)
   
   // History modal state
   const [showHistoryModal, setShowHistoryModal] = useState(false)
@@ -1357,6 +1361,16 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
                 <Download className="h-4 w-4 mr-2" />
                 Export
               </PermissionButton>
+              <PermissionButton
+                permission="commercial.variations.view"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowPrintModal(true)}
+                disabled={filteredVariations.length === 0}
+              >
+                <FileText className="h-4 w-4 mr-2" />
+                Print
+              </PermissionButton>
               <Button
                 variant="outline"
                 size="sm"
@@ -2459,6 +2473,17 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
           isOpen={showExportModal}
           onClose={() => setShowExportModal(false)}
           variations={filteredVariations}
+          getBOQItemDescription={getBOQItemDescription}
+        />
+      )}
+      
+      {/* Print Modal */}
+      {showPrintModal && (
+        <PrintVariationsModal
+          isOpen={showPrintModal}
+          onClose={() => setShowPrintModal(false)}
+          variations={filteredVariations}
+          filters={filters}
           getBOQItemDescription={getBOQItemDescription}
         />
       )}

@@ -37,6 +37,7 @@ import { BulkEditBOQItemsModal } from './BulkEditBOQItemsModal'
 import { AddBOQItemForm } from './AddBOQItemForm'
 import { ExportBOQItemsModal } from './ExportBOQItemsModal'
 import { BOQItemHistoryModal } from './BOQItemHistoryModal'
+import { PrintBOQItemsModal } from './PrintBOQItemsModal'
 
 interface CommercialBOQItemsManagementProps {
   globalSearchTerm?: string
@@ -84,6 +85,9 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
   
   // Export modal state
   const [showExportModal, setShowExportModal] = useState(false)
+  
+  // Print modal state
+  const [showPrintModal, setShowPrintModal] = useState(false)
   
   // History modal state
   const [showHistoryModal, setShowHistoryModal] = useState(false)
@@ -1353,6 +1357,15 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
                 <Download className="h-4 w-4 mr-2" />
                 Export
               </PermissionButton>
+              <PermissionButton
+                permission="commercial.boq_items.view"
+                variant="outline"
+                onClick={() => setShowPrintModal(true)}
+                disabled={filteredItems.length === 0}
+              >
+                <FileText className="h-4 w-4 mr-2" />
+                Print
+              </PermissionButton>
             </div>
           </div>
         </CardHeader>
@@ -2619,6 +2632,16 @@ export function CommercialBOQItemsManagement({ globalSearchTerm = '' }: Commerci
           isOpen={showExportModal}
           onClose={() => setShowExportModal(false)}
           items={filteredItems}
+        />
+      )}
+      
+      {/* Print Modal */}
+      {showPrintModal && (
+        <PrintBOQItemsModal
+          isOpen={showPrintModal}
+          onClose={() => setShowPrintModal(false)}
+          items={filteredItems} // Use filtered items only
+          filters={filters}
         />
       )}
       
