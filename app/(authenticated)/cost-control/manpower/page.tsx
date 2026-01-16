@@ -11,6 +11,16 @@ import { Alert } from '@/components/ui/Alert'
 import { UserCheck, Download, Upload, RefreshCw, Search, X, CheckCircle, AlertCircle, Filter, SlidersHorizontal, Calendar, DollarSign, Clock, ArrowRight, Plus, Save, Edit, Trash2, CheckSquare, Square, Calculator, FileText, FileSpreadsheet } from 'lucide-react'
 import DesignationRates from '@/components/cost-control/DesignationRates'
 import { getSupabaseClient } from '@/lib/simpleConnectionManager'
+import dynamic from 'next/dynamic'
+
+// Dynamic import for AbsentCosts component
+const AbsentCosts = dynamic(
+  () => import('@/components/cost-control/AbsentCosts').then((mod) => mod.default),
+  {
+    ssr: false,
+    loading: () => <div className="p-4 text-center">Loading Absent Costs...</div>
+  }
+) as React.ComponentType
 import { useRouter } from 'next/navigation'
 import { TABLES, DesignationRate, HRManpower } from '@/lib/supabase'
 import { mapProjectFromDB } from '@/lib/dataMappers'
@@ -33,7 +43,7 @@ interface ManpowerRecord {
   cost?: number
 }
 
-type ManpowerTab = 'manpower' | 'designation-rates'
+type ManpowerTab = 'manpower' | 'designation-rates' | 'absent-costs'
 
 export default function ManpowerPage() {
   const guard = usePermissionGuard()
@@ -2227,12 +2237,27 @@ export default function ManpowerPage() {
                   </div>
                 </button>
               )}
+              <button
+                onClick={() => setActiveTab('absent-costs')}
+                className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                  activeTab === 'absent-costs'
+                    ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <DollarSign className="h-4 w-4" />
+                  Absent Costs
+                </div>
+              </button>
             </nav>
           </div>
 
           {/* Tab Content */}
           {activeTab === 'designation-rates' ? (
             <DesignationRates />
+          ) : activeTab === 'absent-costs' ? (
+            <AbsentCosts />
           ) : (
             <>
               {/* Stats Cards */}

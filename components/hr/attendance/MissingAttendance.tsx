@@ -27,7 +27,6 @@ const STATUS_OPTIONS: Array<{
   label: string
   color: string
 }> = [
-  { value: 'attended', code: 'A', label: 'Attended', color: 'bg-green-100 text-green-700' },
   { value: 'vacation', code: 'V', label: 'Vacation', color: 'bg-blue-100 text-blue-700' },
   { value: 'cancelled', code: 'C', label: 'Cancelled / Inactive', color: 'bg-gray-200 text-gray-700' },
   { value: 'excused_absent', code: 'E', label: 'Absent with permission', color: 'bg-yellow-100 text-yellow-800' },
@@ -229,19 +228,395 @@ export function MissingAttendance() {
         return
       }
 
-      const { error: upsertError } = await supabase
+      console.log('📤 Saving attendance statuses:', {
+        payloadCount: payload.length,
+        payload: payload.map((p: any) => ({
+          employee_id: p.employee_id,
+          date: p.date,
+          status: p.status,
+          recorded_by: p.recorded_by
+        })),
+        tableName: TABLES.ATTENDANCE_DAILY_STATUSES
+      })
+
+      // Save attendance statuses - Try upsert first, if it fails, try insert/update separately
+      let savedStatuses: any[] = []
+      let upsertError: any = null
+
+      // Try upsert
+      const { data: upsertData, error: upsertErr } = await supabase
         .from(TABLES.ATTENDANCE_DAILY_STATUSES)
         // @ts-ignore
         .upsert(payload, { onConflict: 'employee_id,date' })
+        .select()
 
-      if (upsertError) throw upsertError
+      if (upsertErr) {
+        console.error('❌ Upsert error, trying insert/update separately:', upsertErr)
+        upsertError = upsertErr
+        
+        // Try to save each record individually
+        const savePromises = payload.map(async (record: any) => {
+          try {
+            // First, try to find existing record
+            const { data: existing } = await supabase
+              .from(TABLES.ATTENDANCE_DAILY_STATUSES)
+              // @ts-ignore
+              .select('id')
+              .eq('employee_id', record.employee_id)
+              .eq('date', record.date)
+              .maybeSingle()
 
-      setSuccess('Statuses saved and preserved successfully')
-      setTimeout(() => setSuccess(''), 2500)
+            if (existing && (existing as any).id) {
+              // Update existing
+              const { data: updated, error: updateErr } = await supabase
+                .from(TABLES.ATTENDANCE_DAILY_STATUSES)
+                // @ts-ignore
+                .update({
+                  status: record.status,
+                  notes: record.notes,
+                  recorded_by: record.recorded_by,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', (existing as any).id)
+                .select()
+                .single()
+
+              if (updateErr) {
+                console.error(`❌ Error updating status for employee ${record.employee_id}:`, updateErr)
+                return null
+              }
+              return updated
+            } else {
+              // Insert new
+              const { data: inserted, error: insertErr } = await supabase
+                .from(TABLES.ATTENDANCE_DAILY_STATUSES)
+                // @ts-ignore
+                .insert(record)
+                .select()
+                .single()
+
+              if (insertErr) {
+                console.error(`❌ Error inserting status for employee ${record.employee_id}:`, insertErr)
+                return null
+              }
+              return inserted
+            }
+          } catch (err: any) {
+            console.error(`❌ Error saving status for employee ${record.employee_id}:`, err)
+            return null
+          }
+        })
+
+        const results = await Promise.all(savePromises)
+        savedStatuses = results.filter(Boolean) as any[]
+        
+        if (savedStatuses.length === 0) {
+          throw new Error('Failed to save any attendance statuses')
+        }
+      } else {
+        savedStatuses = upsertData || []
+      }
+
+      if (savedStatuses.length === 0) {
+        console.error('❌ No statuses were saved!', {
+          payloadCount: payload.length,
+          upsertError: upsertError,
+          tableName: TABLES.ATTENDANCE_DAILY_STATUSES
+        })
+        throw new Error(`Failed to save attendance statuses. Tried to save ${payload.length} records but none were saved. Check console for details.`)
+      }
+
+      console.log('✅ Saved attendance statuses:', {
+        total: (savedStatuses || []).length,
+        expected: payload.length,
+        statuses: (savedStatuses || []).map((s: any) => ({
+          id: s.id,
+          employee_id: s.employee_id,
+          status: s.status,
+          date: s.date
+        }))
+      })
+
+      if (savedStatuses.length < payload.length) {
+        console.warn(`⚠️ Only ${savedStatuses.length} out of ${payload.length} statuses were saved!`)
+      }
+
+      // ✅ Save absent costs for absent and excused_absent statuses
+      // If savedStatuses is empty or doesn't contain the data, fetch it again
+      let absentStatuses = (savedStatuses || []).filter(
+        (status: any) => status.status === 'absent' || status.status === 'excused_absent'
+      )
+
+      // If we don't have the saved statuses, fetch them from the database
+      if (absentStatuses.length === 0 && payload.some((p: any) => p.status === 'absent' || p.status === 'excused_absent')) {
+        console.log('⚠️ No absent statuses in savedStatuses, fetching from database...')
+        const absentPayload = payload.filter((p: any) => p.status === 'absent' || p.status === 'excused_absent')
+        const { data: fetchedStatuses, error: fetchError } = await supabase
+          .from(TABLES.ATTENDANCE_DAILY_STATUSES)
+          // @ts-ignore
+          .select('*')
+          .in('employee_id', absentPayload.map((p: any) => p.employee_id))
+          .eq('date', selectedDate)
+          .in('status', ['absent', 'excused_absent'])
+
+        if (!fetchError && fetchedStatuses) {
+          absentStatuses = fetchedStatuses
+          console.log('✅ Fetched absent statuses from database:', absentStatuses.length)
+        }
+      }
+
+      console.log('🔍 Processing absent statuses:', {
+        totalSavedStatuses: (savedStatuses || []).length,
+        absentStatusesCount: absentStatuses.length,
+        absentStatuses: absentStatuses.map((s: any) => ({
+          id: s.id,
+          employee_id: s.employee_id,
+          status: s.status,
+          date: s.date
+        }))
+      })
+
+      let savedAbsentCostsCount = 0
+      let failedAbsentCostsCount = 0
+
+      if (absentStatuses.length > 0) {
+        console.log(`🔄 Starting to process ${absentStatuses.length} absent statuses for cost calculation`)
+        
+        const absentCostsPromises = absentStatuses.map(async (status: any) => {
+          try {
+            console.log(`🔄 Processing absent cost for status ${status.id}, employee_id: ${status.employee_id}`)
+            
+            // Get employee data
+            const employee = employees.find((emp) => emp.id === status.employee_id)
+            if (!employee) {
+              console.warn(`⚠️ Employee not found for status ${status.id}`)
+              failedAbsentCostsCount++
+              return null
+            }
+
+            console.log(`✅ Found employee ${employee.employee_code} for status ${status.id}`)
+
+            // Get employee designation from HR Manpower
+            let designation: string | null = null
+            let designationId: string | null = null
+            let overheadRate = 5.3 // Default rate if not found
+            
+            try {
+              const { data: hrEmployee, error: hrError } = await supabase
+                .from(TABLES.HR_MANPOWER)
+                // @ts-ignore
+                .select('designation')
+                .eq('employee_code', employee.employee_code)
+                .eq('status', 'Active')
+                .maybeSingle()
+
+              if (hrError) {
+                console.warn(`⚠️ Error accessing HR Manpower for employee ${employee.employee_code}:`, hrError.message)
+                // Continue with default rate
+              } else if (hrEmployee) {
+                designation = (hrEmployee as any).designation
+              }
+
+              // Get designation rate if we have a designation
+              if (designation) {
+                const { data: designationRate, error: rateError } = await supabase
+                  .from(TABLES.DESIGNATION_RATES)
+                  // @ts-ignore
+                  .select('id, designation, overhead_hourly_rate')
+                  .eq('designation', designation)
+                  .maybeSingle()
+
+                if (rateError) {
+                  console.warn(`⚠️ Error accessing Designation Rates for ${designation}:`, rateError.message)
+                  // Continue with default rate
+                } else if (designationRate) {
+                  designationId = (designationRate as any).id
+                  overheadRate = (designationRate as any).overhead_hourly_rate || 5.3
+                } else {
+                  console.warn(`⚠️ No designation rate found for ${designation}, using default rate`)
+                }
+              } else {
+                console.warn(`⚠️ No designation found for employee ${employee.employee_code}, using default rate`)
+              }
+            } catch (err: any) {
+              console.warn(`⚠️ Error getting designation for employee ${employee.employee_code}:`, err.message)
+              // Continue with default rate
+            }
+
+            console.log(`✅ Finished getting designation for employee ${employee.employee_code}:`, {
+              designation: designation || 'Unknown',
+              designationId,
+              overheadRate,
+              willUseDefault: !designation
+            })
+
+            const hours = 8.0
+            const cost = hours * overheadRate
+
+            console.log(`💾 Preparing to save absent cost for employee ${employee.employee_code}:`, {
+              employee_code: employee.employee_code,
+              designation: designation || 'Unknown',
+              designationId,
+              overheadRate,
+              hours,
+              cost,
+              status_id: status.id,
+              date: status.date
+            })
+
+            // Check if absent cost already exists
+            const { data: existingCostData } = await supabase
+              .from(TABLES.ABSENT_COSTS)
+              // @ts-ignore
+              .select('id')
+              .eq('attendance_status_id', status.id)
+              .maybeSingle()
+
+            // @ts-ignore
+            const existingCostId = existingCostData?.id
+
+            if (existingCostId) {
+              // Update existing cost
+              const { error: updateError } = await supabase
+                .from(TABLES.ABSENT_COSTS)
+                // @ts-ignore
+                .update({
+                  overhead_hourly_rate: overheadRate,
+                  hours: hours,
+                  cost: cost,
+                  designation_id: designationId,
+                  designation: designation || 'Unknown',
+                  notes: status.notes,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', existingCostId)
+
+              if (updateError) {
+                console.error('❌ Error updating absent cost:', {
+                  error: updateError,
+                  employee_code: employee.employee_code,
+                  existingCostId
+                })
+                failedAbsentCostsCount++
+                return null
+              } else {
+                savedAbsentCostsCount++
+                console.log(`✅ Updated absent cost for employee ${employee.employee_code} - Cost: ${cost}`)
+                return { success: true, employee_code: employee.employee_code }
+              }
+            } else {
+              // Create new absent cost
+              const insertData = {
+                employee_id: status.employee_id,
+                attendance_status_id: status.id,
+                date: status.date,
+                status: status.status,
+                designation_id: designationId,
+                designation: designation || 'Unknown',
+                overhead_hourly_rate: overheadRate,
+                hours: hours,
+                cost: cost,
+                notes: status.notes,
+                created_by: currentUserId
+              }
+
+              console.log(`📤 Inserting absent cost for employee ${employee.employee_code}:`, {
+                employee_code: employee.employee_code,
+                insertData
+              })
+
+              const { data: insertedData, error: insertError } = await supabase
+                .from(TABLES.ABSENT_COSTS)
+                // @ts-ignore
+                .insert(insertData)
+                .select()
+                .single()
+
+              if (insertError) {
+                console.error('❌ Error creating absent cost:', {
+                  error: insertError,
+                  errorCode: insertError.code,
+                  errorMessage: insertError.message,
+                  errorDetails: insertError.details,
+                  errorHint: insertError.hint,
+                  employee_code: employee.employee_code,
+                  employee_id: status.employee_id,
+                  attendance_status_id: status.id,
+                  date: status.date,
+                  status: status.status,
+                  designation: designation || 'Unknown',
+                  overheadRate,
+                  cost,
+                  insertData
+                })
+                failedAbsentCostsCount++
+                return null
+              } else {
+                savedAbsentCostsCount++
+                console.log(`✅ Created absent cost for employee ${employee.employee_code} - Cost: ${cost}`, {
+                  insertedData,
+                  employee_id: status.employee_id,
+                  attendance_status_id: status.id,
+                  date: status.date,
+                  designation: designation || 'Unknown',
+                  overheadRate
+                })
+                return { success: true, employee_code: employee.employee_code, data: insertedData }
+              }
+            }
+          } catch (err: any) {
+            console.error('❌ Error processing absent cost:', {
+              error: err,
+              message: err.message,
+              stack: err.stack
+            })
+            failedAbsentCostsCount++
+            return null
+          }
+        })
+
+        await Promise.all(absentCostsPromises)
+        
+        // Log summary
+        console.log('📊 Absent Costs Summary:', {
+          totalAbsentStatuses: absentStatuses.length,
+          savedCount: savedAbsentCostsCount,
+          failedCount: failedAbsentCostsCount,
+          absentStatuses: absentStatuses.map((s: any) => ({
+            id: s.id,
+            employee_id: s.employee_id,
+            status: s.status,
+            date: s.date
+          }))
+        })
+        
+        // Show success message with absent costs info
+        if (savedAbsentCostsCount > 0) {
+          const message = failedAbsentCostsCount > 0
+            ? `✅ تم حفظ ${savedAbsentCostsCount} تكلفة غياب بنجاح! (${failedAbsentCostsCount} فشل - تحقق من Console) - يمكنك رؤيتها في صفحة Absent Costs`
+            : `✅ تم حفظ ${savedAbsentCostsCount} تكلفة غياب بنجاح! يمكنك رؤيتها الآن في صفحة Absent Costs`
+          setSuccess(message)
+        } else if (failedAbsentCostsCount > 0) {
+          const errorMsg = `❌ فشل حفظ تكاليف الغياب (${failedAbsentCostsCount}) - تحقق من Console للأخطاء. قد يكون السبب: عدم وجود Designation Rate للعمال أو عدم وجود العامل في HR Manpower`
+          setError(errorMsg)
+          console.error('❌ Failed to save absent costs. Check console for details.')
+        } else {
+          setSuccess('تم حفظ الحالات بنجاح (لا توجد حالات غياب لحفظ تكاليفها)')
+        }
+      } else {
+        setSuccess('تم حفظ الحالات بنجاح')
+      }
+
+      setTimeout(() => setSuccess(''), 5000)
       await loadData()
     } catch (err: any) {
-      console.error('Error saving statuses:', err)
-      setError('Failed to save statuses: ' + err.message)
+      console.error('❌ Error saving statuses:', {
+        error: err,
+        message: err.message,
+        stack: err.stack,
+        tableName: TABLES.ATTENDANCE_DAILY_STATUSES
+      })
+      setError(`فشل حفظ الحالات: ${err.message || 'خطأ غير معروف'}. تحقق من Console للمزيد من التفاصيل.`)
     } finally {
       setSaving(false)
     }
