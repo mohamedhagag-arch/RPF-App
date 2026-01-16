@@ -65,13 +65,14 @@ export default function AbsentCosts() {
       console.log('🔄 Loading absent costs...')
 
       // Build query
+      // Note: We don't join with employee_rates because absent_costs already stores
+      // the necessary data (designation, overhead_hourly_rate) directly
       let query = supabase
         .from(TABLES.ABSENT_COSTS)
         // @ts-ignore
         .select(`
           *,
-          employee:attendance_employees(*),
-          designation_rate:designation_rates(*)
+          employee:attendance_employees(*)
         `)
         .order('date', { ascending: false })
         .order('created_at', { ascending: false })

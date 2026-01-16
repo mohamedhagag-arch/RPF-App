@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { PermissionPage } from '@/components/ui/PermissionPage'
 import { PermissionButton } from '@/components/ui/PermissionButton'
 import { DynamicTitle } from '@/components/ui/DynamicTitle'
@@ -22,7 +22,7 @@ const AbsentCosts = dynamic(
   }
 ) as React.ComponentType
 import { useRouter } from 'next/navigation'
-import { TABLES, DesignationRate, HRManpower } from '@/lib/supabase'
+import { TABLES, EmployeeRate, HRManpower } from '@/lib/supabase'
 import { mapProjectFromDB } from '@/lib/dataMappers'
 import { buildProjectFullCode } from '@/lib/projectDataFetcher'
 import type { Project } from '@/lib/supabase'
@@ -43,7 +43,7 @@ interface ManpowerRecord {
   cost?: number
 }
 
-type ManpowerTab = 'manpower' | 'designation-rates' | 'absent-costs'
+type ManpowerTab = 'manpower' | 'employee-rates' | 'absent-costs'
 
 export default function ManpowerPage() {
   const guard = usePermissionGuard()
@@ -58,6 +58,14 @@ export default function ManpowerPage() {
   const [availableProjects, setAvailableProjects] = useState<string[]>([]) // List of unique project codes
   const [loadingProjects, setLoadingProjects] = useState(false)
   const [showProjectDropdown, setShowProjectDropdown] = useState(false) // Show/hide dropdown
+  const [isSearching, setIsSearching] = useState(false) // Track if search is in progress
+  const [searchDebounceTimer, setSearchDebounceTimer] = useState<NodeJS.Timeout | null>(null) // For debounced search
+  const [showSearchSuggestions, setShowSearchSuggestions] = useState(false) // Show search suggestions dropdown
+  const [uniqueValues, setUniqueValues] = useState<{
+    designations: string[]
+    labourCodes: string[]
+    projectCodes: string[]
+  }>({ designations: [], labourCodes: [], projectCodes: [] })
   
   // Check permissions
   const canCreate = guard.hasAccess('cost_control.manpower.create')
@@ -119,9 +127,9 @@ export default function ManpowerPage() {
   const [isSelectMode, setIsSelectMode] = useState(false)
   const [deleteLoading, setDeleteLoading] = useState<string | null>(null) // ID of record being deleted
   
-  // ✅ Designation Rates State
-  const [designationRates, setDesignationRates] = useState<DesignationRate[]>([])
-  const [selectedDesignationRate, setSelectedDesignationRate] = useState<DesignationRate | null>(null)
+  // ✅ Employee Rates State
+  const [employeeRates, setEmployeeRates] = useState<EmployeeRate[]>([])
+  const [selectedEmployeeRate, setSelectedEmployeeRate] = useState<EmployeeRate | null>(null)
   
   // ✅ Advanced Filters State
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
@@ -352,21 +360,44 @@ export default function ManpowerPage() {
     return Math.max(0, overtime) // Return 0 if negative
   }
 
-  // ✅ Calculate Cost based on Designation Rate
+  // ✅ Calculate Cost based on Employee Rate (linked by employee_code)
   // Updated to use Total Hours and Overtime directly (not Standard Working Hours)
   // - Cost = (Total Hours - Overtime) * hourly_rate + Overtime * overtime_hourly_rate
   // - overtime_hourly_rate defaults to hourly_rate (not hourly_rate * 1.5)
   // - off_day_hourly_rate defaults to hourly_rate * 2
+  // Can accept either labourCode (employee_code) or designation (will find employee_code from hrManpowerList)
   const calculateCost = (
-    designation: string,
+    labourCodeOrDesignation: string, // employee_code from MANPOWER table, or designation (will find employee_code)
     totalHours: number,
     overtimeHours: number,
     isOffDay: boolean = false // Optional: flag to indicate if this is an off-day
   ): number => {
-    if (!designation || designationRates.length === 0) return 0
+    if (!labourCodeOrDesignation || employeeRates.length === 0) return 0
 
-    const rate = designationRates.find(r => 
-      r.designation.toLowerCase() === designation.toLowerCase()
+    // First, try to find employee_code if labourCodeOrDesignation is a designation
+    let employeeCode = labourCodeOrDesignation
+    
+    // If it's not found in employeeRates, try to find it from hrManpowerList by designation
+    const rateByCode = employeeRates.find(r => 
+      r.employee_code.toLowerCase() === labourCodeOrDesignation.toLowerCase()
+    )
+    
+    if (!rateByCode) {
+      // Try to find employee by designation in hrManpowerList
+      const employee = hrManpowerList.find(emp => 
+        emp.designation?.toLowerCase() === labourCodeOrDesignation.toLowerCase()
+      )
+      if (employee) {
+        employeeCode = employee.employee_code
+      } else {
+        // If still not found, return 0
+        return 0
+      }
+    }
+
+    // Find rate by employee_code (labour_code in MANPOWER table)
+    const rate = employeeRates.find(r => 
+      r.employee_code.toLowerCase() === employeeCode.toLowerCase()
     )
 
     if (!rate) return 0
@@ -374,13 +405,13 @@ export default function ManpowerPage() {
     const hourlyRate = rate.hourly_rate
     
     // Use overtime_hourly_rate if it exists (not null and not undefined), 
-    // otherwise default to hourly_rate (as per Designation Rates form)
+    // otherwise default to hourly_rate (as per Employee Rates form)
     const overtimeRate = (rate.overtime_hourly_rate != null && rate.overtime_hourly_rate !== undefined) 
       ? rate.overtime_hourly_rate 
       : hourlyRate // Default is hourly_rate, not hourly_rate * 1.5
     
     // Use off_day_hourly_rate if it exists and this is an off-day,
-    // otherwise default to hourly_rate * 2 (as per Designation Rates form)
+    // otherwise default to hourly_rate * 2 (as per Employee Rates form)
     const offDayRate = (rate.off_day_hourly_rate != null && rate.off_day_hourly_rate !== undefined)
       ? rate.off_day_hourly_rate
       : (hourlyRate * 2) // Default is hourly_rate * 2
@@ -477,22 +508,24 @@ export default function ManpowerPage() {
         overtimeHours
       })
       
-      // ✅ Always recalculate cost if designation is selected (even if it was manually entered)
+      // ✅ Always recalculate cost if labour code is selected (even if it was manually entered)
       // Cost is calculated based on Total Hours and Overtime (not Standard Working Hours)
+      // Uses Employee Rates linked by employee_code (labour_code)
       let newCost = ''
-      if (formData.designation && totalHours > 0) {
+      if (formData.labourCode && totalHours > 0) {
         // ✅ Use Total Hours and Overtime directly (not Standard Working Hours)
-        const calculatedCost = calculateCost(formData.designation, totalHours, overtimeHours)
+        // Find rate by employee_code (labour_code)
+        const calculatedCost = calculateCost(formData.labourCode, totalHours, overtimeHours)
         newCost = calculatedCost > 0 ? calculatedCost.toFixed(2) : ''
         console.log('💰 Auto-calculated cost:', {
-          designation: formData.designation,
+          labourCode: formData.labourCode,
           totalHours,
           overtimeHours,
           standardHoursCalculated: totalHours - overtimeHours,
           calculatedCost: newCost
         })
-      } else if (!formData.designation) {
-        // Clear cost if no designation
+      } else if (!formData.labourCode) {
+        // Clear cost if no labour code
         newCost = ''
       } else {
         // Keep existing cost if no hours
@@ -518,7 +551,7 @@ export default function ManpowerPage() {
         cost: formData.designation ? prev.cost : '' // Keep cost if designation is set
       }))
     }
-  }, [formData.start, formData.finish, formData.standardWorkingHours, formData.date, formData.designation, designationRates])
+  }, [formData.start, formData.finish, formData.standardWorkingHours, formData.date, formData.labourCode, employeeRates])
 
   // ✅ Load projects from Projects table (same as Projects page)
   const loadAvailableProjects = async () => {
@@ -581,18 +614,24 @@ export default function ManpowerPage() {
     }
   }
 
-  // ✅ Fetch Designation Rates
-  // Updated to ensure all rate fields are fetched correctly
-  const fetchDesignationRates = async () => {
+  // ✅ Fetch Employee Rates
+  // Fetch rates linked to employees by employee_code
+  const fetchEmployeeRates = async () => {
     try {
       const { data, error } = await supabase
-        .from(TABLES.DESIGNATION_RATES)
+        .from(TABLES.EMPLOYEE_RATES)
         // @ts-ignore
-        .select('id, designation, hourly_rate, overtime_hourly_rate, off_day_hourly_rate, overhead_hourly_rate, total_hourly_rate, authority, created_at, updated_at')
-        .order('designation', { ascending: true })
+        .select('id, employee_id, employee_code, employee_name, designation, hourly_rate, overtime_hourly_rate, off_day_hourly_rate, overhead_hourly_rate, total_hourly_rate, authority, created_at, updated_at')
+        .order('employee_code', { ascending: true })
 
       if (error) {
-        console.error('❌ Error fetching designation rates:', error)
+        // If table doesn't exist yet, just log and continue
+        if (error.code === 'PGRST116' || error.message?.includes('does not exist')) {
+          console.warn('⚠️ Employee rates table does not exist yet. Please run: Database/employee-rates-schema.sql')
+          setEmployeeRates([])
+          return
+        }
+        console.error('❌ Error fetching employee rates:', error)
         return
       }
       
@@ -609,16 +648,17 @@ export default function ManpowerPage() {
         total_hourly_rate: rate.total_hourly_rate != null ? rate.total_hourly_rate : (rate.hourly_rate + (rate.overhead_hourly_rate || 5.3))
       }))
       
-      setDesignationRates(ratesWithDefaults as DesignationRate[])
-      console.log('✅ Loaded designation rates:', ratesWithDefaults.length)
+      setEmployeeRates(ratesWithDefaults as EmployeeRate[])
+      console.log('✅ Loaded employee rates:', ratesWithDefaults.length)
       console.log('📊 Sample rate:', ratesWithDefaults[0] ? {
-        designation: ratesWithDefaults[0].designation,
+        employee_code: ratesWithDefaults[0].employee_code,
+        employee_name: ratesWithDefaults[0].employee_name,
         hourly_rate: ratesWithDefaults[0].hourly_rate,
         overtime_hourly_rate: ratesWithDefaults[0].overtime_hourly_rate,
         off_day_hourly_rate: ratesWithDefaults[0].off_day_hourly_rate
       } : 'No rates found')
     } catch (err: any) {
-      console.error('❌ Error fetching designation rates:', err)
+      console.error('❌ Error fetching employee rates:', err)
     }
   }
 
@@ -663,10 +703,10 @@ export default function ManpowerPage() {
     }
   }
 
-  // ✅ Load projects, designation rates, and HR Manpower on mount
+  // ✅ Load projects, employee rates, and HR Manpower on mount
   useEffect(() => {
     loadAvailableProjects()
-    fetchDesignationRates()
+    fetchEmployeeRates()
     fetchHrManpower()
   }, [])
 
@@ -678,6 +718,7 @@ export default function ManpowerPage() {
     }
 
     try {
+      setIsSearching(true)
       setLoading(true)
       setError('')
       setHasSearched(true)
@@ -837,8 +878,42 @@ export default function ManpowerPage() {
       setData([])
     } finally {
       setLoading(false)
+      setIsSearching(false)
     }
   }
+  
+  // ✅ Debounced auto-search when typing (optional - can be enabled if needed)
+  // Note: Currently disabled to avoid auto-searching on every keystroke
+  // Uncomment and adjust if you want auto-search functionality
+  /*
+  useEffect(() => {
+    // Clear previous timer
+    if (searchDebounceTimer) {
+      clearTimeout(searchDebounceTimer)
+    }
+    
+    // If user has typed something and dropdown is showing, auto-search after 1500ms
+    if (projectCodeSearch.trim() && showProjectDropdown && availableProjects.length > 0) {
+      const timer = setTimeout(() => {
+        // Auto-search if exact match found
+        const exactMatch = availableProjects.find(
+          p => p.toLowerCase() === projectCodeSearch.toLowerCase().trim()
+        )
+        if (exactMatch && !isSearching) {
+          searchByProjectCodeDirect(exactMatch)
+        }
+      }, 1500)
+      
+      setSearchDebounceTimer(timer)
+    }
+    
+    return () => {
+      if (searchDebounceTimer) {
+        clearTimeout(searchDebounceTimer)
+      }
+    }
+  }, [projectCodeSearch, showProjectDropdown, availableProjects.length, isSearching])
+  */
 
   const searchByProjectCode = async () => {
     // Use the current projectCodeSearch state
@@ -911,26 +986,28 @@ export default function ManpowerPage() {
   const editPreviewRecord = (index: number) => {
     const record = previewRecords[index]
     
-    // Find matching designation rate if designation exists
-    let matchingRate: DesignationRate | null = null
-    if (record.designation && designationRates.length > 0) {
+    // Find matching employee rate if designation exists
+    // Try to find employee by designation first, then find rate by employee_code
+    let matchingRate: EmployeeRate | null = null
+    if (record.designation && employeeRates.length > 0) {
       const designationValue = record.designation.trim()
       
-      // Try exact match (case-sensitive)
-      matchingRate = designationRates.find(r => r.designation === designationValue) || null
+      // First, try to find employee by designation in hrManpowerList
+      const employee = hrManpowerList.find(emp => 
+        emp.designation?.toLowerCase().trim() === designationValue.toLowerCase().trim()
+      )
       
-      // Try case-insensitive match
-      if (!matchingRate) {
-        matchingRate = designationRates.find(r => 
-          r.designation.toLowerCase().trim() === designationValue.toLowerCase().trim()
+      if (employee) {
+        // Find rate by employee_code
+        matchingRate = employeeRates.find(r => 
+          r.employee_code.toLowerCase() === employee.employee_code.toLowerCase()
         ) || null
       }
       
-      // Try partial match (contains)
+      // If not found, try to find rate by designation directly (for backward compatibility)
       if (!matchingRate) {
-        matchingRate = designationRates.find(r => 
-          r.designation.toLowerCase().includes(designationValue.toLowerCase()) ||
-          designationValue.toLowerCase().includes(r.designation.toLowerCase())
+        matchingRate = employeeRates.find(r => 
+          r.designation?.toLowerCase().trim() === designationValue.toLowerCase().trim()
         ) || null
       }
     }
@@ -942,7 +1019,7 @@ export default function ManpowerPage() {
       date: record.date,
       projectCode: record.projectCode,
       labourCode: record.labourCode,
-      designation: finalDesignationValue, // Use matching rate's designation to ensure dropdown selection works
+      designation: finalDesignationValue || '', // Use matching rate's designation to ensure dropdown selection works
       start: record.start,
       finish: record.finish,
       standardWorkingHours: '8',
@@ -951,8 +1028,8 @@ export default function ManpowerPage() {
       cost: record.cost
     })
     
-    // Set selected designation rate for dropdown
-    setSelectedDesignationRate(matchingRate)
+    // Set selected employee rate for dropdown
+    setSelectedEmployeeRate(matchingRate)
     
     setEditingPreviewIndex(index)
     setFormError('')
@@ -974,12 +1051,13 @@ export default function ManpowerPage() {
       const recordsToInsert = previewRecords.map(record => {
         // ✅ Recalculate Cost automatically for each record
         // Cost is calculated based on Total Hours and Overtime (not Standard Working Hours)
+        // Uses Employee Rates linked by employee_code (labour_code)
         let calculatedCost = 0
-        if (record.designation && record.totalHours) {
+        if (record.labourCode && record.totalHours) {
           const totalHours = parseFloat(record.totalHours) || 0
           const overtimeHours = parseFloat(record.overtime) || 0
-          // ✅ Use Total Hours and Overtime directly
-          calculatedCost = calculateCost(record.designation, totalHours, overtimeHours)
+          // ✅ Use Total Hours and Overtime directly, find rate by employee_code
+          calculatedCost = calculateCost(record.labourCode, totalHours, overtimeHours)
         }
         
         return {
@@ -1104,14 +1182,15 @@ export default function ManpowerPage() {
 
       // ✅ Recalculate Cost automatically before saving
       // Cost is calculated based on Total Hours and Overtime (not Standard Working Hours)
+      // Uses Employee Rates linked by employee_code (labour_code)
       let calculatedCost = 0
-      if (formData.designation && formData.totalHours) {
+      if (formData.labourCode && formData.totalHours) {
         const totalHours = parseFloat(formData.totalHours) || 0
         const overtimeHours = parseFloat(formData.overtime) || 0
-        // ✅ Use Total Hours and Overtime directly
-        calculatedCost = calculateCost(formData.designation, totalHours, overtimeHours)
+        // ✅ Use Total Hours and Overtime directly, find rate by employee_code
+        calculatedCost = calculateCost(formData.labourCode, totalHours, overtimeHours)
         console.log('💰 Recalculated cost before save:', {
-          designation: formData.designation,
+          labourCode: formData.labourCode,
           totalHours,
           overtimeHours,
           standardHoursCalculated: totalHours - overtimeHours,
@@ -1463,33 +1542,34 @@ export default function ManpowerPage() {
     // Extract designation - normalize the value (trim and handle case variations)
     const designationValue = (rawRecord['Designation'] || rawRecord['designation'] || record.designation || '').toString().trim()
     
-    console.log('💼 Designation value:', designationValue, 'Available rates:', designationRates.length)
+    console.log('💼 Designation value:', designationValue, 'Available employee rates:', employeeRates.length)
     
-    // Find matching designation rate if designation exists
-    // Try exact match first, then case-insensitive, then partial match
-    let matchingRate: DesignationRate | null = null
-    if (designationValue && designationRates.length > 0) {
-      // Try exact match (case-sensitive)
-      matchingRate = designationRates.find(r => r.designation === designationValue) || null
+    // Find matching employee rate if designation exists
+    // Try to find employee by designation first, then find rate by employee_code
+    let matchingRate: EmployeeRate | null = null
+    if (designationValue && employeeRates.length > 0) {
+      // First, try to find employee by designation in hrManpowerList
+      const employee = hrManpowerList.find(emp => 
+        emp.designation?.toLowerCase().trim() === designationValue.toLowerCase().trim()
+      )
       
-      // Try case-insensitive match
-      if (!matchingRate) {
-        matchingRate = designationRates.find(r => 
-          r.designation.toLowerCase().trim() === designationValue.toLowerCase().trim()
+      if (employee) {
+        // Find rate by employee_code
+        matchingRate = employeeRates.find(r => 
+          r.employee_code.toLowerCase() === employee.employee_code.toLowerCase()
         ) || null
       }
       
-      // Try partial match (contains)
+      // If not found, try to find rate by designation directly (for backward compatibility)
       if (!matchingRate) {
-        matchingRate = designationRates.find(r => 
-          r.designation.toLowerCase().includes(designationValue.toLowerCase()) ||
-          designationValue.toLowerCase().includes(r.designation.toLowerCase())
+        matchingRate = employeeRates.find(r => 
+          r.designation?.toLowerCase().trim() === designationValue.toLowerCase().trim()
         ) || null
       }
       
-      console.log('✅ Found matching rate:', matchingRate ? matchingRate.designation : 'None', {
+      console.log('✅ Found matching rate:', matchingRate ? matchingRate.employee_code : 'None', {
         searched: designationValue,
-        availableDesignations: designationRates.map(r => r.designation).slice(0, 5)
+        availableEmployees: employeeRates.length
       })
     }
     
@@ -1575,8 +1655,8 @@ export default function ManpowerPage() {
       finish: finalFinishTime
     })
     
-    // Set selected designation rate for dropdown
-    setSelectedDesignationRate(matchingRate)
+    // Set selected employee rate for dropdown
+    setSelectedEmployeeRate(matchingRate)
     
     console.log('📝 Form data set:', {
       designation: finalDesignationValue,
@@ -1901,8 +1981,72 @@ export default function ManpowerPage() {
     document.body.removeChild(link)
   }
 
-  // ✅ Advanced Filter Function
-  const filteredData = data.filter((record) => {
+  // ✅ Extract unique values from data for autocomplete and quick filters
+  const extractedUniqueValues = useMemo(() => {
+    if (data.length === 0) return { designations: [], labourCodes: [], projectCodes: [] }
+    
+    const designationsSet = new Set<string>()
+    const labourCodesSet = new Set<string>()
+    const projectCodesSet = new Set<string>()
+    
+    data.forEach((record) => {
+      const rawRecord = (record as any).raw || record
+      
+      const designation = rawRecord['Designation'] || rawRecord['designation'] || record.designation
+      const labourCode = rawRecord['LABOUR CODE'] || rawRecord['labour_code'] || record.labour_code
+      const projectCode = rawRecord['PROJECT CODE'] || rawRecord['project_code'] || record.project_code
+      
+      if (designation && typeof designation === 'string') designationsSet.add(designation.trim())
+      if (labourCode && typeof labourCode === 'string') labourCodesSet.add(labourCode.trim())
+      if (projectCode && typeof projectCode === 'string') projectCodesSet.add(projectCode.trim())
+    })
+    
+    return {
+      designations: Array.from(designationsSet).sort(),
+      labourCodes: Array.from(labourCodesSet).sort(),
+      projectCodes: Array.from(projectCodesSet).sort()
+    }
+  }, [data])
+  
+  // Update unique values when data changes
+  useEffect(() => {
+    setUniqueValues(extractedUniqueValues)
+  }, [extractedUniqueValues])
+  
+  // ✅ Generate search suggestions based on current search term
+  const searchSuggestions = useMemo(() => {
+    if (!searchTerm.trim() || searchTerm.length < 2) return []
+    
+    const searchLower = searchTerm.toLowerCase().trim()
+    const suggestions: Array<{ type: string; value: string; label: string }> = []
+    
+    // Search in designations
+    uniqueValues.designations.forEach(des => {
+      if (des.toLowerCase().includes(searchLower)) {
+        suggestions.push({ type: 'designation', value: des, label: `Designation: ${des}` })
+      }
+    })
+    
+    // Search in labour codes
+    uniqueValues.labourCodes.forEach(code => {
+      if (code.toLowerCase().includes(searchLower)) {
+        suggestions.push({ type: 'labourCode', value: code, label: `Labour Code: ${code}` })
+      }
+    })
+    
+    // Search in project codes
+    uniqueValues.projectCodes.forEach(code => {
+      if (code.toLowerCase().includes(searchLower)) {
+        suggestions.push({ type: 'projectCode', value: code, label: `Project: ${code}` })
+      }
+    })
+    
+    return suggestions.slice(0, 8) // Limit to 8 suggestions
+  }, [searchTerm, uniqueValues])
+  
+  // ✅ Advanced Filter Function - Use useMemo to recalculate when filters or data change
+  const filteredData = useMemo(() => {
+    return data.filter((record) => {
     const rawRecord = (record as any).raw || record
     
     // 1. General Search Term (searches in all text fields including Date, Overtime, etc.)
@@ -1944,10 +2088,112 @@ export default function ManpowerPage() {
       if (projectCode !== filters.projectCode) return false
     }
     
-    // 1.6. Date Filter (from "Column 1")
+    // 1.6. Date Filter (from "Column 1") - Smart date matching with multiple format support
     if (filters.date) {
-      const date = (rawRecord['Date'] || rawRecord['date'] || rawRecord['Column 1'] || rawRecord['column_1'] || record.date || '').toString().toLowerCase()
-      if (!date.includes(filters.date.toLowerCase())) return false
+      const dateStr = (rawRecord['Date'] || rawRecord['date'] || rawRecord['Column 1'] || rawRecord['column_1'] || record.date || '').toString().trim()
+      const filterDate = filters.date.trim() // This is always YYYY-MM-DD from date input
+      
+      if (!dateStr) return false
+      
+      // Helper: Parse date string to Date object (handles multiple formats)
+      const parseDate = (dateString: string): Date | null => {
+        if (!dateString) return null
+        
+        // Try YYYY-MM-DD format first (from date input)
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+          const parts = dateString.split('-')
+          return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]))
+        }
+        
+        // Try DD/MM/YYYY format (most common in this app)
+        const ddmmyyyy = dateString.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+        if (ddmmyyyy) {
+          const day = parseInt(ddmmyyyy[1], 10)
+          const month = parseInt(ddmmyyyy[2], 10) - 1 // Month is 0-indexed
+          const year = parseInt(ddmmyyyy[3], 10)
+          const date = new Date(year, month, day)
+          // Validate: if day > 12, it's definitely DD/MM/YYYY, not MM/DD/YYYY
+          if (day > 12 || (day <= 12 && month < 12 && date.getDate() === day && date.getMonth() === month)) {
+            return date
+          }
+        }
+        
+        // Try MM/DD/YYYY format (if DD/MM/YYYY didn't work or day <= 12)
+        const mmddyyyy = dateString.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+        if (mmddyyyy && (!ddmmyyyy || parseInt(mmddyyyy[1], 10) <= 12)) {
+          const month = parseInt(mmddyyyy[1], 10) - 1
+          const day = parseInt(mmddyyyy[2], 10)
+          const year = parseInt(mmddyyyy[3], 10)
+          const date = new Date(year, month, day)
+          if (date.getMonth() === month && date.getDate() === day) {
+            return date
+          }
+        }
+        
+        // Try DD-MM-YYYY format
+        const ddmmyyyyDash = dateString.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/)
+        if (ddmmyyyyDash) {
+          const day = parseInt(ddmmyyyyDash[1], 10)
+          const month = parseInt(ddmmyyyyDash[2], 10) - 1
+          const year = parseInt(ddmmyyyyDash[3], 10)
+          return new Date(year, month, day)
+        }
+        
+        // Try native Date parsing as last resort
+        const parsed = new Date(dateString)
+        if (!isNaN(parsed.getTime()) && parsed.toString() !== 'Invalid Date') {
+          return parsed
+        }
+        
+        return null
+      }
+      
+      // Helper: Format date to YYYY-MM-DD for comparison
+      const formatDate = (date: Date): string => {
+        const year = date.getFullYear()
+        const month = String(date.getMonth() + 1).padStart(2, '0')
+        const day = String(date.getDate()).padStart(2, '0')
+        return `${year}-${month}-${day}`
+      }
+      
+      // Parse filter date (always YYYY-MM-DD)
+      const filterDateObj = parseDate(filterDate)
+      if (!filterDateObj) return false
+      const filterDateFormatted = formatDate(filterDateObj)
+      
+      // Parse record date and try multiple formats
+      const recordDate = parseDate(dateStr)
+      
+      if (recordDate) {
+        // Compare dates using formatted strings
+        const recordDateFormatted = formatDate(recordDate)
+        if (recordDateFormatted !== filterDateFormatted) {
+          return false
+        }
+      } else {
+        // Fallback: Try string matching with multiple format conversions
+        // Convert filter date (YYYY-MM-DD) to common formats
+        const [filterYear, filterMonth, filterDay] = filterDate.split('-')
+        const filterFormats = [
+          filterDate, // YYYY-MM-DD
+          `${filterDay}/${filterMonth}/${filterYear}`, // DD/MM/YYYY
+          `${filterMonth}/${filterDay}/${filterYear}`, // MM/DD/YYYY
+          `${filterDay}-${filterMonth}-${filterYear}`, // DD-MM-YYYY
+          `${filterDay.padStart(2, '0')}/${filterMonth.padStart(2, '0')}/${filterYear}`, // DD/MM/YYYY with padding
+          `${parseInt(filterDay)}/${parseInt(filterMonth)}/${filterYear}`, // D/M/YYYY
+        ]
+        
+        // Check if any format matches
+        const matches = filterFormats.some(format => {
+          const normalizedFormat = format.toLowerCase().replace(/\s/g, '')
+          const normalizedDateStr = dateStr.toLowerCase().replace(/\s/g, '')
+          return normalizedDateStr.includes(normalizedFormat) || normalizedDateStr === normalizedFormat
+        })
+        
+        if (!matches) {
+          return false
+        }
+      }
     }
     
     // 2. Labour Code Filter
@@ -1964,17 +2210,60 @@ export default function ManpowerPage() {
     
     // 4. Date Range Filter (using Date column and START/FINISH)
     if (filters.startDate || filters.endDate) {
-      const recordDate = rawRecord['Date'] || rawRecord['date'] || rawRecord['Column 1'] || rawRecord['column_1'] || record.date || ''
-      const startDate = rawRecord['START'] || rawRecord['start'] || record.start || ''
-      const finishDate = rawRecord['FINISH'] || rawRecord['finish'] || record.finish || ''
+      const recordDateStr = (rawRecord['Date'] || rawRecord['date'] || rawRecord['Column 1'] || rawRecord['column_1'] || record.date || '').toString().trim()
+      const startDateStr = (rawRecord['START'] || rawRecord['start'] || record.start || '').toString().trim()
+      const finishDateStr = (rawRecord['FINISH'] || rawRecord['finish'] || record.finish || '').toString().trim()
       
-      // Check Date column first (most important)
-      if (filters.startDate && recordDate && recordDate < filters.startDate) return false
-      if (filters.endDate && recordDate && recordDate > filters.endDate) return false
+      // Helper: Parse date string to Date object
+      const parseDate = (dateString: string): Date | null => {
+        if (!dateString) return null
+        
+        // Try YYYY-MM-DD format first
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+          return new Date(dateString)
+        }
+        
+        // Try DD/MM/YYYY format
+        const ddmmyyyy = dateString.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+        if (ddmmyyyy) {
+          const day = parseInt(ddmmyyyy[1], 10)
+          const month = parseInt(ddmmyyyy[2], 10) - 1
+          const year = parseInt(ddmmyyyy[3], 10)
+          return new Date(year, month, day)
+        }
+        
+        // Try MM/DD/YYYY format
+        const mmddyyyy = dateString.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+        if (mmddyyyy) {
+          const month = parseInt(mmddyyyy[1], 10) - 1
+          const day = parseInt(mmddyyyy[2], 10)
+          const year = parseInt(mmddyyyy[3], 10)
+          return new Date(year, month, day)
+        }
+        
+        // Try native Date parsing
+        const parsed = new Date(dateString)
+        if (!isNaN(parsed.getTime())) {
+          return parsed
+        }
+        
+        return null
+      }
       
-      // Also check START/FINISH dates
-      if (filters.startDate && startDate && startDate < filters.startDate) return false
-      if (filters.endDate && finishDate && finishDate > filters.endDate) return false
+      // Parse dates
+      const recordDate = parseDate(recordDateStr) || parseDate(startDateStr) || parseDate(finishDateStr)
+      const startDateFilter = filters.startDate ? parseDate(filters.startDate) : null
+      const endDateFilter = filters.endDate ? parseDate(filters.endDate) : null
+      
+      if (recordDate) {
+        // Compare dates
+        if (startDateFilter && recordDate < startDateFilter) return false
+        if (endDateFilter && recordDate > endDateFilter) return false
+      } else {
+        // Fallback: string comparison if parsing fails
+        if (filters.startDate && recordDateStr && recordDateStr < filters.startDate) return false
+        if (filters.endDate && recordDateStr && recordDateStr > filters.endDate) return false
+      }
     }
     
     // 5. Hours Range Filter
@@ -2012,7 +2301,8 @@ export default function ManpowerPage() {
     }
     
     return true
-  })
+    })
+  }, [data, searchTerm, filters])
   
   // ✅ Count active filters
   const activeFiltersCount = Object.values(filters).filter(v => v && v !== '').length + (searchTerm ? 1 : 0)
@@ -2224,16 +2514,16 @@ export default function ManpowerPage() {
               </button>
               {guard.hasAccess('cost_control.designation_rates.view') && (
                 <button
-                  onClick={() => setActiveTab('designation-rates')}
+                  onClick={() => setActiveTab('employee-rates')}
                   className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                    activeTab === 'designation-rates'
+                    activeTab === 'employee-rates'
                       ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
                   }`}
                 >
                   <div className="flex items-center gap-2">
                     <Calculator className="h-4 w-4" />
-                    Designation Rates
+                    Employee Rates
                   </div>
                 </button>
               )}
@@ -2254,7 +2544,7 @@ export default function ManpowerPage() {
           </div>
 
           {/* Tab Content */}
-          {activeTab === 'designation-rates' ? (
+          {activeTab === 'employee-rates' ? (
             <DesignationRates />
           ) : activeTab === 'absent-costs' ? (
             <AbsentCosts />
@@ -2575,7 +2865,7 @@ export default function ManpowerPage() {
                             </label>
                             <div className="relative">
                               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400 z-10" />
-                              {designationRates.length > 0 ? (
+                              {employeeRates.length > 0 ? (
                                 <>
                                   <input
                                     type="text"
@@ -2583,18 +2873,21 @@ export default function ManpowerPage() {
                                 value={formData.designation}
                                 onChange={(e) => {
                                   const designation = e.target.value
-                                  const rate = designationRates.find(r => 
-                                    r.designation.toLowerCase() === designation.toLowerCase()
+                                  // Find rate by designation (for display purposes)
+                                  const rate = employeeRates.find(r => 
+                                    r.designation?.toLowerCase() === designation.toLowerCase()
                                   )
-                                  setSelectedDesignationRate(rate || null)
+                                  setSelectedEmployeeRate(rate || null)
                                   
                                   // ✅ Recalculate cost if we have hours
                                   // Cost is calculated based on Total Hours and Overtime (not Standard Working Hours)
-                                  if (formData.totalHours) {
+                                  // Uses Employee Rates linked by employee_code (labour_code)
+                                  if (formData.totalHours && formData.labourCode) {
                                     const totalHours = parseFloat(formData.totalHours) || 0
                                     const overtimeHours = parseFloat(formData.overtime) || 0
-                                    // ✅ Use Total Hours and Overtime directly
-                                    const calculatedCost = calculateCost(designation, totalHours, overtimeHours)
+                                    // ✅ Use Total Hours and Overtime directly, find rate by employee_code
+                                    // If labourCode not available, try to find it from designation
+                                    const calculatedCost = calculateCost(formData.labourCode || designation, totalHours, overtimeHours)
                                     
                                     setFormData(prev => ({
                                       ...prev,
@@ -2617,83 +2910,90 @@ export default function ManpowerPage() {
                                   />
                                   {showDesignationDropdown && (
                                     <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-96 overflow-y-auto">
-                                      {designationRates
-                                        .filter((rate) => {
+                                      {/* Get unique designations from employeeRates */}
+                                      {Array.from(new Set(employeeRates.map(r => r.designation).filter(Boolean)))
+                                        .filter((designation) => {
                                           if (!formData.designation.trim()) return true
                                           const searchLower = formData.designation.toLowerCase().trim()
-                                          return rate.designation.toLowerCase().includes(searchLower)
+                                          return designation?.toLowerCase().includes(searchLower)
                                         })
-                                        .map((rate) => (
-                                          <button
-                                            key={rate.id}
-                                            type="button"
-                                            onClick={() => {
-                                              const designation = rate.designation
-                                              setSelectedDesignationRate(rate)
-                                              
-                                              // Recalculate cost if we have hours
-                                              if (formData.totalHours && formData.standardWorkingHours) {
-                                                const totalHours = parseFloat(formData.totalHours) || 0
-                                                const standardHours = parseFloat(formData.standardWorkingHours) || 8
-                                                const overtimeHours = Math.max(0, totalHours - standardHours)
-                                                const calculatedCost = calculateCost(designation, standardHours, overtimeHours)
+                                        .map((designation) => {
+                                          // Find first rate with this designation for display
+                                          const rate = employeeRates.find(r => r.designation === designation)
+                                          if (!rate) return null
+                                          return (
+                                            <button
+                                              key={rate.id}
+                                              type="button"
+                                              onClick={() => {
+                                                setSelectedEmployeeRate(rate)
                                                 
-                                                setFormData(prev => ({
-                                                  ...prev,
-                                                  designation,
-                                                  cost: calculatedCost > 0 ? calculatedCost.toFixed(2) : ''
-                                                }))
-                                              } else {
-                                                setFormData(prev => ({ ...prev, designation }))
-                                              }
-                                              setShowDesignationDropdown(false)
-                                            }}
-                                            className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700 last:border-b-0 transition-colors"
-                                          >
-                                            <div className="font-medium text-gray-900 dark:text-white">
-                                              {rate.designation}
-                                            </div>
-                                            <div className="text-sm text-gray-500 dark:text-gray-400">
-                                              ${rate.hourly_rate}/hr
-                                      {rate.overtime_hourly_rate ? ` (OT: $${rate.overtime_hourly_rate}/hr)` : ` (OT: $${(rate.hourly_rate * 1.5).toFixed(2)}/hr)`}
-                                            </div>
-                                          </button>
-                                        ))}
+                                                // Recalculate cost if we have hours
+                                                // Uses Employee Rates linked by employee_code (labour_code)
+                                                if (formData.totalHours && formData.standardWorkingHours && formData.labourCode) {
+                                                  const totalHours = parseFloat(formData.totalHours) || 0
+                                                  const standardHours = parseFloat(formData.standardWorkingHours) || 8
+                                                  const overtimeHours = Math.max(0, totalHours - standardHours)
+                                                  // Use labourCode if available, otherwise use designation
+                                                  const calculatedCost = calculateCost(formData.labourCode || designation || '', totalHours, overtimeHours)
+                                                  
+                                                  setFormData(prev => ({
+                                                    ...prev,
+                                                    designation: designation || '',
+                                                    cost: calculatedCost > 0 ? calculatedCost.toFixed(2) : ''
+                                                  }))
+                                                } else {
+                                                  setFormData(prev => ({ ...prev, designation: designation || '' }))
+                                                }
+                                                setShowDesignationDropdown(false)
+                                              }}
+                                              className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700 last:border-b-0 transition-colors"
+                                            >
+                                              <div className="font-medium text-gray-900 dark:text-white">
+                                                {designation}
+                                              </div>
+                                              <div className="text-sm text-gray-500 dark:text-gray-400">
+                                                ${rate.hourly_rate}/hr
+                                                {rate.overtime_hourly_rate ? ` (OT: $${rate.overtime_hourly_rate}/hr)` : ` (OT: $${rate.hourly_rate}/hr)`}
+                                              </div>
+                                            </button>
+                                          )
+                                        })}
                                     </div>
                                   )}
                                 </>
                                 ) : (
                                 <input
                                   type="text"
-                                  placeholder="Loading designations..."
+                                  placeholder="Loading designations from Employee Rates..."
                                   disabled
                                   className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-500 cursor-not-allowed"
                                 />
                               )}
                               </div>
-                              {selectedDesignationRate && (() => {
-                          const rate = selectedDesignationRate!
+                              {selectedEmployeeRate && (() => {
+                          const rate = selectedEmployeeRate!
                           const hourlyRate = rate.hourly_rate
                           const overtimeHourlyRate = rate.overtime_hourly_rate
-                          // Use overtime_hourly_rate if it exists, otherwise use 1.5 × hourly_rate
+                          // Use overtime_hourly_rate if it exists, otherwise use hourly_rate (default)
                           const overtimeRate: number = (overtimeHourlyRate != null && overtimeHourlyRate !== undefined)
                             ? Number(overtimeHourlyRate)
-                            : (hourlyRate * 1.5)
+                            : hourlyRate // Default is hourly_rate, not hourly_rate * 1.5
                                 return (
                                   <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
                                     <span className="font-medium">Rate:</span> ${hourlyRate}/hr
                                     {(overtimeHourlyRate != null && overtimeHourlyRate !== undefined) ? (
                                       <span className="ml-2">Overtime: ${overtimeHourlyRate}/hr</span>
                                     ) : (
-                                      <span className="ml-2">Overtime: ${overtimeRate.toFixed(2)}/hr (1.5x)</span>
+                                      <span className="ml-2">Overtime: ${overtimeRate.toFixed(2)}/hr</span>
                                     )}
                                   </div>
                                 )
                               })()}
                             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                              {designationRates.length > 0 
-                                ? `✅ Search from ${designationRates.length} designations` 
-                                : 'Loading designations from Designation Rates...'}
+                              {employeeRates.length > 0 
+                                ? `✅ Search from ${employeeRates.length} employee rates` 
+                                : 'Loading employee rates...'}
                             </p>
                           </div>
 
@@ -2912,7 +3212,8 @@ export default function ManpowerPage() {
                                   // Recalculate cost if designation is selected
                                   let newCost = formData.cost
                                   if (formData.designation) {
-                                    const calculatedCost = calculateCost(formData.designation, standardHours, overtimeHours)
+                                    // Use labourCode if available, otherwise use designation
+                                    const calculatedCost = calculateCost(formData.labourCode || formData.designation, standardHours, overtimeHours)
                                     newCost = calculatedCost > 0 ? calculatedCost.toFixed(2) : ''
                                   }
                                   
@@ -3457,20 +3758,22 @@ export default function ManpowerPage() {
                           value={formData.designation}
                           onChange={(e) => {
                             const designation = e.target.value
-                            const rate = designationRates.find(r => 
-                              r.designation.toLowerCase() === designation.toLowerCase()
+                            // Find rate by designation (for display purposes)
+                            const rate = employeeRates.find(r => 
+                              r.designation?.toLowerCase() === designation.toLowerCase()
                             )
-                            setSelectedDesignationRate(rate || null)
+                            setSelectedEmployeeRate(rate || null)
                             
                             // Recalculate cost if we have hours
-                            // Uses rates from Designation Rates page:
+                            // Uses rates from Employee Rates page (linked by employee_code):
                             // - Standard hours: hourly_rate
                             // - Overtime hours: overtime_hourly_rate (defaults to hourly_rate if not set)
-                            if (formData.totalHours && formData.standardWorkingHours) {
+                            if (formData.totalHours && formData.standardWorkingHours && formData.labourCode) {
                               const totalHours = parseFloat(formData.totalHours) || 0
                               const standardHours = parseFloat(formData.standardWorkingHours) || 8
                               const overtimeHours = Math.max(0, totalHours - standardHours)
-                              const calculatedCost = calculateCost(designation, standardHours, overtimeHours)
+                                                  // Use labourCode if available, otherwise use designation
+                                                  const calculatedCost = calculateCost(formData.labourCode || designation || '', totalHours, overtimeHours)
                               
                               setFormData(prev => ({
                                 ...prev,
@@ -3484,15 +3787,21 @@ export default function ManpowerPage() {
                           className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none cursor-pointer"
                         >
                           <option value="">Select Designation...</option>
-                          {designationRates.length > 0 ? (
-                            designationRates.map((rate) => (
-                              <option key={rate.id} value={rate.designation}>
-                                {rate.designation} - ${rate.hourly_rate}/hr
-                                {rate.overtime_hourly_rate ? ` (OT: $${rate.overtime_hourly_rate}/hr)` : ` (OT: $${(rate.hourly_rate * 1.5).toFixed(2)}/hr)`}
-                              </option>
-                            ))
+                          {employeeRates.length > 0 ? (
+                            // Get unique designations from employeeRates
+                            Array.from(new Set(employeeRates.map(r => r.designation).filter(Boolean))).map((designation) => {
+                              // Find first rate with this designation for display
+                              const rate = employeeRates.find(r => r.designation === designation)
+                              if (!rate) return null
+                              return (
+                                <option key={rate.id} value={designation || ''}>
+                                  {designation} - ${rate.hourly_rate}/hr
+                                  {rate.overtime_hourly_rate ? ` (OT: $${rate.overtime_hourly_rate}/hr)` : ` (OT: $${rate.hourly_rate}/hr)`}
+                                </option>
+                              )
+                            })
                           ) : (
-                            <option value="" disabled>Loading designations...</option>
+                            <option value="" disabled>Loading designations from Employee Rates...</option>
                           )}
                         </select>
                         <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none z-10">
@@ -3500,21 +3809,21 @@ export default function ManpowerPage() {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                           </svg>
                         </div>
-                        {selectedDesignationRate && (() => {
-                          const rate = selectedDesignationRate!
+                        {selectedEmployeeRate && (() => {
+                          const rate = selectedEmployeeRate!
                           const hourlyRate = rate.hourly_rate
                           const overtimeHourlyRate = rate.overtime_hourly_rate
-                          // Use overtime_hourly_rate if it exists, otherwise use 1.5 × hourly_rate
+                          // Use overtime_hourly_rate if it exists, otherwise use hourly_rate (default)
                           const overtimeRate: number = (overtimeHourlyRate != null && overtimeHourlyRate !== undefined)
                             ? Number(overtimeHourlyRate)
-                            : (hourlyRate * 1.5)
+                            : hourlyRate // Default is hourly_rate, not hourly_rate * 1.5
                           return (
                             <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
                               <span className="font-medium">Rate:</span> ${hourlyRate}/hr
                               {(overtimeHourlyRate != null && overtimeHourlyRate !== undefined) ? (
                                 <span className="ml-2">Overtime: ${overtimeHourlyRate}/hr</span>
                               ) : (
-                                <span className="ml-2">Overtime: ${overtimeRate.toFixed(2)}/hr (1.5x)</span>
+                                <span className="ml-2">Overtime: ${overtimeRate.toFixed(2)}/hr</span>
                               )}
                             </div>
                           )
@@ -3827,7 +4136,7 @@ export default function ManpowerPage() {
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                         <DollarSign className="h-4 w-4 inline mr-1" />
                         Cost <span className="text-gray-400">
-                          {formData.designation ? '(Auto-calculated from Designation Rate)' : '(Optional)'}
+                          {formData.designation ? '(Auto-calculated from Employee Rate)' : '(Optional)'}
                         </span>
                       </label>
                       <input
@@ -3844,21 +4153,18 @@ export default function ManpowerPage() {
                             : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white'
                         } focus:ring-2 focus:ring-green-500 focus:border-transparent`}
                       />
-                      {formData.designation && formData.cost && selectedDesignationRate && (() => {
-                        const rate = selectedDesignationRate!
-                        // Use overtime_hourly_rate if it exists, otherwise use 1.5 × hourly_rate
+                      {formData.designation && formData.cost && selectedEmployeeRate && (() => {
+                        const rate = selectedEmployeeRate!
+                        // Use overtime_hourly_rate if it exists, otherwise use hourly_rate (default)
                         const overtimeRate: number = (rate.overtime_hourly_rate != null && rate.overtime_hourly_rate !== undefined)
                           ? Number(rate.overtime_hourly_rate)
-                          : (rate.hourly_rate * 1.5)
+                          : rate.hourly_rate // Default is hourly_rate, not hourly_rate * 1.5
                         return (
                           <p className="mt-1 text-xs text-green-600 dark:text-green-400">
                             ✓ Calculated: {formData.standardWorkingHours || 8} standard hours × ${rate.hourly_rate}/hr
                             {parseFloat(formData.overtime || '0') > 0 && (
                               <span className="ml-1">
                                 + {formData.overtime} overtime hours × ${overtimeRate.toFixed(2)}/hr
-                                {(rate.overtime_hourly_rate == null || rate.overtime_hourly_rate === undefined) && (
-                                  <span className="text-gray-500"> (1.5x)</span>
-                                )}
                               </span>
                             )}
                           </p>
@@ -3917,82 +4223,165 @@ export default function ManpowerPage() {
             </Card>
           )}
 
-          {/* Project Code Search */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Search className="h-5 w-5" />
-                Search by Project Code
-              </CardTitle>
+          {/* ✅ Enhanced Project Code Search */}
+          <Card className="border-2 border-blue-200 dark:border-blue-800 shadow-lg">
+            <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border-b border-blue-200 dark:border-blue-800">
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-3 text-blue-700 dark:text-blue-300">
+                  <div className="p-2 bg-blue-100 dark:bg-blue-900 rounded-lg">
+                    <Search className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="text-xl font-bold">Search by Project Code</div>
+                    <div className="text-sm font-normal text-blue-600 dark:text-blue-400 mt-0.5">
+                      Find and load MANPOWER records by project
+                    </div>
+                  </div>
+                </CardTitle>
+                {hasSearched && data.length > 0 && (
+                  <div className="px-3 py-1.5 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded-full text-sm font-semibold flex items-center gap-2">
+                    <CheckCircle className="h-4 w-4" />
+                    {data.length.toLocaleString()} records loaded
+                  </div>
+                )}
+              </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-6">
               <form onSubmit={handleSearchSubmit} className="space-y-4">
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400 z-10" />
+                {/* Main Search Input */}
+                <div className="flex gap-3">
+                  <div className="relative flex-1 group">
+                    <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-indigo-500/10 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"></div>
+                    <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-blue-500 z-10 pointer-events-none" />
                     {availableProjects.length > 0 ? (
                       <>
-                        {/* ✅ Custom Searchable Dropdown */}
-                    <input
-                      type="text"
-                          placeholder="🔍 Search and select project code..."
+                        <input
+                          type="text"
+                          placeholder="🔍 Type to search projects (e.g., P4110, P4110-P)..."
                           value={projectCodeSearch}
                           onChange={(e) => {
-                            setProjectCodeSearch(e.target.value)
-                            setShowProjectDropdown(true)
+                            const value = e.target.value
+                            setProjectCodeSearch(value)
+                            // Show dropdown when typing
+                            if (value.trim()) {
+                              setShowProjectDropdown(true)
+                            }
                           }}
-                          onFocus={() => setShowProjectDropdown(true)}
-                          onBlur={() => {
-                            // Delay to allow click on dropdown item
-                            setTimeout(() => setShowProjectDropdown(false), 200)
+                          onFocus={() => {
+                            // Show dropdown when focused, especially if there's text
+                            if (projectCodeSearch.trim() || availableProjects.length > 0) {
+                              setShowProjectDropdown(true)
+                            }
                           }}
-                          className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          onBlur={(e) => {
+                            // Don't hide if clicking on dropdown
+                            const relatedTarget = e.relatedTarget as HTMLElement
+                            if (!relatedTarget || !relatedTarget.closest('.project-dropdown')) {
+                              setTimeout(() => setShowProjectDropdown(false), 300)
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            // Allow Enter to search
+                            if (e.key === 'Enter' && projectCodeSearch.trim()) {
+                              e.preventDefault()
+                              handleSearchSubmit(e as any)
+                            }
+                            // Allow Escape to close dropdown
+                            if (e.key === 'Escape') {
+                              setShowProjectDropdown(false)
+                            }
+                          }}
+                          className="w-full pl-12 pr-4 py-3 border-2 border-blue-200 dark:border-blue-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed relative z-0"
                           disabled={loading || loadingProjects}
                         />
+                        {/* Enhanced Dropdown */}
                         {showProjectDropdown && (
-                          <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-96 overflow-y-auto">
-                            {(() => {
-                              const filteredProjects = availableProjects.filter((projectCode) => {
-                                if (!projectCodeSearch.trim()) return true
-                                const searchLower = projectCodeSearch.toLowerCase().trim()
-                                return projectCode.toLowerCase().includes(searchLower)
-                              })
-                              
-                              return (
-                                <>
-                                  {filteredProjects.length > 0 ? (
-                                    filteredProjects.map((projectCode) => (
-                                      <button
-                                        key={projectCode}
-                                        type="button"
-                                        onClick={async () => {
-                                          setProjectCodeSearch(projectCode)
-                                          setShowProjectDropdown(false)
-                                          // Auto-search immediately when project is selected
-                                          await searchByProjectCodeDirect(projectCode)
-                                        }}
-                                        className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700 last:border-b-0 transition-colors"
-                                      >
-                                        <div className="font-medium text-gray-900 dark:text-white">
-                                          {projectCode}
+                          <div 
+                            className="project-dropdown absolute z-50 w-full mt-2 bg-white dark:bg-gray-800 border-2 border-blue-200 dark:border-blue-700 rounded-xl shadow-2xl max-h-[600px] overflow-hidden"
+                            onMouseDown={(e) => {
+                              // Prevent blur when clicking inside dropdown
+                              e.preventDefault()
+                            }}
+                          >
+                            <div className="overflow-y-auto max-h-[600px]">
+                              {(() => {
+                                const filteredProjects = availableProjects.filter((projectCode) => {
+                                  if (!projectCodeSearch.trim()) return true
+                                  const searchLower = projectCodeSearch.toLowerCase().trim()
+                                  return projectCode.toLowerCase().includes(searchLower)
+                                })
+                                
+                                // Highlight matching text
+                                const highlightMatch = (text: string, search: string) => {
+                                  if (!search.trim()) return text
+                                  const parts = text.split(new RegExp(`(${search})`, 'gi'))
+                                  return parts.map((part, i) => 
+                                    part.toLowerCase() === search.toLowerCase() 
+                                      ? <mark key={i} className="bg-yellow-200 dark:bg-yellow-900 px-1 rounded">{part}</mark>
+                                      : part
+                                  )
+                                }
+                                
+                                return (
+                                  <>
+                                    {filteredProjects.length > 0 ? (
+                                      <>
+                                        {/* Show all filtered projects - no limit */}
+                                        {filteredProjects.map((projectCode, index) => {
+                                          const isExactMatch = projectCode.toLowerCase() === projectCodeSearch.toLowerCase().trim()
+                                          return (
+                                            <button
+                                              key={projectCode}
+                                              type="button"
+                                              onClick={async (e) => {
+                                                e.preventDefault()
+                                                e.stopPropagation()
+                                                setProjectCodeSearch(projectCode)
+                                                setShowProjectDropdown(false)
+                                                await searchByProjectCodeDirect(projectCode)
+                                              }}
+                                              onMouseDown={(e) => {
+                                                e.preventDefault()
+                                                e.stopPropagation()
+                                              }}
+                                              className={`w-full text-left px-4 py-2.5 hover:bg-blue-50 dark:hover:bg-blue-900/30 border-b border-gray-100 dark:border-gray-700 last:border-b-0 transition-all cursor-pointer ${
+                                                isExactMatch ? 'bg-blue-50 dark:bg-blue-900/20 border-l-4 border-l-blue-500' : ''
+                                              }`}
+                                            >
+                                              <div className="flex items-center justify-between">
+                                                <div className="font-medium text-gray-900 dark:text-white text-sm">
+                                                  {highlightMatch(projectCode, projectCodeSearch)}
+                                                </div>
+                                                {isExactMatch && (
+                                                  <span className="px-2 py-0.5 bg-blue-500 text-white text-xs rounded-full font-semibold">
+                                                    Exact
+                                                  </span>
+                                                )}
+                                              </div>
+                                            </button>
+                                          )
+                                        })}
+                                        {/* Summary footer */}
+                                        <div className="sticky bottom-0 px-4 py-2.5 text-xs text-blue-600 dark:text-blue-400 text-center border-t-2 border-blue-200 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/30 font-semibold backdrop-blur-sm">
+                                          📋 Showing all {filteredProjects.length} of {availableProjects.length} project{availableProjects.length > 1 ? 's' : ''}
+                                          {projectCodeSearch.trim() && filteredProjects.length < availableProjects.length && (
+                                            <span className="block mt-1 text-blue-500 dark:text-blue-400">
+                                              💡 Type more to narrow down results
+                                            </span>
+                                          )}
                                         </div>
-                                      </button>
-                                    ))
-                                  ) : (
-                                    <div className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 text-center">
-                                      {projectCodeSearch.trim() 
-                                        ? `No projects found matching "${projectCodeSearch}"`
-                                        : 'No projects available'}
-                                    </div>
-                                  )}
-                                  {filteredProjects.length > 0 && (
-                                    <div className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400 text-center border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
-                                      Showing {filteredProjects.length} of {availableProjects.length} project{availableProjects.length > 1 ? 's' : ''}
-                                    </div>
-                                  )}
-                                </>
-                              )
-                            })()}
+                                      </>
+                                    ) : (
+                                      <div className="px-4 py-6 text-sm text-gray-500 dark:text-gray-400 text-center">
+                                        <AlertCircle className="h-8 w-8 mx-auto mb-2 text-gray-400" />
+                                        <div className="font-medium">No projects found</div>
+                                        <div className="text-xs mt-1">Try a different search term</div>
+                                      </div>
+                                    )}
+                                  </>
+                                )
+                              })()}
+                            </div>
                           </div>
                         )}
                       </>
@@ -4000,21 +4389,40 @@ export default function ManpowerPage() {
                       <input
                         type="text"
                         placeholder="Type project code manually (e.g., P4110-P, P4110)..."
-                      value={projectCodeSearch}
-                      onChange={(e) => setProjectCodeSearch(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        value={projectCodeSearch}
+                        onChange={(e) => setProjectCodeSearch(e.target.value)}
+                        onKeyDown={(e) => {
+                          // Allow Enter to search
+                          if (e.key === 'Enter' && projectCodeSearch.trim()) {
+                            e.preventDefault()
+                            handleSearchSubmit(e as any)
+                          }
+                        }}
+                        className="w-full pl-12 pr-4 py-3 border-2 border-blue-200 dark:border-blue-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed relative z-0"
                         disabled={loading || loadingProjects}
-                    />
+                      />
+                    )}
+                    {isSearching && (
+                      <div className="absolute right-4 top-1/2 transform -translate-y-1/2">
+                        <RefreshCw className="h-5 w-5 text-blue-500 animate-spin" />
+                      </div>
                     )}
                   </div>
                   <Button
                     type="submit"
-                    disabled={loading || !projectCodeSearch.trim()}
+                    onClick={(e) => {
+                      e.preventDefault()
+                      if (projectCodeSearch.trim() && !loading && !isSearching) {
+                        handleSearchSubmit(e as any)
+                      }
+                    }}
+                    disabled={loading || !projectCodeSearch.trim() || isSearching}
+                    className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {loading ? (
+                    {loading || isSearching ? (
                       <>
                         <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                        Loading...
+                        Searching...
                       </>
                     ) : (
                       <>
@@ -4029,72 +4437,99 @@ export default function ManpowerPage() {
                     onClick={loadAvailableProjects}
                     disabled={loadingProjects}
                     title="Refresh Projects List"
+                    className="px-4 py-3 border-2 hover:bg-blue-50 dark:hover:bg-blue-900/20"
                   >
-                    <RefreshCw className={`h-4 w-4 ${loadingProjects ? 'animate-spin' : ''}`} />
+                    <RefreshCw className={`h-5 w-5 ${loadingProjects ? 'animate-spin' : ''}`} />
                   </Button>
                 </div>
-                <div className="flex items-center justify-between text-sm">
-                  <div className="flex flex-col gap-1">
-                    <p className="text-gray-500 dark:text-gray-400">
-                      {loadingProjects 
-                        ? '⏳ Loading projects...'
-                        : (() => {
-                            const filteredCount = projectCodeSearch 
-                              ? availableProjects.filter(p => p.toLowerCase().includes(projectCodeSearch.toLowerCase())).length
-                              : availableProjects.length
-                            const totalCount = availableProjects.length
-                            
-                            if (availableProjects.length > 0) {
-                              if (projectCodeSearch && showProjectDropdown) {
-                                return `📋 Showing ${filteredCount} of ${totalCount} project${totalCount > 1 ? 's' : ''}`
-                              }
-                              return `📋 ${totalCount} project${totalCount > 1 ? 's' : ''} available`
-                            }
-                            return '⚠️ No projects found. Import data from Database Manager or search manually.'
-                          })()}
-                    </p>
-                    {availableProjects.length === 0 && !loadingProjects && (
-                      <p className="text-xs text-gray-400 dark:text-gray-500">
-                        💡 You can still search manually by typing a project code
+                
+                {/* Status & Info */}
+                <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-700">
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center gap-2">
+                      {loadingProjects ? (
+                        <span className="text-sm text-blue-600 dark:text-blue-400 flex items-center gap-2">
+                          <RefreshCw className="h-4 w-4 animate-spin" />
+                          Loading projects...
+                        </span>
+                      ) : (
+                        <>
+                          {availableProjects.length > 0 ? (
+                            <div className="flex items-center gap-2">
+                              <CheckCircle className="h-4 w-4 text-green-500" />
+                              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                {(() => {
+                                  const filteredCount = projectCodeSearch 
+                                    ? availableProjects.filter(p => p.toLowerCase().includes(projectCodeSearch.toLowerCase())).length
+                                    : availableProjects.length
+                                  const totalCount = availableProjects.length
+                                  
+                                  if (projectCodeSearch && showProjectDropdown) {
+                                    return `📋 ${filteredCount} of ${totalCount} project${totalCount > 1 ? 's' : ''} match your search`
+                                  }
+                                  return `📋 ${totalCount} project${totalCount > 1 ? 's' : ''} available`
+                                })()}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <AlertCircle className="h-4 w-4 text-yellow-500" />
+                              <span className="text-sm text-gray-600 dark:text-gray-400">
+                                No projects loaded. You can still search manually.
+                              </span>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                    {availableProjects.length > 0 && projectCodeSearch && showProjectDropdown && (
+                      <p className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                        <span>💡</span>
+                        <span>Click a project to load its records automatically</span>
                       </p>
                     )}
-                    {availableProjects.length > 0 && projectCodeSearch && showProjectDropdown && (
-                      <p className="text-xs text-blue-500 dark:text-blue-400">
-                        💡 Type to search projects, then click to select
+                    {hasSearched && data.length > 0 && (
+                      <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                        <CheckCircle className="h-3 w-3" />
+                        <span>Successfully loaded {data.length.toLocaleString()} record{data.length > 1 ? 's' : ''} for "{projectCodeSearch}"</span>
                       </p>
                     )}
                   </div>
-                  {loadingProjects && (
-                    <span className="text-blue-500 flex items-center gap-1">
-                      <RefreshCw className="h-3 w-3 animate-spin" />
-                      Loading...
-                    </span>
-                  )}
                 </div>
               </form>
             </CardContent>
           </Card>
 
-          {/* Advanced Filters (only shown when data is loaded) */}
+          {/* ✅ Enhanced Filters & Search (only shown when data is loaded) */}
           {data.length > 0 && (
-            <Card>
-              <CardHeader>
+            <Card className="border-2 border-purple-200 dark:border-purple-800 shadow-xl">
+              <CardHeader className="bg-gradient-to-r from-purple-50 via-indigo-50 to-blue-50 dark:from-purple-900/20 dark:via-indigo-900/20 dark:to-blue-900/20 border-b-2 border-purple-200 dark:border-purple-800">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2">
-                    <SlidersHorizontal className="h-5 w-5" />
-                    Filters & Search
-                    {activeFiltersCount > 0 && (
-                      <span className="ml-2 px-2 py-1 text-xs font-semibold bg-blue-500 text-white rounded-full">
-                        {activeFiltersCount}
-                      </span>
-                    )}
-                  </CardTitle>
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-gradient-to-br from-purple-500 to-indigo-500 rounded-xl shadow-lg">
+                      <SlidersHorizontal className="h-5 w-5 text-white" />
+                    </div>
+                    <div>
+                      <CardTitle className="flex items-center gap-2 text-purple-700 dark:text-purple-300">
+                        Filters & Search
+                        {activeFiltersCount > 0 && (
+                          <span className="px-2.5 py-1 text-xs font-bold bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded-full shadow-md animate-pulse">
+                            {activeFiltersCount} Active
+                          </span>
+                        )}
+                      </CardTitle>
+                      <p className="text-xs text-purple-600 dark:text-purple-400 mt-0.5">
+                        Filter and search through {data.length.toLocaleString()} records
+                      </p>
+                    </div>
+                  </div>
                   <div className="flex items-center gap-2">
                     {activeFiltersCount > 0 && (
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={clearAllFilters}
+                        className="border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
                       >
                         <X className="h-4 w-4 mr-1" />
                         Clear All
@@ -4104,6 +4539,7 @@ export default function ManpowerPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                      className="border-purple-300 dark:border-purple-700 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20"
                     >
                       <Filter className="h-4 w-4 mr-1" />
                       {showAdvancedFilters ? 'Hide' : 'Show'} Filters
@@ -4112,29 +4548,140 @@ export default function ManpowerPage() {
                 </div>
               </CardHeader>
               <CardContent className="pt-6">
-                <div className="space-y-4">
-                  {/* Quick Search */}
-                  <div className="space-y-2">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                    <input
-                      type="text"
-                        placeholder="🔍 Quick search in all fields (supports multiple words: e.g., 'P4110 engineer')"
-                      value={searchTerm}
-                      onChange={(e) => {
-                        setSearchTerm(e.target.value)
-                        setCurrentPage(1) // Reset to first page when searching
-                      }}
-                      className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                    </div>
-                    {searchTerm && (
-                      <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                        <span>💡 Tip: You can search multiple terms separated by spaces</span>
+                <div className="space-y-6">
+                  {/* ✅ Enhanced Quick Search with Autocomplete */}
+                  <div className="space-y-3">
+                    <div className="relative group">
+                      <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-indigo-500/10 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"></div>
+                      <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-purple-500 z-10 pointer-events-none" />
+                      <input
+                        type="text"
+                        placeholder="🔍 Type to search... (e.g., 'P4110', 'Engineer', 'L001', '2024-01-15')"
+                        value={searchTerm}
+                        onChange={(e) => {
+                          const value = e.target.value
+                          setSearchTerm(value)
+                          setCurrentPage(1)
+                          setShowSearchSuggestions(value.length >= 2)
+                        }}
+                        onFocus={() => {
+                          if (searchTerm.length >= 2) {
+                            setShowSearchSuggestions(true)
+                          }
+                        }}
+                        onBlur={() => {
+                          setTimeout(() => setShowSearchSuggestions(false), 200)
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') {
+                            setShowSearchSuggestions(false)
+                          }
+                          if (e.key === 'Enter' && searchSuggestions.length > 0) {
+                            // Auto-select first suggestion
+                            const firstSuggestion = searchSuggestions[0]
+                            if (firstSuggestion) {
+                              setSearchTerm(firstSuggestion.value)
+                              setShowSearchSuggestions(false)
+                              e.preventDefault()
+                            }
+                          }
+                        }}
+                        className="w-full pl-12 pr-4 py-3 border-2 border-purple-200 dark:border-purple-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all shadow-sm hover:shadow-md"
+                      />
+                      {searchTerm && (
                         <button
                           type="button"
-                          onClick={() => setSearchTerm('')}
-                          className="text-blue-500 hover:text-blue-700 underline"
+                          onClick={() => {
+                            setSearchTerm('')
+                            setShowSearchSuggestions(false)
+                          }}
+                          className="absolute right-4 top-1/2 transform -translate-y-1/2 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors z-20"
+                        >
+                          <X className="h-4 w-4 text-gray-400" />
+                        </button>
+                      )}
+                      
+                      {/* Search Suggestions Dropdown */}
+                      {showSearchSuggestions && searchSuggestions.length > 0 && (
+                        <div className="absolute z-50 w-full mt-2 bg-white dark:bg-gray-800 border-2 border-purple-200 dark:border-purple-700 rounded-xl shadow-2xl max-h-64 overflow-hidden">
+                          <div className="overflow-y-auto max-h-64">
+                            <div className="px-3 py-2 text-xs font-semibold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20 border-b border-purple-200 dark:border-purple-800">
+                              💡 Quick Suggestions
+                            </div>
+                            {searchSuggestions.map((suggestion, index) => (
+                              <button
+                                key={`${suggestion.type}-${suggestion.value}-${index}`}
+                                type="button"
+                                onClick={() => {
+                                  setSearchTerm(suggestion.value)
+                                  setShowSearchSuggestions(false)
+                                  setCurrentPage(1)
+                                }}
+                                className="w-full text-left px-4 py-2.5 hover:bg-purple-50 dark:hover:bg-purple-900/30 border-b border-gray-100 dark:border-gray-700 last:border-b-0 transition-all"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <div className={`p-1 rounded ${
+                                    suggestion.type === 'designation' ? 'bg-blue-100 dark:bg-blue-900' :
+                                    suggestion.type === 'labourCode' ? 'bg-green-100 dark:bg-green-900' :
+                                    'bg-purple-100 dark:bg-purple-900'
+                                  }`}>
+                                    {suggestion.type === 'designation' ? <UserCheck className="h-3 w-3 text-blue-600 dark:text-blue-400" /> :
+                                     suggestion.type === 'labourCode' ? <UserCheck className="h-3 w-3 text-green-600 dark:text-green-400" /> :
+                                     <Search className="h-3 w-3 text-purple-600 dark:text-purple-400" />}
+                                  </div>
+                                  <span className="text-sm text-gray-900 dark:text-white font-medium">{suggestion.label}</span>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Quick Filter Chips */}
+                    {data.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-semibold text-gray-600 dark:text-gray-400">Quick Filters:</span>
+                        {uniqueValues.designations.slice(0, 5).map(des => (
+                          <button
+                            key={des}
+                            type="button"
+                            onClick={() => {
+                              setFilters({ ...filters, designation: des })
+                              setCurrentPage(1)
+                            }}
+                            className={`px-3 py-1 text-xs rounded-full transition-all ${
+                              filters.designation === des
+                                ? 'bg-purple-500 text-white shadow-md'
+                                : 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-800'
+                            }`}
+                          >
+                            {des}
+                          </button>
+                        ))}
+                        {uniqueValues.designations.length > 5 && (
+                          <span className="text-xs text-gray-500 dark:text-gray-400">
+                            +{uniqueValues.designations.length - 5} more
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    
+                    {/* Search Results Info */}
+                    {searchTerm && (
+                      <div className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-xl border-2 border-blue-200 dark:border-blue-800">
+                        <Search className="h-4 w-4 text-blue-500" />
+                        <span className="text-sm text-blue-700 dark:text-blue-300 flex-1">
+                          Found <strong className="text-blue-900 dark:text-blue-100">{filteredData.length.toLocaleString()}</strong> of <strong>{data.length.toLocaleString()}</strong> records
+                          {searchTerm && ` matching "${searchTerm}"`}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSearchTerm('')
+                            setShowSearchSuggestions(false)
+                          }}
+                          className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 font-medium underline"
                         >
                           Clear
                         </button>
@@ -4142,91 +4689,233 @@ export default function ManpowerPage() {
                     )}
                   </div>
                   
-                  {/* Advanced Filters (Collapsible) */}
+                  {/* ✅ Enhanced Active Filters Display */}
+                  {activeFiltersCount > 0 && (
+                    <div className="flex flex-wrap items-center gap-2 p-4 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 rounded-xl border-2 border-purple-200 dark:border-purple-800">
+                      <span className="text-sm font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-1">
+                        <Filter className="h-4 w-4" />
+                        Active Filters:
+                      </span>
+                      {filters.projectCode && (
+                        <span className="px-3 py-1 bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 rounded-full text-xs font-medium flex items-center gap-1">
+                          Project: {filters.projectCode}
+                          <button onClick={() => setFilters({ ...filters, projectCode: '' })} className="hover:text-purple-900">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      )}
+                      {filters.date && (
+                        <span className="px-3 py-1 bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 rounded-full text-xs font-medium flex items-center gap-1">
+                          Date: {filters.date}
+                          <button onClick={() => setFilters({ ...filters, date: '' })} className="hover:text-purple-900">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      )}
+                      {filters.labourCode && (
+                        <span className="px-3 py-1 bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 rounded-full text-xs font-medium flex items-center gap-1">
+                          Labour: {filters.labourCode}
+                          <button onClick={() => setFilters({ ...filters, labourCode: '' })} className="hover:text-purple-900">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      )}
+                      {filters.designation && (
+                        <span className="px-3 py-1 bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 rounded-full text-xs font-medium flex items-center gap-1">
+                          Designation: {filters.designation}
+                          <button onClick={() => setFilters({ ...filters, designation: '' })} className="hover:text-purple-900">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      )}
+                      {filters.overtime && (
+                        <span className="px-3 py-1 bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 rounded-full text-xs font-medium flex items-center gap-1">
+                          Overtime: {filters.overtime === 'yes' ? 'Yes' : 'No'}
+                          <button onClick={() => setFilters({ ...filters, overtime: '' })} className="hover:text-purple-900">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      )}
+                      {(filters.startDate || filters.endDate) && (
+                        <span className="px-3 py-1 bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 rounded-full text-xs font-medium flex items-center gap-1">
+                          Date Range: {filters.startDate || '...'} - {filters.endDate || '...'}
+                          <button onClick={() => setFilters({ ...filters, startDate: '', endDate: '' })} className="hover:text-purple-900">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      )}
+                      {(filters.minHours || filters.maxHours) && (
+                        <span className="px-3 py-1 bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 rounded-full text-xs font-medium flex items-center gap-1">
+                          Hours: {filters.minHours || '0'} - {filters.maxHours || '∞'}
+                          <button onClick={() => setFilters({ ...filters, minHours: '', maxHours: '' })} className="hover:text-purple-900">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      )}
+                      {(filters.minCost || filters.maxCost) && (
+                        <span className="px-3 py-1 bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 rounded-full text-xs font-medium flex items-center gap-1">
+                          Cost: {filters.minCost || '0'} - {filters.maxCost || '∞'} AED
+                          <button onClick={() => setFilters({ ...filters, minCost: '', maxCost: '' })} className="hover:text-purple-900">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* ✅ Enhanced Advanced Filters (Collapsible) */}
                   {showAdvancedFilters && (
-                    <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4 space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {/* Project Code Filter (Dropdown) */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            <Search className="h-4 w-4 inline mr-1" />
+                    <div className="border-t-2 border-purple-200 dark:border-purple-800 pt-6 mt-6 space-y-6 animate-in slide-in-from-top-2 duration-300">
+                      <div className="flex items-center gap-2 mb-4">
+                        <SlidersHorizontal className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                        <h3 className="text-lg font-semibold text-purple-700 dark:text-purple-300">Advanced Filters</h3>
+                        <div className="flex-1 h-px bg-gradient-to-r from-purple-200 to-transparent"></div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                        {/* Project Code Filter (Searchable Dropdown) */}
+                        <div className="space-y-2">
+                          <label className="flex items-center gap-2 text-sm font-semibold text-purple-700 dark:text-purple-300">
+                            <div className="p-1 bg-purple-100 dark:bg-purple-900 rounded">
+                              <Search className="h-3.5 w-3.5" />
+                            </div>
                             Project Code
                           </label>
-                          <select
-                            value={filters.projectCode || ''}
-                            onChange={(e) => {
-                              setFilters({ ...filters, projectCode: e.target.value })
-                              setCurrentPage(1)
-                            }}
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          >
-                            <option value="">All Projects</option>
-                            {availableProjects.map((projectCode) => (
-                              <option key={projectCode} value={projectCode}>
-                                {projectCode}
-                              </option>
-                            ))}
-                          </select>
+                          <div className="relative">
+                            <select
+                              value={filters.projectCode || ''}
+                              onChange={(e) => {
+                                setFilters({ ...filters, projectCode: e.target.value })
+                                setCurrentPage(1)
+                              }}
+                              className="w-full px-4 py-2.5 border-2 border-purple-200 dark:border-purple-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all shadow-sm hover:shadow-md appearance-none cursor-pointer"
+                            >
+                              <option value="">🌐 All Projects ({uniqueValues.projectCodes.length} available)</option>
+                              {uniqueValues.projectCodes.map((projectCode) => (
+                                <option key={projectCode} value={projectCode}>
+                                  {projectCode}
+                                </option>
+                              ))}
+                            </select>
+                            {filters.projectCode && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFilters({ ...filters, projectCode: '' })
+                                  setCurrentPage(1)
+                                }}
+                                className="absolute right-8 top-1/2 transform -translate-y-1/2 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full"
+                              >
+                                <X className="h-3 w-3 text-gray-400" />
+                              </button>
+                            )}
+                          </div>
                         </div>
                         
-                        {/* Date Filter (from "Column 1") */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            <Calendar className="h-4 w-4 inline mr-1" />
+                        {/* Date Filter - Real Calendar Picker */}
+                        <div className="space-y-2">
+                          <label className="flex items-center gap-2 text-sm font-semibold text-purple-700 dark:text-purple-300">
+                            <div className="p-1 bg-purple-100 dark:bg-purple-900 rounded">
+                              <Calendar className="h-3.5 w-3.5" />
+                            </div>
                             Date
                           </label>
                           <input
-                            type="text"
-                            placeholder="Filter by Date (e.g., 12/1/2024)"
-                            value={filters.date}
+                            type="date"
+                            value={filters.date || ''}
                             onChange={(e) => {
                               setFilters({ ...filters, date: e.target.value })
                               setCurrentPage(1)
                             }}
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            className="w-full px-4 py-2.5 border-2 border-purple-200 dark:border-purple-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all shadow-sm hover:shadow-md cursor-pointer [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-100 [&::-webkit-calendar-picker-indicator]:scale-125"
                           />
                         </div>
                         
-                        {/* Labour Code Filter */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            <UserCheck className="h-4 w-4 inline mr-1" />
+                        {/* Labour Code Filter (with suggestions) */}
+                        <div className="space-y-2">
+                          <label className="flex items-center gap-2 text-sm font-semibold text-purple-700 dark:text-purple-300">
+                            <div className="p-1 bg-purple-100 dark:bg-purple-900 rounded">
+                              <UserCheck className="h-3.5 w-3.5" />
+                            </div>
                             Labour Code
                           </label>
-                          <input
-                            type="text"
-                            placeholder="Filter by Labour Code"
-                            value={filters.labourCode}
-                            onChange={(e) => {
-                              setFilters({ ...filters, labourCode: e.target.value })
-                              setCurrentPage(1)
-                            }}
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          />
+                          <div className="relative">
+                            <input
+                              type="text"
+                              placeholder={`e.g., L001 (${uniqueValues.labourCodes.length} available)`}
+                              value={filters.labourCode}
+                              onChange={(e) => {
+                                setFilters({ ...filters, labourCode: e.target.value })
+                                setCurrentPage(1)
+                              }}
+                              list={`labour-codes-${filters.labourCode}`}
+                              className="w-full px-4 py-2.5 border-2 border-purple-200 dark:border-purple-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all shadow-sm hover:shadow-md"
+                            />
+                            <datalist id={`labour-codes-${filters.labourCode}`}>
+                              {uniqueValues.labourCodes.slice(0, 20).map(code => (
+                                <option key={code} value={code} />
+                              ))}
+                            </datalist>
+                            {filters.labourCode && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFilters({ ...filters, labourCode: '' })
+                                  setCurrentPage(1)
+                                }}
+                                className="absolute right-3 top-1/2 transform -translate-y-1/2 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full"
+                              >
+                                <X className="h-3 w-3 text-gray-400" />
+                              </button>
+                            )}
+                          </div>
                         </div>
                         
-                        {/* Designation Filter */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            <UserCheck className="h-4 w-4 inline mr-1" />
+                        {/* Designation Filter (with suggestions) */}
+                        <div className="space-y-2">
+                          <label className="flex items-center gap-2 text-sm font-semibold text-purple-700 dark:text-purple-300">
+                            <div className="p-1 bg-purple-100 dark:bg-purple-900 rounded">
+                              <UserCheck className="h-3.5 w-3.5" />
+                            </div>
                             Designation
                           </label>
-                          <input
-                            type="text"
-                            placeholder="Filter by Designation"
-                            value={filters.designation}
-                            onChange={(e) => {
-                              setFilters({ ...filters, designation: e.target.value })
-                              setCurrentPage(1)
-                            }}
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          />
+                          <div className="relative">
+                            <input
+                              type="text"
+                              placeholder={`e.g., Engineer (${uniqueValues.designations.length} available)`}
+                              value={filters.designation}
+                              onChange={(e) => {
+                                setFilters({ ...filters, designation: e.target.value })
+                                setCurrentPage(1)
+                              }}
+                              list={`designations-${filters.designation}`}
+                              className="w-full px-4 py-2.5 border-2 border-purple-200 dark:border-purple-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all shadow-sm hover:shadow-md"
+                            />
+                            <datalist id={`designations-${filters.designation}`}>
+                              {uniqueValues.designations.map(des => (
+                                <option key={des} value={des} />
+                              ))}
+                            </datalist>
+                            {filters.designation && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFilters({ ...filters, designation: '' })
+                                  setCurrentPage(1)
+                                }}
+                                className="absolute right-3 top-1/2 transform -translate-y-1/2 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full"
+                              >
+                                <X className="h-3 w-3 text-gray-400" />
+                              </button>
+                            )}
+                          </div>
                         </div>
                         
                         {/* Overtime Filter */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            <Clock className="h-4 w-4 inline mr-1" />
+                        <div className="space-y-2">
+                          <label className="flex items-center gap-2 text-sm font-semibold text-purple-700 dark:text-purple-300">
+                            <div className="p-1 bg-purple-100 dark:bg-purple-900 rounded">
+                              <Clock className="h-3.5 w-3.5" />
+                            </div>
                             Overtime
                           </label>
                           <select
@@ -4235,19 +4924,21 @@ export default function ManpowerPage() {
                               setFilters({ ...filters, overtime: e.target.value })
                               setCurrentPage(1)
                             }}
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            className="w-full px-4 py-2.5 border-2 border-purple-200 dark:border-purple-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all shadow-sm hover:shadow-md"
                           >
-                            <option value="">All</option>
-                            <option value="yes">Has Overtime</option>
-                            <option value="no">No Overtime</option>
+                            <option value="">🌐 All Records</option>
+                            <option value="yes">✅ Has Overtime</option>
+                            <option value="no">❌ No Overtime</option>
                           </select>
                         </div>
                         
-                        {/* Start Date Filter */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            <Calendar className="h-4 w-4 inline mr-1" />
-                            Start Date (From)
+                        {/* Date Range - Start Date */}
+                        <div className="space-y-2">
+                          <label className="flex items-center gap-2 text-sm font-semibold text-purple-700 dark:text-purple-300">
+                            <div className="p-1 bg-purple-100 dark:bg-purple-900 rounded">
+                              <Calendar className="h-3.5 w-3.5" />
+                            </div>
+                            Start Date
                           </label>
                           <input
                             type="date"
@@ -4256,15 +4947,18 @@ export default function ManpowerPage() {
                               setFilters({ ...filters, startDate: e.target.value })
                               setCurrentPage(1)
                             }}
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            max={filters.endDate || undefined}
+                            className="w-full px-4 py-2.5 border-2 border-purple-200 dark:border-purple-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all shadow-sm hover:shadow-md cursor-pointer [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-100 [&::-webkit-calendar-picker-indicator]:scale-125"
                           />
                         </div>
                         
-                        {/* End Date Filter */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            <Calendar className="h-4 w-4 inline mr-1" />
-                            End Date (To)
+                        {/* Date Range - End Date */}
+                        <div className="space-y-2">
+                          <label className="flex items-center gap-2 text-sm font-semibold text-purple-700 dark:text-purple-300">
+                            <div className="p-1 bg-purple-100 dark:bg-purple-900 rounded">
+                              <Calendar className="h-3.5 w-3.5" />
+                            </div>
+                            End Date
                           </label>
                           <input
                             type="date"
@@ -4273,92 +4967,142 @@ export default function ManpowerPage() {
                               setFilters({ ...filters, endDate: e.target.value })
                               setCurrentPage(1)
                             }}
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            min={filters.startDate || undefined}
+                            className="w-full px-4 py-2.5 border-2 border-purple-200 dark:border-purple-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all shadow-sm hover:shadow-md cursor-pointer [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-100 [&::-webkit-calendar-picker-indicator]:scale-125"
                           />
                         </div>
                         
-                        {/* Min Hours Filter */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            <Clock className="h-4 w-4 inline mr-1" />
+                        {/* Hours Range - Min */}
+                        <div className="space-y-2">
+                          <label className="flex items-center gap-2 text-sm font-semibold text-purple-700 dark:text-purple-300">
+                            <div className="p-1 bg-purple-100 dark:bg-purple-900 rounded">
+                              <Clock className="h-3.5 w-3.5" />
+                            </div>
                             Min Hours
                           </label>
                           <input
                             type="number"
-                            placeholder="Minimum hours"
+                            step="0.5"
+                            min="0"
+                            placeholder="0"
                             value={filters.minHours}
                             onChange={(e) => {
                               setFilters({ ...filters, minHours: e.target.value })
                               setCurrentPage(1)
                             }}
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            className="w-full px-4 py-2.5 border-2 border-purple-200 dark:border-purple-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all shadow-sm hover:shadow-md"
                           />
                         </div>
                         
-                        {/* Max Hours Filter */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            <Clock className="h-4 w-4 inline mr-1" />
+                        {/* Hours Range - Max */}
+                        <div className="space-y-2">
+                          <label className="flex items-center gap-2 text-sm font-semibold text-purple-700 dark:text-purple-300">
+                            <div className="p-1 bg-purple-100 dark:bg-purple-900 rounded">
+                              <Clock className="h-3.5 w-3.5" />
+                            </div>
                             Max Hours
                           </label>
                           <input
                             type="number"
-                            placeholder="Maximum hours"
+                            step="0.5"
+                            min="0"
+                            placeholder="∞"
                             value={filters.maxHours}
                             onChange={(e) => {
                               setFilters({ ...filters, maxHours: e.target.value })
                               setCurrentPage(1)
                             }}
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            className="w-full px-4 py-2.5 border-2 border-purple-200 dark:border-purple-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all shadow-sm hover:shadow-md"
                           />
                         </div>
                         
-                        {/* Min Cost Filter */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            <DollarSign className="h-4 w-4 inline mr-1" />
+                        {/* Cost Range - Min */}
+                        <div className="space-y-2">
+                          <label className="flex items-center gap-2 text-sm font-semibold text-purple-700 dark:text-purple-300">
+                            <div className="p-1 bg-purple-100 dark:bg-purple-900 rounded">
+                              <DollarSign className="h-3.5 w-3.5" />
+                            </div>
                             Min Cost (AED)
                           </label>
                           <input
                             type="number"
-                            placeholder="Minimum cost"
+                            step="0.01"
+                            min="0"
+                            placeholder="0.00"
                             value={filters.minCost}
                             onChange={(e) => {
                               setFilters({ ...filters, minCost: e.target.value })
                               setCurrentPage(1)
                             }}
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            className="w-full px-4 py-2.5 border-2 border-purple-200 dark:border-purple-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all shadow-sm hover:shadow-md"
                           />
                         </div>
                         
-                        {/* Max Cost Filter */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            <DollarSign className="h-4 w-4 inline mr-1" />
+                        {/* Cost Range - Max */}
+                        <div className="space-y-2">
+                          <label className="flex items-center gap-2 text-sm font-semibold text-purple-700 dark:text-purple-300">
+                            <div className="p-1 bg-purple-100 dark:bg-purple-900 rounded">
+                              <DollarSign className="h-3.5 w-3.5" />
+                            </div>
                             Max Cost (AED)
                           </label>
                           <input
                             type="number"
-                            placeholder="Maximum cost"
+                            step="0.01"
+                            min="0"
+                            placeholder="∞"
                             value={filters.maxCost}
                             onChange={(e) => {
                               setFilters({ ...filters, maxCost: e.target.value })
                               setCurrentPage(1)
                             }}
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            className="w-full px-4 py-2.5 border-2 border-purple-200 dark:border-purple-700 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all shadow-sm hover:shadow-md"
                           />
                         </div>
                       </div>
                       
-                      {/* Filter Summary */}
-                      {activeFiltersCount > 0 && (
-                        <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
-                          <p className="text-sm text-gray-600 dark:text-gray-400">
-                            📊 Showing <strong>{filteredData.length.toLocaleString()}</strong> of <strong>{data.length.toLocaleString()}</strong> records
-                            {activeFiltersCount > 0 && ` (${activeFiltersCount} filter${activeFiltersCount > 1 ? 's' : ''} active)`}
-                          </p>
+                      {/* ✅ Enhanced Filter Summary */}
+                      <div className="pt-6 mt-6 border-t-2 border-purple-200 dark:border-purple-800">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-gradient-to-r from-purple-50 via-indigo-50 to-blue-50 dark:from-purple-900/20 dark:via-indigo-900/20 dark:to-blue-900/20 rounded-xl border-2 border-purple-200 dark:border-purple-800">
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-purple-700 dark:text-purple-300">
+                              {filteredData.length.toLocaleString()}
+                            </div>
+                            <div className="text-xs text-purple-600 dark:text-purple-400 mt-1">
+                              Filtered Records
+                            </div>
+                          </div>
+                          <div className="text-center border-x-2 border-purple-200 dark:border-purple-800">
+                            <div className="text-2xl font-bold text-indigo-700 dark:text-indigo-300">
+                              {data.length.toLocaleString()}
+                            </div>
+                            <div className="text-xs text-indigo-600 dark:text-indigo-400 mt-1">
+                              Total Records
+                            </div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-2xl font-bold text-blue-700 dark:text-blue-300">
+                              {activeFiltersCount}
+                            </div>
+                            <div className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                              Active Filter{activeFiltersCount !== 1 ? 's' : ''}
+                            </div>
+                          </div>
                         </div>
-                      )}
+                        {activeFiltersCount > 0 && (
+                          <div className="mt-4 flex items-center justify-center gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={clearAllFilters}
+                              className="border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+                            >
+                              <X className="h-4 w-4 mr-1" />
+                              Clear All Filters
+                            </Button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

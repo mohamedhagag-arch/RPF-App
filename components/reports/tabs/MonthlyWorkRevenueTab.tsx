@@ -749,213 +749,6 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     })
   }, [kpis, periods, activities, today, projectKPIsMap, showVirtualMaterialValues, debouncedSelectedDivisions])
 
-  // ? Calculate Virtual Material Amount per period from KPIs for activities with use_virtual_material
-  // ? FIX: analytics.activities is already filtered by divisions in getCachedPeriodValues
-  // So we should use analytics.activities directly without filtering again
-  const calculatePeriodVirtualMaterialAmount = useCallback((project: Project, analytics: any): number[] => {
-    // ? FIX: Get KPIs from projectKPIsMap, but also verify they match this specific project
-    const projectKPIs = projectKPIsMap.get(project.id)
-    let allProjectKPIs = projectKPIs?.actual || []
-    
-    // ? DOUBLE CHECK: Filter KPIs to ensure they match this specific project's full code
-    const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
-    const projectCode = (project.project_code || '').toString().trim().toUpperCase()
-    const projectSubCode = (project.project_sub_code || '').toString().trim().toUpperCase()
-    const projectId = project.id
-    
-    allProjectKPIs = allProjectKPIs.filter((kpi: any) => {
-      const rawKPI = (kpi as any).raw || {}
-      const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
-      const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
-      const kpiProjectSubCode = (kpi.project_sub_code || rawKPI['Project Sub Code'] || '').toString().trim().toUpperCase()
-      const kpiProjectId = (kpi as any).project_id || ''
-      
-      // ? PRIORITY 1: Exact match by project_full_code
-      if (kpiProjectFullCode && projectFullCode && kpiProjectFullCode === projectFullCode) {
-        return true
-      }
-      
-      // ? PRIORITY 2: Match by project_id
-      if (projectId && kpiProjectId && projectId === kpiProjectId) {
-        return true
-      }
-      
-      // ? PRIORITY 3: Match by project_code + project_sub_code
-      if (projectSubCode && kpiProjectSubCode) {
-        if (kpiProjectCode === projectCode && kpiProjectSubCode === projectSubCode) {
-          return true
-        }
-      }
-      
-      return false
-    })
-    // ? FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
-    const projectActivities = analytics.activities || []
-    
-    // Get Virtual Material Percentage from project
-    let virtualMaterialPercentage = 0
-    const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
-    
-    if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
-      let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
-      const parsedValue = parseFloat(cleanedValue)
-      if (!isNaN(parsedValue)) {
-        if (parsedValue > 0 && parsedValue <= 1) {
-          virtualMaterialPercentage = parsedValue * 100
-        } else {
-          virtualMaterialPercentage = parsedValue
-        }
-      }
-    }
-    
-    if (virtualMaterialPercentage === 0) {
-      return periods.map(() => 0)
-    }
-    
-    return periods.map((period) => {
-      const periodStart = period.start
-      const periodEnd = period.end
-      const effectivePeriodEnd = periodEnd > today ? today : periodEnd
-      
-      // Get KPI Actual for this period (same logic as calculatePeriodEarnedValue)
-      const actualKPIsInPeriod = allProjectKPIs.filter((kpi: any) => {
-        const inputType = String(
-          kpi.input_type || 
-          kpi['Input Type'] || 
-          (kpi as any).raw?.['Input Type'] || 
-          (kpi as any).raw?.['input_type'] ||
-          ''
-        ).trim().toLowerCase()
-        
-        if (inputType !== 'actual') return false
-        
-        const rawKPIDate = (kpi as any).raw || {}
-        const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
-        const actualDateValue = (kpi as any).actual_date || rawKPIDate['Actual Date'] || ''
-        const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
-        
-        let kpiDateStr = ''
-        if (kpi.input_type === 'Actual' && actualDateValue) {
-          kpiDateStr = actualDateValue
-        } else if (dayValue) {
-          kpiDateStr = activityDateValue || dayValue
-        } else {
-          kpiDateStr = activityDateValue || actualDateValue
-        }
-        
-        if (!kpiDateStr) return false
-        
-        try {
-          const kpiDate = new Date(kpiDateStr)
-          if (isNaN(kpiDate.getTime())) return false
-          
-          kpiDate.setHours(0, 0, 0, 0)
-          const normalizedPeriodStart = new Date(periodStart)
-          normalizedPeriodStart.setHours(0, 0, 0, 0)
-          const normalizedPeriodEnd = new Date(effectivePeriodEnd)
-          normalizedPeriodEnd.setHours(23, 59, 59, 999)
-          
-          return kpiDate >= normalizedPeriodStart && kpiDate <= normalizedPeriodEnd
-        } catch {
-          return false
-        }
-      })
-      
-      return actualKPIsInPeriod.reduce((sum: number, kpi: any) => {
-        try {
-          const rawKpi = (kpi as any).raw || {}
-          const quantityValue = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
-          
-          // Find related activity (same logic as calculatePeriodEarnedValue)
-          const kpiActivityName = (kpi.activity_name || (kpi as any)['Activity Name'] || '').toLowerCase().trim()
-          const kpiProjectFullCode = (kpi.project_full_code || kpi.project_code || '').toLowerCase().trim()
-          const kpiProjectCode = (kpi.project_code || '').toLowerCase().trim()
-          
-          const kpiZoneRaw = (kpi.zone || rawKpi['Zone'] || rawKpi['Zone Number'] || '').toString().trim()
-          let kpiZone = kpiZoneRaw.toLowerCase().trim()
-          if (kpiZone && kpiProjectCode) {
-            const projectCodeUpper = kpiProjectCode.toUpperCase()
-            kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
-            kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
-            kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
-          }
-          if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
-          
-          // ✅ FIX: Use kpiMatchesActivity for exact matching including zone - no fallback to avoid cross-zone matching
-          const relatedActivity = projectActivities.find((a: BOQActivity) => {
-            return kpiMatchesActivity(kpi, a)
-          })
-          
-          // ? CRITICAL: Calculate Virtual Material ONLY for activities with use_virtual_material === true
-          // Check if activity uses virtual material
-          const useVirtualMaterial = relatedActivity?.use_virtual_material ?? false
-          if (!useVirtualMaterial) return sum
-          
-          // Calculate base value (same logic as calculatePeriodEarnedValue)
-          let baseValue = 0
-          
-          if (relatedActivity) {
-            const rawActivity = (relatedActivity as any).raw || {}
-            const totalValueFromActivity = relatedActivity.total_value || 
-                                         parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 
-                                         0
-            const totalUnits = relatedActivity.total_units || 
-                            relatedActivity.planned_units ||
-                            parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 
-                            0
-            let rate = 0
-            if (totalUnits > 0 && totalValueFromActivity > 0) {
-              rate = totalValueFromActivity / totalUnits
-            } else {
-              rate = relatedActivity.rate || 
-                    parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 
-                    0
-            }
-            if (rate > 0 && quantityValue > 0) {
-              baseValue = quantityValue * rate
-            }
-          }
-          
-          if (baseValue === 0) {
-            let kpiValue = 0
-            if (rawKpi['Value'] !== undefined && rawKpi['Value'] !== null) {
-              const val = rawKpi['Value']
-              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
-            }
-            if (kpiValue === 0 && rawKpi.value !== undefined && rawKpi.value !== null) {
-              const val = rawKpi.value
-              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
-            }
-            if (kpiValue === 0 && kpi.value !== undefined && kpi.value !== null) {
-              const val = kpi.value
-              kpiValue = typeof val === 'number' ? val : parseFloat(String(val).replace(/,/g, '')) || 0
-            }
-            if (kpiValue > 0) {
-              baseValue = kpiValue
-            }
-          }
-          
-          if (baseValue === 0) {
-            const actualValue = kpi.actual_value || parseFloat(String(rawKpi['Actual Value'] || '0').replace(/,/g, '')) || 0
-            if (actualValue > 0) {
-              baseValue = actualValue
-            }
-          }
-          
-          // Calculate Virtual Material Amount = Base Value � (Virtual Material Percentage / 100)
-          if (baseValue > 0) {
-            const virtualMaterialAmount = baseValue * (virtualMaterialPercentage / 100)
-            return sum + virtualMaterialAmount
-          }
-          
-          return sum
-        } catch (error) {
-          return sum
-        }
-      }, 0)
-    })
-  }, [kpis, periods, activities, today, projectKPIsMap, debouncedSelectedDivisions])
-
   // Calculate period planned value
   // ? FIX: analytics.activities is already filtered by divisions in getCachedPeriodValues
   // So we should use analytics.activities directly without filtering again
@@ -2130,8 +1923,24 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       
       return false
     })
-    // ? FIX: Use analytics.activities directly (already filtered by divisions in getCachedPeriodValues)
-    const projectActivities = analytics.activities || []
+    // ✅ FIX: Combine activities from analytics.activities AND projectActivitiesMap to ensure ALL activities are included
+    // This ensures VM Planned values from all child activities are aggregated correctly at the project level
+    const projectActivitiesFromAnalytics = analytics.activities || []
+    const projectActivitiesFromMap = projectActivitiesMap.get(project.id) || []
+    // Combine both sources and deduplicate by activity id to ensure all activities are included
+    const allProjectActivitiesMap = new Map<string, BOQActivity>()
+    projectActivitiesFromAnalytics.forEach((activity: BOQActivity) => {
+      if (activity.id) {
+        allProjectActivitiesMap.set(activity.id, activity)
+      }
+    })
+    projectActivitiesFromMap.forEach((activity: BOQActivity) => {
+      const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+      if (activity.id && (activityFullCode === projectFullCode || activity.project_id === project.id)) {
+        allProjectActivitiesMap.set(activity.id, activity)
+      }
+    })
+    const projectActivities = Array.from(allProjectActivitiesMap.values())
     
     // Get Virtual Material Percentage from project
     let virtualMaterialPercentage = 0
@@ -2367,9 +2176,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   // ? PERFORMANCE: Helper to get cached activity period values
   const getCachedActivityPeriodValues = useCallback((activityId: string, activity: BOQActivity, project: Project, projectFullCode: string): { earned: number[], planned: number[], virtualMaterial: number[], plannedVirtualMaterial: number[] } => {
     // ✅ FIX: Include zone in cache key to ensure different zones have different cache entries
+    // Note: VM Actual doesn't depend on viewPlannedValue, so we don't include it in cache key for VM Actual
     const rawActivity = (activity as any).raw || {}
     const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim().toUpperCase()
-    const cacheKey = `${activityId}-${activityZone}-${selectedDivisionsKey}`
+    // ✅ FIX: Include viewPlannedValue in cache key only for planned values, but VM Actual is always calculated
+    const cacheKey = `${activityId}-${activityZone}-${selectedDivisionsKey}-${viewPlannedValue ? 'planned' : 'actual'}`
     
     // Check if already cached
     if (activityPeriodValuesCache.current.has(cacheKey)) {
@@ -2625,6 +2436,56 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     activityPeriodValuesCache.current.set(cacheKey, values)
     return values
   }, [periods, today, projectKPIsMap, kpis, kpiMatchesActivity, viewPlannedValue, showVirtualMaterialValues, selectedDivisionsKey])
+  
+  // ? Calculate Virtual Material Amount per period from KPIs for activities with use_virtual_material
+  // ? FIX: Aggregate VM from child activities instead of recalculating from KPIs
+  // This ensures VM Actual values from all child activities are correctly aggregated at the project level
+  const calculatePeriodVirtualMaterialAmount = useCallback((project: Project, analytics: any): number[] => {
+    // ✅ FIX: Aggregate VM from child activities instead of recalculating from KPIs
+    // This ensures VM Actual values from all child activities are correctly aggregated at the project level
+    const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
+    
+    // ✅ FIX: Combine activities from analytics.activities AND projectActivitiesMap to ensure ALL activities are included
+    const projectActivitiesFromAnalytics = analytics.activities || []
+    const projectActivitiesFromMap = projectActivitiesMap.get(project.id) || []
+    // Combine both sources and deduplicate by activity id to ensure all activities are included
+    const allProjectActivitiesMap = new Map<string, BOQActivity>()
+    projectActivitiesFromAnalytics.forEach((activity: BOQActivity) => {
+      if (activity.id) {
+        allProjectActivitiesMap.set(activity.id, activity)
+      }
+    })
+    projectActivitiesFromMap.forEach((activity: BOQActivity) => {
+      const activityFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toUpperCase()
+      if (activity.id && (activityFullCode === projectFullCode || activity.project_id === project.id)) {
+        allProjectActivitiesMap.set(activity.id, activity)
+      }
+    })
+    const projectActivities = Array.from(allProjectActivitiesMap.values())
+    
+    // ✅ FIX: Aggregate VM from child activities using getCachedActivityPeriodValues
+    // This ensures we use the same calculation logic as activity rows
+    return periods.map((_, periodIndex) => {
+      let totalVM = 0
+      
+      projectActivities.forEach((activity: BOQActivity) => {
+        // Only include activities that use virtual material
+        if (!activity.use_virtual_material) return
+        
+        // Get cached activity period values (includes VM calculation)
+        const activityId = activity.id || ''
+        const activityValues = getCachedActivityPeriodValues(activityId, activity, project, projectFullCode)
+        const activityVM = activityValues?.virtualMaterial || []
+        
+        // Sum VM for this period from this activity
+        if (activityVM[periodIndex] !== undefined) {
+          totalVM += activityVM[periodIndex]
+        }
+      })
+      
+      return totalVM
+    })
+  }, [periods, projectActivitiesMap, getCachedActivityPeriodValues])
   
   // ? PERFORMANCE: Calculate values lazily only for projects that need to be displayed
   // This function is called when we need a project's values
@@ -2999,322 +2860,37 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     const grandTotalEarnedValue = periodEarnedValueTotals.reduce((sum, val) => sum + val, 0)
     const grandTotalPlannedValue = periodPlannedValueTotals.reduce((sum, val) => sum + val, 0)
     
-    // ? Calculate total Virtual Material Amount from PROJECT ROWS ONLY (not from expanded activities)
+    // ✅ FIX: Calculate total Virtual Material Amount from PROJECT ROWS ONLY
+    // Always use cached values from getCachedPeriodValues to ensure consistency regardless of expansion state
     const totalVirtualMaterialAmount = showVirtualMaterialValues 
       ? (() => {
           let sum = 0
-          // ? Sum ONLY from project rows (not from expanded activities)
-          // ? Use allAnalytics instead of projectsWithWorkInRange so chart values don't change when hideZeroProjects is toggled
+          // ✅ FIX: Always use cached values - don't recalculate based on expansion state
+          // This ensures values are consistent whether project is expanded or collapsed
           allAnalytics.forEach((analytics: any) => {
-            const isExpanded = expandedProjects.has(analytics.project.id)
-            
-            if (isExpanded) {
-              // ? Project is expanded: calculate sum of activities' VM (which is what the project row displays)
-              const project = analytics.project
-              const projectId = project.id
-              // ? PERFORMANCE: Use pre-computed map instead of filtering activities repeatedly
-              const projectActivities = projectActivitiesMap.get(projectId) || []
-              
-              // Calculate sum of activities' VM for all periods
-              projectActivities.forEach((activity: BOQActivity) => {
-                const rawActivity = (activity as any).raw || {}
-                
-                // Calculate VM for all periods for this activity
-                periods.forEach((period) => {
-                  const periodStart = period.start
-                  const periodEnd = period.end
-                  const effectivePeriodEnd = periodEnd > today ? today : periodEnd
-                  
-                  // Get Actual KPIs for this activity in this period
-                  const actualKPIs = kpis.filter((kpi: any) => {
-                    const rawKPI = (kpi as any).raw || {}
-                    const inputType = String(kpi.input_type || rawKPI['Input Type'] || '').trim().toLowerCase()
-                    if (inputType !== 'actual') return false
-                    
-                    // Match date
-                    const rawKPIDate = (kpi as any).raw || {}
-                    const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
-                    const actualDateValue = (kpi as any).actual_date || rawKPIDate['Actual Date'] || ''
-                    const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
-                    
-                    let kpiDateStr = ''
-                    if (kpi.input_type === 'Actual' && actualDateValue) {
-                      kpiDateStr = actualDateValue
-                    } else if (dayValue) {
-                      kpiDateStr = activityDateValue || dayValue
-                    } else {
-                      kpiDateStr = activityDateValue || actualDateValue
-                    }
-                    
-                    if (!kpiDateStr) return false
-                    
-                    try {
-                      const kpiDate = new Date(kpiDateStr)
-                      if (isNaN(kpiDate.getTime())) return false
-                      kpiDate.setHours(0, 0, 0, 0)
-                      const normalizedPeriodStart = new Date(periodStart)
-                      normalizedPeriodStart.setHours(0, 0, 0, 0)
-                      const normalizedPeriodEnd = new Date(effectivePeriodEnd)
-                      normalizedPeriodEnd.setHours(23, 59, 59, 999)
-                      if (!(kpiDate >= normalizedPeriodStart && kpiDate <= normalizedPeriodEnd)) {
-                        return false
-                      }
-                    } catch {
-                      return false
-                    }
-                    
-                    // Match activity (same logic as activity rows)
-                    const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
-                    const kpiProjectFullCodeRaw = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim()
-                    const kpiProjectCodeRaw = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim()
-                    const kpiProjectFullCode = kpiProjectFullCodeRaw.toLowerCase().trim()
-                    const kpiProjectCode = kpiProjectCodeRaw.toLowerCase().trim()
-                    
-                    const kpiZoneRaw = (kpi.zone || rawKPI['Zone'] || rawKPI['Zone Ref'] || rawKPI['Zone Number'] || '').toString().trim()
-                    let kpiZone = kpiZoneRaw.toLowerCase().trim()
-                    if (kpiZone && kpiProjectCode) {
-                      const projectCodeUpper = kpiProjectCode.toUpperCase()
-                      kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s*-\\s*`, 'i'), '').trim()
-                      kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}\\s+`, 'i'), '').trim()
-                      kpiZone = kpiZone.replace(new RegExp(`^${projectCodeUpper}-`, 'i'), '').trim()
-                    }
-                    if (!kpiZone) kpiZone = kpiZoneRaw.toLowerCase().trim()
-                    
-                    const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
-                    const activityProjectFullCode = (activity.project_full_code || activity.project_code || '').toString().trim().toLowerCase()
-                    const activityProjectCode = (activity.project_code || '').toString().trim().toLowerCase()
-                    const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
-                    
-                    // Try multiple matching strategies
-                    if (kpiActivityName && kpiProjectFullCode && kpiZone && activityZone) {
-                      if (activityName === kpiActivityName && 
-                          activityProjectFullCode === kpiProjectFullCode &&
-                          (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))) {
-                        return true
-                      }
-                    }
-                    if (kpiActivityName && kpiProjectFullCode) {
-                      if (activityName === kpiActivityName && activityProjectFullCode === kpiProjectFullCode) {
-                        return true
-                      }
-                    }
-                    if (kpiActivityName && kpiProjectCode && kpiZone && activityZone) {
-                      if (activityName === kpiActivityName && 
-                          activityProjectCode === kpiProjectCode &&
-                          (activityZone === kpiZone || activityZone.includes(kpiZone) || kpiZone.includes(activityZone))) {
-                        return true
-                      }
-                    }
-                    if (kpiActivityName && kpiProjectCode) {
-                      if (activityName === kpiActivityName && activityProjectCode === kpiProjectCode) {
-                        return true
-                      }
-                    }
-                    if (kpiActivityName) {
-                      const projectMatch = (
-                        (kpiProjectFullCode && activityProjectFullCode && kpiProjectFullCode === activityProjectFullCode) ||
-                        (kpiProjectCode && activityProjectCode && kpiProjectCode === activityProjectCode) ||
-                        (kpiProjectFullCode && activityProjectCode && kpiProjectFullCode === activityProjectCode) ||
-                        (kpiProjectCode && activityProjectFullCode && kpiProjectCode === activityProjectFullCode)
-                      )
-                      if (projectMatch && (activityName === kpiActivityName || 
-                          activityName.includes(kpiActivityName) || 
-                          kpiActivityName.includes(activityName))) {
-                        return true
-                      }
-                    }
-                    
-                    return false
-                  })
-                  
-                  // Get Virtual Material Percentage from project
-      let virtualMaterialPercentage = 0
-      const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
-      
-      if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
-        let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
-                    const parsedValue = parseFloat(cleanedValue)
-                    if (!isNaN(parsedValue)) {
-                      if (parsedValue > 0 && parsedValue <= 1) {
-                        virtualMaterialPercentage = parsedValue * 100
-                      } else {
-                        virtualMaterialPercentage = parsedValue
-                      }
-                    }
-                  }
-                  
-                  if (virtualMaterialPercentage === 0) return
-                  
-                  // Calculate Virtual Material Amount for this activity in this period
-                  actualKPIs.forEach((kpi: any) => {
-                    const rawKpi = (kpi as any).raw || {}
-                    const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
-                    
-                    const totalValue = activity.total_value || parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 0
-                    const totalUnits = activity.total_units || activity.planned_units || parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 0
-                    
-                    let rate = 0
-                    if (totalUnits > 0 && totalValue > 0) {
-                      rate = totalValue / totalUnits
-                    } else {
-                      rate = activity.rate || parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
-                    }
-                    
-                    let baseValue = 0
-                    if (rate > 0 && quantity > 0) {
-                      baseValue = rate * quantity
-                    } else {
-                      const kpiValue = parseFloat(String(kpi.value || rawKpi['Value'] || '0').replace(/,/g, '')) || 0
-                      if (kpiValue > 0) {
-                        baseValue = kpiValue
-                      }
-                    }
-                    
-                    if (baseValue > 0) {
-                      sum += baseValue * (virtualMaterialPercentage / 100)
-                    }
-                  })
-                })
-              })
-            } else {
-              // ? Project is NOT expanded: use cached value
-              const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
-              const virtualMaterialAmounts = cachedValues?.virtualMaterialAmount || []
-              sum += virtualMaterialAmounts.reduce((s, val) => s + val, 0)
-            }
+            const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
+            const virtualMaterialAmounts = cachedValues?.virtualMaterialAmount || []
+            sum += virtualMaterialAmounts.reduce((s, val) => s + val, 0)
           })
           
           return sum
         })()
       : 0
     
-    // ? Calculate total Planned Virtual Material Amount from PROJECT ROWS ONLY (not from expanded activities)
+    // ✅ FIX: Calculate total Planned Virtual Material Amount from PROJECT ROWS ONLY
+    // Always use cached values from getCachedPeriodValues to ensure consistency regardless of expansion state
     const totalPlannedVirtualMaterialAmount = showVirtualMaterialValues && viewPlannedValue
       ? (() => {
           let sum = 0
-          // ? Sum ONLY from project rows (not from expanded activities)
-          // ? Use allAnalytics instead of projectsWithWorkInRange so chart values don't change when hideZeroProjects is toggled
+          // ✅ FIX: Always use cached values - don't recalculate based on expansion state
+          // This ensures values are consistent whether project is expanded or collapsed
           allAnalytics.forEach((analytics: any) => {
-            const isExpanded = expandedProjects.has(analytics.project.id)
-            
-            if (isExpanded) {
-              // ? Project is expanded: calculate sum of activities' Planned VM (which is what the project row displays)
-              const project = analytics.project
-              const projectId = project.id
-              // ? PERFORMANCE: Use pre-computed map instead of filtering activities repeatedly
-              const projectActivities = projectActivitiesMap.get(projectId) || []
-              const projectFullCode = (project.project_full_code || `${project.project_code}${project.project_sub_code ? `-${project.project_sub_code}` : ''}`).toString().trim().toUpperCase()
-              
-              // Calculate sum of activities' Planned VM for all periods
-              projectActivities.forEach((activity: BOQActivity) => {
-                const rawActivity = (activity as any).raw || {}
-                
-                // Calculate Planned VM for all periods for this activity
-                periods.forEach((period) => {
-                  const periodStart = period.start
-                  const periodEnd = period.end
-                  const effectivePeriodEnd = periodEnd > today ? today : periodEnd
-                  
-                  // Get Planned KPIs for this activity in this period
-                  const plannedKPIs = kpis.filter((kpi: any) => {
-                    const rawKPI = (kpi as any).raw || {}
-                    const kpiProjectFullCode = (kpi.project_full_code || rawKPI['Project Full Code'] || '').toString().trim().toUpperCase()
-                    const kpiProjectCode = (kpi.project_code || rawKPI['Project Code'] || '').toString().trim().toUpperCase()
-                    const kpiActivityName = (kpi.activity_name || rawKPI['Activity Name'] || '').toLowerCase().trim()
-                    const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
-                    const kpiZone = (kpi.zone || rawKPI['Zone'] || rawKPI['Zone Ref'] || rawKPI['Zone Number'] || '').toString().toLowerCase().trim()
-                    
-                    if (kpiProjectFullCode !== projectFullCode && kpiProjectCode !== projectFullCode) return false
-                    if (!kpiActivityName || !activityName || 
-                        (kpiActivityName !== activityName && 
-                         !kpiActivityName.includes(activityName) && 
-                         !activityName.includes(kpiActivityName))) {
-                      return false
-                    }
-                    
-                    const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().toLowerCase().trim()
-                    if (activityZone && kpiZone && activityZone !== kpiZone && !activityZone.includes(kpiZone) && !kpiZone.includes(activityZone)) {
-                      return false
-                    }
-                    
-                    const inputType = String(kpi.input_type || rawKPI['Input Type'] || '').trim().toLowerCase()
-                    if (inputType !== 'planned') return false
-                    
-                    const kpiDate = kpi.target_date || rawKPI['Target Date'] || ''
-                    if (!kpiDate) return false
-                    
-                    try {
-                      const date = new Date(kpiDate)
-                      if (isNaN(date.getTime())) return false
-                      date.setHours(0, 0, 0, 0)
-                      const normalizedPeriodStart = new Date(periodStart)
-                      normalizedPeriodStart.setHours(0, 0, 0, 0)
-                      const normalizedPeriodEnd = new Date(effectivePeriodEnd)
-                      normalizedPeriodEnd.setHours(23, 59, 59, 999)
-                      return date >= normalizedPeriodStart && date <= normalizedPeriodEnd
-                    } catch {
-                      return false
-                    }
-                  })
-                  
-                  // Get Virtual Material Percentage from project
-                  let virtualMaterialPercentage = 0
-                  const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
-                  
-                  if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
-                    let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
-        const parsedValue = parseFloat(cleanedValue)
-        if (!isNaN(parsedValue)) {
-          if (parsedValue > 0 && parsedValue <= 1) {
-            virtualMaterialPercentage = parsedValue * 100
-          } else {
-            virtualMaterialPercentage = parsedValue
-          }
-        }
-      }
-      
-                  if (virtualMaterialPercentage === 0) return
-                  
-                  // Calculate Planned Virtual Material Amount for this activity in this period
-                  plannedKPIs.forEach((kpi: any) => {
-                    const rawKpi = (kpi as any).raw || {}
-                    const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
-                    
-                    const totalValue = activity.total_value || parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 0
-                    const totalUnits = activity.total_units || activity.planned_units || parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 0
-                    
-                    let rate = 0
-                    if (totalUnits > 0 && totalValue > 0) {
-                      rate = totalValue / totalUnits
-                    } else {
-                      rate = activity.rate || parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
-                    }
-                    
-                    let baseValue = 0
-                    if (rate > 0 && quantity > 0) {
-                      baseValue = rate * quantity
-                    } else {
-                      const kpiValue = parseFloat(String(kpi.value || rawKpi['Value'] || '0').replace(/,/g, '')) || 0
-                      if (kpiValue > 0) {
-                        baseValue = kpiValue
-                      }
-                    }
-                    
-                    if (baseValue > 0) {
-                      sum += baseValue * (virtualMaterialPercentage / 100)
-                    }
-                  })
-                })
-              })
-            } else {
-              // ? Project is NOT expanded: use cached value
-              const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
-              const plannedVirtualMaterialAmounts = cachedValues?.plannedVirtualMaterialAmount || []
-              sum += plannedVirtualMaterialAmounts.reduce((s, val) => s + val, 0)
-            }
+            const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
+            const plannedVirtualMaterialAmounts = cachedValues?.plannedVirtualMaterialAmount || []
+            sum += plannedVirtualMaterialAmounts.reduce((s, val) => s + val, 0)
           })
       
-      return sum
+          return sum
         })()
       : 0
     
@@ -3329,7 +2905,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
       totalVirtualMaterialAmount,
       totalPlannedVirtualMaterialAmount
     }
-  }, [filteredProjects, periods, allAnalytics, projectsWithWorkInRange, showVirtualMaterialValues, viewPlannedValue, expandedProjects, activities, kpis, today, getCachedPeriodValues, debouncedSelectedDivisions])
+  }, [filteredProjects, periods, allAnalytics, projectsWithWorkInRange, showVirtualMaterialValues, viewPlannedValue, getCachedPeriodValues, debouncedSelectedDivisions])
 
   // Export to Excel function with advanced formatting
   const handleExportPeriodRevenue = useCallback(async () => {
@@ -3393,11 +2969,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           if (showVirtualMaterialValues) {
             headerValues.push(`${outerRangeLabel} - VM Actual`)
             headerValues.push(`${outerRangeLabel} - VM Planned`)
+            headerValues.push(`${outerRangeLabel} - Total Actual`)
+            headerValues.push(`${outerRangeLabel} - Total Planned`)
           }
         } else {
           headerValues.push(outerRangeLabel)
           if (showVirtualMaterialValues) {
             headerValues.push(`${outerRangeLabel} - VM Actual`)
+            headerValues.push(`${outerRangeLabel} - Total`)
           }
         }
       }
@@ -3413,11 +2992,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           if (showVirtualMaterialValues) {
             headerValues.push(`${periodLabel} - VM Actual`)
             headerValues.push(`${periodLabel} - VM Planned`)
+            headerValues.push(`${periodLabel} - Total Actual`)
+            headerValues.push(`${periodLabel} - Total Planned`)
           }
         } else {
           headerValues.push(periodLabel)
           if (showVirtualMaterialValues) {
             headerValues.push(`${periodLabel} - VM Actual`)
+            headerValues.push(`${periodLabel} - Total`)
           }
         }
       })
@@ -3429,11 +3011,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         if (showVirtualMaterialValues) {
           headerValues.push('Grand Total - VM Actual')
           headerValues.push('Grand Total - VM Planned')
+          headerValues.push('Grand Total - Total Actual')
+          headerValues.push('Grand Total - Total Planned')
         }
       } else {
         headerValues.push('Grand Total')
         if (showVirtualMaterialValues) {
           headerValues.push('Grand Total - VM Actual')
+          headerValues.push('Grand Total - Total')
         }
       }
       
@@ -3468,11 +3053,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           if (showVirtualMaterialValues) {
             headerKeys.push('Outer Range - VM Actual')
             headerKeys.push('Outer Range - VM Planned')
+            headerKeys.push('Outer Range - Total Actual')
+            headerKeys.push('Outer Range - Total Planned')
           }
         } else {
           headerKeys.push('Outer Range')
           if (showVirtualMaterialValues) {
             headerKeys.push('Outer Range - VM Actual')
+            headerKeys.push('Outer Range - Total')
           }
         }
       }
@@ -3483,11 +3071,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           if (showVirtualMaterialValues) {
             headerKeys.push(`${periodLabel} - VM Actual`)
             headerKeys.push(`${periodLabel} - VM Planned`)
+            headerKeys.push(`${periodLabel} - Total Actual`)
+            headerKeys.push(`${periodLabel} - Total Planned`)
           }
         } else {
           headerKeys.push(periodLabel)
           if (showVirtualMaterialValues) {
             headerKeys.push(`${periodLabel} - VM Actual`)
+            headerKeys.push(`${periodLabel} - Total`)
           }
         }
       })
@@ -3497,11 +3088,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         if (showVirtualMaterialValues) {
           headerKeys.push('Grand Total - VM Actual')
           headerKeys.push('Grand Total - VM Planned')
+          headerKeys.push('Grand Total - Total Actual')
+          headerKeys.push('Grand Total - Total Planned')
         }
       } else {
         headerKeys.push('Grand Total')
         if (showVirtualMaterialValues) {
           headerKeys.push('Grand Total - VM Actual')
+          headerKeys.push('Grand Total - Total')
         }
       }
 
@@ -3633,11 +3227,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
             if (showVirtualMaterialValues) {
               row['Outer Range - VM Actual'] = outerRangeVM
               row['Outer Range - VM Planned'] = outerRangePlannedVM
+              row['Outer Range - Total Actual'] = outerRangeValue + outerRangeVM
+              row['Outer Range - Total Planned'] = outerRangePlannedValue + outerRangePlannedVM
             }
           } else {
             row['Outer Range'] = outerRangeValue
             if (showVirtualMaterialValues) {
               row['Outer Range - VM Actual'] = outerRangeVM
+              row['Outer Range - Total'] = outerRangeValue + outerRangeVM
             }
           }
         }
@@ -3655,11 +3252,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
             if (showVirtualMaterialValues) {
               row[`${periodLabel} - VM Actual`] = vmActual
               row[`${periodLabel} - VM Planned`] = vmPlanned
+              row[`${periodLabel} - Total Actual`] = actualValue + vmActual
+              row[`${periodLabel} - Total Planned`] = plannedValue + vmPlanned
             }
           } else {
             row[periodLabel] = actualValue
             if (showVirtualMaterialValues) {
               row[`${periodLabel} - VM Actual`] = vmActual
+              row[`${periodLabel} - Total`] = actualValue + vmActual
             }
           }
         })
@@ -3671,11 +3271,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           if (showVirtualMaterialValues) {
             row['Grand Total - VM Actual'] = grandTotalVM
             row['Grand Total - VM Planned'] = grandTotalPlannedVM
+            row['Grand Total - Total Actual'] = grandTotal + grandTotalVM
+            row['Grand Total - Total Planned'] = grandTotalPlanned + grandTotalPlannedVM
           }
         } else {
           row['Grand Total'] = grandTotal
           if (showVirtualMaterialValues) {
             row['Grand Total - VM Actual'] = grandTotalVM
+            row['Grand Total - Total'] = grandTotal + grandTotalVM
           }
         }
         exportData.push(row)
@@ -3729,11 +3332,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           if (showVirtualMaterialValues) {
             totalsRow['Outer Range - VM Actual'] = totalOuterRangeVM // Will be replaced with formula
             totalsRow['Outer Range - VM Planned'] = totalOuterRangePlannedVM // Will be replaced with formula
+            totalsRow['Outer Range - Total Actual'] = totalOuterRangeValue + totalOuterRangeVM
+            totalsRow['Outer Range - Total Planned'] = totalOuterRangePlannedValue + totalOuterRangePlannedVM
           }
         } else {
           totalsRow['Outer Range'] = totalOuterRangeValue // Will be replaced with formula
           if (showVirtualMaterialValues) {
             totalsRow['Outer Range - VM Actual'] = totalOuterRangeVM // Will be replaced with formula
+            totalsRow['Outer Range - Total'] = totalOuterRangeValue + totalOuterRangeVM
           }
         }
       }
@@ -3757,11 +3363,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
           if (showVirtualMaterialValues) {
             totalsRow[`${periodLabel} - VM Actual`] = periodVirtualMaterialTotal
             totalsRow[`${periodLabel} - VM Planned`] = periodPlannedVirtualMaterialTotal
+            totalsRow[`${periodLabel} - Total Actual`] = actualTotal + periodVirtualMaterialTotal
+            totalsRow[`${periodLabel} - Total Planned`] = plannedTotal + periodPlannedVirtualMaterialTotal
           }
         } else {
           totalsRow[periodLabel] = actualTotal
           if (showVirtualMaterialValues) {
             totalsRow[`${periodLabel} - VM Actual`] = periodVirtualMaterialTotal
+            totalsRow[`${periodLabel} - Total`] = actualTotal + periodVirtualMaterialTotal
           }
         }
       })
@@ -3790,6 +3399,8 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         if (showVirtualMaterialValues) {
           totalsRow['Grand Total - VM Actual'] = totalVirtualMaterial
           totalsRow['Grand Total - VM Planned'] = totalPlannedVirtualMaterial
+          totalsRow['Grand Total - Total Actual'] = grandTotalActual + totalVirtualMaterial
+          totalsRow['Grand Total - Total Planned'] = grandTotalPlanned + totalPlannedVirtualMaterial
         }
       } else {
         const grandTotalActual = totals.grandTotalEarnedValue
@@ -3805,6 +3416,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         totalsRow['Grand Total'] = grandTotalActual
         if (showVirtualMaterialValues) {
           totalsRow['Grand Total - VM Actual'] = totalVirtualMaterial
+          totalsRow['Grand Total - Total'] = grandTotalActual + totalVirtualMaterial
         }
       }
       exportData.push(totalsRow)
@@ -5207,7 +4819,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                   )}
                   {showOuterRangeColumn && outerRangeStart && (
                     viewPlannedValue ? (
-                      <th colSpan={showVirtualMaterialValues ? 4 : 2} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: showVirtualMaterialValues ? '640px' : '320px' }}>
+                      <th colSpan={showVirtualMaterialValues ? 6 : 2} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: showVirtualMaterialValues ? '960px' : '320px' }}>
                         <div className="font-bold text-blue-700 dark:text-blue-300">Outer Range</div>
                         <div className="text-xs font-normal text-gray-500 dark:text-gray-400 mt-1">
                           {outerRangeStart && dateRange.start ? (
@@ -5220,7 +4832,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                         </div>
                       </th>
                     ) : (
-                      <th colSpan={showVirtualMaterialValues ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: showVirtualMaterialValues ? '320px' : '160px' }}>
+                      <th colSpan={showVirtualMaterialValues ? 3 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold bg-blue-50 dark:bg-blue-900/20" style={{ width: showVirtualMaterialValues ? '480px' : '160px' }}>
                         <div className="font-bold text-blue-700 dark:text-blue-300">Outer Range</div>
                         <div className="text-xs font-normal text-gray-500 dark:text-gray-400 mt-1">
                           {outerRangeStart && dateRange.start ? (
@@ -5236,8 +4848,8 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                   )}
                   {periods.map((period, index) => {
                     if (viewPlannedValue) {
-                      const colSpan = showVirtualMaterialValues ? 4 : 2
-                      const width = showVirtualMaterialValues ? '560px' : '280px'
+                      const colSpan = showVirtualMaterialValues ? 6 : 2
+                      const width = showVirtualMaterialValues ? '840px' : '280px'
                       return (
                         <th key={index} colSpan={colSpan} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width }}>
                           <div className="font-bold text-gray-900 dark:text-white">{period.label}</div>
@@ -5247,8 +4859,8 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                         </th>
                       )
                     } else {
-                      const colSpan = showVirtualMaterialValues ? 2 : 1
-                      const width = showVirtualMaterialValues ? '280px' : '140px'
+                      const colSpan = showVirtualMaterialValues ? 3 : 1
+                      const width = showVirtualMaterialValues ? '420px' : '140px'
                       return (
                         <th key={index} colSpan={colSpan} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width }}>
                           <div>{period.label}</div>
@@ -5260,11 +4872,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                     }
                   })}
                   {viewPlannedValue ? (
-                    <th colSpan={showVirtualMaterialValues ? 4 : 2} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: showVirtualMaterialValues ? '600px' : '300px' }}>
+                    <th colSpan={showVirtualMaterialValues ? 6 : 2} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: showVirtualMaterialValues ? '900px' : '300px' }}>
                       <div className="font-bold text-gray-900 dark:text-white">Grand Total</div>
                     </th>
                   ) : (
-                    <th colSpan={showVirtualMaterialValues ? 2 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: showVirtualMaterialValues ? '300px' : '150px' }}>Grand Total</th>
+                    <th colSpan={showVirtualMaterialValues ? 3 : 1} className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-center font-semibold" style={{ width: showVirtualMaterialValues ? '450px' : '150px' }}>Grand Total</th>
                   )}
                 </tr>
                 {/* Second row: Sub-headers for Actual and Planned (only when viewPlannedValue is enabled) */}
@@ -5286,6 +4898,12 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                             <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-purple-50 dark:bg-purple-900/20" style={{ width: '160px' }}>
                               <div className="text-xs font-medium text-purple-600 dark:text-purple-400">VM Planned</div>
                             </th>
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '160px' }}>
+                              <div className="text-xs font-medium text-indigo-600 dark:text-indigo-400">Total Actual</div>
+                            </th>
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '160px' }}>
+                              <div className="text-xs font-medium text-indigo-600 dark:text-indigo-400">Total Planned</div>
+                            </th>
                           </>
                         )}
                       </>
@@ -5306,6 +4924,12 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                             <th key={`${index}-vm-planned`} className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-purple-50 dark:bg-purple-900/20" style={{ width: '140px' }}>
                               <div className="text-xs font-medium text-purple-600 dark:text-purple-400">VM Planned</div>
                             </th>
+                            <th key={`${index}-total-actual`} className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '140px' }}>
+                              <div className="text-xs font-medium text-indigo-600 dark:text-indigo-400">Total Actual</div>
+                            </th>
+                            <th key={`${index}-total-planned`} className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '140px' }}>
+                              <div className="text-xs font-medium text-indigo-600 dark:text-indigo-400">Total Planned</div>
+                            </th>
                           </>
                         )}
                       </>
@@ -5323,6 +4947,12 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                         </th>
                         <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-purple-50 dark:bg-purple-900/20" style={{ width: '150px' }}>
                           <div className="text-xs font-medium text-purple-600 dark:text-purple-400">VM Planned</div>
+                        </th>
+                        <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '150px' }}>
+                          <div className="text-xs font-medium text-indigo-600 dark:text-indigo-400">Total Actual</div>
+                        </th>
+                        <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '150px' }}>
+                          <div className="text-xs font-medium text-indigo-600 dark:text-indigo-400">Total Planned</div>
                         </th>
                       </>
                     )}
@@ -5349,6 +4979,9 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                         <th key={`${index}-vm-actual`} className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-purple-50 dark:bg-purple-900/20" style={{ width: '140px' }}>
                           <div className="text-xs font-medium text-purple-600 dark:text-purple-400">VM Actual</div>
                         </th>
+                        <th key={`${index}-total`} className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '140px' }}>
+                          <div className="text-xs font-medium text-indigo-600 dark:text-indigo-400">Total</div>
+                        </th>
                       </>
                     ))}
                     <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-green-50 dark:bg-green-900/20" style={{ width: '150px' }}>
@@ -5356,6 +4989,9 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                     </th>
                     <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-purple-50 dark:bg-purple-900/20" style={{ width: '150px' }}>
                       <div className="text-xs font-medium text-purple-600 dark:text-purple-400">VM Actual</div>
+                    </th>
+                    <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-center font-semibold bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '150px' }}>
+                      <div className="text-xs font-medium text-indigo-600 dark:text-indigo-400">Total</div>
                     </th>
                   </tr>
                 )}
@@ -5632,6 +5268,34 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                       )
                                     })()}
                                   </td>
+                                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '160px' }}>
+                                    {(() => {
+                                      const outerRangeValue = cachedValues?.outerRangeValue || 0
+                                      const outerRangeVM = cachedValues?.outerRangeVirtualMaterialAmount || 0
+                                      const totalActual = outerRangeValue + outerRangeVM
+                                      return totalActual > 0 ? (
+                                        <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                                          {formatCurrency(totalActual, project.currency)}
+                                        </span>
+                                      ) : (
+                                        <span className="text-gray-400">-</span>
+                                      )
+                                    })()}
+                                  </td>
+                                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '160px' }}>
+                                    {(() => {
+                                      const outerRangePlannedValue = cachedValues?.outerRangePlannedValue || 0
+                                      const outerRangePlannedVM = cachedValues?.outerRangePlannedVirtualMaterialAmount || 0
+                                      const totalPlanned = outerRangePlannedValue + outerRangePlannedVM
+                                      return totalPlanned > 0 ? (
+                                        <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                                          {formatCurrency(totalPlanned, project.currency)}
+                                        </span>
+                                      ) : (
+                                        <span className="text-gray-400">-</span>
+                                      )
+                                    })()}
+                                  </td>
                                 </>
                               )}
                             </>
@@ -5650,18 +5314,34 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                 })()}
                               </td>
                               {showVirtualMaterialValues && (
-                                <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '160px' }}>
-                                  {(() => {
-                                    const outerRangeVirtualMaterialAmount = cachedValues?.outerRangeVirtualMaterialAmount || 0
-                                    return outerRangeVirtualMaterialAmount > 0 ? (
-                                      <span className="text-purple-600 dark:text-purple-400 font-bold">
-                                        {formatCurrency(outerRangeVirtualMaterialAmount, project.currency)}
-                                      </span>
-                                    ) : (
-                                      <span className="text-gray-400">-</span>
-                                    )
-                                  })()}
-                                </td>
+                                <>
+                                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '160px' }}>
+                                    {(() => {
+                                      const outerRangeVirtualMaterialAmount = cachedValues?.outerRangeVirtualMaterialAmount || 0
+                                      return outerRangeVirtualMaterialAmount > 0 ? (
+                                        <span className="text-purple-600 dark:text-purple-400 font-bold">
+                                          {formatCurrency(outerRangeVirtualMaterialAmount, project.currency)}
+                                        </span>
+                                      ) : (
+                                        <span className="text-gray-400">-</span>
+                                      )
+                                    })()}
+                                  </td>
+                                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '160px' }}>
+                                    {(() => {
+                                      const outerRangeValue = cachedValues?.outerRangeValue || 0
+                                      const outerRangeVM = cachedValues?.outerRangeVirtualMaterialAmount || 0
+                                      const total = outerRangeValue + outerRangeVM
+                                      return total > 0 ? (
+                                        <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                                          {formatCurrency(total, project.currency)}
+                                        </span>
+                                      ) : (
+                                        <span className="text-gray-400">-</span>
+                                      )
+                                    })()}
+                                  </td>
+                                </>
                               )}
                             </>
                           )
@@ -5713,6 +5393,30 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                         <span className="text-gray-400">-</span>
                                       )}
                                     </td>
+                                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '140px' }}>
+                                      {(() => {
+                                        const totalActual = periodValue + periodVirtualMaterialAmount
+                                        return totalActual > 0 ? (
+                                          <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                                            {formatCurrency(totalActual, project.currency)}
+                                          </span>
+                                        ) : (
+                                          <span className="text-gray-400">-</span>
+                                        )
+                                      })()}
+                                    </td>
+                                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '140px' }}>
+                                      {(() => {
+                                        const totalPlanned = periodPlannedValue + periodPlannedVirtualMaterialAmount
+                                        return totalPlanned > 0 ? (
+                                          <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                                            {formatCurrency(totalPlanned, project.currency)}
+                                          </span>
+                                        ) : (
+                                          <span className="text-gray-400">-</span>
+                                        )
+                                      })()}
+                                    </td>
                                   </>
                                 )}
                               </Fragment>
@@ -5730,15 +5434,29 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                   )}
                                 </td>
                                 {showVirtualMaterialValues && (
-                                  <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '140px' }}>
-                                    {periodVirtualMaterialAmount > 0 ? (
-                                      <span className="text-purple-600 dark:text-purple-400 font-bold">
-                                        {formatCurrency(periodVirtualMaterialAmount, project.currency)}
-                                      </span>
-                                    ) : (
-                                      <span className="text-gray-400">-</span>
-                                    )}
-                                  </td>
+                                  <>
+                                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '140px' }}>
+                                      {periodVirtualMaterialAmount > 0 ? (
+                                        <span className="text-purple-600 dark:text-purple-400 font-bold">
+                                          {formatCurrency(periodVirtualMaterialAmount, project.currency)}
+                                        </span>
+                                      ) : (
+                                        <span className="text-gray-400">-</span>
+                                      )}
+                                    </td>
+                                    <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '140px' }}>
+                                      {(() => {
+                                        const total = periodValue + periodVirtualMaterialAmount
+                                        return total > 0 ? (
+                                          <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                                            {formatCurrency(total, project.currency)}
+                                          </span>
+                                        ) : (
+                                          <span className="text-gray-400">-</span>
+                                        )
+                                      })()}
+                                    </td>
+                                  </>
                                 )}
                               </Fragment>
                             )
@@ -5796,6 +5514,34 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                     )
                                   })()}
                                 </td>
+                                <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '150px' }}>
+                                  {(() => {
+                                    const grandTotal = periodValues.reduce((sum: number, val: number) => sum + val, 0) + (cachedValues?.outerRangeValue || 0)
+                                    const totalVM = (cachedValues?.virtualMaterialAmount?.reduce((sum: number, val: number) => sum + val, 0) || 0) + (cachedValues?.outerRangeVirtualMaterialAmount || 0)
+                                    const totalActual = grandTotal + totalVM
+                                    return totalActual > 0 ? (
+                                      <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                                        {formatCurrency(totalActual, project.currency)}
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-400">-</span>
+                                    )
+                                  })()}
+                                </td>
+                                <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '150px' }}>
+                                  {(() => {
+                                    const grandTotalPlanned = periodPlannedValues.reduce((sum: number, val: number) => sum + val, 0) + (cachedValues?.outerRangePlannedValue || 0)
+                                    const totalPlannedVM = (cachedValues?.plannedVirtualMaterialAmount?.reduce((sum: number, val: number) => sum + val, 0) || 0) + (cachedValues?.outerRangePlannedVirtualMaterialAmount || 0)
+                                    const totalPlanned = grandTotalPlanned + totalPlannedVM
+                                    return totalPlanned > 0 ? (
+                                      <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                                        {formatCurrency(totalPlanned, project.currency)}
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-400">-</span>
+                                    )
+                                  })()}
+                                </td>
                               </>
                             )}
                           </>
@@ -5814,18 +5560,34 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                               })()}
                             </td>
                             {showVirtualMaterialValues && (
-                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '150px' }}>
-                                {(() => {
-                                  const totalVirtualMaterialAmount = (cachedValues?.virtualMaterialAmount?.reduce((sum: number, val: number) => sum + val, 0) || 0) + (cachedValues?.outerRangeVirtualMaterialAmount || 0)
-                                  return totalVirtualMaterialAmount > 0 ? (
-                                    <span className="text-purple-600 dark:text-purple-400 font-bold">
-                                      {formatCurrency(totalVirtualMaterialAmount, project.currency)}
-                                    </span>
-                                  ) : (
-                                    <span className="text-gray-400">-</span>
-                                  )
-                                })()}
-                              </td>
+                              <>
+                                <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '150px' }}>
+                                  {(() => {
+                                    const totalVirtualMaterialAmount = (cachedValues?.virtualMaterialAmount?.reduce((sum: number, val: number) => sum + val, 0) || 0) + (cachedValues?.outerRangeVirtualMaterialAmount || 0)
+                                    return totalVirtualMaterialAmount > 0 ? (
+                                      <span className="text-purple-600 dark:text-purple-400 font-bold">
+                                        {formatCurrency(totalVirtualMaterialAmount, project.currency)}
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-400">-</span>
+                                    )
+                                  })()}
+                                </td>
+                                <td className="border border-gray-300 dark:border-gray-600 px-4 py-3 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '150px' }}>
+                                  {(() => {
+                                    const grandTotal = periodValues.reduce((sum: number, val: number) => sum + val, 0) + (cachedValues?.outerRangeValue || 0)
+                                    const totalVM = (cachedValues?.virtualMaterialAmount?.reduce((sum: number, val: number) => sum + val, 0) || 0) + (cachedValues?.outerRangeVirtualMaterialAmount || 0)
+                                    const total = grandTotal + totalVM
+                                    return total > 0 ? (
+                                      <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                                        {formatCurrency(total, project.currency)}
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-400">-</span>
+                                    )
+                                  })()}
+                                </td>
+                              </>
                             )}
                           </>
                         )}
@@ -5967,6 +5729,12 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                             <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '160px' }}>
                                               <span className="text-xs text-gray-400">-</span>
                                             </td>
+                                            <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '160px' }}>
+                                              <span className="text-xs text-gray-400">-</span>
+                                            </td>
+                                            <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '160px' }}>
+                                              <span className="text-xs text-gray-400">-</span>
+                                            </td>
                                           </>
                                         )}
                                       </>
@@ -5976,9 +5744,14 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                           <span className="text-xs text-gray-400">-</span>
                                         </td>
                                         {showVirtualMaterialValues && (
-                                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '160px' }}>
-                                            <span className="text-xs text-gray-400">-</span>
-                                          </td>
+                                          <>
+                                            <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '160px' }}>
+                                              <span className="text-xs text-gray-400">-</span>
+                                            </td>
+                                            <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '160px' }}>
+                                              <span className="text-xs text-gray-400">-</span>
+                                            </td>
+                                          </>
                                         )}
                                       </>
                                     )
@@ -6030,6 +5803,30 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                                   <span className="text-xs text-gray-400">-</span>
                                                 )}
                                               </td>
+                                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '140px' }}>
+                                                {(() => {
+                                                  const totalActual = periodValue + periodVirtualMaterialAmount
+                                                  return totalActual > 0 ? (
+                                                    <span className="text-sm text-indigo-600 dark:text-indigo-400 font-medium">
+                                                      {formatCurrency(totalActual, project.currency)}
+                                                    </span>
+                                                  ) : (
+                                                    <span className="text-xs text-gray-400">-</span>
+                                                  )
+                                                })()}
+                                              </td>
+                                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '140px' }}>
+                                                {(() => {
+                                                  const totalPlanned = periodPlannedValue + periodPlannedVirtualMaterialAmount
+                                                  return totalPlanned > 0 ? (
+                                                    <span className="text-sm text-indigo-600 dark:text-indigo-400 font-medium">
+                                                      {formatCurrency(totalPlanned, project.currency)}
+                                                    </span>
+                                                  ) : (
+                                                    <span className="text-xs text-gray-400">-</span>
+                                                  )
+                                                })()}
+                                              </td>
                                             </>
                                           )}
                                         </Fragment>
@@ -6047,15 +5844,29 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                             )}
                                           </td>
                                           {showVirtualMaterialValues && (
-                                            <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '140px' }}>
-                                              {periodVirtualMaterialAmount > 0 ? (
-                                                <span className="text-sm text-purple-600 dark:text-purple-400 font-medium">
-                                                  {formatCurrency(periodVirtualMaterialAmount, project.currency)}
-                                                </span>
-                                              ) : (
-                                                <span className="text-xs text-gray-400">-</span>
-                                              )}
-                                            </td>
+                                            <>
+                                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '140px' }}>
+                                                {periodVirtualMaterialAmount > 0 ? (
+                                                  <span className="text-sm text-purple-600 dark:text-purple-400 font-medium">
+                                                    {formatCurrency(periodVirtualMaterialAmount, project.currency)}
+                                                  </span>
+                                                ) : (
+                                                  <span className="text-xs text-gray-400">-</span>
+                                                )}
+                                              </td>
+                                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '140px' }}>
+                                                {(() => {
+                                                  const total = periodValue + periodVirtualMaterialAmount
+                                                  return total > 0 ? (
+                                                    <span className="text-sm text-indigo-600 dark:text-indigo-400 font-medium">
+                                                      {formatCurrency(total, project.currency)}
+                                                    </span>
+                                                  ) : (
+                                                    <span className="text-xs text-gray-400">-</span>
+                                                  )
+                                                })()}
+                                              </td>
+                                            </>
                                           )}
                                         </Fragment>
                                       )
@@ -6101,6 +5912,30 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                               <span className="text-xs text-gray-400">-</span>
                                             )}
                                           </td>
+                                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '150px' }}>
+                                            {(() => {
+                                              const totalActual = activityGrandTotal + activityTotalVirtualMaterialAmount
+                                              return totalActual > 0 ? (
+                                                <span className="text-sm text-indigo-600 dark:text-indigo-400 font-bold">
+                                                  {formatCurrency(totalActual, project.currency)}
+                                                </span>
+                                              ) : (
+                                                <span className="text-xs text-gray-400">-</span>
+                                              )
+                                            })()}
+                                          </td>
+                                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '150px' }}>
+                                            {(() => {
+                                              const totalPlanned = activityGrandTotalPlanned + activityTotalPlannedVirtualMaterialAmount
+                                              return totalPlanned > 0 ? (
+                                                <span className="text-sm text-indigo-600 dark:text-indigo-400 font-bold">
+                                                  {formatCurrency(totalPlanned, project.currency)}
+                                                </span>
+                                              ) : (
+                                                <span className="text-xs text-gray-400">-</span>
+                                              )
+                                            })()}
+                                          </td>
                                         </>
                                       )}
                                     </>
@@ -6116,15 +5951,29 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
                                         )}
                                       </td>
                                       {showVirtualMaterialValues && (
-                                        <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '150px' }}>
-                                          {activityTotalVirtualMaterialAmount > 0 ? (
-                                            <span className="text-sm text-purple-600 dark:text-purple-400 font-bold">
-                                              {formatCurrency(activityTotalVirtualMaterialAmount, project.currency)}
-                                            </span>
-                                          ) : (
-                                            <span className="text-xs text-gray-400">-</span>
-                                          )}
-                                        </td>
+                                        <>
+                                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-purple-50 dark:bg-purple-900/20" style={{ width: '150px' }}>
+                                            {activityTotalVirtualMaterialAmount > 0 ? (
+                                              <span className="text-sm text-purple-600 dark:text-purple-400 font-bold">
+                                                {formatCurrency(activityTotalVirtualMaterialAmount, project.currency)}
+                                              </span>
+                                            ) : (
+                                              <span className="text-xs text-gray-400">-</span>
+                                            )}
+                                          </td>
+                                          <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-right bg-indigo-50 dark:bg-indigo-900/20" style={{ width: '150px' }}>
+                                            {(() => {
+                                              const total = activityGrandTotal + activityTotalVirtualMaterialAmount
+                                              return total > 0 ? (
+                                                <span className="text-sm text-indigo-600 dark:text-indigo-400 font-bold">
+                                                  {formatCurrency(total, project.currency)}
+                                                </span>
+                                              ) : (
+                                                <span className="text-xs text-gray-400">-</span>
+                                              )
+                                            })()}
+                                          </td>
+                                        </>
                                       )}
                                     </>
                                   )}

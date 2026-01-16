@@ -55,30 +55,30 @@ export async function syncAttendanceToManpower(
     
     const hrEmployeeTyped = hrEmployee as any
     
-    // 2. Get designation rate for cost calculation
-    let designationRate: any = null
+    // 2. Get employee rate for cost calculation (linked by employee_code)
+    let employeeRate: any = null
     
-    // Try exact match first
-    const { data: exactRate } = await supabaseClient
-      .from(TABLES.DESIGNATION_RATES)
+    // Find rate by employee_code (labour_code in MANPOWER table)
+    const { data: rateByCode } = await supabaseClient
+      .from(TABLES.EMPLOYEE_RATES)
       // @ts-ignore
       .select('*')
-      .eq('designation', hrEmployeeTyped.designation)
+      .eq('employee_code', hrEmployeeTyped.employee_code)
       .maybeSingle()
     
-    if (exactRate) {
-      designationRate = exactRate
+    if (rateByCode) {
+      employeeRate = rateByCode
     } else {
-      // Try case-insensitive match
-      const { data: caseInsensitiveRate } = await supabaseClient
-        .from(TABLES.DESIGNATION_RATES)
+      // Fallback: Try to find by designation (for backward compatibility)
+      const { data: rateByDesignation } = await supabaseClient
+        .from(TABLES.EMPLOYEE_RATES)
         // @ts-ignore
         .select('*')
-        .ilike('designation', hrEmployeeTyped.designation)
+        .eq('designation', hrEmployeeTyped.designation)
         .maybeSingle()
       
-      if (caseInsensitiveRate) {
-        designationRate = caseInsensitiveRate
+      if (rateByDesignation) {
+        employeeRate = rateByDesignation
       }
     }
     
@@ -105,11 +105,11 @@ export async function syncAttendanceToManpower(
     const overtimeHours = Math.max(0, totalHours - standardHours)
     const overtimeText = overtimeHours > 0 ? `${overtimeHours.toFixed(2)}h` : '0h'
     
-    // 5. Calculate cost
+    // 5. Calculate cost using Employee Rate (linked by employee_code)
     let cost = 0
-    if (designationRate) {
-      const hourlyRate = designationRate.hourly_rate || 0
-      const overtimeRate = designationRate.overtime_hourly_rate || hourlyRate || 0
+    if (employeeRate) {
+      const hourlyRate = employeeRate.hourly_rate || 0
+      const overtimeRate = employeeRate.overtime_hourly_rate || hourlyRate || 0
       const standardCost = Math.min(totalHours, standardHours) * hourlyRate
       const overtimeCost = overtimeHours * overtimeRate
       cost = standardCost + overtimeCost
