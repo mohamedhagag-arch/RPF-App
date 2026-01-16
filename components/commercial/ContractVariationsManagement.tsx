@@ -2273,9 +2273,9 @@ export function ContractVariationsManagement({ globalSearchTerm = '' }: Contract
                               onClick={async () => {
                                 const newValue = !variation.force_include_in_boq_calculation
                                 try {
-                                  const { error } = await supabase
+                                  const { error } = await (supabase as any)
                                     .from(TABLES.CONTRACT_VARIATIONS)
-                                    .update({ force_include_in_boq_calculation: newValue })
+                                    .update({ force_include_in_boq_calculation: newValue } as any)
                                     .eq('id', variation.id)
                                   
                                   if (error) throw error
