@@ -48,7 +48,7 @@ export function BOQActivityCard({
         <div className="flex items-start justify-between mb-3">
           <div className="flex-1">
             <h3 className="font-semibold text-gray-900 dark:text-white mb-1">
-              {activity.activity_name}
+              {activity.activity_description}
             </h3>
             <p className="text-sm text-gray-500 dark:text-gray-400">
               {projectName} • {activity.activity_division || 'N/A'}
