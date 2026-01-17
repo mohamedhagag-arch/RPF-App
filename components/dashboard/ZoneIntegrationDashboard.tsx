@@ -212,7 +212,7 @@ export function ZoneIntegrationDashboard({
                       <div className="flex items-center space-x-3">
                         <div className="w-3 h-3 rounded-full bg-gray-300" />
                         <div>
-                          <p className="font-medium">{zone.zone_ref}</p>
+                          <p className="font-medium">{zone.zone_name || `Zone ${zone.zone_number}`}</p>
                           <p className="text-sm text-gray-500">{zone.activities_count} activities</p>
                         </div>
                       </div>
