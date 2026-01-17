@@ -229,10 +229,10 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
           const activityKPIs = analytics.kpis.filter((kpi: any) => {
             const kpiProjectCode = (kpi.project_code || (kpi as any).raw?.['Project Code'] || '').toString().trim().toUpperCase()
             const kpiProjectFullCode = (kpi.project_full_code || (kpi as any).raw?.['Project Full Code'] || '').toString().trim().toUpperCase()
-            const kpiActivityName = (kpi.activity_name || kpi['Activity Name'] || (kpi as any).raw?.['Activity Name'] || '').toLowerCase().trim()
+            const kpiActivityName = (kpi.activity_description || (kpi as any).activity_name || kpi['Activity Description'] || kpi['Activity Name'] || (kpi as any).raw?.['Activity Description'] || (kpi as any).raw?.['Activity Name'] || '').toLowerCase().trim()
             // ✅ NOT from Section - Section is separate from Zone
             const kpiZoneRaw = (kpi.zone || kpi['Zone'] || (kpi as any).raw?.['Zone'] || (kpi as any).raw?.['Zone Number'] || '').toString().trim()
-            const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+            const activityName = (activity.activity_description || '').toLowerCase().trim()
             
             // ✅ Match project by Project Full Code (priority) or Project Code
             const projectMatch = (
@@ -386,7 +386,7 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
     const activityZone = normalizeZone(activityZoneRaw, projectFullCode, projectCode)
     const activityZoneNum = extractZoneNumber(activityZone)
     
-    const activityName = (activity.activity_name || activity.activity || '').toLowerCase().trim()
+    const activityName = (activity.activity_description || '').toLowerCase().trim()
     
     // ✅ Filter KPIs by activity name AND zone using Project Full Code
     return analytics.kpis.filter((kpi: any) => {
@@ -853,11 +853,12 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
         'Project Code': data.project_code || '',
         'Project Sub Code': data.project_sub_code || '',
         'Project Full Code': data.project_full_code || data.project_code || '',
-        'Activity': data.activity_name || '',
+        'Activity': data.activity_description || '',
         'Activity Division': data.activity_division || '',
         'Unit': data.unit || '',
         'Zone Number': data.zone_number || '0',
-        'Activity Name': data.activity_name || '',
+        'Activity Name': data.activity_description || '', // Backward compatibility
+        'Activity Description': data.activity_description || '',
         'Planned Units': data.planned_units?.toString() || '0',
         'Deadline': data.deadline || '',
         'Total Units': data.total_units?.toString() || '0',
@@ -1277,7 +1278,8 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
         console.log('📋 Sample activity:', {
           project_code: activities[0].project_code,
           project_full_code: activities[0].project_full_code,
-          activity_name: activities[0].activity_name,
+          activity_name: activities[0].activity_description, // Backward compatibility
+          activity_description: activities[0].activity_description,
           planned_units: activities[0].planned_units,
           planned_value: activities[0].planned_value,
           actual_units: activities[0].actual_units,
@@ -1869,7 +1871,7 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                             const projectActivityNames = analytics?.activities 
                               ? Array.from(new Set(
                                   analytics.activities
-                                    .map((act: any) => act.activity_name || act.activity || act['Activity Name'] || (act as any).raw?.['Activity Name'] || '')
+                                    .map((act: any) => act.activity_description || act.activity_name || act.activity || act['Activity Description'] || act['Activity Name'] || (act as any).raw?.['Activity Description'] || (act as any).raw?.['Activity Name'] || '')
                                     .filter((name: string) => name && name.trim() !== '')
                                 ))
                               : []
@@ -2283,7 +2285,7 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                         <div className="flex justify-between items-start mb-4">
                           <div className="flex-1">
                             <h4 className="font-semibold text-lg text-gray-900 dark:text-white mb-1">
-                              {activity.activity_name || activity.activity}
+                              {activity.activity_description}
                             </h4>
                             <div className="flex items-center gap-2 mb-2">
                               {(() => {
@@ -2714,7 +2716,7 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                         <div className="flex justify-between items-start mb-4">
                           <div className="flex-1">
                             <h4 className="font-semibold text-lg text-gray-900 dark:text-white mb-1">
-                              {kpi.activity_name || kpi.kpi_name}
+                              {kpi.activity_description || (kpi as any).activity_name || (kpi as any).kpi_name}
                             </h4>
                             
                             {/* Activity Date and Day Order - Always Visible */}
@@ -2747,7 +2749,7 @@ export function ProjectDetailsPanel({ project, onClose }: ProjectDetailsPanelPro
                                       
                                       // Find all KPIs for the same activity and sort by date
                                       const activityKPIs = analytics.kpis.filter((otherKpi: any) => 
-                                        otherKpi.activity_name === kpi.activity_name &&
+                                        (otherKpi.activity_description || (otherKpi as any).activity_name) === (kpi.activity_description || (kpi as any).activity_name) &&
                                         otherKpi.project_code === kpi.project_code
                                       )
                                       
