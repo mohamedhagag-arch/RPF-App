@@ -2175,12 +2175,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   
   // ? PERFORMANCE: Helper to get cached activity period values
   const getCachedActivityPeriodValues = useCallback((activityId: string, activity: BOQActivity, project: Project, projectFullCode: string): { earned: number[], planned: number[], virtualMaterial: number[], plannedVirtualMaterial: number[] } => {
-    // ✅ FIX: Include zone in cache key to ensure different zones have different cache entries
-    // Note: VM Actual doesn't depend on viewPlannedValue, so we don't include it in cache key for VM Actual
+    // ✅ FIX: Include zone, viewPlannedValue, and showVirtualMaterialValues in cache key to ensure different states have different cache entries
     const rawActivity = (activity as any).raw || {}
     const activityZone = (activity.zone_ref || activity.zone_number || rawActivity['Zone Ref'] || rawActivity['Zone Number'] || '').toString().trim().toUpperCase()
-    // ✅ FIX: Include viewPlannedValue in cache key only for planned values, but VM Actual is always calculated
-    const cacheKey = `${activityId}-${activityZone}-${selectedDivisionsKey}-${viewPlannedValue ? 'planned' : 'actual'}`
+    // ✅ FIX: Include viewPlannedValue and showVirtualMaterialValues in cache key to ensure values are recalculated when toggled
+    const cacheKey = `${activityId}-${activityZone}-${selectedDivisionsKey}-${viewPlannedValue ? 'planned' : 'actual'}-${showVirtualMaterialValues ? 'vm' : 'novm'}`
     
     // Check if already cached
     if (activityPeriodValuesCache.current.has(cacheKey)) {
@@ -2497,8 +2496,8 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     const projectName = (project.project_name || '').toString().trim()
     const uniqueProjectKey = `${projectFullCode}|${projectName}`
     
-    // ✅ FIX: Include viewPlannedValue in cache key to ensure planned values are recalculated when toggled
-    const periodCacheKey = `${uniqueProjectKey}-${debouncedSelectedDivisions.sort().join(',')}-${viewPlannedValue ? 'planned' : 'actual'}`
+    // ✅ FIX: Include viewPlannedValue and showVirtualMaterialValues in cache key to ensure values are recalculated when toggled
+    const periodCacheKey = `${uniqueProjectKey}-${debouncedSelectedDivisions.sort().join(',')}-${viewPlannedValue ? 'planned' : 'actual'}-${showVirtualMaterialValues ? 'vm' : 'novm'}`
     // Check if already cached
     if (periodValuesCache.current.has(periodCacheKey)) {
       return periodValuesCache.current.get(periodCacheKey)!
@@ -2552,8 +2551,8 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
     const plannedVirtualMaterialAmount = showVirtualMaterialValues && viewPlannedValue ? calculatePeriodPlannedVirtualMaterialAmount(analytics.project, filteredAnalytics) : []
     
     const values = { earned: earnedValues, planned: plannedValues, outerRangeValue, outerRangePlannedValue, outerRangeVirtualMaterialAmount, outerRangePlannedVirtualMaterialAmount, virtualMaterialAmount, plannedVirtualMaterialAmount }
-    // ✅ FIX: Include viewPlannedValue in cache key to ensure planned values are recalculated when toggled
-    const periodCacheKeyFinal = `${uniqueProjectKey}-${debouncedSelectedDivisions.sort().join(',')}-${viewPlannedValue ? 'planned' : 'actual'}`
+    // ✅ FIX: Include viewPlannedValue and showVirtualMaterialValues in cache key to ensure values are recalculated when toggled
+    const periodCacheKeyFinal = `${uniqueProjectKey}-${debouncedSelectedDivisions.sort().join(',')}-${viewPlannedValue ? 'planned' : 'actual'}-${showVirtualMaterialValues ? 'vm' : 'novm'}`
     periodValuesCache.current.set(periodCacheKeyFinal, values)
     return values
   }, [debouncedSelectedDivisions, calculatePeriodEarnedValue, calculatePeriodPlannedValue, viewPlannedValue, showOuterRangeColumn, calculateOuterRangeValue, calculateOuterRangePlannedValue, calculateOuterRangeVirtualMaterialAmount, calculateOuterRangePlannedVirtualMaterialAmount, showVirtualMaterialValues, calculatePeriodVirtualMaterialAmount, calculatePeriodPlannedVirtualMaterialAmount, projectActivitiesMap])
@@ -2681,11 +2680,11 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   // ? PERFORMANCE: Removed debug logging useEffect for production
 
 
-  // ✅ FIX: Clear cache when viewPlannedValue changes to force recalculation
+  // ✅ FIX: Clear cache when viewPlannedValue or showVirtualMaterialValues changes to force recalculation
   useEffect(() => {
     periodValuesCache.current.clear()
     activityPeriodValuesCache.current.clear()
-  }, [viewPlannedValue])
+  }, [viewPlannedValue, showVirtualMaterialValues])
 
   // Close chart export menu when clicking outside
   useEffect(() => {
@@ -3914,125 +3913,17 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
   const chartData = useMemo(() => {
     if (periods.length === 0) return []
     
-    // Calculate period Virtual Material Amount totals for chart (Actual)
+    // ✅ FIX: Calculate period Virtual Material Amount totals for chart (Actual)
+    // Always use cached values from getCachedPeriodValues - don't recalculate based on expansion state
+    // This ensures chart values remain consistent regardless of project expansion state
     const periodVirtualMaterialAmountTotals = useVirtualValueInChart
       ? periods.map((_, periodIndex) => {
           let sum = 0
+          // ✅ FIX: Always use cached values - don't recalculate based on expansion state
           allAnalytics.forEach((analytics: any) => {
             const cachedValues = getCachedPeriodValues(analytics.project.id, analytics)
             const virtualMaterialAmounts = cachedValues?.virtualMaterialAmount || []
             sum += virtualMaterialAmounts[periodIndex] || 0
-          })
-          // ? PERFORMANCE: Sum from expanded activities using projectActivitiesMap
-          allAnalytics.forEach((analytics: any) => {
-            if (!expandedProjects.has(analytics.project.id)) return
-            
-            const project = analytics.project
-            const projectId = project.id
-            // ? PERFORMANCE: Use pre-computed map instead of filtering activities repeatedly
-            const projectActivities = projectActivitiesMap.get(projectId) || []
-            
-            projectActivities.forEach((activity: BOQActivity) => {
-              if (!activity.use_virtual_material) return
-              
-              const rawActivity = (activity as any).raw || {}
-              const period = periods[periodIndex]
-              const periodStart = period.start
-              const periodEnd = period.end
-              const effectivePeriodEnd = periodEnd > today ? today : periodEnd
-              
-              // Get Virtual Material Percentage from project
-              let virtualMaterialPercentage = 0
-              const virtualMaterialValueStr = String(project.virtual_material_value || '0').trim()
-              
-              if (virtualMaterialValueStr && virtualMaterialValueStr !== '0' && virtualMaterialValueStr !== '0%') {
-                let cleanedValue = virtualMaterialValueStr.replace(/%/g, '').replace(/,/g, '').replace(/\s+/g, '').trim()
-                const parsedValue = parseFloat(cleanedValue)
-                if (!isNaN(parsedValue)) {
-                  if (parsedValue > 0 && parsedValue <= 1) {
-                    virtualMaterialPercentage = parsedValue * 100
-                  } else {
-                    virtualMaterialPercentage = parsedValue
-                  }
-                }
-              }
-              
-              if (virtualMaterialPercentage === 0) return
-              
-              // ? PERFORMANCE: Pre-filter KPIs by date range once per period, then match activities
-              // This reduces the number of kpiMatchesActivity calls
-              const periodStartTime = periodStart.getTime()
-              const periodEndTime = effectivePeriodEnd.getTime()
-              
-              // Get Actual KPIs for this activity in this period
-              const actualKPIs = kpis.filter((kpi: any) => {
-                const rawKPI = (kpi as any).raw || {}
-                const inputType = String(kpi.input_type || rawKPI['Input Type'] || '').trim().toLowerCase()
-                if (inputType !== 'actual') return false
-                
-                const rawKPIDate = (kpi as any).raw || {}
-                const dayValue = (kpi as any).day || rawKPIDate['Day'] || ''
-                const actualDateValue = (kpi as any).actual_date || rawKPIDate['Actual Date'] || ''
-                const activityDateValue = kpi.activity_date || rawKPIDate['Activity Date'] || ''
-                
-                let kpiDateStr = ''
-                if (kpi.input_type === 'Actual' && actualDateValue) {
-                  kpiDateStr = actualDateValue
-                } else if (dayValue) {
-                  kpiDateStr = activityDateValue || dayValue
-                } else {
-                  kpiDateStr = activityDateValue || actualDateValue
-                }
-                
-                if (!kpiDateStr) return false
-                
-                try {
-                  const kpiDate = new Date(kpiDateStr)
-                  if (isNaN(kpiDate.getTime())) return false
-                  kpiDate.setHours(0, 0, 0, 0)
-                  const kpiDateTime = kpiDate.getTime()
-                  // ? PERFORMANCE: Use numeric comparison instead of Date objects
-                  if (kpiDateTime < periodStartTime || kpiDateTime > periodEndTime) {
-                    return false
-                  }
-                } catch {
-                  return false
-                }
-                
-                // Match activity using kpiMatchesActivity helper
-                return kpiMatchesActivity(kpi, activity)
-              })
-              
-              // Calculate Virtual Material Amount for this activity in this period
-              actualKPIs.forEach((kpi: any) => {
-                const rawKpi = (kpi as any).raw || {}
-                const quantity = parseFloat(String(kpi.quantity || rawKpi['Quantity'] || '0').replace(/,/g, '')) || 0
-                
-                const totalValue = activity.total_value || parseFloat(String(rawActivity['Total Value'] || '0').replace(/,/g, '')) || 0
-                const totalUnits = activity.total_units || activity.planned_units || parseFloat(String(rawActivity['Total Units'] || rawActivity['Planned Units'] || '0').replace(/,/g, '')) || 0
-                
-                let rate = 0
-                if (totalUnits > 0 && totalValue > 0) {
-                  rate = totalValue / totalUnits
-                } else {
-                  rate = activity.rate || parseFloat(String(rawActivity['Rate'] || '0').replace(/,/g, '')) || 0
-                }
-                
-                let baseValue = 0
-                if (rate > 0 && quantity > 0) {
-                  baseValue = rate * quantity
-                } else {
-                  const kpiValue = parseFloat(String(kpi.value || rawKpi['Value'] || '0').replace(/,/g, '')) || 0
-                  if (kpiValue > 0) {
-                    baseValue = kpiValue
-                  }
-                }
-                
-                if (baseValue > 0) {
-                  sum += baseValue * (virtualMaterialPercentage / 100)
-                }
-              })
-            })
           })
           return sum
         })
@@ -4098,7 +3989,7 @@ export const MonthlyWorkRevenueTab = memo(function MonthlyWorkRevenueTab({
         plannedLine: viewPlannedValue ? cumulativePlanned : undefined
       }
     })
-  }, [periods, periodType, totals, useVirtualValueInChart, viewPlannedValue, allAnalytics, expandedProjects, projectActivitiesMap, kpis, today, getCachedPeriodValues, kpiMatchesActivity])
+  }, [periods, periodType, totals, useVirtualValueInChart, viewPlannedValue, allAnalytics, getCachedPeriodValues])
 
   // ✅ FIX: Force chart to re-render on mount and when data changes
   useLayoutEffect(() => {

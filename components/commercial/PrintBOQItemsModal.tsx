@@ -645,8 +645,6 @@ export function PrintBOQItemsModal({ isOpen, onClose, items, filters }: PrintBOQ
                     return 3
                   }
                 },
-                // Strictly enforce table width to 450 points
-                width: tableWidth,
                 // Keep table rows together to avoid empty pages
                 dontBreakRows: true
               }
